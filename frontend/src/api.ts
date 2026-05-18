@@ -9,31 +9,6 @@ export interface ReportGroup {
   rows: ReportRow[]
 }
 
-export interface ReportStats {
-  drivers: number
-  rows: number
-  no_dvir: number
-}
-
-export interface ReportResponse {
-  id: string
-  company: string
-  date_label: string
-  columns: string[]
-  stats: ReportStats
-  groups: ReportGroup[]
-  filename: string
-  warnings: string[]
-}
-
-export interface CreateReportInput {
-  dvirFile: File
-  activityFile: File
-  rosterFile: File | null
-  company: string
-  dateLabel: string
-}
-
 async function readError(res: Response): Promise<string> {
   try {
     const data = await res.json()
@@ -53,26 +28,11 @@ export async function getHealth(): Promise<{ status: string; version: string }> 
   return res.json()
 }
 
-export async function createReport(
-  input: CreateReportInput,
-): Promise<ReportResponse> {
-  const fd = new FormData()
-  fd.append('dvir_file', input.dvirFile)
-  fd.append('activity_file', input.activityFile)
-  if (input.rosterFile) fd.append('roster_file', input.rosterFile)
-  fd.append('company', input.company)
-  fd.append('date_label', input.dateLabel)
-
-  const res = await fetch('/api/reports', { method: 'POST', body: fd })
-  if (!res.ok) throw new Error(await readError(res))
-  return res.json()
-}
-
 export function downloadUrl(reportId: string): string {
   return `/api/reports/${reportId}/download`
 }
 
-// --- Lote multi-día / multi-empresa -----------------------------------
+// --- Lote (Crear DVIR Report) -----------------------------------------
 
 export interface BatchFile {
   file_id: string
@@ -141,6 +101,79 @@ export async function generateBatch(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ batch_id: batchId, blocks }),
   })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// --- Panel DVIR -------------------------------------------------------
+
+export interface RecentBlock {
+  id: number
+  company: string
+  date_label: string
+  block_date: string
+  created_at: string
+  n_reports: number
+  n_no_dvir: number
+  n_unsafe: number
+  fleet_safe_pct: number
+}
+
+export interface MissingDriver {
+  driver: string
+  misses: number
+}
+
+export interface MissingResponse {
+  month: string | null
+  drivers: MissingDriver[]
+}
+
+export interface BlockDetail {
+  id: number
+  company: string
+  date_label: string
+  fleet_safe_pct: number
+  columns: string[]
+  groups: ReportGroup[]
+}
+
+export type RecentSort =
+  | 'created_at'
+  | 'n_reports'
+  | 'n_no_dvir'
+  | 'n_unsafe'
+  | 'fleet_safe_pct'
+
+export async function recentBlocks(
+  sort: RecentSort = 'created_at',
+  limit = 5,
+): Promise<RecentBlock[]> {
+  const res = await fetch(`/api/dvir/recent?sort=${sort}&limit=${limit}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function missingDrivers(): Promise<MissingResponse> {
+  const res = await fetch('/api/dvir/missing')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export interface MonthSummary {
+  month: string | null
+  fleet_safe_pct: number | null
+  n_blocks: number
+}
+
+export async function monthSummary(): Promise<MonthSummary> {
+  const res = await fetch('/api/dvir/summary')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function getBlock(id: number): Promise<BlockDetail> {
+  const res = await fetch(`/api/dvir/blocks/${id}`)
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }

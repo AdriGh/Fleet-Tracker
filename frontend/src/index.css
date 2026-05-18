@@ -497,36 +497,429 @@ button {
   padding-left: 18px;
 }
 
-/* ---------- Pestañas --------------------------------------------- */
-.tabs {
+/* ---------- Barra de menú ---------------------------------------- */
+.menubar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
   display: flex;
   gap: 4px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 4px;
-  align-self: flex-start;
-  box-shadow: var(--shadow-sm);
+  position: sticky;
+  top: 60px;
+  z-index: 9;
 }
 
-.tab {
+.menu-item {
   border: none;
   background: none;
   color: var(--text-muted);
   font-size: 14px;
   font-weight: 600;
-  padding: 8px 18px;
-  border-radius: 7px;
-  transition: background 0.15s, color 0.15s;
+  padding: 13px 16px;
+  border-bottom: 2.5px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 7px;
 }
 
-.tab:hover {
+.menu-item:hover:not(:disabled) {
   color: var(--text);
 }
 
-.tab.active {
-  background: var(--header-bg);
+.menu-item.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.menu-item:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.menu-item .soon {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 2px 5px;
+  border-radius: 5px;
+}
+
+/* ---------- Página ----------------------------------------------- */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.page-head h1 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+
+.page-sub {
+  font-size: 13.5px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+/* ---------- Grilla del panel ------------------------------------- */
+.dvir-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 18px;
+}
+
+.grid-preview {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 880px) {
+  .dvir-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Tabla de últimos DVIR -------------------------------- */
+table.recent-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+table.recent-table th {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-weight: 600;
+  text-align: center;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+table.recent-table th:nth-child(-n + 2) {
+  text-align: left;
+  padding: 9px 10px;
+}
+
+.sort-th {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  padding: 9px 8px;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: 6px;
+}
+
+.sort-th:hover {
+  color: var(--text);
+  background: var(--border);
+}
+
+.sort-th.active {
+  color: var(--accent);
+}
+
+.sort-th .caret {
+  font-size: 9px;
+}
+
+table.recent-table td {
+  padding: 9px 10px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+
+table.recent-table td:nth-child(-n + 2) {
+  text-align: left;
+}
+
+table.recent-table tbody tr {
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+table.recent-table tbody tr:hover {
+  background: var(--surface-2);
+}
+
+table.recent-table tbody tr.selected {
+  background: var(--brand-50, var(--surface-2));
+}
+
+:root[data-theme='dark'] table.recent-table tbody tr.selected {
+  background: #1d2c3d;
+}
+
+td.strong {
+  font-weight: 700;
+}
+
+td.cell-warn {
+  color: var(--nodvir-fg);
+  font-weight: 700;
+}
+
+td.cell-bad {
+  color: var(--unsafe-fg);
+  font-weight: 700;
+}
+
+/* ---------- Top sin DVIR ----------------------------------------- */
+.missing-month {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  text-transform: capitalize;
+  margin-bottom: 10px;
+}
+
+.missing-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.missing-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+}
+
+.rank {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.missing-name {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.missing-bar {
+  width: 60px;
+  flex: none;
+  height: 7px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.missing-fill {
+  display: block;
+  height: 100%;
+  background: var(--nodvir-fg);
+  border-radius: 999px;
+}
+
+.missing-count {
+  width: 22px;
+  flex: none;
+  text-align: right;
+  font-weight: 700;
+  color: var(--nodvir-fg);
+}
+
+.empty.mini {
+  padding: 28px 16px;
+}
+
+/* ---------- Modal ------------------------------------------------ */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 18, 28, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 18px;
+  z-index: 100;
+  overflow-y: auto;
+}
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  width: 100%;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-head h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.modal-x {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  padding: 5px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+}
+
+.modal-x:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.modal-x svg {
+  width: 18px;
+  height: 18px;
+}
+
+.modal-body {
+  padding: 20px;
+}
+
+.modal-note {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 16px;
+}
+
+.btn-ghost {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-ghost:hover {
+  background: var(--border);
+}
+
+/* ---------- Columna lateral del panel ---------------------------- */
+.grid-side {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ---------- Donut de flota SAFE ---------------------------------- */
+.donut {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.donut-svg {
+  width: 150px;
+  height: 150px;
+}
+
+.donut-track {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 15;
+}
+
+.donut-fill {
+  fill: none;
+  stroke: var(--btn-success);
+  stroke-width: 15;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.5s ease;
+}
+
+.donut-pct {
+  fill: var(--text);
+  font-size: 26px;
+  font-weight: 700;
+  text-anchor: middle;
+}
+
+.donut-cap {
+  fill: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-anchor: middle;
+}
+
+.donut-note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ---------- Botón copiar ----------------------------------------- */
+.btn-copy {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.btn-copy:hover {
+  background: var(--surface-2);
+  border-color: var(--accent);
+}
+
+.btn-copy svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---------- Fila marcador del día en la vista previa ------------- */
+table.preview tbody tr.marker-row td {
+  background: var(--header-bg) !important;
   color: #fff;
+  font-weight: 700;
+  text-align: center;
+  font-size: 13px;
+  padding: 6px;
 }
 
 /* ---------- Tabla de lote ---------------------------------------- */
@@ -736,7 +1129,8 @@ td.dash {
   .card-body {
     padding: 16px;
   }
-  .topbar {
+  .topbar,
+  .menubar {
     padding: 0 14px;
   }
   .topbar h1 {
@@ -746,6 +1140,10 @@ td.dash {
     display: none;
   }
   .actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .page-head .btn {
     width: 100%;
     justify-content: center;
   }

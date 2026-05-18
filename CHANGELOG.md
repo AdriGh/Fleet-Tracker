@@ -7,6 +7,22 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.4.0] - 2026-05-18
+
+### Añadido
+- Base de datos local (SQLite): cada bloque generado se guarda con sus
+  métricas y los conductores del día.
+- Panel DVIR: barra de menú horizontal y página en grilla responsive con
+  (1) últimos informes ordenables por reports, NO DVIR, Unsafe y % SAFE,
+  (2) top de conductores sin DVIR del mes, (3) vista previa del bloque.
+- Modal «Crear DVIR Report»: subes los CSV, revisas el emparejado con el
+  tag de día editable por fila, y se genera.
+- Endpoints `/api/dvir/recent`, `/api/dvir/missing`, `/api/dvir/blocks`.
+
+### Cambiado
+- Se unifican «Informe diario» y «Lote mensual» en un único flujo
+  «Crear DVIR Report» (un día es un lote de un bloque).
+
 ## [0.3.0] - 2026-05-18
 
 ### Añadido
@@ -57,7 +73,8 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
   fusión de celdas por conductor).
 - Roster inicial `roster.csv` con 22 camiones.
 
-[No publicado]: https://github.com/AdriGh/DVIR-Report-Generator/compare/v0.3.0...HEAD
+[No publicado]: https://github.com/AdriGh/DVIR-Report-Generator/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/AdriGh/DVIR-Report-Generator/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/AdriGh/DVIR-Report-Generator/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/AdriGh/DVIR-Report-Generator/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/AdriGh/DVIR-Report-Generator/releases/tag/v0.1.0
