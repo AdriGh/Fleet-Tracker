@@ -3,6 +3,7 @@ import type { ReportGroup } from '../api'
 interface Props {
   columns: string[]
   groups: ReportGroup[]
+  dateLabel?: string
 }
 
 const TRUCK_SIDE = new Set([
@@ -22,7 +23,7 @@ function statusClass(value: string): string {
   return ''
 }
 
-export default function PreviewTable({ columns, groups }: Props) {
+export default function PreviewTable({ columns, groups, dateLabel }: Props) {
   return (
     <div className="table-wrap">
       <table className="preview">
@@ -34,6 +35,11 @@ export default function PreviewTable({ columns, groups }: Props) {
           </tr>
         </thead>
         <tbody>
+          {dateLabel && (
+            <tr className="marker-row">
+              <td colSpan={columns.length}>{dateLabel}</td>
+            </tr>
+          )}
           {groups.flatMap((group, gi) =>
             group.rows.map((row, ri) => (
               <tr key={`${gi}-${ri}`}>

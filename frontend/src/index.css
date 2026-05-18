@@ -832,6 +832,96 @@ td.cell-bad {
   background: var(--border);
 }
 
+/* ---------- Columna lateral del panel ---------------------------- */
+.grid-side {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ---------- Donut de flota SAFE ---------------------------------- */
+.donut {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.donut-svg {
+  width: 150px;
+  height: 150px;
+}
+
+.donut-track {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 15;
+}
+
+.donut-fill {
+  fill: none;
+  stroke: var(--btn-success);
+  stroke-width: 15;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.5s ease;
+}
+
+.donut-pct {
+  fill: var(--text);
+  font-size: 26px;
+  font-weight: 700;
+  text-anchor: middle;
+}
+
+.donut-cap {
+  fill: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-anchor: middle;
+}
+
+.donut-note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ---------- Botón copiar ----------------------------------------- */
+.btn-copy {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.btn-copy:hover {
+  background: var(--surface-2);
+  border-color: var(--accent);
+}
+
+.btn-copy svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---------- Fila marcador del día en la vista previa ------------- */
+table.preview tbody tr.marker-row td {
+  background: var(--header-bg) !important;
+  color: #fff;
+  font-weight: 700;
+  text-align: center;
+  font-size: 13px;
+  padding: 6px;
+}
+
 /* ---------- Tabla de lote ---------------------------------------- */
 table.batch-table {
   width: 100%;

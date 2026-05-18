@@ -159,6 +159,18 @@ export async function missingDrivers(): Promise<MissingResponse> {
   return res.json()
 }
 
+export interface MonthSummary {
+  month: string | null
+  fleet_safe_pct: number | null
+  n_blocks: number
+}
+
+export async function monthSummary(): Promise<MonthSummary> {
+  const res = await fetch('/api/dvir/summary')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
 export async function getBlock(id: number): Promise<BlockDetail> {
   const res = await fetch(`/api/dvir/blocks/${id}`)
   if (!res.ok) throw new Error(await readError(res))

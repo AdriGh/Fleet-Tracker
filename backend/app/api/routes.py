@@ -188,6 +188,12 @@ def dvir_missing(limit: int = 10):
     return db.missing_drivers(limit=limit)
 
 
+@router.get("/dvir/summary")
+def dvir_summary():
+    """Resumen del mes: % de flota SAFE promedio."""
+    return db.month_summary()
+
+
 @router.get("/dvir/blocks/{block_id}")
 def dvir_block(block_id: int):
     """Datos de un bloque guardado, para la vista previa."""

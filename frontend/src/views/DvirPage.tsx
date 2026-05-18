@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import {
   getBlock,
   missingDrivers,
+  monthSummary,
   recentBlocks,
   type BlockDetail,
   type MissingResponse,
+  type MonthSummary,
   type RecentBlock,
   type RecentSort,
 } from '../api'
@@ -12,6 +14,7 @@ import CreateReportModal from '../components/CreateReportModal'
 import MissingDrivers from '../components/MissingDrivers'
 import PreviewTable from '../components/PreviewTable'
 import RecentBlocks from '../components/RecentBlocks'
+import SafeDonut from '../components/SafeDonut'
 
 export default function DvirPage() {
   const [recent, setRecent] = useState<RecentBlock[]>([])
@@ -20,8 +23,14 @@ export default function DvirPage() {
     month: null,
     drivers: [],
   })
+  const [summary, setSummary] = useState<MonthSummary>({
+    month: null,
+    fleet_safe_pct: null,
+    n_blocks: 0,
+  })
   const [selected, setSelected] = useState<BlockDetail | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -32,6 +41,7 @@ export default function DvirPage() {
 
   useEffect(() => {
     missingDrivers().then(setMissing).catch(() => {})
+    monthSummary().then(setSummary).catch(() => {})
   }, [])
 
   async function selectBlock(id: number) {
@@ -44,17 +54,37 @@ export default function DvirPage() {
 
   async function handleCreated() {
     try {
-      const [r, m] = await Promise.all([
+      const [r, m, s] = await Promise.all([
         recentBlocks('created_at'),
         missingDrivers(),
+        monthSummary(),
       ])
       setSort('created_at')
       setRecent(r)
       setMissing(m)
+      setSummary(s)
       if (r[0]) selectBlock(r[0].id)
     } catch {
       /* ignorar */
     }
+  }
+
+  function copyDay() {
+    if (!selected) return
+    const lines = [selected.date_label]
+    for (const group of selected.groups) {
+      for (const row of group.rows) {
+        lines.push(
+          selected.columns
+            .map((c) => String(row[c] ?? ''))
+            .join('\t'),
+        )
+      }
+    }
+    navigator.clipboard.writeText(lines.join('\n')).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
   }
 
   return (
@@ -104,22 +134,59 @@ export default function DvirPage() {
           </div>
         </section>
 
-        <section className="card grid-missing">
-          <div className="card-head">
-            <h2>Top sin DVIR del mes</h2>
-          </div>
-          <div className="card-body">
-            <MissingDrivers data={missing} />
-          </div>
-        </section>
+        <div className="grid-side">
+          <section className="card">
+            <div className="card-head">
+              <h2>Top sin DVIR del mes</h2>
+            </div>
+            <div className="card-body">
+              <MissingDrivers data={missing} />
+            </div>
+          </section>
+
+          <section className="card">
+            <div className="card-head">
+              <h2>Flota SAFE del mes</h2>
+            </div>
+            <div className="card-body">
+              <SafeDonut
+                pct={summary.fleet_safe_pct}
+                nBlocks={summary.n_blocks}
+              />
+            </div>
+          </section>
+        </div>
 
         <section className="card grid-preview">
           <div className="card-head">
             <h2>Vista previa</h2>
             {selected && (
-              <span className="sub">
-                {selected.company} · {selected.date_label}
-              </span>
+              <>
+                <span className="sub">
+                  {selected.company} · {selected.date_label}
+                </span>
+                <button className="btn-copy" onClick={copyDay}>
+                  {copied ? (
+                    <>
+                      <svg viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" strokeWidth="2"
+                        strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                      Copiado
+                    </>
+                  ) : (
+                    <>
+                      <svg viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" strokeWidth="2">
+                        <rect x="9" y="9" width="11" height="11" rx="2" />
+                        <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+                      </svg>
+                      Copiar día
+                    </>
+                  )}
+                </button>
+              </>
             )}
           </div>
           <div className="card-body">
@@ -127,6 +194,7 @@ export default function DvirPage() {
               <PreviewTable
                 columns={selected.columns}
                 groups={selected.groups}
+                dateLabel={selected.date_label}
               />
             ) : (
               <div className="empty">

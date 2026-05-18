@@ -160,6 +160,30 @@ def missing_drivers(limit=10):
         }
 
 
+def month_summary():
+    """Resumen del mes del bloque mas reciente: % de flota SAFE promedio."""
+    with SessionLocal() as session:
+        latest = session.scalars(
+            select(ReportBlock.block_date)
+            .order_by(ReportBlock.block_date.desc()).limit(1)
+        ).first()
+        if latest is None:
+            return {"month": None, "fleet_safe_pct": None, "n_blocks": 0}
+        ym = latest.strftime("%Y-%m")
+        rows = session.scalars(
+            select(ReportBlock).where(
+                func.strftime("%Y-%m", ReportBlock.block_date) == ym)
+        ).all()
+        if not rows:
+            return {"month": ym, "fleet_safe_pct": None, "n_blocks": 0}
+        avg = sum(r.fleet_safe_pct for r in rows) / len(rows)
+        return {
+            "month": ym,
+            "fleet_safe_pct": round(avg, 1),
+            "n_blocks": len(rows),
+        }
+
+
 def get_block(block_id):
     """Devuelve los grupos guardados de un bloque, o None."""
     with SessionLocal() as session:
