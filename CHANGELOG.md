@@ -18,6 +18,12 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
   unidad), con una tabla editable para revisarlo antes de generar.
 - Interfaz con pestañas: «Informe diario» y «Lote mensual».
 - Endpoints `/api/batch/analyze` y `/api/batch/generate`.
+- Aviso automático cuando un bloque sale con más filas «NO DVIR» que
+  conductores con DVIR (señal de un CSV de DVIR incompleto).
+
+### Cambiado
+- El umbral de millas para «NO DVIR» queda fijo en 30; se elimina el
+  campo editable de la interfaz.
 
 ## [0.2.0] - 2026-05-18
 

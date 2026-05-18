@@ -81,14 +81,23 @@ async def create_report(
     excel.write_excel(groups, company, date_label, out_path)
     _jobs[report_id] = {"path": out_path, "filename": filename}
 
+    stats = engine.report_stats(groups)
+    warnings = []
+    if engine.dvir_looks_incomplete(groups):
+        with_dvir = stats["drivers"] - stats["no_dvir"]
+        warnings.append(
+            f"{stats['no_dvir']} filas NO DVIR frente a {with_dvir} con "
+            "DVIR. Revisa que el CSV de DVIR este completo.")
+
     return ReportResponse(
         id=report_id,
         company=company,
         date_label=date_label,
         columns=engine.COLUMNS,
-        stats=engine.report_stats(groups),
+        stats=stats,
         groups=groups,
         filename=filename,
+        warnings=warnings,
     )
 
 
@@ -151,6 +160,7 @@ def batch_generate(req: BatchGenerateRequest):
 
     # company -> lista de (date_label, groups)
     by_company: dict[str, list] = {}
+    warnings: list[str] = []
     for block in req.blocks:
         dvir = store.get(block.dvir_file_id)
         activity = store.get(block.activity_file_id)
@@ -170,6 +180,13 @@ def batch_generate(req: BatchGenerateRequest):
                      f"{exc}") from exc
         by_company.setdefault(block.company, []).append(
             (block.date_label, groups))
+        if engine.dvir_looks_incomplete(groups):
+            nodvir = sum(1 for g in groups for r in g["rows"]
+                         if r["is_nodvir"])
+            warnings.append(
+                f"Bloque {block.company} {block.date_label}: {nodvir} "
+                f"filas NO DVIR frente a {len(groups) - nodvir} con DVIR "
+                "— revisa que el CSV de DVIR este completo.")
 
     sheets = []
     stats = []
@@ -201,4 +218,4 @@ def batch_generate(req: BatchGenerateRequest):
     _jobs[report_id] = {"path": out_path, "filename": filename}
 
     return BatchGenerateResponse(id=report_id, filename=filename,
-                                 sheets=stats)
+                                 sheets=stats, warnings=warnings)

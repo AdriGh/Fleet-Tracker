@@ -34,6 +34,7 @@ class ReportResponse(BaseModel):
     stats: ReportStats
     groups: list[ReportGroup]
     filename: str
+    warnings: list[str] = []
 
 
 # --- Lote --------------------------------------------------------------
@@ -87,3 +88,4 @@ class BatchGenerateResponse(BaseModel):
     id: str
     filename: str
     sheets: list[BatchSheetStat]
+    warnings: list[str] = []

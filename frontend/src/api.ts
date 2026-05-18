@@ -23,6 +23,7 @@ export interface ReportResponse {
   stats: ReportStats
   groups: ReportGroup[]
   filename: string
+  warnings: string[]
 }
 
 export interface CreateReportInput {
@@ -118,6 +119,7 @@ export interface BatchGenerateResponse {
   id: string
   filename: string
   sheets: BatchSheetStat[]
+  warnings: string[]
 }
 
 export async function analyzeBatch(

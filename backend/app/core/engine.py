@@ -242,3 +242,11 @@ def report_stats(groups):
         "rows": rows,
         "no_dvir": nodvir,
     }
+
+
+def dvir_looks_incomplete(groups) -> bool:
+    """Heuristica: el bloque tiene >=3 filas NO DVIR y mas NO DVIR que
+    conductores con DVIR. Suele indicar un CSV de DVIR incompleto."""
+    nodvir = sum(1 for g in groups for r in g["rows"] if r["is_nodvir"])
+    with_dvir = len(groups) - nodvir
+    return nodvir >= 3 and nodvir > with_dvir
