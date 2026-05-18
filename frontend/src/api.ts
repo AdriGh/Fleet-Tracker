@@ -72,3 +72,80 @@ export async function createReport(
 export function downloadUrl(reportId: string): string {
   return `/api/reports/${reportId}/download`
 }
+
+// --- Lote multi-día / multi-empresa -----------------------------------
+
+export interface BatchFile {
+  file_id: string
+  name: string
+  kind: string
+  company: string
+  error: string | null
+}
+
+export interface BatchBlock {
+  company: string
+  date_label: string
+  month: number | null
+  dvir_file_id: string
+  dvir_name: string
+  activity_file_id: string
+  activity_name: string
+  status: string
+}
+
+export interface BatchAnalyzeResponse {
+  batch_id: string
+  blocks: BatchBlock[]
+  files: BatchFile[]
+  warnings: string[]
+}
+
+export interface BatchBlockInput {
+  company: string
+  date_label: string
+  dvir_file_id: string
+  activity_file_id: string
+}
+
+export interface BatchSheetStat {
+  company: string
+  sheet_name: string
+  blocks: number
+  drivers: number
+  no_dvir: number
+}
+
+export interface BatchGenerateResponse {
+  id: string
+  filename: string
+  sheets: BatchSheetStat[]
+}
+
+export async function analyzeBatch(
+  files: File[],
+): Promise<BatchAnalyzeResponse> {
+  const fd = new FormData()
+  for (const f of files) fd.append('files', f)
+  const res = await fetch('/api/batch/analyze', { method: 'POST', body: fd })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function generateBatch(
+  batchId: string,
+  minMiles: number,
+  blocks: BatchBlockInput[],
+): Promise<BatchGenerateResponse> {
+  const res = await fetch('/api/batch/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      batch_id: batchId,
+      min_miles: minMiles,
+      blocks,
+    }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}

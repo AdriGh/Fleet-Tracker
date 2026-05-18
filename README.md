@@ -21,14 +21,23 @@ Las dependencias se instalan solas la primera vez que se ejecuta.
 Doble clic en **`launch.bat`**. La primera vez instala dependencias y
 compila la interfaz; después abre la aplicación en una ventana dedicada.
 
-En la app:
+La app tiene dos pestañas:
 
-1. Arrastra o selecciona el **CSV de DVIR** y el **CSV de actividad**.
+**Informe diario** — un bloque de un día:
+
+1. Arrastra el **CSV de DVIR** y el **CSV de actividad**.
 2. Ajusta **Empresa**, **etiqueta del día** y **millas mín. activo**.
-3. Pulsa **Generar informe** → aparece la vista previa.
-4. Pulsa **Descargar Excel**.
+3. Pulsa **Generar informe** → vista previa → **Descargar Excel**.
 
-El roster usa por defecto `roster.csv`; se puede subir otro desde la app.
+**Lote mensual** — varios días y empresas de una vez:
+
+1. Arrastra todos los CSV del periodo.
+2. La app los empareja por día y empresa; revisa o corrige la tabla.
+3. Pulsa **Generar workbook** → un Excel con una hoja por empresa y los
+   bloques diarios apilados.
+
+El roster usa por defecto `roster.csv`; en el modo diario se puede subir
+otro desde la app.
 
 ## Lógica del informe
 
