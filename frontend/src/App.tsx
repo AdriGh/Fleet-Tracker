@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
 import { getHealth } from './api'
-import DailyView from './views/DailyView'
-import BatchView from './views/BatchView'
+import DvirPage from './views/DvirPage'
 
 type Theme = 'light' | 'dark'
-type Tab = 'daily' | 'batch'
+
+const MENU = [
+  { id: 'dvir', label: 'DVIR', soon: false },
+  { id: 'roster', label: 'Roster', soon: true },
+  { id: 'flota', label: 'Flota', soon: true },
+]
 
 function initialTheme(): Theme {
   const saved = localStorage.getItem('dvir-theme')
@@ -17,7 +21,7 @@ function initialTheme(): Theme {
 export default function App() {
   const [version, setVersion] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>(initialTheme)
-  const [tab, setTab] = useState<Tab>('daily')
+  const [section, setSection] = useState('dvir')
 
   useEffect(() => {
     getHealth()
@@ -35,7 +39,7 @@ export default function App() {
       <header className="topbar">
         <img src="/favicon.svg" alt="" />
         <h1>DVIR Report Generator</h1>
-        <span className="version">v{version ?? '0.3.0'}</span>
+        <span className="version">v{version ?? '0.4.0'}</span>
         <span className="spacer" />
         <button
           className="icon-btn"
@@ -59,27 +63,26 @@ export default function App() {
         </button>
         <span className="health">
           <span className={`dot ${version ? '' : 'off'}`} />
-          {version ? 'Servidor conectado' : 'Sin conexión'}
+          {version ? 'Conectado' : 'Sin conexión'}
         </span>
       </header>
 
-      <main className="container">
-        <nav className="tabs">
+      <nav className="menubar">
+        {MENU.map((item) => (
           <button
-            className={`tab ${tab === 'daily' ? 'active' : ''}`}
-            onClick={() => setTab('daily')}
+            key={item.id}
+            className={`menu-item ${section === item.id ? 'active' : ''}`}
+            disabled={item.soon}
+            onClick={() => !item.soon && setSection(item.id)}
           >
-            Informe diario
+            {item.label}
+            {item.soon && <span className="soon">pronto</span>}
           </button>
-          <button
-            className={`tab ${tab === 'batch' ? 'active' : ''}`}
-            onClick={() => setTab('batch')}
-          >
-            Lote mensual
-          </button>
-        </nav>
+        ))}
+      </nav>
 
-        {tab === 'daily' ? <DailyView /> : <BatchView />}
+      <main className="container">
+        {section === 'dvir' && <DvirPage />}
       </main>
     </div>
   )

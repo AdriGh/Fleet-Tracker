@@ -21,23 +21,21 @@ Las dependencias se instalan solas la primera vez que se ejecuta.
 Doble clic en **`launch.bat`**. La primera vez instala dependencias y
 compila la interfaz; después abre la aplicación en una ventana dedicada.
 
-La app tiene dos pestañas:
+La app abre en el **Panel DVIR**: barra de menú arriba y una grilla con
+los últimos informes, el top de conductores sin DVIR del mes y la vista
+previa del bloque seleccionado.
 
-**Informe diario** — un bloque de un día:
+Para generar un informe, pulsa **Crear DVIR Report**:
 
-1. Arrastra el **CSV de DVIR** y el **CSV de actividad**.
-2. Ajusta **Empresa**, **etiqueta del día** y **millas mín. activo**.
-3. Pulsa **Generar informe** → vista previa → **Descargar Excel**.
+1. Arrastra los CSV de DVIR y de actividad (uno o varios días, una o
+   ambas empresas).
+2. La app los empareja por día y empresa; revisa la tabla y, si hace
+   falta, corrige el **tag del día** de cada fila.
+3. Pulsa **Crear DVIR Report** → se genera el Excel (una hoja por
+   empresa, bloques diarios apilados) y se guarda en el panel.
 
-**Lote mensual** — varios días y empresas de una vez:
-
-1. Arrastra todos los CSV del periodo.
-2. La app los empareja por día y empresa; revisa o corrige la tabla.
-3. Pulsa **Generar workbook** → un Excel con una hoja por empresa y los
-   bloques diarios apilados.
-
-El roster usa por defecto `roster.csv`; en el modo diario se puede subir
-otro desde la app.
+Cada informe generado queda en la base de datos local (`backend/dvir.db`)
+para alimentar el panel. El roster usa por defecto `roster.csv`.
 
 ## Lógica del informe
 

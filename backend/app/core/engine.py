@@ -65,6 +65,15 @@ def parse_signed_at(text):
     return None
 
 
+def data_year(dvir_df) -> int:
+    """Anio dominante de las fechas de firma del CSV de DVIR."""
+    for value in dvir_df["Signed At"]:
+        parsed = parse_signed_at(value)
+        if parsed:
+            return parsed.year
+    return datetime.now().year
+
+
 # ---------------------------------------------------------------------------
 # Carga de archivos (acepta ruta o file-like)
 # ---------------------------------------------------------------------------
@@ -241,6 +250,29 @@ def report_stats(groups):
         "drivers": len(groups),
         "rows": rows,
         "no_dvir": nodvir,
+    }
+
+
+def block_metrics(dvir_df, groups) -> dict:
+    """Metricas del bloque para el panel:
+      n_reports      - conductores distintos que hicieron DVIR
+      n_no_dvir      - filas NO DVIR
+      n_unsafe       - inspecciones en estado Unsafe
+      fleet_safe_pct - % de inspecciones del dia en estado Safe
+    """
+    authors = {str(a).strip() for a in dvir_df["Author"]}
+    authors.discard("")
+    status = dvir_df["Status"].astype(str).str.strip()
+    total = len(dvir_df)
+    n_safe = int((status == "Safe").sum())
+    n_unsafe = int((status == "Unsafe").sum())
+    n_no_dvir = sum(1 for g in groups for r in g["rows"]
+                    if r["is_nodvir"])
+    return {
+        "n_reports": len(authors),
+        "n_no_dvir": n_no_dvir,
+        "n_unsafe": n_unsafe,
+        "fleet_safe_pct": round(n_safe / total * 100, 1) if total else 0.0,
     }
 
 

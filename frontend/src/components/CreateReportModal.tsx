@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent } from 'react'
+import { useRef, useState } from 'react'
 import {
   analyzeBatch,
   downloadUrl,
@@ -6,6 +6,12 @@ import {
   type BatchAnalyzeResponse,
   type BatchGenerateResponse,
 } from '../api'
+import Modal from './Modal'
+
+interface Props {
+  onClose: () => void
+  onCreated: () => void
+}
 
 interface BlockRow {
   company: string
@@ -16,11 +22,10 @@ interface BlockRow {
 
 const COMPANIES = ['CHASER', 'MCC']
 
-export default function BatchView() {
+export default function CreateReportModal({ onClose, onCreated }: Props) {
   const [analysis, setAnalysis] = useState<BatchAnalyzeResponse | null>(null)
   const [blocks, setBlocks] = useState<BlockRow[]>([])
   const [result, setResult] = useState<BatchGenerateResponse | null>(null)
-
   const [analyzing, setAnalyzing] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -37,7 +42,6 @@ export default function BatchView() {
     if (csvs.length === 0) return
     setAnalyzing(true)
     setError(null)
-    setResult(null)
     try {
       const res = await analyzeBatch(csvs)
       setAnalysis(res)
@@ -57,41 +61,14 @@ export default function BatchView() {
     }
   }
 
-  function onDrop(e: DragEvent<HTMLDivElement>) {
-    e.preventDefault()
-    setDrag(false)
-    handleFiles(Array.from(e.dataTransfer.files))
+  function update(i: number, patch: Partial<BlockRow>) {
+    setBlocks((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
   }
 
-  function updateBlock(i: number, patch: Partial<BlockRow>) {
-    setBlocks((rows) =>
-      rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)),
-    )
-  }
-
-  function removeBlock(i: number) {
-    setBlocks((rows) => rows.filter((_, idx) => idx !== i))
-  }
-
-  function addBlock() {
-    setBlocks((rows) => [
-      ...rows,
-      {
-        company: 'CHASER',
-        date_label: '',
-        dvir_file_id: '',
-        activity_file_id: '',
-      },
-    ])
-  }
-
-  const blocksComplete =
+  const complete =
     blocks.length > 0 &&
     blocks.every(
-      (b) =>
-        b.company &&
-        b.date_label.trim() &&
-        b.dvir_file_id &&
+      (b) => b.company && b.date_label.trim() && b.dvir_file_id &&
         b.activity_file_id,
     )
 
@@ -109,8 +86,8 @@ export default function BatchView() {
         })),
       )
       setResult(res)
+      onCreated()
     } catch (err) {
-      setResult(null)
       setError(err instanceof Error ? err.message : 'Error al generar')
     } finally {
       setGenerating(false)
@@ -118,24 +95,59 @@ export default function BatchView() {
   }
 
   return (
-    <>
-      {/* ---- Paso 1: archivos del periodo ------------------------- */}
-      <section className="card">
-        <div className="card-head">
-          <span className="step">1</span>
-          <h2>Archivos del periodo</h2>
-          <span className="sub">Todos los CSV del mes, de una vez</span>
+    <Modal title="Crear DVIR Report" onClose={onClose} width={760}>
+      {result ? (
+        <div className="create-result">
+          {result.warnings.length > 0 && (
+            <div className="banner warn" style={{ marginBottom: 14 }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2">
+                <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3
+                  L13.7 3.9a2 2 0 0 0-3.4 0z" />
+                <path d="M12 9v4M12 17h.01" />
+              </svg>
+              <ul>
+                {result.warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="stats">
+            {result.sheets.map((s) => (
+              <div className="stat" key={s.sheet_name}>
+                <div className="stat-val">{s.blocks}</div>
+                <div className="stat-label">
+                  {s.sheet_name} · {s.drivers} conductores · {s.no_dvir} NO
+                  DVIR
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="actions">
+            <a className="btn btn-success" href={downloadUrl(result.id)}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" width="17" height="17">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <path d="M7 10l5 5 5-5" />
+                <path d="M12 15V3" />
+              </svg>
+              Descargar {result.filename}
+            </a>
+            <button className="btn btn-ghost" onClick={onClose}>
+              Cerrar
+            </button>
+          </div>
         </div>
-        <div className="card-body">
+      ) : (
+        <>
           <input
             ref={fileInput}
             type="file"
             accept=".csv"
             multiple
             hidden
-            onChange={(e) =>
-              handleFiles(Array.from(e.target.files ?? []))
-            }
+            onChange={(e) => handleFiles(Array.from(e.target.files ?? []))}
           />
           <div
             className={`dropzone ${drag ? 'drag' : ''} ${
@@ -147,15 +159,14 @@ export default function BatchView() {
               setDrag(true)
             }}
             onDragLeave={() => setDrag(false)}
-            onDrop={onDrop}
+            onDrop={(e) => {
+              e.preventDefault()
+              setDrag(false)
+              handleFiles(Array.from(e.dataTransfer.files))
+            }}
           >
-            <svg
-              className="dz-icon"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
+            <svg className="dz-icon" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <path d="M17 8l-5-5-5 5" />
               <path d="M12 3v12" />
@@ -168,9 +179,7 @@ export default function BatchView() {
                   {analysis.files.length} archivos · {dvirFiles.length} DVIR
                   · {activityFiles.length} actividad
                 </span>
-                <span className="dz-hint">
-                  Haz clic para sustituirlos por otros
-                </span>
+                <span className="dz-hint">Clic para sustituirlos</span>
               </>
             ) : (
               <>
@@ -178,18 +187,18 @@ export default function BatchView() {
                   Arrastra los CSV de DVIR y de actividad
                 </span>
                 <span className="dz-hint">
-                  Varios días y empresas a la vez · solo .csv
+                  Uno o varios días · ambas empresas · solo .csv
                 </span>
               </>
             )}
           </div>
 
           {analysis && analysis.warnings.length > 0 && (
-            <div className="banner warn" style={{ marginTop: 16 }}>
+            <div className="banner warn" style={{ marginTop: 14 }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                 strokeWidth="2">
-                <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0
-                  1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+                <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3
+                  L13.7 3.9a2 2 0 0 0-3.4 0z" />
                 <path d="M12 9v4M12 17h.01" />
               </svg>
               <ul>
@@ -201,7 +210,7 @@ export default function BatchView() {
           )}
 
           {error && (
-            <div className="banner error" style={{ marginTop: 16 }}>
+            <div className="banner error" style={{ marginTop: 14 }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                 strokeWidth="2">
                 <circle cx="12" cy="12" r="10" />
@@ -210,33 +219,14 @@ export default function BatchView() {
               <span>{error}</span>
             </div>
           )}
-        </div>
-      </section>
 
-      {/* ---- Paso 2: emparejado y generación ---------------------- */}
-      <section className="card">
-        <div className="card-head">
-          <span className="step">2</span>
-          <h2>Emparejado y workbook</h2>
           {analysis && (
-            <span className="sub">{blocks.length} bloques</span>
-          )}
-        </div>
-        <div className="card-body">
-          {!analysis ? (
-            <div className="empty">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                strokeWidth="1.6">
-                <path d="M3 3h18v4H3zM3 10h18v4H3zM3 17h18v4H3z" />
-              </svg>
-              <p>
-                Sube los CSV del periodo y aquí aparecerá el emparejado
-                propuesto, día por día y por empresa.
-              </p>
-            </div>
-          ) : (
             <>
-              <div className="table-wrap">
+              <p className="modal-note">
+                Revisa el emparejado. El <strong>tag del día</strong> es
+                editable en cada fila.
+              </p>
+              <div className="table-wrap" style={{ marginTop: 6 }}>
                 <table className="batch-table">
                   <thead>
                     <tr>
@@ -244,7 +234,6 @@ export default function BatchView() {
                       <th>Día</th>
                       <th>CSV de DVIR</th>
                       <th>CSV de actividad</th>
-                      <th aria-label="Quitar" />
                     </tr>
                   </thead>
                   <tbody>
@@ -254,7 +243,7 @@ export default function BatchView() {
                           <select
                             value={b.company}
                             onChange={(e) =>
-                              updateBlock(i, { company: e.target.value })
+                              update(i, { company: e.target.value })
                             }
                           >
                             <option value="">—</option>
@@ -271,9 +260,7 @@ export default function BatchView() {
                             value={b.date_label}
                             placeholder="5.18"
                             onChange={(e) =>
-                              updateBlock(i, {
-                                date_label: e.target.value,
-                              })
+                              update(i, { date_label: e.target.value })
                             }
                           />
                         </td>
@@ -281,9 +268,7 @@ export default function BatchView() {
                           <select
                             value={b.dvir_file_id}
                             onChange={(e) =>
-                              updateBlock(i, {
-                                dvir_file_id: e.target.value,
-                              })
+                              update(i, { dvir_file_id: e.target.value })
                             }
                           >
                             <option value="">— sin asignar —</option>
@@ -298,7 +283,7 @@ export default function BatchView() {
                           <select
                             value={b.activity_file_id}
                             onChange={(e) =>
-                              updateBlock(i, {
+                              update(i, {
                                 activity_file_id: e.target.value,
                               })
                             }
@@ -311,92 +296,31 @@ export default function BatchView() {
                             ))}
                           </select>
                         </td>
-                        <td>
-                          <button
-                            className="row-del"
-                            title="Quitar bloque"
-                            onClick={() => removeBlock(i)}
-                          >
-                            <svg viewBox="0 0 24 24" fill="none"
-                              stroke="currentColor" strokeWidth="2">
-                              <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" />
-                            </svg>
-                          </button>
-                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
 
-              <button className="linkbtn add-block" onClick={addBlock}>
-                + Añadir bloque
-              </button>
-
               <div className="actions">
                 <button
                   className="btn btn-primary"
-                  disabled={!blocksComplete || generating}
+                  disabled={!complete || generating}
                   onClick={handleGenerate}
                 >
                   {generating && <span className="spin" />}
-                  {generating ? 'Generando…' : 'Generar workbook'}
+                  {generating ? 'Generando…' : 'Crear DVIR Report'}
                 </button>
-                {!blocksComplete && (
+                {!complete && (
                   <span className="field-hint">
-                    Completa empresa, día y los dos CSV de cada bloque.
+                    Completa empresa, día y los dos CSV de cada fila.
                   </span>
                 )}
               </div>
-
-              {result && (
-                <div className="result-box">
-                  {result.warnings.length > 0 && (
-                    <div className="banner warn"
-                      style={{ marginBottom: 16 }}>
-                      <svg viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" strokeWidth="2">
-                        <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0
-                          0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
-                        <path d="M12 9v4M12 17h.01" />
-                      </svg>
-                      <ul>
-                        {result.warnings.map((w, i) => (
-                          <li key={i}>{w}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  <div className="stats">
-                    {result.sheets.map((s) => (
-                      <div className="stat" key={s.sheet_name}>
-                        <div className="stat-val">{s.blocks}</div>
-                        <div className="stat-label">
-                          {s.sheet_name} · {s.drivers} conductores ·{' '}
-                          {s.no_dvir} NO DVIR
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <a
-                    className="btn btn-success"
-                    href={downloadUrl(result.id)}
-                  >
-                    <svg viewBox="0 0 24 24" fill="none"
-                      stroke="currentColor" strokeWidth="2" width="17"
-                      height="17">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <path d="M7 10l5 5 5-5" />
-                      <path d="M12 15V3" />
-                    </svg>
-                    Descargar {result.filename}
-                  </a>
-                </div>
-              )}
             </>
           )}
-        </div>
-      </section>
-    </>
+        </>
+      )}
+    </Modal>
   )
 }

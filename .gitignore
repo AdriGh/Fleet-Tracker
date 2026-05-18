@@ -5,8 +5,9 @@ __pycache__/
 .venv/
 venv/
 
-# Backend: Excel generados (temporales)
+# Backend: Excel generados (temporales) y base de datos local
 backend/.jobs/
+backend/dvir.db
 
 # Frontend
 node_modules/
