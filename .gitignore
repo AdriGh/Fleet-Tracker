@@ -5,14 +5,23 @@ __pycache__/
 .venv/
 venv/
 
-# Salidas generadas
+# Backend: Excel generados (temporales)
+backend/.jobs/
+
+# Frontend
+node_modules/
+frontend/dist/
+*.local
+
+# Salidas y datos de prueba
 DVIR *.xlsx
-*.tmp
+dvir_testdata/
 
-# Archivos de prueba temporales
-_*.py
-_sample/
+# Configuracion local del entorno
+.claude/
 
-# Sistema
+# Sistema / editor
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
