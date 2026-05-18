@@ -41,6 +41,9 @@
   --danger: #c0392b;
   --banner-error-bg: #fdecea;
   --banner-error-border: #f5c6c0;
+  --banner-warn-bg: #fff4e0;
+  --banner-warn-border: #f0d8a8;
+  --banner-warn-fg: #8a4f0a;
 
   --dz-filled-bg: #f1f9f4;
   --dz-filled-border: #b9d4c4;
@@ -70,6 +73,9 @@
   --danger: #f0857a;
   --banner-error-bg: #3a1f1d;
   --banner-error-border: #5e2f2b;
+  --banner-warn-bg: #322512;
+  --banner-warn-border: #574019;
+  --banner-warn-fg: #e3a64c;
 
   --dz-filled-bg: #16271d;
   --dz-filled-border: #2f6b45;
@@ -473,11 +479,137 @@ button {
   border: 1px solid var(--banner-error-border);
 }
 
+.banner.warn {
+  background: var(--banner-warn-bg);
+  color: var(--banner-warn-fg);
+  border: 1px solid var(--banner-warn-border);
+}
+
 .banner svg {
   flex: none;
   width: 18px;
   height: 18px;
   margin-top: 1px;
+}
+
+.banner ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* ---------- Pestañas --------------------------------------------- */
+.tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  align-self: flex-start;
+  box-shadow: var(--shadow-sm);
+}
+
+.tab {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 7px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab.active {
+  background: var(--header-bg);
+  color: #fff;
+}
+
+/* ---------- Tabla de lote ---------------------------------------- */
+table.batch-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+table.batch-table th {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-weight: 600;
+  text-align: left;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+table.batch-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+table.batch-table select,
+.cell-input {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  width: 100%;
+}
+
+table.batch-table td:nth-child(1) select {
+  min-width: 110px;
+}
+table.batch-table td:nth-child(2) .cell-input {
+  min-width: 80px;
+}
+table.batch-table td:nth-child(3) select,
+table.batch-table td:nth-child(4) select {
+  min-width: 230px;
+}
+
+table.batch-table select:focus,
+.cell-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+.row-del {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  padding: 5px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+}
+
+.row-del:hover {
+  color: var(--danger);
+  background: var(--banner-error-bg);
+}
+
+.row-del svg {
+  width: 16px;
+  height: 16px;
+}
+
+.add-block {
+  margin-top: 12px;
+  display: inline-block;
+}
+
+.result-box {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
 }
 
 /* ---------- Stats ------------------------------------------------- */

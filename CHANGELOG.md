@@ -7,6 +7,24 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.3.0] - 2026-05-18
+
+### Añadido
+- Procesamiento por lote multi-día / multi-empresa: se suben todos los
+  CSV del periodo y se genera un único workbook con una hoja por
+  empresa y los bloques diarios apilados.
+- Emparejado automático DVIR↔actividad por día y empresa, deducido del
+  nombre del archivo (fecha/empresa) y del contenido (prefijos de
+  unidad), con una tabla editable para revisarlo antes de generar.
+- Interfaz con pestañas: «Informe diario» y «Lote mensual».
+- Endpoints `/api/batch/analyze` y `/api/batch/generate`.
+- Aviso automático cuando un bloque sale con más filas «NO DVIR» que
+  conductores con DVIR (señal de un CSV de DVIR incompleto).
+
+### Cambiado
+- El umbral de millas para «NO DVIR» queda fijo en 30; se elimina el
+  campo editable de la interfaz.
+
 ## [0.2.0] - 2026-05-18
 
 ### Cambiado
@@ -39,6 +57,7 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
   fusión de celdas por conductor).
 - Roster inicial `roster.csv` con 22 camiones.
 
-[No publicado]: https://github.com/AdriGh/DVIR-Report-Generator/compare/v0.2.0...HEAD
+[No publicado]: https://github.com/AdriGh/DVIR-Report-Generator/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/AdriGh/DVIR-Report-Generator/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/AdriGh/DVIR-Report-Generator/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/AdriGh/DVIR-Report-Generator/releases/tag/v0.1.0
