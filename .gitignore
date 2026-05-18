@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Salidas generadas
+DVIR *.xlsx
+*.tmp
+
+# Archivos de prueba temporales
+_*.py
+_sample/
+
+# Sistema
+.DS_Store
+Thumbs.db
