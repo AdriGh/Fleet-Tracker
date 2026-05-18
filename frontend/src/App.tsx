@@ -8,9 +8,19 @@ import {
 import FileDrop from './components/FileDrop'
 import PreviewTable from './components/PreviewTable'
 
+type Theme = 'light' | 'dark'
+
 function guessDateLabel(): string {
   const now = new Date()
   return `${now.getMonth() + 1}.${now.getDate()}`
+}
+
+function initialTheme(): Theme {
+  const saved = localStorage.getItem('dvir-theme')
+  if (saved === 'light' || saved === 'dark') return saved
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+    ? 'dark'
+    : 'light'
 }
 
 export default function App() {
@@ -25,6 +35,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [report, setReport] = useState<ReportResponse | null>(null)
   const [version, setVersion] = useState<string | null>(null)
+  const [theme, setTheme] = useState<Theme>(initialTheme)
 
   const rosterInput = useRef<HTMLInputElement>(null)
 
@@ -33,6 +44,11 @@ export default function App() {
       .then((h) => setVersion(h.version))
       .catch(() => setVersion(null))
   }, [])
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    localStorage.setItem('dvir-theme', theme)
+  }, [theme])
 
   const canSubmit =
     !!dvirFile && !!activityFile && dateLabel.trim() !== '' && !loading
@@ -66,6 +82,26 @@ export default function App() {
         <h1>DVIR Report Generator</h1>
         <span className="version">v{version ?? '0.2.0'}</span>
         <span className="spacer" />
+        <button
+          className="icon-btn"
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          title={theme === 'dark' ? 'Tema claro' : 'Tema oscuro'}
+          aria-label="Cambiar tema"
+        >
+          {theme === 'dark' ? (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round">
+              <circle cx="12" cy="12" r="4.2" />
+              <path d="M12 2v3M12 19v3M5 12H2M22 12h-3M4.6 4.6l2.1 2.1M17.3
+                17.3l2.1 2.1M19.4 4.6l-2.1 2.1M6.7 17.3l-2.1 2.1" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+            </svg>
+          )}
+        </button>
         <span className="health">
           <span className={`dot ${version ? '' : 'off'}`} />
           {version ? 'Servidor conectado' : 'Sin conexión'}

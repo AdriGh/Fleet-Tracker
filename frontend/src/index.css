@@ -1,38 +1,82 @@
 /* ===========================================================
    Sistema de diseño - DVIR Report Generator
+   Tema claro / oscuro mediante [data-theme] en <html>.
    =========================================================== */
 :root {
-  --brand: #1f4e79;
-  --brand-700: #163a5c;
-  --brand-600: #1a4268;
-  --brand-50: #eef3f9;
-  --accent: #2f6db0;
+  /* Marca (constante en ambos temas) */
+  --header-bg: #1f4e79;
+  --header-fg: #ffffff;
 
-  --bg: #f4f6f9;
-  --surface: #ffffff;
-  --surface-2: #f8fafc;
-  --text: #1b2430;
-  --text-muted: #5d6b7a;
-  --border: #e3e8ee;
-  --border-strong: #cdd5df;
-
+  /* Estados (mapean a los colores del Excel) */
   --safe-bg: #c6efce;
   --safe-fg: #1f6f3d;
-  --resolved-fg: #006100;
+  --resolved-fg: #047b1e;
   --unsafe-bg: #ffc7ce;
   --unsafe-fg: #9c0006;
   --nodvir-bg: #ffe0b2;
   --nodvir-fg: #bf360c;
-  --danger: #c0392b;
 
+  /* Radios y tipografía */
   --radius: 14px;
   --radius-sm: 9px;
+  --font: "Inter Variable", "Segoe UI", system-ui, -apple-system, Roboto,
+    Helvetica, Arial, sans-serif;
+
+  /* --- Tema claro --- */
+  --bg: #eef1f5;
+  --surface: #ffffff;
+  --surface-2: #f5f7fa;
+  --text: #18212e;
+  --text-muted: #5a6878;
+  --border: #e4e8ee;
+  --border-strong: #ccd4de;
+
+  --brand: #1f4e79;
+  --accent: #2f6db0;
+  --btn-primary: #1f4e79;
+  --btn-primary-hover: #163a5c;
+  --btn-success: #1f8f4d;
+  --btn-success-hover: #1a7a42;
+
+  --danger: #c0392b;
+  --banner-error-bg: #fdecea;
+  --banner-error-border: #f5c6c0;
+
+  --dz-filled-bg: #f1f9f4;
+  --dz-filled-border: #b9d4c4;
+
   --shadow-sm: 0 1px 2px rgba(16, 30, 54, 0.06),
     0 1px 3px rgba(16, 30, 54, 0.05);
-  --shadow-md: 0 4px 14px rgba(16, 30, 54, 0.09);
+  --shadow-md: 0 6px 22px rgba(16, 30, 54, 0.1);
+  --ring: rgba(47, 109, 176, 0.18);
+}
 
-  --font: "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial,
-    sans-serif;
+:root[data-theme='dark'] {
+  --bg: #0e1520;
+  --surface: #18212e;
+  --surface-2: #121a25;
+  --text: #e7ecf2;
+  --text-muted: #93a1b2;
+  --border: #29333f;
+  --border-strong: #3a4756;
+
+  --brand: #6fa9de;
+  --accent: #5a9bd8;
+  --btn-primary: #2f6db0;
+  --btn-primary-hover: #3b7cc0;
+  --btn-success: #25a35c;
+  --btn-success-hover: #2bb466;
+
+  --danger: #f0857a;
+  --banner-error-bg: #3a1f1d;
+  --banner-error-border: #5e2f2b;
+
+  --dz-filled-bg: #16271d;
+  --dz-filled-border: #2f6b45;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 22px rgba(0, 0, 0, 0.4);
+  --ring: rgba(90, 155, 216, 0.28);
 }
 
 * {
@@ -54,6 +98,7 @@ body {
   font-size: 15px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 button {
@@ -69,8 +114,8 @@ button {
 }
 
 .topbar {
-  background: var(--brand);
-  color: #fff;
+  background: var(--header-bg);
+  color: var(--header-fg);
   padding: 0 24px;
   height: 60px;
   display: flex;
@@ -90,7 +135,7 @@ button {
 .topbar h1 {
   font-size: 17px;
   font-weight: 600;
-  letter-spacing: 0.2px;
+  letter-spacing: -0.2px;
 }
 
 .topbar .version {
@@ -99,6 +144,7 @@ button {
   background: rgba(255, 255, 255, 0.16);
   padding: 3px 9px;
   border-radius: 999px;
+  letter-spacing: 0.2px;
 }
 
 .topbar .spacer {
@@ -110,7 +156,28 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
-  opacity: 0.9;
+  opacity: 0.92;
+}
+
+.icon-btn {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--header-fg);
+  display: grid;
+  place-items: center;
+  transition: background 0.15s;
+}
+
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
 }
 
 .dot {
@@ -118,9 +185,11 @@ button {
   height: 8px;
   border-radius: 50%;
   background: #7cd992;
+  box-shadow: 0 0 0 3px rgba(124, 217, 146, 0.25);
 }
 .dot.off {
   background: #e9a23b;
+  box-shadow: 0 0 0 3px rgba(233, 162, 59, 0.25);
 }
 
 .container {
@@ -140,6 +209,7 @@ button {
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .card-head {
@@ -155,7 +225,7 @@ button {
   height: 26px;
   flex: none;
   border-radius: 50%;
-  background: var(--brand);
+  background: var(--header-bg);
   color: #fff;
   font-size: 13px;
   font-weight: 700;
@@ -166,6 +236,7 @@ button {
 .card-head h2 {
   font-size: 15.5px;
   font-weight: 600;
+  letter-spacing: -0.1px;
 }
 
 .card-head .sub {
@@ -203,19 +274,18 @@ button {
 
 .dropzone:hover {
   border-color: var(--accent);
-  background: var(--brand-50);
 }
 
 .dropzone.drag {
   border-color: var(--accent);
   border-style: solid;
-  background: var(--brand-50);
+  background: var(--surface);
 }
 
 .dropzone.filled {
   border-style: solid;
-  border-color: #b9d4c4;
-  background: #f1f9f4;
+  border-color: var(--dz-filled-border);
+  background: var(--dz-filled-bg);
 }
 
 .dropzone .dz-icon {
@@ -289,10 +359,10 @@ button {
 .field input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(47, 109, 176, 0.15);
+  box-shadow: 0 0 0 3px var(--ring);
 }
 
-/* ---------- Optional roster -------------------------------------- */
+/* ---------- Roster opcional -------------------------------------- */
 .roster-row {
   margin-top: 18px;
   display: flex;
@@ -307,8 +377,9 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  background: var(--brand-50);
-  color: var(--brand);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--accent);
   font-weight: 600;
   padding: 5px 10px;
   border-radius: 999px;
@@ -325,7 +396,7 @@ button {
   padding: 0;
 }
 
-/* ---------- Buttons ---------------------------------------------- */
+/* ---------- Botones ---------------------------------------------- */
 .actions {
   margin-top: 22px;
   display: flex;
@@ -351,23 +422,23 @@ button {
 }
 
 .btn-primary {
-  background: var(--brand);
+  background: var(--btn-primary);
   color: #fff;
 }
-.btn-primary:hover {
-  background: var(--brand-700);
+.btn-primary:hover:not(:disabled) {
+  background: var(--btn-primary-hover);
 }
 
 .btn-success {
-  background: #1f8f4d;
+  background: var(--btn-success);
   color: #fff;
 }
 .btn-success:hover {
-  background: #1a7a42;
+  background: var(--btn-success-hover);
 }
 
 .btn:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -397,9 +468,9 @@ button {
 }
 
 .banner.error {
-  background: #fdecea;
+  background: var(--banner-error-bg);
   color: var(--danger);
-  border: 1px solid #f5c6c0;
+  border: 1px solid var(--banner-error-border);
 }
 
 .banner svg {
@@ -429,6 +500,7 @@ button {
   font-weight: 700;
   color: var(--brand);
   line-height: 1.1;
+  letter-spacing: -0.5px;
 }
 
 .stat .stat-label {
@@ -441,7 +513,7 @@ button {
   color: var(--nodvir-fg);
 }
 
-/* ---------- Preview table ---------------------------------------- */
+/* ---------- Tabla de vista previa -------------------------------- */
 .table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);
@@ -456,7 +528,7 @@ table.preview {
 }
 
 table.preview th {
-  background: var(--brand);
+  background: var(--header-bg);
   color: #fff;
   font-weight: 600;
   padding: 9px 10px;
@@ -470,6 +542,7 @@ table.preview td {
   text-align: center;
   border: 1px solid var(--border);
   color: var(--text);
+  background: var(--surface);
 }
 
 table.preview tbody tr:nth-child(even) td {
@@ -505,7 +578,7 @@ td.dash {
   color: var(--border-strong);
 }
 
-/* ---------- Empty state ------------------------------------------ */
+/* ---------- Estado vacío ----------------------------------------- */
 .empty {
   text-align: center;
   padding: 48px 24px;
@@ -531,8 +604,14 @@ td.dash {
   .card-body {
     padding: 16px;
   }
+  .topbar {
+    padding: 0 14px;
+  }
   .topbar h1 {
     font-size: 15px;
+  }
+  .topbar .health span:last-child {
+    display: none;
   }
   .actions .btn {
     width: 100%;
