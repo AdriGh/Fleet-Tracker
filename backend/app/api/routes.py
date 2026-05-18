@@ -52,7 +52,6 @@ async def create_report(
     roster_file: UploadFile | None = File(None),
     company: str = Form("CHASER"),
     date_label: str = Form(...),
-    min_miles: float = Form(25.0),
 ):
     """Cruza los CSV, genera el Excel y devuelve la vista previa."""
     company = company.strip() or "CHASER"
@@ -72,7 +71,7 @@ async def create_report(
                 config.DEFAULT_ROSTER
                 if config.DEFAULT_ROSTER.exists() else None)
         groups = engine.build_report(
-            dvir_df, activity, roster, min_miles, company)
+            dvir_df, activity, roster, engine.MIN_MILES, company)
     except engine.ReportError as exc:
         raise HTTPException(422, str(exc)) from exc
 
@@ -163,7 +162,7 @@ def batch_generate(req: BatchGenerateRequest):
             dvir_df = engine.load_dvir(io.BytesIO(dvir[1]))
             activity_data = engine.load_activity(io.BytesIO(activity[1]))
             groups = engine.build_report(
-                dvir_df, activity_data, roster, req.min_miles,
+                dvir_df, activity_data, roster, engine.MIN_MILES,
                 block.company)
         except engine.ReportError as exc:
             raise HTTPException(

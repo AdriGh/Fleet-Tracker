@@ -31,7 +31,6 @@ export interface CreateReportInput {
   rosterFile: File | null
   company: string
   dateLabel: string
-  minMiles: number
 }
 
 async function readError(res: Response): Promise<string> {
@@ -62,7 +61,6 @@ export async function createReport(
   if (input.rosterFile) fd.append('roster_file', input.rosterFile)
   fd.append('company', input.company)
   fd.append('date_label', input.dateLabel)
-  fd.append('min_miles', String(input.minMiles))
 
   const res = await fetch('/api/reports', { method: 'POST', body: fd })
   if (!res.ok) throw new Error(await readError(res))
@@ -134,17 +132,12 @@ export async function analyzeBatch(
 
 export async function generateBatch(
   batchId: string,
-  minMiles: number,
   blocks: BatchBlockInput[],
 ): Promise<BatchGenerateResponse> {
   const res = await fetch('/api/batch/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      batch_id: batchId,
-      min_miles: minMiles,
-      blocks,
-    }),
+    body: JSON.stringify({ batch_id: batchId, blocks }),
   })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()

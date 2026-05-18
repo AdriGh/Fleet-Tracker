@@ -72,7 +72,6 @@ class BatchBlockInput(BaseModel):
 
 class BatchGenerateRequest(BaseModel):
     batch_id: str
-    min_miles: float = 25.0
     blocks: list[BatchBlockInput]
 
 

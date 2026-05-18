@@ -19,7 +19,6 @@ const COMPANIES = ['CHASER', 'MCC']
 export default function BatchView() {
   const [analysis, setAnalysis] = useState<BatchAnalyzeResponse | null>(null)
   const [blocks, setBlocks] = useState<BlockRow[]>([])
-  const [minMiles, setMinMiles] = useState('25')
   const [result, setResult] = useState<BatchGenerateResponse | null>(null)
 
   const [analyzing, setAnalyzing] = useState(false)
@@ -102,7 +101,6 @@ export default function BatchView() {
     try {
       const res = await generateBatch(
         analysis!.batch_id,
-        Number(minMiles) || 0,
         blocks.map((b) => ({
           company: b.company.trim(),
           date_label: b.date_label.trim(),
@@ -334,22 +332,6 @@ export default function BatchView() {
               <button className="linkbtn add-block" onClick={addBlock}>
                 + Añadir bloque
               </button>
-
-              <div className="fields" style={{ maxWidth: 260 }}>
-                <div className="field">
-                  <label htmlFor="bm">
-                    Millas mín. activo
-                    <span className="field-hint"> · umbral NO DVIR</span>
-                  </label>
-                  <input
-                    id="bm"
-                    type="number"
-                    min="0"
-                    value={minMiles}
-                    onChange={(e) => setMinMiles(e.target.value)}
-                  />
-                </div>
-              </div>
 
               <div className="actions">
                 <button

@@ -18,7 +18,6 @@ export default function DailyView() {
   const [rosterFile, setRosterFile] = useState<File | null>(null)
   const [company, setCompany] = useState('CHASER')
   const [dateLabel, setDateLabel] = useState(guessDateLabel())
-  const [minMiles, setMinMiles] = useState('25')
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -40,7 +39,6 @@ export default function DailyView() {
         rosterFile,
         company: company.trim() || 'CHASER',
         dateLabel: dateLabel.trim(),
-        minMiles: Number(minMiles) || 0,
       })
       setReport(result)
     } catch (err) {
@@ -93,19 +91,6 @@ export default function DailyView() {
                 id="date"
                 value={dateLabel}
                 onChange={(e) => setDateLabel(e.target.value)}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="miles">
-                Millas mín. activo
-                <span className="field-hint"> · umbral NO DVIR</span>
-              </label>
-              <input
-                id="miles"
-                type="number"
-                min="0"
-                value={minMiles}
-                onChange={(e) => setMinMiles(e.target.value)}
               />
             </div>
           </div>

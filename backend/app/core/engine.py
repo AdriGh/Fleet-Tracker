@@ -32,6 +32,9 @@ TRAILER_SIDE = ("Trl#", "DVIR trl", "Duration trl", "DOT Issues trl",
 
 NO_DVIR_TEXT = "⚠ NO DVIR"
 
+# Umbral de millas para considerar que un camion circulo (NO DVIR).
+MIN_MILES = 30.0
+
 DVIR_REQUIRED = {"Vehicle Name", "Trailer", "Author", "Signed At",
                  "Duration", "Status"}
 
