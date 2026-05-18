@@ -87,6 +87,22 @@ export default function DvirPage() {
     })
   }
 
+  const donut = selected
+    ? {
+        pct: selected.fleet_safe_pct,
+        title: `Flota SAFE · ${selected.date_label}`,
+        caption: `${selected.company} · día ${selected.date_label}`,
+      }
+    : {
+        pct: summary.fleet_safe_pct,
+        title: 'Flota SAFE del mes',
+        caption: summary.month
+          ? `Promedio de ${summary.n_blocks} ${
+              summary.n_blocks === 1 ? 'día' : 'días'
+            } del mes`
+          : '',
+      }
+
   return (
     <div className="page">
       <div className="page-head">
@@ -146,13 +162,10 @@ export default function DvirPage() {
 
           <section className="card">
             <div className="card-head">
-              <h2>Flota SAFE del mes</h2>
+              <h2>{donut.title}</h2>
             </div>
             <div className="card-body">
-              <SafeDonut
-                pct={summary.fleet_safe_pct}
-                nBlocks={summary.n_blocks}
-              />
+              <SafeDonut pct={donut.pct} caption={donut.caption} />
             </div>
           </section>
         </div>

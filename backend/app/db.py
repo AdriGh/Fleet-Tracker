@@ -194,5 +194,6 @@ def get_block(block_id):
             "id": block.id,
             "company": block.company,
             "date_label": block.date_label,
+            "fleet_safe_pct": block.fleet_safe_pct,
             "groups": json.loads(block.groups_json),
         }

@@ -1,12 +1,12 @@
 interface Props {
   pct: number | null
-  nBlocks: number
+  caption: string
 }
 
 const R = 54
 const C = 2 * Math.PI * R
 
-export default function SafeDonut({ pct, nBlocks }: Props) {
+export default function SafeDonut({ pct, caption }: Props) {
   if (pct === null) {
     return (
       <div className="empty mini">
@@ -36,9 +36,7 @@ export default function SafeDonut({ pct, nBlocks }: Props) {
           SAFE
         </text>
       </svg>
-      <p className="donut-note">
-        Promedio de {nBlocks} {nBlocks === 1 ? 'día' : 'días'} del mes
-      </p>
+      <p className="donut-note">{caption}</p>
     </div>
   )
 }

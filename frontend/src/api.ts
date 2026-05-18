@@ -133,6 +133,7 @@ export interface BlockDetail {
   id: number
   company: string
   date_label: string
+  fleet_safe_pct: number
   columns: string[]
   groups: ReportGroup[]
 }
