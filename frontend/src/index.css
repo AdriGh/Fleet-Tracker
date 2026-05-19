@@ -1365,8 +1365,22 @@ td.status.nodvir {
   color: var(--nodvir-fg);
 }
 
+/* Colores exactos del DVIR Report. */
 td.dash {
-  color: var(--border-strong);
+  background: #d6e8f7 !important;
+  color: #1a1a1a;
+}
+
+td.dur-low {
+  background: #ffc7ce !important;
+  color: #9c0006;
+  font-weight: 700;
+}
+
+td.dur-high {
+  background: #c6efce !important;
+  color: #276221;
+  font-weight: 700;
 }
 
 /* ---------- Estado vacío ----------------------------------------- */
