@@ -42,6 +42,8 @@ class ReportBlock(Base):
 
     drivers: Mapped[list["BlockDriver"]] = relationship(
         back_populates="block", cascade="all, delete-orphan")
+    defect_items: Mapped[list["Defect"]] = relationship(
+        back_populates="block", cascade="all, delete-orphan")
 
 
 class BlockDriver(Base):
@@ -55,13 +57,35 @@ class BlockDriver(Base):
     block: Mapped[ReportBlock] = relationship(back_populates="drivers")
 
 
+class Defect(Base):
+    __tablename__ = "defect"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    block_id: Mapped[int] = mapped_column(ForeignKey("report_block.id"))
+    company: Mapped[str] = mapped_column(String(64))
+    block_date: Mapped[date] = mapped_column(Date)
+    date_label: Mapped[str] = mapped_column(String(16))
+    driver: Mapped[str] = mapped_column(String(128))
+    unit: Mapped[str] = mapped_column(String(64))
+    unit_kind: Mapped[str] = mapped_column(String(16))
+    dvir_type: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32))
+    detail: Mapped[str] = mapped_column(Text)
+    mechanic: Mapped[str] = mapped_column(String(128))
+    mechanic_notes: Mapped[str] = mapped_column(Text)
+
+    block: Mapped[ReportBlock] = relationship(
+        back_populates="defect_items")
+
+
 Base.metadata.create_all(_engine)
 
 
 # ---------------------------------------------------------------------------
 # Operaciones
 # ---------------------------------------------------------------------------
-def save_block(company, date_label, block_date, groups, metrics):
+def save_block(company, date_label, block_date, groups, metrics,
+               defects=None):
     """Inserta (o reemplaza) el bloque de una empresa+fecha."""
     with SessionLocal() as session:
         existing = session.scalars(
@@ -95,6 +119,20 @@ def save_block(company, date_label, block_date, groups, metrics):
             block.drivers.append(
                 BlockDriver(driver=driver,
                             is_no_dvir=bool(first.get("is_nodvir"))))
+        for d in defects or []:
+            block.defect_items.append(Defect(
+                company=company,
+                block_date=block_date,
+                date_label=date_label,
+                driver=d["driver"],
+                unit=d["unit"],
+                unit_kind=d["unit_kind"],
+                dvir_type=d["dvir_type"],
+                status=d["status"],
+                detail=d["detail"],
+                mechanic=d["mechanic"],
+                mechanic_notes=d["mechanic_notes"],
+            ))
         session.add(block)
         session.commit()
         return block.id
@@ -181,6 +219,104 @@ def month_summary():
             "month": ym,
             "fleet_safe_pct": round(avg, 1),
             "n_blocks": len(rows),
+        }
+
+
+def list_defects(company=None, status=None, unit=None, limit=400):
+    """Defectos reportados, con filtros opcionales."""
+    with SessionLocal() as session:
+        query = select(Defect).order_by(
+            Defect.block_date.desc(), Defect.id.desc())
+        if company:
+            query = query.where(Defect.company == company)
+        if status:
+            query = query.where(Defect.status == status)
+        if unit:
+            query = query.where(Defect.unit == unit)
+        rows = session.scalars(query.limit(limit)).all()
+        return [{
+            "date_label": r.date_label,
+            "block_date": r.block_date.isoformat(),
+            "company": r.company,
+            "driver": r.driver,
+            "unit": r.unit,
+            "unit_kind": r.unit_kind,
+            "dvir_type": r.dvir_type,
+            "status": r.status,
+            "detail": r.detail,
+            "mechanic": r.mechanic,
+            "mechanic_notes": r.mechanic_notes,
+        } for r in rows]
+
+
+def trends():
+    """Serie diaria del mes del bloque mas reciente."""
+    with SessionLocal() as session:
+        latest = session.scalars(
+            select(ReportBlock.block_date)
+            .order_by(ReportBlock.block_date.desc()).limit(1)
+        ).first()
+        if latest is None:
+            return {"month": None, "points": []}
+        ym = latest.strftime("%Y-%m")
+        rows = session.scalars(
+            select(ReportBlock)
+            .where(func.strftime("%Y-%m", ReportBlock.block_date) == ym)
+            .order_by(ReportBlock.block_date, ReportBlock.company)
+        ).all()
+        return {
+            "month": ym,
+            "points": [{
+                "date_label": r.date_label,
+                "company": r.company,
+                "fleet_safe_pct": r.fleet_safe_pct,
+                "n_no_dvir": r.n_no_dvir,
+                "n_unsafe": r.n_unsafe,
+                "n_reports": r.n_reports,
+            } for r in rows],
+        }
+
+
+def driver_history(name):
+    """Historial de un conductor: dias, cumplimiento y sus defectos."""
+    with SessionLocal() as session:
+        rows = session.execute(
+            select(BlockDriver, ReportBlock)
+            .join(ReportBlock, BlockDriver.block_id == ReportBlock.id)
+            .where(BlockDriver.driver == name)
+            .order_by(ReportBlock.block_date)
+        ).all()
+        by_block: dict = {}
+        for bd, block in rows:
+            entry = by_block.setdefault(block.id, {
+                "date_label": block.date_label,
+                "block_date": block.block_date.isoformat(),
+                "company": block.company,
+                "missed": False,
+            })
+            if bd.is_no_dvir:
+                entry["missed"] = True
+        days = sorted(by_block.values(), key=lambda d: d["block_date"])
+        total = len(days)
+        ok = sum(1 for d in days if not d["missed"])
+        defects = session.scalars(
+            select(Defect).where(Defect.driver == name)
+            .order_by(Defect.block_date.desc(), Defect.id.desc())
+        ).all()
+        return {
+            "driver": name,
+            "total_days": total,
+            "ok_days": ok,
+            "missed_days": total - ok,
+            "compliance_pct": round(ok / total * 100, 1) if total else 0.0,
+            "days": days,
+            "defects": [{
+                "date_label": d.date_label,
+                "unit": d.unit,
+                "unit_kind": d.unit_kind,
+                "status": d.status,
+                "detail": d.detail,
+            } for d in defects],
         }
 
 

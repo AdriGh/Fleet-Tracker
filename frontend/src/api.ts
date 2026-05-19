@@ -177,3 +177,90 @@ export async function getBlock(id: number): Promise<BlockDetail> {
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }
+
+// --- Defectos ---------------------------------------------------------
+
+export interface Defect {
+  date_label: string
+  block_date: string
+  company: string
+  driver: string
+  unit: string
+  unit_kind: string
+  dvir_type: string
+  status: string
+  detail: string
+  mechanic: string
+  mechanic_notes: string
+}
+
+export async function listDefects(filters: {
+  company?: string
+  status?: string
+  unit?: string
+}): Promise<Defect[]> {
+  const qs = new URLSearchParams()
+  if (filters.company) qs.set('company', filters.company)
+  if (filters.status) qs.set('status', filters.status)
+  if (filters.unit) qs.set('unit', filters.unit)
+  const res = await fetch(`/api/dvir/defects?${qs}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// --- Tendencias -------------------------------------------------------
+
+export interface TrendPoint {
+  date_label: string
+  company: string
+  fleet_safe_pct: number
+  n_no_dvir: number
+  n_unsafe: number
+  n_reports: number
+}
+
+export interface TrendsResponse {
+  month: string | null
+  points: TrendPoint[]
+}
+
+export async function getTrends(): Promise<TrendsResponse> {
+  const res = await fetch('/api/dvir/trends')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// --- Ficha de conductor ----------------------------------------------
+
+export interface DriverDay {
+  date_label: string
+  block_date: string
+  company: string
+  missed: boolean
+}
+
+export interface DriverDefect {
+  date_label: string
+  unit: string
+  unit_kind: string
+  status: string
+  detail: string
+}
+
+export interface DriverHistory {
+  driver: string
+  total_days: number
+  ok_days: number
+  missed_days: number
+  compliance_pct: number
+  days: DriverDay[]
+  defects: DriverDefect[]
+}
+
+export async function getDriverHistory(
+  name: string,
+): Promise<DriverHistory> {
+  const res = await fetch(`/api/dvir/drivers/${encodeURIComponent(name)}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}

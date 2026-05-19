@@ -37,6 +37,11 @@ Para generar un informe, pulsa **Crear DVIR Report**:
 Cada informe generado queda en la base de datos local (`backend/dvir.db`)
 para alimentar el panel. El roster usa por defecto `roster.csv`.
 
+El panel incluye además la **tendencia del mes** (% flota SAFE e
+incidencias por día) y la **ficha de conductor** (clic en un conductor
+del top sin DVIR). La sección **Defectos** lista todos los defectos
+reportados en los DVIR, filtrables por empresa, estado y unidad.
+
 ## Lógica del informe
 
 - **Duración** de un camión/tráiler = suma de todos sus DVIR del día.

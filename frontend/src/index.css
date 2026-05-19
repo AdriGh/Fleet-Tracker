@@ -922,6 +922,272 @@ table.preview tbody tr.marker-row td {
   padding: 6px;
 }
 
+/* ---------- Top sin DVIR: filas clicables ------------------------ */
+.missing-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 5px 6px;
+  border-radius: 7px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.missing-row:hover {
+  background: var(--surface-2);
+}
+
+/* ---------- Tarjeta de tendencias -------------------------------- */
+.grid-trends {
+  grid-column: 1 / -1;
+}
+
+.trends-svg {
+  width: 100%;
+  height: auto;
+}
+
+.trends-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.trends-axis {
+  fill: var(--text-muted);
+  font-size: 9px;
+  text-anchor: end;
+}
+
+.bar-nodvir {
+  fill: var(--nodvir-fg);
+  opacity: 0.9;
+}
+
+.bar-unsafe {
+  fill: var(--unsafe-fg);
+  opacity: 0.9;
+}
+
+.trends-line {
+  fill: none;
+  stroke: var(--btn-success);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.trends-dot {
+  fill: var(--btn-success);
+}
+
+.trends-val {
+  fill: var(--text-muted);
+  font-size: 9px;
+  text-anchor: middle;
+}
+
+.trends-xlabel {
+  fill: var(--text-muted);
+  font-size: 10px;
+  text-anchor: middle;
+}
+
+.trends-legend {
+  display: flex;
+  gap: 16px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.lg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lg::before {
+  content: '';
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+}
+
+.lg-safe::before {
+  background: var(--btn-success);
+}
+.lg-nodvir::before {
+  background: var(--nodvir-fg);
+}
+.lg-unsafe::before {
+  background: var(--unsafe-fg);
+}
+
+/* ---------- Estado: píldora -------------------------------------- */
+.status-pill {
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 999px;
+  display: inline-block;
+  white-space: nowrap;
+}
+.status-pill.safe {
+  background: var(--safe-bg);
+  color: var(--safe-fg);
+}
+.status-pill.resolved {
+  background: var(--safe-bg);
+  color: var(--resolved-fg);
+}
+.status-pill.unsafe {
+  background: var(--unsafe-bg);
+  color: var(--unsafe-fg);
+}
+
+/* ---------- Filtros y tabla de defectos -------------------------- */
+.filters-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.filters-row select,
+.filters-row .cell-input {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  width: auto;
+  min-width: 160px;
+}
+
+.filters-row select:focus,
+.filters-row .cell-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+table.defects-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+table.defects-table th {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-weight: 600;
+  text-align: left;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+table.defects-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.unit-kind {
+  display: block;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.defect-detail {
+  min-width: 240px;
+}
+
+.mech-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ---------- Ficha de conductor ----------------------------------- */
+.modal-section {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 20px 0 10px;
+}
+
+.driver-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.driver-day {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+}
+
+.dd-date {
+  font-weight: 700;
+}
+.dd-company {
+  color: var(--text-muted);
+}
+.dd-tag {
+  font-weight: 700;
+  font-size: 11px;
+}
+.dd-tag.ok {
+  color: var(--safe-fg);
+}
+.dd-tag.bad {
+  color: var(--nodvir-fg);
+}
+
+.driver-defects {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.driver-defect {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 11px;
+}
+
+.ddf-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+}
+
+.ddf-date {
+  font-weight: 700;
+}
+.ddf-unit {
+  color: var(--text-muted);
+}
+.ddf-detail {
+  font-size: 12.5px;
+  margin-top: 5px;
+}
+
 /* ---------- Tabla de lote ---------------------------------------- */
 table.batch-table {
   width: 100%;
@@ -1099,8 +1365,22 @@ td.status.nodvir {
   color: var(--nodvir-fg);
 }
 
+/* Colores exactos del DVIR Report. */
 td.dash {
-  color: var(--border-strong);
+  background: #d6e8f7 !important;
+  color: #1a1a1a;
+}
+
+td.dur-low {
+  background: #ffc7ce !important;
+  color: #9c0006;
+  font-weight: 700;
+}
+
+td.dur-high {
+  background: #c6efce !important;
+  color: #276221;
+  font-weight: 700;
 }
 
 /* ---------- Estado vacío ----------------------------------------- */

@@ -9,16 +9,25 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from .duration import parse_duration
 from .engine import COLUMNS, NO_DVIR_TEXT
 
-HEADER_FILL = "1F4E79"
-HEADER_FONT_COLOR = "FFFFFF"
+# Colores en ARGB de 8 digitos (alfa FF = opaco), exactos del DVIR Report.
+HEADER_FILL = "FF1F4E79"
+HEADER_FONT_COLOR = "FFFFFFFF"
 STATUS_STYLES = {
-    "Safe":     ("C6EFCE", "276221"),
-    "Resolved": ("C6EFCE", "006100"),
-    "Unsafe":   ("FFC7CE", "9C0006"),
-    "NO DVIR":  ("FFE0B2", "BF360C"),
+    "Safe":     ("FFC6EFCE", "FF276221"),
+    "Resolved": ("FFC6EFCE", "FF006100"),
+    "Unsafe":   ("FFFFC7CE", "FF9C0006"),
+    "NO DVIR":  ("FFFFE0B2", "FFBF360C"),
 }
+DASH_FILL, DASH_FONT = "FFD6E8F7", "FF1A1A1A"  # celda sin info
+DUR_LOW = ("FFFFC7CE", "FF9C0006")             # duracion < 10 min / mal
+DUR_HIGH = ("FFC6EFCE", "FF276221")            # duracion >= 10 min / ok
+DUR_THRESHOLD = 600                            # segundos (10 min)
+DUR_COLS = ("Duration trk", "Duration trl")
+DOT_COLS = ("DOT Issues trk", "DOT Issues trl")  # "NO" = verde
+FB_COLS = ("Fullbay trk", "Fullbay trl")         # "YES" = verde
 # Indices 1-based de las columnas del lado del camion.
 TRUCK_COLS = (3, 4, 7, 9, 11)
 COL_WIDTHS = [16, 20, 12, 13, 12, 13, 14, 14, 15, 15, 12, 12]
@@ -66,7 +75,34 @@ def _write_block(ws, start_row, date_label, groups):
                 cell.alignment = _CENTER
                 cell.border = _BORDER
                 cell.font = Font(name="Calibri", size=11)
-                if name in ("DVIR trk", "DVIR trl"):
+                if value == "-":
+                    # Celda sin info: guion sobre relleno azul.
+                    cell.fill = PatternFill("solid", fgColor=DASH_FILL)
+                    cell.font = Font(name="Calibri", size=11,
+                                     color=DASH_FONT)
+                elif name in DUR_COLS and value:
+                    # Duracion: rojo < 10 min, verde >= 10 min.
+                    fill, font_color = (
+                        DUR_LOW if parse_duration(value) < DUR_THRESHOLD
+                        else DUR_HIGH)
+                    cell.fill = PatternFill("solid", fgColor=fill)
+                    cell.font = Font(name="Calibri", size=11, bold=True,
+                                     color=font_color)
+                elif name in DOT_COLS and value:
+                    # DOT Issues: "NO" verde, cualquier otro rojo.
+                    fill, font_color = (
+                        DUR_HIGH if value == "NO" else DUR_LOW)
+                    cell.fill = PatternFill("solid", fgColor=fill)
+                    cell.font = Font(name="Calibri", size=11, bold=True,
+                                     color=font_color)
+                elif name in FB_COLS and value:
+                    # Fullbay: "YES" verde, cualquier otro rojo.
+                    fill, font_color = (
+                        DUR_HIGH if value == "YES" else DUR_LOW)
+                    cell.fill = PatternFill("solid", fgColor=fill)
+                    cell.font = Font(name="Calibri", size=11, bold=True,
+                                     color=font_color)
+                elif name in ("DVIR trk", "DVIR trl"):
                     style = None
                     if value == NO_DVIR_TEXT:
                         style = STATUS_STYLES["NO DVIR"]

@@ -14,6 +14,10 @@ const TRUCK_SIDE = new Set([
   'Fullbay trk',
 ])
 const STATUS_COLS = new Set(['DVIR trk', 'DVIR trl'])
+const DUR_COLS = new Set(['Duration trk', 'Duration trl'])
+const DOT_COLS = new Set(['DOT Issues trk', 'DOT Issues trl'])
+const FB_COLS = new Set(['Fullbay trk', 'Fullbay trl'])
+const DUR_THRESHOLD = 600
 
 function statusClass(value: string): string {
   if (value.includes('NO DVIR')) return 'nodvir'
@@ -21,6 +25,15 @@ function statusClass(value: string): string {
   if (value === 'Resolved') return 'resolved'
   if (value === 'Unsafe') return 'unsafe'
   return ''
+}
+
+function durationSeconds(text: string): number {
+  let total = 0
+  const unit: Record<string, number> = { h: 3600, m: 60, s: 1 }
+  for (const m of text.matchAll(/(\d+)\s*([hms])/g)) {
+    total += Number(m[1]) * (unit[m[2]] ?? 0)
+  }
+  return total
 }
 
 export default function PreviewTable({ columns, groups, dateLabel }: Props) {
@@ -61,6 +74,23 @@ export default function PreviewTable({ columns, groups, dateLabel }: Props) {
                   if (STATUS_COLS.has(col) && value) {
                     const sc = statusClass(value)
                     if (sc) classes.push('status', sc)
+                  }
+                  if (
+                    DUR_COLS.has(col) &&
+                    value &&
+                    value !== '-'
+                  ) {
+                    classes.push(
+                      durationSeconds(value) < DUR_THRESHOLD
+                        ? 'dur-low'
+                        : 'dur-high',
+                    )
+                  }
+                  if (DOT_COLS.has(col) && value && value !== '-') {
+                    classes.push(value === 'NO' ? 'dur-high' : 'dur-low')
+                  }
+                  if (FB_COLS.has(col) && value && value !== '-') {
+                    classes.push(value === 'YES' ? 'dur-high' : 'dur-low')
                   }
                   if (value === '-') classes.push('dash')
 
