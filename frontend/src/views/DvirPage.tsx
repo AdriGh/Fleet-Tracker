@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   getBlock,
+  getTrends,
   missingDrivers,
   monthSummary,
   recentBlocks,
@@ -9,12 +10,15 @@ import {
   type MonthSummary,
   type RecentBlock,
   type RecentSort,
+  type TrendsResponse,
 } from '../api'
 import CreateReportModal from '../components/CreateReportModal'
+import DriverModal from '../components/DriverModal'
 import MissingDrivers from '../components/MissingDrivers'
 import PreviewTable from '../components/PreviewTable'
 import RecentBlocks from '../components/RecentBlocks'
 import SafeDonut from '../components/SafeDonut'
+import TrendsChart from '../components/TrendsChart'
 
 export default function DvirPage() {
   const [recent, setRecent] = useState<RecentBlock[]>([])
@@ -28,8 +32,13 @@ export default function DvirPage() {
     fleet_safe_pct: null,
     n_blocks: 0,
   })
+  const [trends, setTrends] = useState<TrendsResponse>({
+    month: null,
+    points: [],
+  })
   const [selected, setSelected] = useState<BlockDetail | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [driverModal, setDriverModal] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -42,6 +51,7 @@ export default function DvirPage() {
   useEffect(() => {
     missingDrivers().then(setMissing).catch(() => {})
     monthSummary().then(setSummary).catch(() => {})
+    getTrends().then(setTrends).catch(() => {})
   }, [])
 
   async function selectBlock(id: number) {
@@ -54,15 +64,17 @@ export default function DvirPage() {
 
   async function handleCreated() {
     try {
-      const [r, m, s] = await Promise.all([
+      const [r, m, s, t] = await Promise.all([
         recentBlocks('created_at'),
         missingDrivers(),
         monthSummary(),
+        getTrends(),
       ])
       setSort('created_at')
       setRecent(r)
       setMissing(m)
       setSummary(s)
+      setTrends(t)
       if (r[0]) selectBlock(r[0].id)
     } catch {
       /* ignorar */
@@ -156,7 +168,7 @@ export default function DvirPage() {
               <h2>Top sin DVIR del mes</h2>
             </div>
             <div className="card-body">
-              <MissingDrivers data={missing} />
+              <MissingDrivers data={missing} onSelect={setDriverModal} />
             </div>
           </section>
 
@@ -169,6 +181,16 @@ export default function DvirPage() {
             </div>
           </section>
         </div>
+
+        <section className="card grid-trends">
+          <div className="card-head">
+            <h2>Tendencia del mes</h2>
+            <span className="sub">% flota SAFE e incidencias por día</span>
+          </div>
+          <div className="card-body">
+            <TrendsChart points={trends.points} />
+          </div>
+        </section>
 
         <section className="card grid-preview">
           <div className="card-head">
@@ -230,6 +252,13 @@ export default function DvirPage() {
         <CreateReportModal
           onClose={() => setModalOpen(false)}
           onCreated={handleCreated}
+        />
+      )}
+
+      {driverModal && (
+        <DriverModal
+          name={driverModal}
+          onClose={() => setDriverModal(null)}
         />
       )}
     </div>

@@ -276,6 +276,49 @@ def block_metrics(dvir_df, groups) -> dict:
     }
 
 
+def _clean(value) -> str:
+    s = str(value or "").strip()
+    return "" if s in ("-", "nan") else s
+
+
+def extract_defects(dvir_df) -> list[dict]:
+    """Defectos reportados en los DVIR del dia (camion y trailer).
+
+    Devuelve un registro por inspeccion con detalle de defecto o estado
+    distinto de Safe."""
+    defects = []
+    for _, r in dvir_df.iterrows():
+        author = _clean(r["Author"])
+        status = _clean(r["Status"]) or "Safe"
+        signed = _clean(r["Signed At"])
+        dtype = _clean(r.get("Type"))
+        mechanic = _clean(r.get("Mechanic/Agent"))
+        notes = _clean(r.get("Mechanic Notes"))
+        sides = [
+            (_clean(r["Vehicle Name"]), "truck",
+             _clean(r.get("Vehicle Defect Details"))),
+            (_clean(r["Trailer"]), "trailer",
+             _clean(r.get("Trailer Defect Details"))),
+        ]
+        for unit, kind, detail in sides:
+            if not unit:
+                continue
+            if not detail and status not in ("Unsafe", "Resolved"):
+                continue
+            defects.append({
+                "driver": author,
+                "unit": unit,
+                "unit_kind": kind,
+                "dvir_type": dtype,
+                "status": status,
+                "detail": detail,
+                "mechanic": mechanic,
+                "mechanic_notes": notes,
+                "signed_at": signed,
+            })
+    return defects
+
+
 def dvir_looks_incomplete(groups) -> bool:
     """Heuristica: el bloque tiene >=3 filas NO DVIR y mas NO DVIR que
     conductores con DVIR. Suele indicar un CSV de DVIR incompleto."""

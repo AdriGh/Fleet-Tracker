@@ -138,8 +138,9 @@ def batch_generate(req: BatchGenerateRequest):
                               day or 1)
         except ValueError:
             block_date = date(engine.data_year(dvir_df), 1, 1)
+        defects = engine.extract_defects(dvir_df)
         db.save_block(block.company, block.date_label, block_date,
-                      groups, metrics)
+                      groups, metrics, defects)
 
     sheets = []
     stats = []
@@ -192,6 +193,26 @@ def dvir_missing(limit: int = 10):
 def dvir_summary():
     """Resumen del mes: % de flota SAFE promedio."""
     return db.month_summary()
+
+
+@router.get("/dvir/defects")
+def dvir_defects(company: str | None = None, status: str | None = None,
+                 unit: str | None = None):
+    """Defectos reportados en los DVIR, con filtros."""
+    return db.list_defects(company=company or None, status=status or None,
+                           unit=unit or None)
+
+
+@router.get("/dvir/trends")
+def dvir_trends():
+    """Serie diaria del mes (% SAFE, NO DVIR, Unsafe)."""
+    return db.trends()
+
+
+@router.get("/dvir/drivers/{name}")
+def dvir_driver(name: str):
+    """Historial de cumplimiento y defectos de un conductor."""
+    return db.driver_history(name)
 
 
 @router.get("/dvir/blocks/{block_id}")

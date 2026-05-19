@@ -2,6 +2,7 @@ import type { MissingResponse } from '../api'
 
 interface Props {
   data: MissingResponse
+  onSelect: (driver: string) => void
 }
 
 function monthLabel(month: string | null): string {
@@ -14,7 +15,7 @@ function monthLabel(month: string | null): string {
   return `${names[Number(m) - 1] ?? m} ${y}`
 }
 
-export default function MissingDrivers({ data }: Props) {
+export default function MissingDrivers({ data, onSelect }: Props) {
   if (!data.month || data.drivers.length === 0) {
     return (
       <div className="empty mini">
@@ -31,15 +32,21 @@ export default function MissingDrivers({ data }: Props) {
       <ol className="missing-list">
         {data.drivers.map((d, i) => (
           <li key={d.driver}>
-            <span className="rank">{i + 1}</span>
-            <span className="missing-name">{d.driver}</span>
-            <span className="missing-bar">
-              <span
-                className="missing-fill"
-                style={{ width: `${(d.misses / max) * 100}%` }}
-              />
-            </span>
-            <span className="missing-count">{d.misses}</span>
+            <button
+              className="missing-row"
+              onClick={() => onSelect(d.driver)}
+              title="Ver ficha del conductor"
+            >
+              <span className="rank">{i + 1}</span>
+              <span className="missing-name">{d.driver}</span>
+              <span className="missing-bar">
+                <span
+                  className="missing-fill"
+                  style={{ width: `${(d.misses / max) * 100}%` }}
+                />
+              </span>
+              <span className="missing-count">{d.misses}</span>
+            </button>
           </li>
         ))}
       </ol>

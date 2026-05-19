@@ -7,6 +7,18 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.5.0] - 2026-05-18
+
+### Añadido
+- Sección «Defectos» en el menú: captura los defectos reportados en los
+  DVIR (vehículo, tráiler, notas de mecánico) y los muestra en una tabla
+  filtrable por empresa, estado y unidad.
+- Tarjeta «Tendencia del mes» en el panel DVIR: gráfico de % flota SAFE
+  e incidencias (NO DVIR, Unsafe) por día.
+- Ficha de conductor: al hacer clic en un conductor del top sin DVIR se
+  abre un modal con su cumplimiento, días registrados y defectos.
+- Endpoints `/api/dvir/defects`, `/api/dvir/trends`, `/api/dvir/drivers`.
+
 ## [0.4.0] - 2026-05-18
 
 ### Añadido
@@ -73,7 +85,8 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
   fusión de celdas por conductor).
 - Roster inicial `roster.csv` con 22 camiones.
 
-[No publicado]: https://github.com/AdriGh/DVIR-Report-Generator/compare/v0.4.0...HEAD
+[No publicado]: https://github.com/AdriGh/DVIR-Report-Generator/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/AdriGh/DVIR-Report-Generator/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/AdriGh/DVIR-Report-Generator/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/AdriGh/DVIR-Report-Generator/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/AdriGh/DVIR-Report-Generator/compare/v0.1.0...v0.2.0
