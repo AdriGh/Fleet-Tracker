@@ -191,7 +191,7 @@ def build_report(dvir_df, activity, roster, min_miles, company):
             d["trailers"].setdefault(trl, []).append((signed, status, secs))
 
     groups = []
-    for driver in sorted(drivers, key=str.lower):
+    for driver in drivers:
         data = drivers[driver]
         trucks = [(u, *_consolidate(e))
                   for u, e in sorted(data["trucks"].items())]
@@ -207,7 +207,7 @@ def build_report(dvir_df, activity, roster, min_miles, company):
                 row["Trk#"] = unit
                 row["DVIR trk"] = status
                 row["Duration trk"] = format_duration(secs)
-                row["DOT Issues trk"] = "YES"
+                row["DOT Issues trk"] = "NO"
                 row["Fullbay trk"] = "YES"
             elif i == 0 and not trucks:
                 for c in TRUCK_SIDE:
@@ -217,8 +217,8 @@ def build_report(dvir_df, activity, roster, min_miles, company):
                 row["Trl#"] = unit
                 row["DVIR trl"] = status
                 row["Duration trl"] = format_duration(secs)
-                row["DOT Issues trl"] = "YES"
-                row["Fullbay trl"] = "YES"
+                row["DOT Issues trl"] = "NO"
+                # Fullbay trl se deja vacio (se rellena a mano).
             elif i == 0 and not trailers:
                 for c in TRAILER_SIDE:
                     row[c] = "-"
@@ -226,7 +226,16 @@ def build_report(dvir_df, activity, roster, min_miles, company):
         truck_merge = len(rows) > 1 and all(r["Trk#"] == "" for r in rows[1:])
         groups.append({"truck_merge": truck_merge, "rows": rows})
 
-    # NO DVIR: camiones activos sin DVIR de camion.
+    # Ordenar los grupos por unidad (Trk#) alfabeticamente.
+    def _unit_key(group):
+        first = group["rows"][0]
+        unit = first["Trk#"] if first["Trk#"] not in ("", "-") \
+            else first["Trl#"]
+        return norm(unit)
+
+    groups.sort(key=_unit_key)
+
+    # NO DVIR: camiones activos sin DVIR de camion (ordenados por unidad).
     nodvir = []
     for unit, dist in sorted(activity.items()):
         if dist < min_miles or norm(unit) in truck_has_dvir:
@@ -237,7 +246,7 @@ def build_report(dvir_df, activity, roster, min_miles, company):
         row["Trk#"] = unit
         row["DVIR trk"] = NO_DVIR_TEXT
         row["is_nodvir"] = True
-        nodvir.append((driver.lower(), {"truck_merge": False, "rows": [row]}))
+        nodvir.append((norm(unit), {"truck_merge": False, "rows": [row]}))
     nodvir.sort(key=lambda x: x[0])
     groups.extend(g for _, g in nodvir)
     return groups
