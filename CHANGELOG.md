@@ -19,6 +19,13 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
   abre un modal con su cumplimiento, días registrados y defectos.
 - Endpoints `/api/dvir/defects`, `/api/dvir/trends`, `/api/dvir/drivers`.
 
+### Cambiado
+- El bloque generado replica el formato del DVIR Report: duraciones
+  < 10 min en rojo y ≥ 10 min en verde, celdas sin info con «-» azul.
+- Las filas del bloque se ordenan por unidad (Trk#), no por conductor.
+- DOT Issues trk/trl fijo en «NO» (verde); Fullbay trk «YES» (verde) y
+  Fullbay trl vacío.
+
 ## [0.4.0] - 2026-05-18
 
 ### Añadido
