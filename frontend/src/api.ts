@@ -147,7 +147,7 @@ export type RecentSort =
 
 export async function recentBlocks(
   sort: RecentSort = 'created_at',
-  limit = 5,
+  limit = 10,
 ): Promise<RecentBlock[]> {
   const res = await fetch(`/api/dvir/recent?sort=${sort}&limit=${limit}`)
   if (!res.ok) throw new Error(await readError(res))
