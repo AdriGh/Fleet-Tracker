@@ -12,6 +12,7 @@ import {
   type RecentSort,
   type TrendsResponse,
 } from '../api'
+import { copyBlock } from '../clipboard'
 import CreateReportModal from '../components/CreateReportModal'
 import DriverModal from '../components/DriverModal'
 import MissingDrivers from '../components/MissingDrivers'
@@ -81,22 +82,11 @@ export default function DvirPage() {
     }
   }
 
-  function copyDay() {
+  async function copyDay() {
     if (!selected) return
-    const lines = [selected.date_label]
-    for (const group of selected.groups) {
-      for (const row of group.rows) {
-        lines.push(
-          selected.columns
-            .map((c) => String(row[c] ?? ''))
-            .join('\t'),
-        )
-      }
-    }
-    navigator.clipboard.writeText(lines.join('\n')).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
+    await copyBlock(selected.columns, selected.groups, selected.date_label)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   const donut = selected

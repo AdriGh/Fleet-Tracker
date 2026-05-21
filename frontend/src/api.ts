@@ -32,6 +32,10 @@ export function downloadUrl(reportId: string): string {
   return `/api/reports/${reportId}/download`
 }
 
+export function downloadBlockUrl(blockId: number): string {
+  return `/api/dvir/blocks/${blockId}/download`
+}
+
 // --- Lote (Crear DVIR Report) -----------------------------------------
 
 export interface BatchFile {

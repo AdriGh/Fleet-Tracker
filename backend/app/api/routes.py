@@ -223,3 +223,23 @@ def dvir_block(block_id: int):
         raise HTTPException(404, "Bloque no encontrado.")
     block["columns"] = engine.COLUMNS
     return block
+
+
+@router.get("/dvir/blocks/{block_id}/download")
+def dvir_block_download(block_id: int):
+    """Genera y descarga el Excel de un bloque guardado."""
+    block = db.get_block(block_id)
+    if block is None:
+        raise HTTPException(404, "Bloque no encontrado.")
+    report_id = uuid.uuid4().hex
+    filename = (f"DVIR {block['company']} "
+                f"{_safe_label(block['date_label'])}.xlsx")
+    out_path = config.JOBS_DIR / f"{report_id}.xlsx"
+    excel.write_excel(block["groups"], block["company"],
+                      block["date_label"], out_path)
+    return FileResponse(
+        out_path,
+        filename=filename,
+        media_type=("application/vnd.openxmlformats-officedocument"
+                    ".spreadsheetml.sheet"),
+    )
