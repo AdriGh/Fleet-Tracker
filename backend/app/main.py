@@ -22,6 +22,16 @@ app.include_router(router)
 
 # Frontend compilado (frontend/dist). En desarrollo puede no existir; en
 # ese caso se usa el servidor de Vite por separado.
+_NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
+
+
+def _index_response():
+    # index.html nunca se cachea: referencia a los assets con hash, que
+    # se actualizan solos al recompilar.
+    return FileResponse(config.FRONTEND_DIST / "index.html",
+                        headers=_NO_CACHE)
+
+
 if config.FRONTEND_DIST.exists():
     app.mount(
         "/assets",
@@ -31,14 +41,14 @@ if config.FRONTEND_DIST.exists():
 
     @app.get("/")
     def index():
-        return FileResponse(config.FRONTEND_DIST / "index.html")
+        return _index_response()
 
     @app.get("/{path:path}")
     def spa_fallback(path: str):
         target = config.FRONTEND_DIST / path
         if target.is_file():
             return FileResponse(target)
-        return FileResponse(config.FRONTEND_DIST / "index.html")
+        return _index_response()
 else:
     @app.get("/")
     def index_dev():
