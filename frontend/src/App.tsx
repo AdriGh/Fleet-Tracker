@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import { getHealth } from './api'
 import DvirPage from './views/DvirPage'
 import DefectsPage from './views/DefectsPage'
+import NotifyPage from './views/NotifyPage'
 
 type Theme = 'light' | 'dark'
 
 const MENU = [
   { id: 'dvir', label: 'DVIR', soon: false },
   { id: 'defectos', label: 'Defectos', soon: false },
+  { id: 'avisos', label: 'Avisos', soon: false },
   { id: 'roster', label: 'Roster', soon: true },
   { id: 'flota', label: 'Flota', soon: true },
 ]
@@ -86,6 +88,7 @@ export default function App() {
       <main className="container">
         {section === 'dvir' && <DvirPage />}
         {section === 'defectos' && <DefectsPage />}
+        {section === 'avisos' && <NotifyPage />}
       </main>
     </div>
   )

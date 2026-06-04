@@ -7,6 +7,23 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+### Añadido
+- Sección «Avisos» en el menú: detecta conductores con `NO DVIR` o con un
+  DVIR de menos de 15 min (camión o tráiler) en un bloque del DVIR Report,
+  arma el aviso por correo al conductor y calcula el CC según su terminal
+  (CHASER / MDW Chicago / MEM Memphis / ATL Atlanta / SAV Savannah / MIA
+  Miami). El email se cruza con la hoja «Driver info»; los conductores que
+  no coinciden o sin terminal reconocida quedan en una lista «a revisar»
+  en lugar de mandarse mal. Por ahora en modo offline (snapshot de la
+  planilla) con envío simulado; la lectura en vivo de Drive (Service
+  Account) y el envío real por Gmail (App Password) se activan con
+  configuración local no versionada.
+
+### Cambiado
+- Umbral de duración de un DVIR: pasa de 10 a **15 minutos**. Por debajo se
+  marca en rojo en el Excel y en la vista previa, y dispara aviso por correo.
+  Centralizado en `engine.MIN_DURATION_SECONDS`.
+
 ## [0.6.0] - 2026-06-03
 
 ### Cambiado

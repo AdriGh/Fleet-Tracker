@@ -33,6 +33,10 @@ NO_DVIR_TEXT = "⚠ NO DVIR"
 # Umbral de millas para considerar que un camion circulo (NO DVIR).
 MIN_MILES = 30.0
 
+# Umbral de duracion de un DVIR: por debajo se considera "corto", se marca
+# en rojo en el Excel y dispara aviso por correo. Protocolo vigente: 15 min.
+MIN_DURATION_SECONDS = 900
+
 DVIR_REQUIRED = {"Vehicle Name", "Trailer", "Author", "Signed At",
                  "Duration", "Status"}
 

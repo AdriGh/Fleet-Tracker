@@ -14,7 +14,7 @@ const TRUCK_SIDE = new Set([
 ])
 const STATUS_COLS = new Set(['DVIR trk', 'DVIR trl'])
 const DUR_COLS = new Set(['Duration trk', 'Duration trl'])
-const DUR_THRESHOLD = 600
+const DUR_THRESHOLD = 900
 
 function statusClass(value: string): string {
   if (value.includes('NO DVIR')) return 'nodvir'

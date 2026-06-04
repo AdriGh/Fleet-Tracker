@@ -31,7 +31,7 @@ function cellStyle(col: string, value: string): string {
     (col === 'Driver' ? 'text-align:left;' : 'text-align:center;')
   let s = ''
   if (value === '-') s = BLUE
-  else if (DUR_COLS.has(col) && value) s = durSecs(value) < 600 ? RED : GREEN
+  else if (DUR_COLS.has(col) && value) s = durSecs(value) < 900 ? RED : GREEN
   else if (STATUS_COLS.has(col) && value) {
     if (value.includes('NO DVIR')) s = NODVIR
     else if (value === 'Safe') s = GREEN

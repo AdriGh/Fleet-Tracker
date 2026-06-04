@@ -9,13 +9,14 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from .. import __version__, config, db
-from ..core import batch, engine, excel
+from ..core import batch, engine, excel, notify_service
 from ..schemas import (
     BatchAnalyzeResponse,
     BatchGenerateRequest,
     BatchGenerateResponse,
     BatchSheetStat,
     HealthResponse,
+    NotifySendRequest,
     RosterEntry,
 )
 
@@ -243,3 +244,32 @@ def dvir_block_download(block_id: int):
         media_type=("application/vnd.openxmlformats-officedocument"
                     ".spreadsheetml.sheet"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Avisos de NO DVIR
+# ---------------------------------------------------------------------------
+@router.get("/notify/blocks")
+def notify_blocks():
+    """Bloques disponibles + estado (modo offline/live, Gmail configurado)."""
+    return notify_service.list_blocks()
+
+
+@router.get("/notify/scan")
+def notify_scan(sheet: str, date: str):
+    """Escanea un bloque: avisos a enviar y a revisar."""
+    try:
+        return notify_service.scan(sheet, date)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.post("/notify/send")
+def notify_send(req: NotifySendRequest):
+    """Envia (o simula) los avisos de los conductores seleccionados."""
+    if not req.drivers:
+        raise HTTPException(422, "No se seleccionó ningún conductor.")
+    try:
+        return notify_service.send(req.sheet, req.date_label, req.drivers)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc)) from exc

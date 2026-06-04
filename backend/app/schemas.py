@@ -65,3 +65,10 @@ class BatchGenerateResponse(BaseModel):
     filename: str
     sheets: list[BatchSheetStat]
     warnings: list[str] = []
+
+
+# --- Avisos (NO DVIR) --------------------------------------------------
+class NotifySendRequest(BaseModel):
+    sheet: str
+    date_label: str
+    drivers: list[str]
