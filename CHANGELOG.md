@@ -7,6 +7,8 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.7.0] - 2026-06-04
+
 ### Añadido
 - Sección «Avisos» en el menú: detecta conductores con `NO DVIR` o con un
   DVIR de menos de 15 min (camión o tráiler) en un bloque del DVIR Report,
@@ -14,15 +16,28 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
   (CHASER / MDW Chicago / MEM Memphis / ATL Atlanta / SAV Savannah / MIA
   Miami). El email se cruza con la hoja «Driver info»; los conductores que
   no coinciden o sin terminal reconocida quedan en una lista «a revisar»
-  en lugar de mandarse mal. Por ahora en modo offline (snapshot de la
-  planilla) con envío simulado; la lectura en vivo de Drive (Service
-  Account) y el envío real por Gmail (App Password) se activan con
-  configuración local no versionada.
+  en lugar de mandarse mal.
+- Lectura **en vivo** del «DVIR Report» desde Google Drive con una cuenta de
+  servicio (Sheets API, solo lectura): auto-detecta las hojas del mes más
+  reciente (`CHASER N`, `MCC N`) y la hoja `Driver info`. Si no hay
+  credenciales, usa un snapshot de respaldo (modo demo).
+- Envío real por **Gmail** (SMTP + App Password) con la plantilla oficial de
+  Safety/Maintenance, saludo por nombre de pila y lista de unidades
+  infractoras. Modo simulado (`dry_run`) y prueba de envío a uno mismo
+  (`scripts/test_email.py`).
+- Configuración local **no versionada** (`avisos.local.json` +
+  `service_account.json`), plantilla `avisos.example.json` y guía de setup
+  `backend/AVISOS_SETUP.md`. Endpoints `/api/notify/blocks|scan|send`.
 
 ### Cambiado
 - Umbral de duración de un DVIR: pasa de 10 a **15 minutos**. Por debajo se
   marca en rojo en el Excel y en la vista previa, y dispara aviso por correo.
   Centralizado en `engine.MIN_DURATION_SECONDS`.
+
+### Seguridad
+- El snapshot de respaldo (`sample_data.py`) se anonimiza: los emails y
+  teléfonos reales de los conductores viven solo en la planilla de Drive,
+  no en el repositorio.
 
 ## [0.6.0] - 2026-06-03
 
