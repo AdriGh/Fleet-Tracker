@@ -268,3 +268,93 @@ export async function getDriverHistory(
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }
+
+// --- Avisos (NO DVIR) -------------------------------------------------
+
+export interface NotifyReason {
+  unit: string
+  kind: string
+  type: string
+  detail: string
+}
+
+export interface Notice {
+  driver: string
+  company: string
+  region: string | null
+  email: string
+  cc: string[]
+  units: string[]
+  reasons: NotifyReason[]
+  review_reason: string
+  subject: string
+  body: string
+}
+
+export interface NotifyBlock {
+  sheet: string
+  company: string
+  date_labels: string[]
+}
+
+export interface NotifyBlocksResponse {
+  mode: string
+  spreadsheet: string | null
+  live_error: string
+  gmail_configured: boolean
+  dry_run: boolean
+  sender: string
+  blocks: NotifyBlock[]
+}
+
+export interface NotifyScanResponse {
+  sheet: string
+  company: string
+  date_label: string
+  notices: Notice[]
+  review: Notice[]
+}
+
+export interface SendResult {
+  driver: string
+  to: string
+  cc: string[]
+  ok: boolean
+  error: string
+  simulated: boolean
+}
+
+export interface NotifySendResponse {
+  dry_run: boolean
+  results: SendResult[]
+}
+
+export async function notifyBlocks(): Promise<NotifyBlocksResponse> {
+  const res = await fetch('/api/notify/blocks')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function notifyScan(
+  sheet: string,
+  date: string,
+): Promise<NotifyScanResponse> {
+  const qs = new URLSearchParams({ sheet, date })
+  const res = await fetch(`/api/notify/scan?${qs}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function notifySend(
+  sheet: string,
+  dateLabel: string,
+  drivers: string[],
+): Promise<NotifySendResponse> {
+  const res = await fetch('/api/notify/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sheet, date_label: dateLabel, drivers }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}

@@ -7,7 +7,7 @@ echo   DVIR Report Generator
 echo ============================================
 
 REM --- Backend: dependencias de Python ---
-py -c "import fastapi, sqlalchemy" 1>nul 2>nul
+py -c "import fastapi, sqlalchemy, googleapiclient" 1>nul 2>nul
 if errorlevel 1 (
   echo Instalando dependencias del backend...
   py -m pip install -r backend\requirements.txt

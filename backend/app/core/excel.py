@@ -10,7 +10,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from .duration import parse_duration
-from .engine import COLUMNS, NO_DVIR_TEXT
+from .engine import COLUMNS, MIN_DURATION_SECONDS, NO_DVIR_TEXT
 
 # Colores en ARGB de 8 digitos (alfa FF = opaco), exactos del DVIR Report.
 HEADER_FILL = "FF1F4E79"
@@ -22,9 +22,9 @@ STATUS_STYLES = {
     "NO DVIR":  ("FFFFE0B2", "FFBF360C"),
 }
 DASH_FILL, DASH_FONT = "FFD6E8F7", "FF1A1A1A"  # celda sin info
-DUR_LOW = ("FFFFC7CE", "FF9C0006")             # duracion < 10 min / mal
-DUR_HIGH = ("FFC6EFCE", "FF276221")            # duracion >= 10 min / ok
-DUR_THRESHOLD = 600                            # segundos (10 min)
+DUR_LOW = ("FFFFC7CE", "FF9C0006")             # duracion < 15 min / mal
+DUR_HIGH = ("FFC6EFCE", "FF276221")            # duracion >= 15 min / ok
+DUR_THRESHOLD = MIN_DURATION_SECONDS           # segundos (15 min)
 DUR_COLS = ("Duration trk", "Duration trl")
 # Indices 1-based de las columnas del lado del camion
 # (Trk#, DVIR trk, Duration trk, Distance (mi)).
@@ -80,7 +80,7 @@ def _write_block(ws, start_row, date_label, groups):
                     cell.font = Font(name="Calibri", size=11,
                                      color=DASH_FONT)
                 elif name in DUR_COLS and value:
-                    # Duracion: rojo < 10 min, verde >= 10 min.
+                    # Duracion: rojo < 15 min, verde >= 15 min.
                     fill, font_color = (
                         DUR_LOW if parse_duration(value) < DUR_THRESHOLD
                         else DUR_HIGH)

@@ -9,6 +9,11 @@ venv/
 backend/.jobs/
 backend/dvir.db
 
+# Secretos de Avisos: credenciales de Gmail y Service Account (NUNCA versionar)
+backend/email.local.json
+backend/service_account.json
+backend/*.local.json
+
 # Frontend
 node_modules/
 frontend/dist/

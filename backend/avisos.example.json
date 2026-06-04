@@ -1,0 +1,9 @@
+{
+  "spreadsheet_id": "PEGA_AQUI_EL_ID_DE_LA_PLANILLA",
+  "service_account_file": "service_account.json",
+  "company_sheets": [],
+  "driver_info_sheet": "Driver info",
+  "gmail_sender": "tu-correo@gmail.com",
+  "gmail_app_password": "xxxx xxxx xxxx xxxx",
+  "dry_run": true
+}
