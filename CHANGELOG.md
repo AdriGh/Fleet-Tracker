@@ -7,6 +7,15 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.6.0] - 2026-06-03
+
+### Cambiado
+- Columnas del bloque del DVIR Report: se eliminan `DOT Issues trk`,
+  `DOT Issues trl`, `Fullbay trk` y `Fullbay trl`; en su lugar se añade
+  `Distance (mi)` (lado camión) con las millas recorridas ese día según
+  el CSV de actividad. Los bloques antiguos guardados en la base de
+  datos se siguen mostrando, dejando la nueva columna vacía.
+
 ## [0.5.0] - 2026-05-18
 
 ### Añadido

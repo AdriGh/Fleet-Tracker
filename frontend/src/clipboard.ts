@@ -5,11 +5,9 @@
 import type { ReportGroup } from './api'
 
 const TRUCK_SIDE = new Set([
-  'Trk#', 'DVIR trk', 'Duration trk', 'DOT Issues trk', 'Fullbay trk',
+  'Trk#', 'DVIR trk', 'Duration trk', 'Distance (mi)',
 ])
 const DUR_COLS = new Set(['Duration trk', 'Duration trl'])
-const DOT_COLS = new Set(['DOT Issues trk', 'DOT Issues trl'])
-const FB_COLS = new Set(['Fullbay trk', 'Fullbay trl'])
 const STATUS_COLS = new Set(['DVIR trk', 'DVIR trl'])
 
 const GREEN = 'background:#C6EFCE;color:#276221;font-weight:bold;'
@@ -34,8 +32,6 @@ function cellStyle(col: string, value: string): string {
   let s = ''
   if (value === '-') s = BLUE
   else if (DUR_COLS.has(col) && value) s = durSecs(value) < 600 ? RED : GREEN
-  else if (DOT_COLS.has(col) && value) s = value === 'NO' ? GREEN : RED
-  else if (FB_COLS.has(col) && value) s = value === 'YES' ? GREEN : RED
   else if (STATUS_COLS.has(col) && value) {
     if (value.includes('NO DVIR')) s = NODVIR
     else if (value === 'Safe') s = GREEN

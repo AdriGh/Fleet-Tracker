@@ -26,11 +26,10 @@ DUR_LOW = ("FFFFC7CE", "FF9C0006")             # duracion < 10 min / mal
 DUR_HIGH = ("FFC6EFCE", "FF276221")            # duracion >= 10 min / ok
 DUR_THRESHOLD = 600                            # segundos (10 min)
 DUR_COLS = ("Duration trk", "Duration trl")
-DOT_COLS = ("DOT Issues trk", "DOT Issues trl")  # "NO" = verde
-FB_COLS = ("Fullbay trk", "Fullbay trl")         # "YES" = verde
-# Indices 1-based de las columnas del lado del camion.
-TRUCK_COLS = (3, 4, 7, 9, 11)
-COL_WIDTHS = [16, 20, 12, 13, 12, 13, 14, 14, 15, 15, 12, 12]
+# Indices 1-based de las columnas del lado del camion
+# (Trk#, DVIR trk, Duration trk, Distance (mi)).
+TRUCK_COLS = (3, 4, 7, 9)
+COL_WIDTHS = [16, 20, 12, 13, 12, 13, 14, 14, 14]
 
 _THIN = Side(style="thin", color="D9D9D9")
 _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
@@ -85,20 +84,6 @@ def _write_block(ws, start_row, date_label, groups):
                     fill, font_color = (
                         DUR_LOW if parse_duration(value) < DUR_THRESHOLD
                         else DUR_HIGH)
-                    cell.fill = PatternFill("solid", fgColor=fill)
-                    cell.font = Font(name="Calibri", size=11, bold=True,
-                                     color=font_color)
-                elif name in DOT_COLS and value:
-                    # DOT Issues: "NO" verde, cualquier otro rojo.
-                    fill, font_color = (
-                        DUR_HIGH if value == "NO" else DUR_LOW)
-                    cell.fill = PatternFill("solid", fgColor=fill)
-                    cell.font = Font(name="Calibri", size=11, bold=True,
-                                     color=font_color)
-                elif name in FB_COLS and value:
-                    # Fullbay: "YES" verde, cualquier otro rojo.
-                    fill, font_color = (
-                        DUR_HIGH if value == "YES" else DUR_LOW)
                     cell.fill = PatternFill("solid", fgColor=fill)
                     cell.font = Font(name="Calibri", size=11, bold=True,
                                      color=font_color)

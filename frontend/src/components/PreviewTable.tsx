@@ -10,13 +10,10 @@ const TRUCK_SIDE = new Set([
   'Trk#',
   'DVIR trk',
   'Duration trk',
-  'DOT Issues trk',
-  'Fullbay trk',
+  'Distance (mi)',
 ])
 const STATUS_COLS = new Set(['DVIR trk', 'DVIR trl'])
 const DUR_COLS = new Set(['Duration trk', 'Duration trl'])
-const DOT_COLS = new Set(['DOT Issues trk', 'DOT Issues trl'])
-const FB_COLS = new Set(['Fullbay trk', 'Fullbay trl'])
 const DUR_THRESHOLD = 600
 
 function statusClass(value: string): string {
@@ -85,12 +82,6 @@ export default function PreviewTable({ columns, groups, dateLabel }: Props) {
                         ? 'dur-low'
                         : 'dur-high',
                     )
-                  }
-                  if (DOT_COLS.has(col) && value && value !== '-') {
-                    classes.push(value === 'NO' ? 'dur-high' : 'dur-low')
-                  }
-                  if (FB_COLS.has(col) && value && value !== '-') {
-                    classes.push(value === 'YES' ? 'dur-high' : 'dur-low')
                   }
                   if (value === '-') classes.push('dash')
 

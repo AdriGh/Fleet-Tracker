@@ -5,7 +5,8 @@ Reglas de negocio (validadas contra el informe original):
 - Estado mostrado = el del DVIR mas reciente (por hora de firma).
 - NO DVIR = camion en el CSV de actividad por encima del umbral de millas
   y sin DVIR de camion ese dia. El conductor se toma del roster.
-- Las columnas DOT Issues / Fullbay se rellenan siempre con 'YES'.
+- Distance (mi) = millas recorridas por el camion ese dia segun el CSV
+  de actividad (0.0 si la unidad no aparece).
 """
 
 import csv
@@ -20,15 +21,12 @@ from .duration import format_duration, parse_duration
 # Columnas del informe, en orden.
 COLUMNS = [
     "Company", "Driver", "Trk#", "DVIR trk", "Trl#", "DVIR trl",
-    "Duration trk", "Duration trl", "DOT Issues trk", "DOT Issues trl",
-    "Fullbay trk", "Fullbay trl",
+    "Duration trk", "Duration trl", "Distance (mi)",
 ]
 
 # Columnas del lado del camion (se fusionan cuando hay un unico camion).
-TRUCK_SIDE = ("Trk#", "DVIR trk", "Duration trk", "DOT Issues trk",
-              "Fullbay trk")
-TRAILER_SIDE = ("Trl#", "DVIR trl", "Duration trl", "DOT Issues trl",
-                 "Fullbay trl")
+TRUCK_SIDE = ("Trk#", "DVIR trk", "Duration trk", "Distance (mi)")
+TRAILER_SIDE = ("Trl#", "DVIR trl", "Duration trl")
 
 NO_DVIR_TEXT = "⚠ NO DVIR"
 
@@ -171,6 +169,13 @@ def build_report(dvir_df, activity, roster, min_miles, company):
     """Devuelve una lista de grupos. Cada grupo:
         {"truck_merge": bool, "rows": [row_dict, ...]}
     """
+    # Lookup normalizado para resolver la distancia por camion sin que
+    # un espacio o un cambio de mayusculas la pierdan.
+    activity_by_norm = {norm(k): v for k, v in activity.items()}
+
+    def _dist(unit) -> str:
+        return f"{activity_by_norm.get(norm(unit), 0.0):.1f}"
+
     drivers = {}
     truck_has_dvir = set()
 
@@ -207,8 +212,7 @@ def build_report(dvir_df, activity, roster, min_miles, company):
                 row["Trk#"] = unit
                 row["DVIR trk"] = status
                 row["Duration trk"] = format_duration(secs)
-                row["DOT Issues trk"] = "NO"
-                row["Fullbay trk"] = "YES"
+                row["Distance (mi)"] = _dist(unit)
             elif i == 0 and not trucks:
                 for c in TRUCK_SIDE:
                     row[c] = "-"
@@ -217,8 +221,6 @@ def build_report(dvir_df, activity, roster, min_miles, company):
                 row["Trl#"] = unit
                 row["DVIR trl"] = status
                 row["Duration trl"] = format_duration(secs)
-                row["DOT Issues trl"] = "NO"
-                # Fullbay trl se deja vacio (se rellena a mano).
             elif i == 0 and not trailers:
                 for c in TRAILER_SIDE:
                     row[c] = "-"
@@ -245,6 +247,7 @@ def build_report(dvir_df, activity, roster, min_miles, company):
         row["Driver"] = driver
         row["Trk#"] = unit
         row["DVIR trk"] = NO_DVIR_TEXT
+        row["Distance (mi)"] = _dist(unit)
         row["is_nodvir"] = True
         nodvir.append((norm(unit), {"truck_merge": False, "rows": [row]}))
     nodvir.sort(key=lambda x: x[0])
