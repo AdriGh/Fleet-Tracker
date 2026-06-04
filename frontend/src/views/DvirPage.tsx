@@ -175,7 +175,7 @@ export default function DvirPage() {
         <section className="card grid-trends">
           <div className="card-head">
             <h2>Tendencia del mes</h2>
-            <span className="sub">% flota SAFE e incidencias por día</span>
+            <span className="sub">incidencias por día (NO DVIR + Unsafe)</span>
           </div>
           <div className="card-body">
             <TrendsChart points={trends.points} />

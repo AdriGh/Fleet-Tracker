@@ -1,8 +1,10 @@
-import { useMemo } from 'react'
-import type { TrendPoint } from '../api'
+interface Day {
+  label: string
+  count: number
+}
 
 interface Props {
-  points: TrendPoint[]
+  days: Day[]
 }
 
 const W = 680
@@ -14,30 +16,10 @@ const MB = 30
 const PLOT_W = W - ML - MR
 const PLOT_H = H - MT - MB
 
-export default function TrendsChart({ points }: Props) {
-  const days = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const p of points) {
-      const k = p.date_label
-      map.set(k, (map.get(k) ?? 0) + p.n_no_dvir + p.n_unsafe)
-    }
-    const key = (l: string) => {
-      const [mo, da] = l.split('.').map(Number)
-      return (mo || 0) * 100 + (da || 0)
-    }
-    return [...map.entries()]
-      .sort((a, b) => key(a[0]) - key(b[0]))
-      .map(([label, count]) => ({ label, count }))
-  }, [points])
-
+export default function DefectsTrendChart({ days }: Props) {
   if (days.length === 0) {
-    return (
-      <div className="empty mini">
-        <p>Genera informes y aquí verás la tendencia del mes.</p>
-      </div>
-    )
+    return <div className="empty mini"><p>Sin incidencias en el período.</p></div>
   }
-
   const n = days.length
   const colW = PLOT_W / n
   const maxCount = Math.max(1, ...days.map((d) => d.count))
@@ -48,6 +30,7 @@ export default function TrendsChart({ points }: Props) {
   return (
     <div className="trends">
       <svg viewBox={`0 0 ${W} ${H}`} className="trends-svg">
+        {/* línea base */}
         <line x1={ML} y1={baseY} x2={W - MR} y2={baseY} className="trends-grid" />
         {days.map((d, i) => {
           const h = (d.count / maxCount) * PLOT_H
@@ -76,7 +59,7 @@ export default function TrendsChart({ points }: Props) {
           )
         })}
       </svg>
-      <p className="chart-caption">Incidencias (NO DVIR + Unsafe) por día</p>
+      <p className="chart-caption">Incidencias (Unsafe + Resolved) por día</p>
     </div>
   )
 }
