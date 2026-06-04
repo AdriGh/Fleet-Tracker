@@ -46,7 +46,7 @@ REGION_CC: dict[str, list[str]] = {
     "MIA": [  # Miami
         "neskar@chaserllc.com",
         "Jfarach@chaserllc.com",
-        "vross@memphiscitycartage.com",
+        "rvictorero@memphiscitycartage.com",
     ],
 }
 

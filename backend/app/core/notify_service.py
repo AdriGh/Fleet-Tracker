@@ -41,6 +41,7 @@ def list_blocks() -> dict:
     return {
         "mode": data.mode,
         "spreadsheet": data.spreadsheet,
+        "live_error": data.live_error,
         "gmail_configured": settings.configured,
         "dry_run": settings.dry_run or not settings.configured,
         "sender": settings.sender,

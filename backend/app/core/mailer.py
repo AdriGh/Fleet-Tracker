@@ -2,26 +2,24 @@
 """Envio de correos por Gmail (SMTP + App Password).
 
 La configuracion (remitente, App Password, modo simulado) se lee de
-`backend/email.local.json`, que NO se versiona. Si no existe, la herramienta
-queda en modo simulado: arma los correos pero no los envia.
+`backend/avisos.local.json`, que NO se versiona. Si no existe o no esta
+completa, la herramienta queda en modo simulado: arma los correos pero no
+los envia.
 
-Formato de email.local.json:
+Claves en avisos.local.json:
     {
-      "gmail_sender": "luisadrianr13@gmail.com",
+      "gmail_sender": "tu-correo@gmail.com",
       "gmail_app_password": "xxxx xxxx xxxx xxxx",
       "dry_run": true
     }
 """
 
-import json
 import smtplib
 import ssl
 from email.message import EmailMessage
-from pathlib import Path
 
-from .. import config
+from . import local_config
 
-CONFIG_PATH = config.BACKEND_DIR / "email.local.json"
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 465
 
@@ -39,13 +37,7 @@ class EmailSettings:
 
 
 def load_settings() -> EmailSettings:
-    path = Path(CONFIG_PATH)
-    if path.exists():
-        try:
-            return EmailSettings(json.loads(path.read_text(encoding="utf-8")))
-        except (ValueError, OSError):
-            pass
-    return EmailSettings({})
+    return EmailSettings(local_config.load())
 
 
 def send_email(settings: EmailSettings, to: str, cc: list[str],
@@ -72,3 +64,22 @@ def send_email(settings: EmailSettings, to: str, cc: list[str],
         return {"ok": True, "error": "", "simulated": False}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc), "simulated": False}
+
+
+def send_test(settings: EmailSettings, to: str | None = None) -> dict:
+    """Envia un correo de prueba REAL (ignora dry_run) para validar la
+    App Password. Por defecto se lo manda al propio remitente."""
+    if not settings.configured:
+        return {"ok": False, "simulated": False,
+                "error": ("Faltan 'gmail_sender' o 'gmail_app_password' en "
+                          "avisos.local.json")}
+    forced = EmailSettings({
+        "gmail_sender": settings.sender,
+        "gmail_app_password": settings.password,
+        "dry_run": False,
+    })
+    return send_email(
+        forced, to or settings.sender, [],
+        "DVIR Mailer — prueba de configuración",
+        "Si recibís este correo, el envío por Gmail quedó configurado "
+        "correctamente. ✅\n\n— DVIR Report Generator")

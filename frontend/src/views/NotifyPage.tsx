@@ -107,13 +107,20 @@ export default function NotifyPage() {
       {status && (
         <div className={`banner ${simulated ? 'warn' : ''}`}>
           <span>
-            {status.mode === 'offline'
-              ? '🧪 Modo demo: datos de ejemplo de tu planilla. '
-              : '🔗 Leyendo la planilla en vivo. '}
+            {status.mode === 'live'
+              ? `🔗 Leyendo en vivo: ${status.spreadsheet}. `
+              : '🧪 Modo demo: datos de ejemplo de tu planilla. '}
             {simulated
               ? 'Envío SIMULADO (no se mandan correos todavía).'
               : `Envío real activo como ${status.sender}.`}
           </span>
+        </div>
+      )}
+
+      {status?.live_error && (
+        <div className="banner error">
+          No se pudo leer la planilla en vivo (se usa el modo demo):{' '}
+          {status.live_error}
         </div>
       )}
 

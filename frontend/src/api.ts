@@ -300,6 +300,7 @@ export interface NotifyBlock {
 export interface NotifyBlocksResponse {
   mode: string
   spreadsheet: string | null
+  live_error: string
   gmail_configured: boolean
   dry_run: boolean
   sender: string
