@@ -51,7 +51,8 @@ reportados en los DVIR, filtrables por empresa, estado y unidad.
 - **NO DVIR** = un camión que aparece en el CSV de actividad por encima
   del umbral de millas pero sin DVIR de camión ese día. El conductor se
   toma del roster.
-- Las columnas `DOT Issues` y `Fullbay` se rellenan siempre con `YES`.
+- **Distance (mi)** = millas recorridas por el camión ese día según el
+  CSV de actividad (`0.0` si la unidad no aparece).
 
 ## Estructura del proyecto
 
