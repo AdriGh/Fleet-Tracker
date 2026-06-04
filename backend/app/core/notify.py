@@ -124,6 +124,8 @@ When a driver receives a violation(s) on an inspection, this greatly affects the
 
 As a result of not turning in a DVIR, you will be fined $100 for this.  This will be deducted from your next settlement check.  Any further infraction of this policy will result in termination.  No exceptions.  As stated, we will not keep a driver on the fleet that is not doing what they are required to do.
 
+If you have any questions, comments, thoughts, or issues with regards to Samsara, HOS, logs, or DVIR's, please reach out to Ryan Andrews at 773-765-8798.
+
 Your time and cooperation in this matter is greatly appreciated......DRIVE SAFE!!!!!
 
 Sincerely,
