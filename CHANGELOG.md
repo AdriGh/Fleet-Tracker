@@ -7,6 +7,12 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.7.1] - 2026-06-04
+
+### Cambiado
+- Plantilla del aviso: «it is a DOT REQUIREMENT» pasa a «it is a Company
+  requirement».
+
 ## [0.7.0] - 2026-06-04
 
 ### Añadido
