@@ -7,6 +7,21 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.8.0] - 2026-06-04
+
+### Cambiado
+- Pestaña «Defectos» rediseñada como **panel**: tarjetas KPI (registros,
+  Unsafe abiertos, resueltos, % resuelto, unidad más afectada); gráficos SVG
+  propios (desglose por estado, tendencia diaria, tipo de defecto); rankings
+  de top unidades y conductores (click para filtrar); y tabla **«Resumen por
+  unidad»** consolidada —una fila por unidad, sin duplicados—, **ordenable**
+  por unidad/empresa/defectos, con **selector de día / Global** y **export**
+  (copiar y CSV). Los análisis se centran en incidencias (Unsafe + Resolved);
+  el conteo de defectos por unidad usa defectos distintos.
+- Gráfico de tendencia del **Panel DVIR**: ahora **barras legibles con el
+  número por día** (incidencias NO DVIR + Unsafe), en vez de la combinación
+  línea de % + barras apiladas.
+
 ## [0.7.1] - 2026-06-04
 
 ### Cambiado
