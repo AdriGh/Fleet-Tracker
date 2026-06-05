@@ -26,6 +26,8 @@ DUR_LOW = ("FFFFC7CE", "FF9C0006")             # duracion < 15 min / mal
 DUR_HIGH = ("FFC6EFCE", "FF276221")            # duracion >= 15 min / ok
 DUR_THRESHOLD = MIN_DURATION_SECONDS           # segundos (15 min)
 DUR_COLS = ("Duration trk", "Duration trl")
+# Columnas que llevan el mismo formato que las celdas vacias (relleno azul).
+BLUE_COLS = ("Trl#", "Distance (mi)")
 # Indices 1-based de las columnas del lado del camion
 # (Trk#, DVIR trk, Duration trk, Distance (mi)).
 TRUCK_COLS = (3, 4, 7, 9)
@@ -35,7 +37,7 @@ _THIN = Side(style="thin", color="D9D9D9")
 _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 _CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 _HEADER_FILL = PatternFill("solid", fgColor=HEADER_FILL)
-_HEADER_FONT = Font(name="Calibri", size=12, bold=True,
+_HEADER_FONT = Font(name="Calibri", size=15, bold=True,
                     color=HEADER_FONT_COLOR)
 
 
@@ -73,11 +75,16 @@ def _write_block(ws, start_row, date_label, groups):
                 cell = ws.cell(row=row, column=col, value=value)
                 cell.alignment = _CENTER
                 cell.border = _BORDER
-                cell.font = Font(name="Calibri", size=11)
-                if value == "-":
+                cell.font = Font(name="Calibri", size=15)
+                if name in BLUE_COLS:
+                    # Trl# y Distance: mismo formato que las celdas vacias.
+                    cell.fill = PatternFill("solid", fgColor=DASH_FILL)
+                    cell.font = Font(name="Calibri", size=15,
+                                     color=DASH_FONT)
+                elif value == "-":
                     # Celda sin info: guion sobre relleno azul.
                     cell.fill = PatternFill("solid", fgColor=DASH_FILL)
-                    cell.font = Font(name="Calibri", size=11,
+                    cell.font = Font(name="Calibri", size=15,
                                      color=DASH_FONT)
                 elif name in DUR_COLS and value:
                     # Duracion: rojo < 15 min, verde >= 15 min.
@@ -85,7 +92,7 @@ def _write_block(ws, start_row, date_label, groups):
                         DUR_LOW if parse_duration(value) < DUR_THRESHOLD
                         else DUR_HIGH)
                     cell.fill = PatternFill("solid", fgColor=fill)
-                    cell.font = Font(name="Calibri", size=11, bold=True,
+                    cell.font = Font(name="Calibri", size=15, bold=True,
                                      color=font_color)
                 elif name in ("DVIR trk", "DVIR trl"):
                     style = None
@@ -95,8 +102,13 @@ def _write_block(ws, start_row, date_label, groups):
                         style = STATUS_STYLES[value]
                     if style:
                         cell.fill = PatternFill("solid", fgColor=style[0])
-                        cell.font = Font(name="Calibri", size=11, bold=True,
+                        cell.font = Font(name="Calibri", size=15, bold=True,
                                          color=style[1])
+            # NO DVIR: fusionar la celda "⚠ NO DVIR" de la D a la H (4-8).
+            if entry.get("DVIR trk") == NO_DVIR_TEXT:
+                ws.merge_cells(start_row=row, start_column=4,
+                               end_row=row, end_column=8)
+                ws.cell(row=row, column=4).alignment = _CENTER
             row += 1
         if row - group_start > 1:
             cols_to_merge = [2]

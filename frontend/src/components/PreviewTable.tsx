@@ -15,6 +15,12 @@ const TRUCK_SIDE = new Set([
 const STATUS_COLS = new Set(['DVIR trk', 'DVIR trl'])
 const DUR_COLS = new Set(['Duration trk', 'Duration trl'])
 const DUR_THRESHOLD = 900
+// Mismo formato que las celdas vacias (relleno azul).
+const BLUE_COLS = new Set(['Trl#', 'Distance (mi)'])
+// Columnas D..H que absorbe la celda "NO DVIR" al mergearse.
+const NODVIR_MERGE = new Set([
+  'Trl#', 'DVIR trl', 'Duration trk', 'Duration trl',
+])
 
 function statusClass(value: string): string {
   if (value.includes('NO DVIR')) return 'nodvir'
@@ -51,7 +57,9 @@ export default function PreviewTable({ columns, groups, dateLabel }: Props) {
             </tr>
           )}
           {groups.flatMap((group, gi) =>
-            group.rows.map((row, ri) => (
+            group.rows.map((row, ri) => {
+              const noDvir = String(row['DVIR trk'] ?? '').includes('NO DVIR')
+              return (
               <tr key={`${gi}-${ri}`}>
                 {columns.map((col) => {
                   const value = String(row[col] ?? '')
@@ -60,11 +68,15 @@ export default function PreviewTable({ columns, groups, dateLabel }: Props) {
 
                   // Celdas fusionadas: solo se pintan en la primera fila.
                   if ((mergedDriver || mergedTruck) && ri > 0) return null
+                  // NO DVIR: la celda "DVIR trk" se mergea de la D a la H.
+                  if (noDvir && NODVIR_MERGE.has(col)) return null
 
                   const rowSpan =
                     (mergedDriver || mergedTruck) && group.rows.length > 1
                       ? group.rows.length
                       : undefined
+                  const colSpan =
+                    noDvir && col === 'DVIR trk' ? 5 : undefined
 
                   const classes: string[] = []
                   if (col === 'Driver') classes.push('driver')
@@ -83,12 +95,13 @@ export default function PreviewTable({ columns, groups, dateLabel }: Props) {
                         : 'dur-high',
                     )
                   }
-                  if (value === '-') classes.push('dash')
+                  if (value === '-' || BLUE_COLS.has(col)) classes.push('dash')
 
                   return (
                     <td
                       key={col}
                       rowSpan={rowSpan}
+                      colSpan={colSpan}
                       className={classes.join(' ') || undefined}
                     >
                       {value}
@@ -96,7 +109,8 @@ export default function PreviewTable({ columns, groups, dateLabel }: Props) {
                   )
                 })}
               </tr>
-            )),
+              )
+            }),
           )}
         </tbody>
       </table>

@@ -7,6 +7,24 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.11.0] - 2026-06-05
+
+### Cambiado
+- **Formato del DVIR Report** (aplicado de forma consistente en los **3
+  lugares**: Excel descargado, «Copy day» al portapapeles y la vista previa
+  en la app):
+  - **Fuente tamaño 15** en todo (Excel/copia).
+  - **Todas las celdas centradas** vertical y horizontalmente (incluida la
+    columna Driver, que antes iba a la izquierda).
+  - Las filas **NO DVIR**: la celda «⚠ NO DVIR» se **fusiona de la columna D
+    a la H**.
+  - **Trl#** y **Distance (mi)** usan el mismo **relleno azulado** que las
+    celdas vacías con guion.
+
+### Añadido
+- Diagrama del camión: **vista superior (top-down)** con **toggle Top / Side**
+  (la lateral estilo Cascadia queda como alternativa).
+
 ## [0.10.2] - 2026-06-05
 
 ### Añadido
