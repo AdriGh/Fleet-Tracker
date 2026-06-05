@@ -6,6 +6,7 @@ Toma los grupos de un bloque diario (de `sheet_report.parse_blocks`) y el
     - review:  conductores infractores sin contacto/region que hay que revisar.
 """
 
+import html as _html
 from dataclasses import dataclass, field
 
 from .cc_routing import cc_for_region, region_from_truck
@@ -105,6 +106,14 @@ def build_notices(groups: list[Group], book: ContactBook,
 # --- Composicion del correo --------------------------------------------------
 DEFAULT_SUBJECT = "DVIR Compliance Notice — {date}"
 
+# Parrafo que debe ir en negrita en la version HTML del correo. Debe coincidir
+# EXACTAMENTE (incluido el apostrofo de "DVIR's") con la linea en DEFAULT_BODY.
+BOLD_PARAGRAPH = (
+    "If you have any questions, comments, thoughts, or issues with regards to "
+    "Samsara, HOS, logs, or DVIR's, please reach out to Ryan Andrews at "
+    "773-765-8798."
+)
+
 # Plantilla oficial (texto provisto por Safety/Maintenance). Placeholders:
 #   {driver}  nombre del conductor
 #   {date}    fecha del bloque (legible, p. ej. "June 1")
@@ -168,11 +177,30 @@ def _issues_en(reasons: list[dict]) -> str:
     return "\n".join(out)
 
 
+_BODY_FONT = "Arial, Helvetica, sans-serif"
+
+
+def _render_html(text: str) -> str:
+    """Convierte el cuerpo de texto plano en HTML, poniendo en negrita el
+    parrafo de contacto (Ryan Andrews). Preserva saltos y espacios con
+    `white-space: pre-wrap`."""
+    esc = _html.escape(text)
+    bold = _html.escape(BOLD_PARAGRAPH)
+    if bold in esc:
+        esc = esc.replace(bold, f"<strong>{bold}</strong>")
+    return (
+        f'<div style="white-space:pre-wrap;font-family:{_BODY_FONT};'
+        f'font-size:14px;line-height:1.45;color:#111">{esc}</div>'
+    )
+
+
 def render_email(notice: Notice, date_label: str,
                  subject_tpl: str = DEFAULT_SUBJECT,
-                 body_tpl: str = DEFAULT_BODY) -> tuple[str, str]:
-    """Devuelve (asunto, cuerpo) para un aviso."""
+                 body_tpl: str = DEFAULT_BODY) -> tuple[str, str, str]:
+    """Devuelve (asunto, cuerpo_texto, cuerpo_html) para un aviso."""
     date = _format_date(date_label)
     ctx = {"driver": _first_name(notice.driver), "date": date,
            "issues": _issues_en(notice.reasons)}
-    return subject_tpl.format(**ctx), body_tpl.format(**ctx)
+    subject = subject_tpl.format(**ctx)
+    text = body_tpl.format(**ctx)
+    return subject, text, _render_html(text)

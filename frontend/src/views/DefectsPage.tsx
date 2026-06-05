@@ -5,7 +5,7 @@ import RankBars from '../components/RankBars'
 import StatusDonut from '../components/StatusDonut'
 import DefectsTrendChart from '../components/DefectsTrendChart'
 import TruckDiagram from '../components/TruckDiagram'
-import { zoneOfCategory, type ZoneId } from '../truckZones'
+import { zoneOfCategory, type Kind, type ZoneId } from '../truckZones'
 
 const COMPANIES = ['CHASER', 'MCC']
 const STATUSES = ['Unsafe', 'Resolved', 'Safe']
@@ -65,7 +65,7 @@ interface DefectGroup {
   zone: ZoneId | null
   count: number
 }
-function analyzeUnit(records: Defect[]): {
+function analyzeUnit(records: Defect[], kind: Kind): {
   groups: DefectGroup[]
   zones: Record<string, number>
 } {
@@ -75,7 +75,7 @@ function analyzeUnit(records: Defect[]): {
     for (const raw of items(d.detail)) {
       if (isNoise(raw)) continue
       const cat = categoryOf(raw)
-      const zone = zoneOfCategory(cat)
+      const zone = zoneOfCategory(cat, kind)
       const key = normKey(raw)
       let g = map.get(key)
       if (!g) {
@@ -155,8 +155,9 @@ function downloadCSV(m: Cell[][], name = 'defectos.csv') {
 // (con su frecuencia) a la izquierda y un diagrama del camión por zonas a la
 // derecha (rojo = con defectos, verde = sin defectos).
 function UnitPanel({ row }: { row: UnitRow }) {
+  const kind: Kind = row.kind === 'trailer' ? 'trailer' : 'truck'
   const { groups, zones } = useMemo(
-    () => analyzeUnit(row.records), [row.records])
+    () => analyzeUnit(row.records, kind), [row.records, kind])
   const totalRep = groups.reduce((s, g) => s + g.count, 0)
 
   return (
@@ -194,7 +195,10 @@ function UnitPanel({ row }: { row: UnitRow }) {
       </div>
 
       <div className="unit-panel-truck">
-        <TruckDiagram zones={zones} />
+        <TruckDiagram zones={zones} kind={kind} />
+        <span className="truck-kind-tag">
+          {kind === 'trailer' ? 'Tráiler' : 'Camión'} · {row.unit}
+        </span>
       </div>
     </div>
   )

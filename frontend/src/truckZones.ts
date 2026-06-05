@@ -1,7 +1,11 @@
 // Mapeo de categorías de defecto (prefijo antes de " - " en el detalle del DVIR)
-// a zonas físicas del camión, para colorear el diagrama y agrupar la lista.
+// a zonas físicas, según el tipo de unidad (camión / tráiler). El tractor y el
+// tráiler tienen zonas distintas: un tráiler no tiene motor ni parabrisas, y
+// sus "Doors" son las puertas traseras de carga, no la cabina.
 
-export type ZoneId =
+export type Kind = 'truck' | 'trailer'
+
+export type TruckZoneId =
   | 'engine'
   | 'glass'
   | 'lightsFront'
@@ -10,67 +14,86 @@ export type ZoneId =
   | 'tires'
   | 'brakes'
   | 'suspension'
-  | 'trailer'
 
-export interface Zone {
-  id: ZoneId
-  label: string
+export type TrailerZoneId =
+  | 'body'
+  | 'doors'
+  | 'lights'
+  | 'tires'
+  | 'brakes'
+  | 'suspension'
+  | 'landingGear'
+
+export type ZoneId = TruckZoneId | TrailerZoneId
+
+export const ZONE_LABEL: Record<ZoneId, string> = {
+  engine: 'Motor',
+  glass: 'Parabrisas / espejos',
+  lightsFront: 'Luces delanteras',
+  lightsRear: 'Luces traseras',
+  cab: 'Cabina / puertas',
+  tires: 'Neumáticos / llantas',
+  brakes: 'Frenos',
+  suspension: 'Suspensión',
+  body: 'Caja',
+  doors: 'Puertas traseras',
+  lights: 'Luces',
+  landingGear: 'Tren de aterrizaje',
 }
 
-export const ZONES: Zone[] = [
-  { id: 'engine', label: 'Motor' },
-  { id: 'glass', label: 'Parabrisas / espejos' },
-  { id: 'lightsFront', label: 'Luces delanteras' },
-  { id: 'lightsRear', label: 'Luces traseras' },
-  { id: 'cab', label: 'Cabina / puertas' },
-  { id: 'tires', label: 'Neumáticos / llantas' },
-  { id: 'brakes', label: 'Frenos' },
-  { id: 'suspension', label: 'Suspensión' },
-  { id: 'trailer', label: 'Tráiler / tren de rodaje' },
-]
+export const TRUCK_ZONES: { id: TruckZoneId; label: string }[] = [
+  'engine', 'glass', 'lightsFront', 'lightsRear',
+  'cab', 'tires', 'brakes', 'suspension',
+].map((id) => ({ id: id as TruckZoneId, label: ZONE_LABEL[id as ZoneId] }))
 
-export const ZONE_LABEL: Record<ZoneId, string> = ZONES.reduce(
-  (acc, z) => ((acc[z.id] = z.label), acc),
-  {} as Record<ZoneId, string>,
-)
+export const TRAILER_ZONES: { id: TrailerZoneId; label: string }[] = [
+  'body', 'doors', 'lights', 'tires', 'brakes', 'suspension', 'landingGear',
+].map((id) => ({ id: id as TrailerZoneId, label: ZONE_LABEL[id as ZoneId] }))
 
-// Categoría exacta (como aparece en el DVIR) → zona del camión.
-const CATEGORY_ZONE: Record<string, ZoneId> = {
+// Mapeo común para ambos tipos.
+const SHARED: Record<string, ZoneId> = {
+  Tires: 'tires',
+  'Wheels Rims': 'tires',
+  'Tire Chains': 'tires',
+  Brakes: 'brakes',
+  'Brake Connections': 'brakes',
+  'Air Lines': 'brakes',
+  Suspension: 'suspension',
+}
+
+const TRUCK_MAP: Record<string, ZoneId> = {
+  ...SHARED,
   Engine: 'engine',
   'Oil Pressure': 'engine',
   'Fluid Levels': 'engine',
   Exhaust: 'engine',
   Transmission: 'engine',
-
   'Windshield Clean, Intact': 'glass',
   'Windshield Wipers': 'glass',
   'Windshield Wiper Fluid': 'glass',
   Windows: 'glass',
   Mirrors: 'glass',
-
   'Lights, Front': 'lightsFront',
   Lights: 'lightsFront',
-
   'Lights, Rear': 'lightsRear',
   Reflectors: 'lightsRear',
-
   Doors: 'cab',
   'Air Conditioner': 'cab',
-
-  Tires: 'tires',
-  'Wheels Rims': 'tires',
-  'Tire Chains': 'tires',
-
-  Brakes: 'brakes',
-  'Brake Connections': 'brakes',
-  'Air Lines': 'brakes',
-
-  Suspension: 'suspension',
-
-  'Landing Gear': 'trailer',
-  'Rear End': 'trailer',
 }
 
-export function zoneOfCategory(cat: string): ZoneId | null {
-  return CATEGORY_ZONE[cat] ?? null
+const TRAILER_MAP: Record<string, ZoneId> = {
+  ...SHARED,
+  Doors: 'doors', // puertas traseras de carga
+  'Landing Gear': 'landingGear',
+  'Rear End': 'body',
+  // El tráiler solo tiene luces traseras / de posición.
+  Lights: 'lights',
+  'Lights, Front': 'lights',
+  'Lights, Rear': 'lights',
+  Reflectors: 'lights',
+}
+
+export function zoneOfCategory(cat: string, kind: Kind): ZoneId | null {
+  const map = kind === 'trailer' ? TRAILER_MAP : TRUCK_MAP
+  return map[cat] ?? null
 }
