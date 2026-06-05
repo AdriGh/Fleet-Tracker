@@ -41,8 +41,11 @@ def load_settings() -> EmailSettings:
 
 
 def send_email(settings: EmailSettings, to: str, cc: list[str],
-               subject: str, body: str) -> dict:
-    """Envia (o simula) un correo. Devuelve {ok, error, simulated}."""
+               subject: str, body: str, html: str = "") -> dict:
+    """Envia (o simula) un correo. Devuelve {ok, error, simulated}.
+
+    Si `html` no esta vacio, el correo se manda como multipart/alternative:
+    texto plano (`body`) + version HTML (`html`)."""
     simulate = settings.dry_run or not settings.configured
     if simulate:
         return {"ok": True, "error": "", "simulated": True}
@@ -54,6 +57,8 @@ def send_email(settings: EmailSettings, to: str, cc: list[str],
         msg["Cc"] = ", ".join(cc)
     msg["Subject"] = subject
     msg.set_content(body)
+    if html:
+        msg.add_alternative(html, subtype="html")
 
     recipients = [to] + list(cc)
     try:

@@ -7,6 +7,21 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.9.1] - 2026-06-04
+
+### Cambiado
+- Diagrama del camión del panel por unidad **adaptado al tipo de unidad**:
+  vista lateral estilo **Freightliner Cascadia day-cab** (capó aerodinámico,
+  fairing de techo, parabrisas/espejo, tanque de combustible, escape,
+  guardabarros y mud flap) para los **camiones**, y caja de carga con puertas
+  traseras, tren de aterrizaje y tándem para los **tráilers**. Antes mostraba
+  siempre un tractor + tráiler.
+- Mapeo de defecto→zona **según el tipo**: en un tráiler «Doors» son las
+  **puertas traseras** (antes caían en «cabina»); el tráiler ya no muestra
+  motor/parabrisas/luces delanteras.
+- Correo de Avisos: ahora se envía como **multipart (texto + HTML)** y el
+  párrafo de contacto (Ryan Andrews) va en **negrita** en la versión HTML.
+
 ## [0.9.0] - 2026-06-04
 
 ### Añadido

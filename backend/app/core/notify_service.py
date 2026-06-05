@@ -11,7 +11,7 @@ from .sheet_report import parse_blocks
 
 
 def _notice_dict(n, date_label: str) -> dict:
-    subject, body = render_email(n, date_label)
+    subject, body, body_html = render_email(n, date_label)
     return {
         "driver": n.driver,
         "company": n.company,
@@ -23,6 +23,7 @@ def _notice_dict(n, date_label: str) -> dict:
         "review_reason": n.review_reason,
         "subject": subject,
         "body": body,
+        "body_html": body_html,
     }
 
 
@@ -80,7 +81,7 @@ def send(sheet: str, date_label: str, drivers: list[str]) -> dict:
         if n["driver"] not in wanted:
             continue
         res = mailer.send_email(settings, n["email"], n["cc"],
-                                n["subject"], n["body"])
+                                n["subject"], n["body"], n["body_html"])
         results.append({
             "driver": n["driver"],
             "to": n["email"],
