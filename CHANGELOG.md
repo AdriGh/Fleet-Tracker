@@ -7,6 +7,12 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.10.1] - 2026-06-05
+
+### Cambiado
+- `launch.bat`: textos de marca renombrados de «DVIR Report Generator» a
+  **«Fleet Tracker»** (banner de consola y título de la ventana del servidor).
+
 ## [0.10.0] - 2026-06-05
 
 ### Cambiado

@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 echo ============================================
-echo   DVIR Report Generator
+echo   Fleet Tracker
 echo ============================================
 
 REM --- Backend: dependencias de Python ---
@@ -23,7 +23,7 @@ if not exist "frontend\dist\index.html" (
 )
 
 REM --- Arrancar el servidor en segundo plano ---
-start "DVIR Report Generator - servidor" /min cmd /c ^
+start "Fleet Tracker - servidor" /min cmd /c ^
   "cd /d "%~dp0backend" && py -m uvicorn app.main:app --host 127.0.0.1 --port 8765"
 
 REM --- Esperar a que el servidor responda ---
