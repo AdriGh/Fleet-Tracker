@@ -1751,3 +1751,96 @@ td.dur-high {
   white-space: nowrap;
 }
 .defects-table th.sortable:hover { color: var(--text); }
+
+/* ---------- Fila de unidad clickeable + panel desplegable -------- */
+.unit-row { cursor: pointer; transition: background .12s; }
+.unit-row:hover { background: var(--surface-2); }
+.unit-row.open { background: var(--surface-2); }
+.unit-cell { display: flex; align-items: flex-start; gap: 6px; }
+.row-chevron {
+  width: 15px; height: 15px; margin-top: 2px; flex: none;
+  color: var(--text-muted);
+  transition: transform .15s;
+}
+.unit-row.open .row-chevron { transform: rotate(90deg); color: var(--accent); }
+.more-hint {
+  display: block; margin-top: 4px;
+  font-size: 11px; color: var(--text-muted);
+}
+
+.unit-detail-row td { padding: 0 !important; border-bottom: 1px solid var(--border); }
+.unit-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 460px);
+  gap: 22px;
+  padding: 18px 14px;
+  background: var(--surface-2);
+}
+@media (max-width: 880px) {
+  .unit-panel { grid-template-columns: 1fr; }
+}
+
+.up-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.up-head h3 { margin: 0; font-size: 14px; }
+.up-head .sub { font-size: 11.5px; color: var(--text-muted); }
+
+.defect-groups {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: 320px; overflow-y: auto;
+}
+.defect-group {
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 6px 8px; border-radius: 7px;
+  font-size: 12.5px; line-height: 1.35;
+}
+.defect-group:nth-child(odd) { background: var(--surface); }
+.dg-dot {
+  width: 9px; height: 9px; margin-top: 4px; flex: none;
+  border-radius: 50%;
+  background: var(--danger);
+}
+.dg-dot.zone-other { background: var(--border-strong); }
+.dg-text { flex: 1; min-width: 0; }
+.dg-cat { font-weight: 700; }
+.dg-body { color: var(--text-muted); }
+.dg-count {
+  flex: none; align-self: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px; font-weight: 700;
+  color: var(--text-muted);
+  padding: 1px 7px; border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.dg-count.rep { color: var(--unsafe-fg); background: var(--unsafe-bg); border-color: transparent; }
+
+/* ---------- Diagrama del camión por zonas ------------------------ */
+.unit-panel-truck { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.truck-diagram { width: 100%; }
+.truck-svg { width: 100%; height: auto; display: block; }
+.truck-frame { stroke: var(--border-strong); stroke-width: 5; stroke-linecap: round; }
+.truck-rim { fill: var(--surface); stroke: var(--border-strong); stroke-width: 1.5; }
+
+.truck-zone .zfill { stroke-width: 1.6; transition: fill .15s; }
+.truck-zone.ok .zfill { fill: rgba(34, 160, 90, .16); stroke: rgba(34, 160, 90, .60); }
+.truck-zone.has .zfill { fill: rgba(214, 60, 48, .20); stroke: rgba(214, 60, 48, .72); }
+.truck-zone { cursor: help; }
+.truck-zone.has:hover .zfill { fill: rgba(214, 60, 48, .34); }
+.truck-zone.ok:hover .zfill { fill: rgba(34, 160, 90, .28); }
+
+.zone-badge circle { fill: var(--danger); }
+.zone-badge text {
+  fill: #fff; font-size: 11px; font-weight: 700;
+  text-anchor: middle; font-family: inherit;
+}
+
+.truck-legend {
+  list-style: none; margin: 10px 0 0; padding: 0;
+  display: flex; gap: 18px; justify-content: center;
+  font-size: 11.5px; color: var(--text-muted);
+}
+.truck-legend li { display: flex; align-items: center; gap: 6px; }
+.lg-swatch { width: 13px; height: 13px; border-radius: 3px; border: 1.5px solid; }
+.sw-has { background: rgba(214, 60, 48, .20); border-color: rgba(214, 60, 48, .72); }
+.sw-ok { background: rgba(34, 160, 90, .16); border-color: rgba(34, 160, 90, .60); }

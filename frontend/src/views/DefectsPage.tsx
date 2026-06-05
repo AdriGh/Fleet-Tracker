@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { listDefects, type Defect } from '../api'
 import StatCard from '../components/StatCard'
 import RankBars from '../components/RankBars'
 import StatusDonut from '../components/StatusDonut'
 import DefectsTrendChart from '../components/DefectsTrendChart'
+import TruckDiagram from '../components/TruckDiagram'
+import { zoneOfCategory, type ZoneId } from '../truckZones'
 
 const COMPANIES = ['CHASER', 'MCC']
 const STATUSES = ['Unsafe', 'Resolved', 'Safe']
@@ -40,6 +42,55 @@ function statusTone(s: string) {
   return s === 'Safe' ? 'safe' : s === 'Resolved' ? 'resolved' : 'unsafe'
 }
 
+// Ruido del DVIR que no es un defecto real (re-reportes sin cambios).
+const NOISE =
+  /^(previous inspection|nothing\s*(has\s*)?chang|same(\s|$|,|\.)|no\s*chang|still the same|everything still|all (still )?the same|same as before|same issues|same status)/i
+function bodyOf(item: string): string {
+  const i = item.indexOf(' - ')
+  return (i > 0 ? item.slice(i + 3) : item).trim()
+}
+function isNoise(item: string): boolean {
+  return NOISE.test(bodyOf(item))
+}
+function normKey(item: string): string {
+  return item.toLowerCase().replace(/\s+/g, ' ').replace(/[.,;]+$/, '').trim()
+}
+
+// Agrupa los defectos repetidos de una unidad y cuenta cuántas veces se reportó
+// cada uno; además acumula la cantidad por zona del camión.
+interface DefectGroup {
+  text: string
+  body: string
+  category: string
+  zone: ZoneId | null
+  count: number
+}
+function analyzeUnit(records: Defect[]): {
+  groups: DefectGroup[]
+  zones: Record<string, number>
+} {
+  const map = new Map<string, DefectGroup>()
+  const zones: Record<string, number> = {}
+  for (const d of records)
+    for (const raw of items(d.detail)) {
+      if (isNoise(raw)) continue
+      const cat = categoryOf(raw)
+      const zone = zoneOfCategory(cat)
+      const key = normKey(raw)
+      let g = map.get(key)
+      if (!g) {
+        g = { text: raw, body: bodyOf(raw), category: cat, zone, count: 0 }
+        map.set(key, g)
+      }
+      g.count++
+      if (zone) zones[zone] = (zones[zone] ?? 0) + 1
+    }
+  const groups = [...map.values()].sort(
+    (a, b) => b.count - a.count || a.text.localeCompare(b.text),
+  )
+  return { groups, zones }
+}
+
 // Consolidación por unidad
 interface UnitRow {
   unit: string
@@ -49,28 +100,31 @@ interface UnitRow {
   status: Record<string, number>
   defects: string[]
   count: number
+  records: Defect[]
 }
 function consolidate(defs: Defect[]): UnitRow[] {
   const m = new Map<string, {
     unit: string; kind: string; company: string
     drivers: Set<string>; status: Record<string, number>; items: Set<string>
+    records: Defect[]
   }>()
   for (const d of defs) {
     const k = d.unit || '—'
     let e = m.get(k)
     if (!e) {
       e = { unit: k, kind: d.unit_kind, company: d.company,
-        drivers: new Set(), status: {}, items: new Set() }
+        drivers: new Set(), status: {}, items: new Set(), records: [] }
       m.set(k, e)
     }
     if (d.driver) e.drivers.add(d.driver)
     e.status[d.status] = (e.status[d.status] ?? 0) + 1
     for (const it of items(d.detail)) e.items.add(it)
+    e.records.push(d)
   }
   return [...m.values()].map((e) => ({
     unit: e.unit, kind: e.kind, company: e.company,
     drivers: [...e.drivers], status: e.status,
-    defects: [...e.items], count: e.items.size,
+    defects: [...e.items], count: e.items.size, records: e.records,
   }))
 }
 
@@ -95,6 +149,55 @@ function downloadCSV(m: Cell[][], name = 'defectos.csv') {
   a.download = name
   a.click()
   URL.revokeObjectURL(url)
+}
+
+// Panel ancho que se despliega al hacer clic en una unidad: defectos agrupados
+// (con su frecuencia) a la izquierda y un diagrama del camión por zonas a la
+// derecha (rojo = con defectos, verde = sin defectos).
+function UnitPanel({ row }: { row: UnitRow }) {
+  const { groups, zones } = useMemo(
+    () => analyzeUnit(row.records), [row.records])
+  const totalRep = groups.reduce((s, g) => s + g.count, 0)
+
+  return (
+    <div className="unit-panel">
+      <div className="unit-panel-defects">
+        <div className="up-head">
+          <h3>Defectos reportados</h3>
+          <span className="sub">
+            {groups.length} distintos · {totalRep} reportes
+          </span>
+        </div>
+        {groups.length === 0 ? (
+          <div className="empty mini">
+            <p>Sin defectos reales (solo re-inspecciones sin cambios).</p>
+          </div>
+        ) : (
+          <ul className="defect-groups">
+            {groups.map((g, i) => (
+              <li key={i} className="defect-group">
+                <span
+                  className={`dg-dot zone-${g.zone ?? 'other'}`}
+                  title={g.zone ? undefined : 'Sin zona asignada'}
+                />
+                <span className="dg-text">
+                  <span className="dg-cat">{g.category}</span>
+                  {g.body && <span className="dg-body"> — {g.body}</span>}
+                </span>
+                <span className={`dg-count${g.count > 1 ? ' rep' : ''}`}>
+                  ×{g.count}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="unit-panel-truck">
+        <TruckDiagram zones={zones} />
+      </div>
+    </div>
+  )
 }
 
 export default function DefectsPage() {
@@ -386,41 +489,60 @@ export default function DefectsPage() {
                 <tbody>
                   {sortedRows.map((r) => {
                     const open = expanded.has(r.unit)
-                    const shown = open ? r.defects : r.defects.slice(0, 3)
+                    const shown = r.defects.slice(0, 3)
                     return (
-                      <tr key={r.unit}>
-                        <td>
-                          <span className="unit-code">{r.unit}</span>
-                          <span className="unit-kind">
-                            {r.kind === 'trailer' ? 'tráiler' : 'camión'}
-                          </span>
-                        </td>
-                        <td>{r.company}</td>
-                        <td>{r.drivers.join(', ') || '—'}</td>
-                        <td>
-                          <span className="status-cell">
-                            {STATUSES.map((s) => (r.status[s] ? (
-                              <span key={s}
-                                className={`status-pill ${statusTone(s)}`}>
-                                {s} <em>{r.status[s]}</em>
+                      <Fragment key={r.unit}>
+                        <tr
+                          className={`unit-row${open ? ' open' : ''}`}
+                          onClick={() => toggle(r.unit)}
+                        >
+                          <td>
+                            <span className="unit-cell">
+                              <svg className="row-chevron" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" strokeWidth="2.4"
+                                strokeLinecap="round" strokeLinejoin="round">
+                                <path d="m9 18 6-6-6-6" />
+                              </svg>
+                              <span>
+                                <span className="unit-code">{r.unit}</span>
+                                <span className="unit-kind">
+                                  {r.kind === 'trailer' ? 'tráiler' : 'camión'}
+                                </span>
                               </span>
-                            ) : null))}
-                          </span>
-                        </td>
-                        <td className="num strong">{r.count}</td>
-                        <td className="defect-detail">
-                          <ul className="defect-items">
-                            {shown.map((it, k) => <li key={k}>{it}</li>)}
-                          </ul>
-                          {r.defects.length > 3 && (
-                            <button className="link-btn"
-                              onClick={() => toggle(r.unit)}>
-                              {open ? 'ver menos'
-                                : `+${r.defects.length - 3} más`}
-                            </button>
-                          )}
-                        </td>
-                      </tr>
+                            </span>
+                          </td>
+                          <td>{r.company}</td>
+                          <td>{r.drivers.join(', ') || '—'}</td>
+                          <td>
+                            <span className="status-cell">
+                              {STATUSES.map((s) => (r.status[s] ? (
+                                <span key={s}
+                                  className={`status-pill ${statusTone(s)}`}>
+                                  {s} <em>{r.status[s]}</em>
+                                </span>
+                              ) : null))}
+                            </span>
+                          </td>
+                          <td className="num strong">{r.count}</td>
+                          <td className="defect-detail">
+                            <ul className="defect-items">
+                              {shown.map((it, k) => <li key={k}>{it}</li>)}
+                            </ul>
+                            {r.defects.length > 3 && (
+                              <span className="more-hint">
+                                +{r.defects.length - 3} más · clic para ver
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                        {open && (
+                          <tr className="unit-detail-row">
+                            <td colSpan={6}>
+                              <UnitPanel row={r} />
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     )
                   })}
                 </tbody>
