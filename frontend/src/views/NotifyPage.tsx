@@ -96,10 +96,10 @@ export default function NotifyPage() {
     <div className="page">
       <div className="page-head">
         <div>
-          <h1>Avisos de NO DVIR</h1>
+          <h1>NO DVIR Notices</h1>
           <p className="page-sub">
-            Detecta NO DVIR y DVIR &lt; 15 min, y manda el aviso al conductor
-            con copia a su terminal.
+            Detects NO DVIR and DVIR &lt; 15 min, and sends the notice to the
+            driver with a copy to their terminal.
           </p>
         </div>
       </div>
@@ -108,18 +108,18 @@ export default function NotifyPage() {
         <div className={`banner ${simulated ? 'warn' : ''}`}>
           <span>
             {status.mode === 'live'
-              ? `🔗 Leyendo en vivo: ${status.spreadsheet}. `
-              : '🧪 Modo demo: datos de ejemplo de tu planilla. '}
+              ? `🔗 Reading live: ${status.spreadsheet}. `
+              : '🧪 Demo mode: sample data from your spreadsheet. '}
             {simulated
-              ? 'Envío SIMULADO (no se mandan correos todavía).'
-              : `Envío real activo como ${status.sender}.`}
+              ? 'SIMULATED sending (no emails are sent yet).'
+              : `Live sending active as ${status.sender}.`}
           </span>
         </div>
       )}
 
       {status?.live_error && (
         <div className="banner error">
-          No se pudo leer la planilla en vivo (se usa el modo demo):{' '}
+          Could not read the live spreadsheet (using demo mode):{' '}
           {status.live_error}
         </div>
       )}
@@ -129,7 +129,7 @@ export default function NotifyPage() {
       <div className="card">
         <div className="card-body avisos-controls">
           <label>
-            Empresa
+            Company
             <select
               value={sheet}
               onChange={(e) => {
@@ -148,7 +148,7 @@ export default function NotifyPage() {
             </select>
           </label>
           <label>
-            Día
+            Day
             <select value={date} onChange={(e) => setDate(e.target.value)}>
               {dateOptions.map((d) => (
                 <option key={d} value={d}>
@@ -162,7 +162,7 @@ export default function NotifyPage() {
             onClick={runScan}
             disabled={loading || !sheet || !date}
           >
-            {loading ? 'Escaneando…' : 'Escanear'}
+            {loading ? 'Scanning…' : 'Scan'}
           </button>
         </div>
       </div>
@@ -172,14 +172,14 @@ export default function NotifyPage() {
           <div className="avisos-main">
             <div className="card">
               <div className="card-head">
-                <h2>A enviar ({scan.notices.length})</h2>
+                <h2>To send ({scan.notices.length})</h2>
                 <span className="sub">
-                  Seleccionados: {selected.size}
+                  Selected: {selected.size}
                 </span>
               </div>
               <div className="card-body">
                 {scan.notices.length === 0 ? (
-                  <p className="empty">Ningún aviso para enviar.</p>
+                  <p className="empty">No notices to send.</p>
                 ) : (
                   <table className="avisos-table">
                     <thead>
@@ -191,11 +191,11 @@ export default function NotifyPage() {
                             onChange={toggleAll}
                           />
                         </th>
-                        <th>Conductor</th>
+                        <th>Driver</th>
                         <th>Email</th>
                         <th>Terminal</th>
                         <th>CC</th>
-                        <th>Unidades</th>
+                        <th>Units</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -232,16 +232,16 @@ export default function NotifyPage() {
             {scan.review.length > 0 && (
               <div className="card">
                 <div className="card-head">
-                  <h2>A revisar ({scan.review.length})</h2>
-                  <span className="sub">No se envían hasta corregir</span>
+                  <h2>To review ({scan.review.length})</h2>
+                  <span className="sub">Not sent until corrected</span>
                 </div>
                 <div className="card-body">
                   <table className="avisos-table review">
                     <thead>
                       <tr>
-                        <th>Conductor</th>
-                        <th>Motivo</th>
-                        <th>Unidades</th>
+                        <th>Driver</th>
+                        <th>Reason</th>
+                        <th>Units</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -265,10 +265,10 @@ export default function NotifyPage() {
                 disabled={sending || selected.size === 0}
               >
                 {sending
-                  ? 'Enviando…'
+                  ? 'Sending…'
                   : simulated
-                    ? `Enviar ${selected.size} (simulado)`
-                    : `Enviar ${selected.size}`}
+                    ? `Send ${selected.size} (simulated)`
+                    : `Send ${selected.size}`}
               </button>
             </div>
 
@@ -277,14 +277,14 @@ export default function NotifyPage() {
                 <div>
                   <strong>
                     {sendResult.dry_run
-                      ? 'Simulación completada'
-                      : 'Envío completado'}
+                      ? 'Simulation completed'
+                      : 'Sending completed'}
                   </strong>
                   <ul>
                     {sendResult.results.map((r) => (
                       <li key={r.driver}>
                         {r.ok ? '✅' : '❌'} {r.driver} → {r.to}
-                        {r.simulated ? ' (simulado)' : ''}
+                        {r.simulated ? ' (simulated)' : ''}
                         {r.error ? ` — ${r.error}` : ''}
                       </li>
                     ))}
@@ -296,13 +296,13 @@ export default function NotifyPage() {
 
           <aside className="card avisos-preview">
             <div className="card-head">
-              <h2>Vista previa</h2>
+              <h2>Preview</h2>
             </div>
             <div className="card-body">
               {focused ? (
                 <>
                   <div className="prev-row">
-                    <span>Para</span>
+                    <span>To</span>
                     <span className="mono">{focused.email || '—'}</span>
                   </div>
                   <div className="prev-row">
@@ -310,13 +310,13 @@ export default function NotifyPage() {
                     <span className="mono">{focused.cc.join(', ') || '—'}</span>
                   </div>
                   <div className="prev-row">
-                    <span>Asunto</span>
+                    <span>Subject</span>
                     <span>{focused.subject}</span>
                   </div>
                   <pre className="prev-body">{focused.body}</pre>
                 </>
               ) : (
-                <p className="empty">Elegí un conductor para ver el correo.</p>
+                <p className="empty">Select a driver to view the email.</p>
               )}
             </div>
           </aside>

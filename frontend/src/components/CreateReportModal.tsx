@@ -55,7 +55,7 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
       )
     } catch (err) {
       setAnalysis(null)
-      setError(err instanceof Error ? err.message : 'Error al analizar')
+      setError(err instanceof Error ? err.message : 'Error analyzing')
     } finally {
       setAnalyzing(false)
     }
@@ -88,14 +88,14 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
       setResult(res)
       onCreated()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al generar')
+      setError(err instanceof Error ? err.message : 'Error generating')
     } finally {
       setGenerating(false)
     }
   }
 
   return (
-    <Modal title="Crear DVIR Report" onClose={onClose} width={760}>
+    <Modal title="Create DVIR Report" onClose={onClose} width={760}>
       {result ? (
         <div className="create-result">
           {result.warnings.length > 0 && (
@@ -118,7 +118,7 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
               <div className="stat" key={s.sheet_name}>
                 <div className="stat-val">{s.blocks}</div>
                 <div className="stat-label">
-                  {s.sheet_name} · {s.drivers} conductores · {s.no_dvir} NO
+                  {s.sheet_name} · {s.drivers} drivers · {s.no_dvir} NO
                   DVIR
                 </div>
               </div>
@@ -132,10 +132,10 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
                 <path d="M7 10l5 5 5-5" />
                 <path d="M12 15V3" />
               </svg>
-              Descargar {result.filename}
+              Download {result.filename}
             </a>
             <button className="btn btn-ghost" onClick={onClose}>
-              Cerrar
+              Close
             </button>
           </div>
         </div>
@@ -172,22 +172,22 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
               <path d="M12 3v12" />
             </svg>
             {analyzing ? (
-              <span className="dz-label">Analizando…</span>
+              <span className="dz-label">Analyzing…</span>
             ) : analysis ? (
               <>
                 <span className="dz-file">
-                  {analysis.files.length} archivos · {dvirFiles.length} DVIR
-                  · {activityFiles.length} actividad
+                  {analysis.files.length} files · {dvirFiles.length} DVIR
+                  · {activityFiles.length} activity
                 </span>
-                <span className="dz-hint">Clic para sustituirlos</span>
+                <span className="dz-hint">Click to replace them</span>
               </>
             ) : (
               <>
                 <span className="dz-label">
-                  Arrastra los CSV de DVIR y de actividad
+                  Drag the DVIR and activity CSVs
                 </span>
                 <span className="dz-hint">
-                  Uno o varios días · ambas empresas · solo .csv
+                  One or more days · both companies · .csv only
                 </span>
               </>
             )}
@@ -223,17 +223,17 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
           {analysis && (
             <>
               <p className="modal-note">
-                Revisa el emparejado. El <strong>tag del día</strong> es
-                editable en cada fila.
+                Review the pairing. The <strong>day tag</strong> is
+                editable on each row.
               </p>
               <div className="table-wrap" style={{ marginTop: 6 }}>
                 <table className="batch-table">
                   <thead>
                     <tr>
-                      <th>Empresa</th>
-                      <th>Día</th>
-                      <th>CSV de DVIR</th>
-                      <th>CSV de actividad</th>
+                      <th>Company</th>
+                      <th>Day</th>
+                      <th>DVIR CSV</th>
+                      <th>Activity CSV</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -271,7 +271,7 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
                               update(i, { dvir_file_id: e.target.value })
                             }
                           >
-                            <option value="">— sin asignar —</option>
+                            <option value="">— unassigned —</option>
                             {dvirFiles.map((f) => (
                               <option key={f.file_id} value={f.file_id}>
                                 {f.name}
@@ -288,7 +288,7 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
                               })
                             }
                           >
-                            <option value="">— sin asignar —</option>
+                            <option value="">— unassigned —</option>
                             {activityFiles.map((f) => (
                               <option key={f.file_id} value={f.file_id}>
                                 {f.name}
@@ -309,11 +309,11 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
                   onClick={handleGenerate}
                 >
                   {generating && <span className="spin" />}
-                  {generating ? 'Generando…' : 'Crear DVIR Report'}
+                  {generating ? 'Generating…' : 'Create DVIR Report'}
                 </button>
                 {!complete && (
                   <span className="field-hint">
-                    Completa empresa, día y los dos CSV de cada fila.
+                    Complete company, day and both CSVs for each row.
                   </span>
                 )}
               </div>

@@ -1,7 +1,7 @@
 interface Segment {
   label: string
   value: number
-  tone: 'ok' | 'danger' | 'warn' | 'safe'
+  tone: 'ok' | 'danger' | 'warn' | 'safe' | 'info'
 }
 
 interface Props {
@@ -20,7 +20,7 @@ export default function StatusDonut({
 }: Props) {
   const total = segments.reduce((s, x) => s + x.value, 0)
   if (total === 0) {
-    return <div className="empty mini"><p>Sin datos para el desglose.</p></div>
+    return <div className="empty mini"><p>No data for the breakdown.</p></div>
   }
 
   let offset = 0
@@ -57,13 +57,23 @@ export default function StatusDonut({
         <text x="75" y="92" className="donut-cap">{centerLabel}</text>
       </svg>
       <ul className="donut-legend">
-        {segments.map((s) => (
-          <li key={s.label}>
-            <span className={`dot dot-${s.tone}`} />
-            {s.label}
-            <strong>{s.value}</strong>
-          </li>
-        ))}
+        {segments.map((s) => {
+          const pct = total ? Math.round((s.value / total) * 100) : 0
+          return (
+            <li key={s.label}>
+              <span className="lg-row">
+                <span className={`dot dot-${s.tone}`} />
+                <span className="lg-label">{s.label}</span>
+                <strong>{s.value}</strong>
+                <span className="lg-pct">{pct}%</span>
+              </span>
+              <span className="lg-bar">
+                <span className={`lg-fill fill-${s.tone}`}
+                  style={{ width: `${pct}%` }} />
+              </span>
+            </li>
+          )
+        })}
       </ul>
     </div>
   )

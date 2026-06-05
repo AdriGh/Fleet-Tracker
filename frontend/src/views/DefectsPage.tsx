@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { listDefects, type Defect } from '../api'
+import { listDefects, listOpenDefects, type Defect } from '../api'
 import StatCard from '../components/StatCard'
 import RankBars from '../components/RankBars'
 import StatusDonut from '../components/StatusDonut'
@@ -7,7 +7,6 @@ import DefectsTrendChart from '../components/DefectsTrendChart'
 import TruckDiagram from '../components/TruckDiagram'
 import { zoneOfCategory, type Kind, type ZoneId } from '../truckZones'
 
-const COMPANIES = ['CHASER', 'MCC']
 const STATUSES = ['Unsafe', 'Resolved', 'Safe']
 
 // --- helpers ---------------------------------------------------------------
@@ -40,6 +39,13 @@ function topCounts(
 }
 function statusTone(s: string) {
   return s === 'Safe' ? 'safe' : s === 'Resolved' ? 'resolved' : 'unsafe'
+}
+function statusSummary(st: Record<string, number>): string {
+  if (st.Open) return `Open ${st.Open}`
+  return ['Unsafe', 'Resolved', 'Safe']
+    .filter((s) => st[s])
+    .map((s) => `${s} ${st[s]}`)
+    .join(' / ')
 }
 
 // Ruido del DVIR que no es un defecto real (re-reportes sin cambios).
@@ -138,7 +144,7 @@ async function copyMatrix(m: Cell[][]) {
     .join('\n')
   await navigator.clipboard.writeText(tsv)
 }
-function downloadCSV(m: Cell[][], name = 'defectos.csv') {
+function downloadCSV(m: Cell[][], name = 'defects.csv') {
   const csv = m
     .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
     .join('\n')
@@ -164,14 +170,14 @@ function UnitPanel({ row }: { row: UnitRow }) {
     <div className="unit-panel">
       <div className="unit-panel-defects">
         <div className="up-head">
-          <h3>Defectos reportados</h3>
+          <h3>Reported defects</h3>
           <span className="sub">
-            {groups.length} distintos · {totalRep} reportes
+            {groups.length} distinct · {totalRep} reports
           </span>
         </div>
         {groups.length === 0 ? (
           <div className="empty mini">
-            <p>Sin defectos reales (solo re-inspecciones sin cambios).</p>
+            <p>No real defects (only unchanged re-inspections).</p>
           </div>
         ) : (
           <ul className="defect-groups">
@@ -179,7 +185,7 @@ function UnitPanel({ row }: { row: UnitRow }) {
               <li key={i} className="defect-group">
                 <span
                   className={`dg-dot zone-${g.zone ?? 'other'}`}
-                  title={g.zone ? undefined : 'Sin zona asignada'}
+                  title={g.zone ? undefined : 'No zone assigned'}
                 />
                 <span className="dg-text">
                   <span className="dg-cat">{g.category}</span>
@@ -197,7 +203,7 @@ function UnitPanel({ row }: { row: UnitRow }) {
       <div className="unit-panel-truck">
         <TruckDiagram zones={zones} kind={kind} />
         <span className="truck-kind-tag">
-          {kind === 'trailer' ? 'Tráiler' : 'Camión'} · {row.unit}
+          {kind === 'trailer' ? 'Trailer' : 'Truck'} · {row.unit}
         </span>
       </div>
     </div>
@@ -206,11 +212,11 @@ function UnitPanel({ row }: { row: UnitRow }) {
 
 export default function DefectsPage() {
   const [all, setAll] = useState<Defect[]>([])
+  const [openDefs, setOpenDefs] = useState<Defect[]>([])
   const [company, setCompany] = useState('')
   const [status, setStatus] = useState('')
   const [driver, setDriver] = useState('')
   const [unit, setUnit] = useState('')
-  const [scopeDay, setScopeDay] = useState('') // '' = Global
   const [sortKey, setSortKey] = useState<SortKey>('count')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -221,12 +227,8 @@ export default function DefectsPage() {
     listDefects({})
       .then(setAll)
       .catch((e) => setError(e instanceof Error ? e.message : 'Error'))
+    listOpenDefects().then(setOpenDefs).catch(() => {})
   }, [])
-
-  const days = useMemo(() => {
-    const s = new Set(all.map((d) => d.date_label))
-    return [...s].sort((a, b) => dayKey(a) - dayKey(b))
-  }, [all])
 
   const filtered = useMemo(() => {
     const dq = driver.trim().toLowerCase()
@@ -279,21 +281,26 @@ export default function DefectsPage() {
 
   const statusSegments = useMemo(() => [
     { label: 'Unsafe', value: filtered.filter((d) => d.status === 'Unsafe').length, tone: 'danger' as const },
-    { label: 'Resolved', value: filtered.filter((d) => d.status === 'Resolved').length, tone: 'ok' as const },
-    { label: 'Safe', value: filtered.filter((d) => d.status === 'Safe').length, tone: 'safe' as const },
+    { label: 'Resolved', value: filtered.filter((d) => d.status === 'Resolved').length, tone: 'info' as const },
+    { label: 'Safe', value: filtered.filter((d) => d.status === 'Safe').length, tone: 'ok' as const },
   ], [filtered])
 
   const topUnits = useMemo(() => topCounts(issues, (d) => d.unit), [issues])
   const topDrivers = useMemo(
     () => topCounts(issues, (d) => d.driver), [issues])
 
-  // Tabla consolidada por unidad (respeta filtros + día elegido) + orden
-  const unitRows = useMemo(() => {
-    const scoped = scopeDay
-      ? filtered.filter((d) => d.date_label === scopeDay)
-      : filtered
-    return consolidate(scoped)
-  }, [filtered, scopeDay])
+  // Tabla "defectos abiertos": CHASER del histórico (DB) + MCC abiertos (CSV).
+  // Los MCC reemplazan al histórico; el resto queda como está.
+  const board = useMemo(
+    () => [...all.filter((d) => d.company !== 'MCC'), ...openDefs],
+    [all, openDefs])
+  const boardFiltered = useMemo(() => {
+    const uq = unit.trim().toLowerCase()
+    return board.filter((d) =>
+      (!company || d.company === company) &&
+      (!uq || d.unit.toLowerCase().includes(uq)))
+  }, [board, company, unit])
+  const unitRows = useMemo(() => consolidate(boardFiltered), [boardFiltered])
 
   const sortedRows = useMemo(() => {
     const dir = sortDir === 'asc' ? 1 : -1
@@ -306,13 +313,10 @@ export default function DefectsPage() {
   }, [unitRows, sortKey, sortDir])
 
   const tableMatrix = useMemo((): Cell[][] => {
-    const header = ['Unidad', 'Tipo', 'Empresa', 'Conductor(es)',
-      'Unsafe', 'Resolved', 'Safe', 'Defectos', 'Detalle']
+    const header = ['Unit', 'Type', 'Company', 'Status', 'Defects', 'Detail']
     const rows = sortedRows.map((r) => [
-      r.unit, r.kind === 'trailer' ? 'tráiler' : 'camión', r.company,
-      r.drivers.join(' / '),
-      r.status.Unsafe ?? 0, r.status.Resolved ?? 0, r.status.Safe ?? 0,
-      r.count, r.defects.join(' | '),
+      r.unit, r.kind === 'trailer' ? 'trailer' : 'truck', r.company,
+      statusSummary(r.status), r.count, r.defects.join(' | '),
     ])
     return [header, ...rows]
   }, [sortedRows])
@@ -347,19 +351,18 @@ export default function DefectsPage() {
     <div className="page">
       <div className="page-head">
         <div>
-          <h1>Defectos</h1>
+          <h1>Defects</h1>
           <p className="page-sub">
-            Panel de defectos reportados en los DVIR — incidencias, tendencia
-            y tipos.
+            Defects reported in DVIRs — incidents, trend and types.
           </p>
         </div>
         <div className="head-actions">
           <button className="btn btn-ghost" onClick={handleCopy}>
-            {copied ? 'Copiado ✓' : 'Copiar'}
+            {copied ? 'Copied ✓' : 'Copy'}
           </button>
           <button className="btn btn-primary"
             onClick={() => downloadCSV(tableMatrix)}>
-            Exportar CSV
+            Export CSV
           </button>
         </div>
       </div>
@@ -369,21 +372,17 @@ export default function DefectsPage() {
       {/* Filtros */}
       <div className="card">
         <div className="card-body filters-row">
-          <select value={company} onChange={(e) => setCompany(e.target.value)}>
-            <option value="">Todas las empresas</option>
-            {COMPANIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">Todos los estados</option>
+            <option value="">All statuses</option>
             {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
-          <input className="cell-input" placeholder="Conductor…"
+          <input className="cell-input" placeholder="Driver…"
             value={driver} onChange={(e) => setDriver(e.target.value)} />
-          <input className="cell-input" placeholder="Unidad…"
+          <input className="cell-input" placeholder="Unit…"
             value={unit} onChange={(e) => setUnit(e.target.value)} />
           {hasFilter && (
             <button className="btn btn-ghost" onClick={clearFilters}>
-              Limpiar
+              Clear
             </button>
           )}
         </div>
@@ -391,30 +390,30 @@ export default function DefectsPage() {
 
       {/* KPIs */}
       <div className="kpi-row">
-        <StatCard label="Registros" value={kpis.total} tone="accent"
-          sub={hasFilter ? 'filtrados' : 'en total'} />
-        <StatCard label="Unsafe (abiertos)" value={kpis.unsafe} tone="danger" />
-        <StatCard label="Resueltos" value={kpis.resolved} tone="ok" />
-        <StatCard label="% resuelto"
+        <StatCard label="Records" value={kpis.total} tone="accent"
+          sub={hasFilter ? 'filtered' : 'total'} />
+        <StatCard label="Unsafe (open)" value={kpis.unsafe} tone="danger" />
+        <StatCard label="Resolved" value={kpis.resolved} tone="info" />
+        <StatCard label="% resolved"
           value={kpis.pct === null ? '—' : `${kpis.pct}%`} tone="warn"
-          sub="de las incidencias" />
-        <StatCard label="Unidad más afectada"
+          sub="of incidents" />
+        <StatCard label="Most affected unit"
           value={kpis.topUnit?.label ?? '—'} tone="default"
-          sub={kpis.topUnit ? `${kpis.topUnit.value} incidencias` : ''} />
+          sub={kpis.topUnit ? `${kpis.topUnit.value} incidents` : ''} />
       </div>
 
       {/* Gráficos */}
       <div className="defects-stack">
         <section className="card">
-          <div className="card-head"><h2>Por estado</h2></div>
+          <div className="card-head"><h2>By status</h2></div>
           <div className="card-body">
             <StatusDonut segments={statusSegments} centerValue={kpis.total}
-              centerLabel="registros" />
+              centerLabel="records" />
           </div>
         </section>
 
         <section className="card">
-          <div className="card-head"><h2>Tendencia diaria</h2></div>
+          <div className="card-head"><h2>Daily trend</h2></div>
           <div className="card-body">
             <DefectsTrendChart days={byDay} />
           </div>
@@ -422,32 +421,32 @@ export default function DefectsPage() {
 
         <div className="defects-grid-3">
           <section className="card">
-            <div className="card-head"><h2>Por tipo de defecto</h2></div>
+            <div className="card-head"><h2>By defect type</h2></div>
             <div className="card-body">
               <RankBars items={byCategory} tone="mix"
-                emptyText="Sin tipos clasificados (excluye 'Other')." />
+                emptyText="No classified types (excludes 'Other')." />
             </div>
           </section>
 
           <section className="card">
             <div className="card-head">
-              <h2>Top unidades</h2>
-              <span className="sub">click para filtrar</span>
+              <h2>Top units</h2>
+              <span className="sub">click to filter</span>
             </div>
             <div className="card-body">
               <RankBars items={topUnits} tone="danger" onClick={setUnit}
-                emptyText="Sin incidencias." />
+                emptyText="No incidents." />
             </div>
           </section>
 
           <section className="card">
             <div className="card-head">
-              <h2>Top conductores</h2>
-              <span className="sub">click para filtrar</span>
+              <h2>Top drivers</h2>
+              <span className="sub">click to filter</span>
             </div>
             <div className="card-body">
               <RankBars items={topDrivers} tone="accent" onClick={setDriver}
-                emptyText="Sin incidencias." />
+                emptyText="No incidents." />
             </div>
           </section>
         </div>
@@ -456,38 +455,40 @@ export default function DefectsPage() {
       {/* Resumen por unidad */}
       <section className="card">
         <div className="card-head">
-          <h2>Resumen por unidad</h2>
-          <span className="sub">{sortedRows.length} unidades</span>
+          <h2>Summary by unit</h2>
+          <span className="sub">{sortedRows.length} units</span>
           <span className="head-spacer" />
-          <label className="scope-pick">
-            Día
-            <select className="mini-select" value={scopeDay}
-              onChange={(e) => setScopeDay(e.target.value)}>
-              <option value="">Global (todos)</option>
-              {days.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </label>
+          <div className="company-tabs" role="tablist">
+            <button
+              className={`tab-btn ${company === 'CHASER' ? 'active' : ''}`}
+              onClick={() => setCompany('CHASER')}>Chaser</button>
+            <button
+              className={`tab-btn ${company === 'MCC' ? 'active' : ''}`}
+              onClick={() => setCompany('MCC')}>MCCI</button>
+            <button
+              className={`tab-btn ${company === '' ? 'active' : ''}`}
+              onClick={() => setCompany('')}>All</button>
+          </div>
         </div>
         <div className="card-body">
           {sortedRows.length === 0 ? (
-            <div className="empty mini"><p>No hay defectos para estos filtros.</p></div>
+            <div className="empty mini"><p>No defects for these filters.</p></div>
           ) : (
             <div className="table-wrap">
               <table className="defects-table">
                 <thead>
                   <tr>
                     <th className="sortable" onClick={() => setSort('unit')}>
-                      Unidad{arrow('unit')}
+                      Unit{arrow('unit')}
                     </th>
                     <th className="sortable" onClick={() => setSort('company')}>
-                      Empresa{arrow('company')}
+                      Company{arrow('company')}
                     </th>
-                    <th>Conductor(es)</th>
-                    <th>Estado</th>
+                    <th>Status</th>
                     <th className="num sortable" onClick={() => setSort('count')}>
-                      Defectos{arrow('count')}
+                      Defects{arrow('count')}
                     </th>
-                    <th>Detalle</th>
+                    <th>Detail</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -510,21 +511,26 @@ export default function DefectsPage() {
                               <span>
                                 <span className="unit-code">{r.unit}</span>
                                 <span className="unit-kind">
-                                  {r.kind === 'trailer' ? 'tráiler' : 'camión'}
+                                  {r.kind === 'trailer' ? 'trailer' : 'truck'}
                                 </span>
                               </span>
                             </span>
                           </td>
                           <td>{r.company}</td>
-                          <td>{r.drivers.join(', ') || '—'}</td>
                           <td>
                             <span className="status-cell">
-                              {STATUSES.map((s) => (r.status[s] ? (
-                                <span key={s}
-                                  className={`status-pill ${statusTone(s)}`}>
-                                  {s} <em>{r.status[s]}</em>
+                              {r.status.Open ? (
+                                <span className="status-pill open">
+                                  Open <em>{r.status.Open}</em>
                                 </span>
-                              ) : null))}
+                              ) : (
+                                STATUSES.map((s) => (r.status[s] ? (
+                                  <span key={s}
+                                    className={`status-pill ${statusTone(s)}`}>
+                                    {s} <em>{r.status[s]}</em>
+                                  </span>
+                                ) : null))
+                              )}
                             </span>
                           </td>
                           <td className="num strong">{r.count}</td>
@@ -534,14 +540,14 @@ export default function DefectsPage() {
                             </ul>
                             {r.defects.length > 3 && (
                               <span className="more-hint">
-                                +{r.defects.length - 3} más · clic para ver
+                                +{r.defects.length - 3} more · click to view
                               </span>
                             )}
                           </td>
                         </tr>
                         {open && (
                           <tr className="unit-detail-row">
-                            <td colSpan={6}>
+                            <td colSpan={5}>
                               <UnitPanel row={r} />
                             </td>
                           </tr>

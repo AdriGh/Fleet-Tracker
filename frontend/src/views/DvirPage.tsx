@@ -92,16 +92,16 @@ export default function DvirPage() {
   const donut = selected
     ? {
         pct: selected.fleet_safe_pct,
-        title: `Flota SAFE · ${selected.date_label}`,
-        caption: `${selected.company} · día ${selected.date_label}`,
+        title: `Fleet SAFE · ${selected.date_label}`,
+        caption: `${selected.company} · day ${selected.date_label}`,
       }
     : {
         pct: summary.fleet_safe_pct,
-        title: 'Flota SAFE del mes',
+        title: 'Fleet SAFE this month',
         caption: summary.month
-          ? `Promedio de ${summary.n_blocks} ${
-              summary.n_blocks === 1 ? 'día' : 'días'
-            } del mes`
+          ? `Average of ${summary.n_blocks} ${
+              summary.n_blocks === 1 ? 'day' : 'days'
+            } this month`
           : '',
       }
 
@@ -109,10 +109,10 @@ export default function DvirPage() {
     <div className="page">
       <div className="page-head">
         <div>
-          <h1>Panel DVIR</h1>
+          <h1>DVIR Dashboard</h1>
           <p className="page-sub">
-            Inspecciones diarias de la flota — informes, cumplimiento y
-            conductores pendientes.
+            Daily fleet inspections — reports, compliance and pending
+            drivers.
           </p>
         </div>
         <button className="btn btn-primary" onClick={() => setModalOpen(true)}>
@@ -120,7 +120,7 @@ export default function DvirPage() {
             strokeWidth="2" width="17" height="17" strokeLinecap="round">
             <path d="M12 5v14M5 12h14" />
           </svg>
-          Crear DVIR Report
+          Create DVIR Report
         </button>
       </div>
 
@@ -138,8 +138,8 @@ export default function DvirPage() {
       <div className="dvir-grid">
         <section className="card grid-recent">
           <div className="card-head">
-            <h2>Últimos DVIR</h2>
-            <span className="sub">Ordena por cualquier métrica</span>
+            <h2>Recent DVIRs</h2>
+            <span className="sub">Sort by any metric</span>
           </div>
           <div className="card-body">
             <RecentBlocks
@@ -155,7 +155,7 @@ export default function DvirPage() {
         <div className="grid-side">
           <section className="card">
             <div className="card-head">
-              <h2>Top sin DVIR del mes</h2>
+              <h2>Top missing DVIR this month</h2>
             </div>
             <div className="card-body">
               <MissingDrivers data={missing} onSelect={setDriverModal} />
@@ -174,8 +174,8 @@ export default function DvirPage() {
 
         <section className="card grid-trends">
           <div className="card-head">
-            <h2>Tendencia del mes</h2>
-            <span className="sub">incidencias por día (NO DVIR + Unsafe)</span>
+            <h2>Monthly trend</h2>
+            <span className="sub">incidents per day (NO DVIR + Unsafe)</span>
           </div>
           <div className="card-body">
             <TrendsChart points={trends.points} />
@@ -184,7 +184,7 @@ export default function DvirPage() {
 
         <section className="card grid-preview">
           <div className="card-head">
-            <h2>Vista previa</h2>
+            <h2>Preview</h2>
             {selected && (
               <>
                 <span className="sub">
@@ -198,7 +198,7 @@ export default function DvirPage() {
                         strokeLinecap="round" strokeLinejoin="round">
                         <path d="M20 6 9 17l-5-5" />
                       </svg>
-                      Copiado
+                      Copied
                     </>
                   ) : (
                     <>
@@ -207,7 +207,7 @@ export default function DvirPage() {
                         <rect x="9" y="9" width="11" height="11" rx="2" />
                         <path d="M5 15V5a2 2 0 0 1 2-2h10" />
                       </svg>
-                      Copiar día
+                      Copy day
                     </>
                   )}
                 </button>
@@ -229,8 +229,8 @@ export default function DvirPage() {
                   <path d="M5 3v14a2 2 0 0 0 2 2h12" />
                 </svg>
                 <p>
-                  Selecciona un informe de la lista para ver aquí el bloque
-                  diario.
+                  Select a report from the list to see the daily block
+                  here.
                 </p>
               </div>
             )}

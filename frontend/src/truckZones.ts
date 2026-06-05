@@ -27,18 +27,18 @@ export type TrailerZoneId =
 export type ZoneId = TruckZoneId | TrailerZoneId
 
 export const ZONE_LABEL: Record<ZoneId, string> = {
-  engine: 'Motor',
-  glass: 'Parabrisas / espejos',
-  lightsFront: 'Luces delanteras',
-  lightsRear: 'Luces traseras',
-  cab: 'Cabina / puertas',
-  tires: 'Neumáticos / llantas',
-  brakes: 'Frenos',
-  suspension: 'Suspensión',
-  body: 'Caja',
-  doors: 'Puertas traseras',
-  lights: 'Luces',
-  landingGear: 'Tren de aterrizaje',
+  engine: 'Engine',
+  glass: 'Windshield / mirrors',
+  lightsFront: 'Front lights',
+  lightsRear: 'Rear lights',
+  cab: 'Cab / doors',
+  tires: 'Tires / wheels',
+  brakes: 'Brakes',
+  suspension: 'Suspension',
+  body: 'Box',
+  doors: 'Rear doors',
+  lights: 'Lights',
+  landingGear: 'Landing gear',
 }
 
 export const TRUCK_ZONES: { id: TruckZoneId; label: string }[] = [
