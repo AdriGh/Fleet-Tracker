@@ -9,6 +9,12 @@ const TRUCK_SIDE = new Set([
 ])
 const DUR_COLS = new Set(['Duration trk', 'Duration trl'])
 const STATUS_COLS = new Set(['DVIR trk', 'DVIR trl'])
+// Mismo formato que las celdas vacias (relleno azul).
+const BLUE_COLS = new Set(['Trl#', 'Distance (mi)'])
+// Columnas D..H que absorbe la celda "NO DVIR" al mergearse.
+const NODVIR_MERGE = new Set([
+  'Trl#', 'DVIR trl', 'Duration trk', 'Duration trl',
+])
 
 const GREEN = 'background:#C6EFCE;color:#276221;font-weight:bold;'
 const RESOLVED = 'background:#C6EFCE;color:#006100;font-weight:bold;'
@@ -28,9 +34,10 @@ function durSecs(text: string): number {
 function cellStyle(col: string, value: string): string {
   const base =
     'border:1px solid #d9d9d9;padding:2px 6px;' +
-    (col === 'Driver' ? 'text-align:left;' : 'text-align:center;')
+    'text-align:center;vertical-align:middle;'
   let s = ''
-  if (value === '-') s = BLUE
+  if (BLUE_COLS.has(col)) s = BLUE
+  else if (value === '-') s = BLUE
   else if (DUR_COLS.has(col) && value) s = durSecs(value) < 900 ? RED : GREEN
   else if (STATUS_COLS.has(col) && value) {
     if (value.includes('NO DVIR')) s = NODVIR
@@ -56,17 +63,25 @@ export function buildBlock(
   const rows: string[] = []
   rows.push(
     `<tr><td colspan="${columns.length}" style="background:#1F4E79;` +
-      `color:#ffffff;font-weight:bold;text-align:center;` +
+      `color:#ffffff;font-weight:bold;text-align:center;vertical-align:middle;` +
       `border:1px solid #d9d9d9;">${esc(dateLabel)}</td></tr>`,
   )
   for (const g of groups) {
     g.rows.forEach((row, ri) => {
       const tds: string[] = []
+      const noDvir = String(row['DVIR trk'] ?? '').includes('NO DVIR')
       for (const col of columns) {
         const value = String(row[col] ?? '')
         const mergedDriver = col === 'Driver'
         const mergedTruck = g.truck_merge && TRUCK_SIDE.has(col)
         if ((mergedDriver || mergedTruck) && ri > 0) continue
+        // NO DVIR: la celda "NO DVIR" se mergea de la D a la H (colspan 5).
+        if (noDvir && col === 'DVIR trk') {
+          tds.push(
+            `<td colspan="5" style="${cellStyle(col, value)}">${esc(value)}</td>`)
+          continue
+        }
+        if (noDvir && NODVIR_MERGE.has(col)) continue
         const span =
           (mergedDriver || mergedTruck) && g.rows.length > 1
             ? ` rowspan="${g.rows.length}"`
@@ -78,7 +93,7 @@ export function buildBlock(
   }
   const html =
     `<table style="border-collapse:collapse;font-family:Calibri,` +
-    `sans-serif;font-size:11pt;">${rows.join('')}</table>`
+    `sans-serif;font-size:15pt;">${rows.join('')}</table>`
 
   const lines = [dateLabel]
   for (const g of groups) {

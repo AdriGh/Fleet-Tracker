@@ -33,3 +33,6 @@ Thumbs.db
 .idea/
 
 backend/*.local.csv
+
+# Scratch / previews (no versionar)
+/sandbox/

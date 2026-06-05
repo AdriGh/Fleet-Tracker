@@ -1528,7 +1528,6 @@ table.preview tbody tr:nth-child(even) td {
 
 td.driver {
   font-weight: 600;
-  text-align: left;
 }
 
 td.status {
@@ -2105,4 +2104,24 @@ td.dur-high {
 .status-pill.open {
   background: var(--ui-warn-bg);
   color: var(--ui-warn);
+}
+
+/* Toggle de vista del diagrama (Top / Side) */
+.view-toggle {
+  display: inline-flex; gap: 3px; align-self: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 9px; padding: 3px; margin-bottom: 4px;
+}
+.vt-btn {
+  border: none; background: none;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  color: var(--text-muted);
+  padding: 4px 14px; border-radius: 6px;
+  transition: background .15s, color .15s;
+}
+.vt-btn:hover { color: var(--text); }
+.vt-btn.active {
+  background: var(--surface); color: var(--accent);
+  box-shadow: var(--shadow-sm);
 }
