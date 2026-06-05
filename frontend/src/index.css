@@ -32,6 +32,13 @@
   --ui-info: #0ea5e9;
   --ui-info-bg: rgba(14, 165, 233, 0.12);
 
+  /* Diagrama del camión (carrocería metálica neutra + defecto rojo) */
+  --truck-ok: #c4cedb;
+  --truck-ok-stroke: #8fa0b3;
+  --truck-has: #e6594c;
+  --truck-has-stroke: #b1241a;
+  --truck-chassis: #b8c2d0;
+
   /* Radios, layout y tipografía */
   --radius: 18px;
   --radius-lg: 24px;
@@ -95,6 +102,12 @@
   --ui-warn-bg: rgba(251, 191, 36, 0.15);
   --ui-info: #38bdf8;
   --ui-info-bg: rgba(56, 189, 248, 0.15);
+
+  --truck-ok: #5a6b80;
+  --truck-ok-stroke: #93a3b8;
+  --truck-has: #b23a30;
+  --truck-has-stroke: #fb7185;
+  --truck-chassis: #3a4453;
 
   --btn-primary: #6366f1;
   --btn-primary-hover: #7479f0;
@@ -2031,12 +2044,28 @@ td.dur-high {
 .truck-frame { stroke: var(--border-strong); stroke-width: 5; stroke-linecap: round; }
 .truck-rim { fill: var(--surface); stroke: var(--border-strong); stroke-width: 1.5; }
 
-.truck-zone .zfill { stroke-width: 1.6; transition: fill .15s; }
-.truck-zone.ok .zfill { fill: rgba(34, 160, 90, .16); stroke: rgba(34, 160, 90, .60); }
-.truck-zone.has .zfill { fill: rgba(214, 60, 48, .20); stroke: rgba(214, 60, 48, .72); }
+.truck-chassis { fill: var(--truck-chassis); }
+
+.truck-zone .zfill { stroke-width: 1.4; transition: fill .15s, filter .15s; }
+.truck-zone.ok .zfill { fill: var(--truck-ok); stroke: var(--truck-ok-stroke); }
+.truck-zone.has .zfill { fill: var(--truck-has); stroke: var(--truck-has-stroke); }
 .truck-zone { cursor: help; }
-.truck-zone.has:hover .zfill { fill: rgba(214, 60, 48, .34); }
-.truck-zone.ok:hover .zfill { fill: rgba(34, 160, 90, .28); }
+[data-theme='dark'] .truck-zone:hover .zfill { filter: brightness(1.4) saturate(1.08); }
+[data-theme='light'] .truck-zone:hover .zfill { filter: brightness(0.82); }
+
+/* Detalles realistas del top / front */
+.truck-shade { pointer-events: none; }
+.truck-tiretext { pointer-events: none; }
+.truck-tread { stroke: rgba(0, 0, 0, .40); stroke-width: 1.3; }
+.truck-tlabel {
+  fill: #fff; font-family: inherit; font-weight: 700; text-anchor: middle;
+  stroke: rgba(0, 0, 0, .45); stroke-width: .5px; paint-order: stroke;
+}
+.truck-grille, .truck-wsplit { stroke: rgba(0, 0, 0, .42); stroke-width: 1.6; }
+.truck-grille-frame {
+  fill: rgba(0, 0, 0, .18); stroke: var(--truck-ok-stroke); stroke-width: 1.4;
+  pointer-events: none;
+}
 
 .zone-badge circle { fill: var(--danger); }
 .zone-badge text {
@@ -2051,8 +2080,8 @@ td.dur-high {
 }
 .truck-legend li { display: flex; align-items: center; gap: 6px; }
 .lg-swatch { width: 13px; height: 13px; border-radius: 3px; border: 1.5px solid; }
-.sw-has { background: rgba(214, 60, 48, .20); border-color: rgba(214, 60, 48, .72); }
-.sw-ok { background: rgba(34, 160, 90, .16); border-color: rgba(34, 160, 90, .60); }
+.sw-has { background: var(--truck-has); border-color: var(--truck-has-stroke); }
+.sw-ok { background: var(--truck-ok); border-color: var(--truck-ok-stroke); }
 
 /* Líneas de detalle estilo blueprint (no son zonas coloreables) */
 .truck-detail {
@@ -2124,4 +2153,266 @@ td.dur-high {
 .vt-btn.active {
   background: var(--surface); color: var(--accent);
   box-shadow: var(--shadow-sm);
+}
+
+/* ===== Reporte PDF por unidad ============================================ */
+.up-pdf {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; padding: 6px 11px;
+}
+.up-pdf svg { width: 15px; height: 15px; }
+
+.export-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; padding: 7px 13px; margin-left: 10px;
+}
+.export-btn svg { width: 15px; height: 15px; }
+.export-btn:disabled { opacity: .45; cursor: default; }
+
+/* Selector de unidades para el export múltiple */
+.export-picker { display: flex; flex-direction: column; gap: 12px; }
+.ep-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-bottom: 10px; border-bottom: 1px solid var(--border);
+}
+.ep-all {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-weight: 600; font-size: 13.5px; cursor: pointer;
+}
+.ep-count { font-size: 13px; color: var(--text-muted); }
+.ep-list {
+  list-style: none; margin: 0; padding: 0; max-height: 46vh; overflow: auto;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.ep-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 8px; border-radius: 8px; cursor: pointer; font-size: 13.5px;
+}
+.ep-item:hover { background: var(--surface-2); }
+.ep-item input { width: 16px; height: 16px; flex: none; }
+.ep-unit { font-weight: 600; color: var(--text); }
+.ep-kind {
+  font-size: 11px; color: var(--text-muted); text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.ep-co { font-size: 12px; color: var(--text-muted); }
+.ep-defs { margin-left: auto; font-size: 12.5px; color: var(--text-muted); }
+.ep-foot {
+  display: flex; justify-content: flex-end;
+  padding-top: 10px; border-top: 1px solid var(--border);
+}
+
+/* En pantalla el reporte queda fuera de pantalla (no display:none) para poder
+   MEDIR su alto y autoajustar cada unidad a una hoja. */
+.print-root { position: fixed; left: -10000px; top: 0; width: 184mm; }
+
+/* En export múltiple, cada unidad arranca en una página nueva. */
+.unit-report + .unit-report { break-before: page; page-break-before: always; }
+
+.unit-report {
+  /* Colores forzados a tema claro (papel blanco), sin importar el tema app. */
+  --truck-ok: #c4cedb; --truck-ok-stroke: #8fa0b3;
+  --truck-has: #e6594c; --truck-has-stroke: #b1241a;
+  --truck-chassis: #b8c2d0; --danger: #dc2626; --text-muted: #6b7280;
+  /* Caja de UNA hoja: ancho y alto útiles de A4 con márgenes de 13 mm. El
+     contenido se autoescala para no desbordar (ver UnitReport). */
+  width: 184mm; height: 270mm; overflow: hidden;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #1a2233; background: #fff;
+  margin: 0 auto; padding: 0; font-size: 11.5px; line-height: 1.5;
+}
+.ur-inner { transform-origin: top left; }
+
+.ur-head {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  border-bottom: 2.5px solid #4f46e5; padding-bottom: 10px; margin-bottom: 14px;
+}
+.ur-brand { display: flex; align-items: center; gap: 10px; }
+.ur-logo { width: 34px; height: 34px; }
+.ur-brand-name {
+  display: block; font-weight: 800; font-size: 15px; color: #4f46e5;
+  letter-spacing: -.01em;
+}
+.ur-brand-sub {
+  display: block; font-size: 9px; color: #6b7280;
+  text-transform: uppercase; letter-spacing: .08em;
+}
+.ur-title { text-align: right; }
+.ur-title h1 { font-size: 18px; margin: 0; font-weight: 800; color: #111827; }
+.ur-gen { font-size: 10px; color: #6b7280; }
+
+.ur-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.ur-chip {
+  border: 1px solid #e3e7ee; border-radius: 8px; padding: 6px 12px;
+  background: #f7f8fb; min-width: 60px;
+}
+.ur-chip-lg { background: #eef0ff; border-color: #c9cdf6; }
+.urc-label {
+  display: block; font-size: 8px; text-transform: uppercase;
+  letter-spacing: .06em; color: #6b7280;
+}
+.urc-value { display: block; font-size: 14px; font-weight: 700; color: #111827; }
+.ur-chip-lg .urc-value { color: #4f46e5; }
+
+.ur-summary { font-size: 11.5px; margin: 0 0 14px; color: #374151; }
+.sev-t-critical { color: #b1241a; }
+.sev-t-major { color: #b45309; }
+.sev-t-minor { color: #475569; }
+
+/* Fila con todas las vistas del diagrama (Top/Front/Side o Top/Side). */
+.ur-diagrams {
+  display: flex; gap: 8px; margin-bottom: 8px; align-items: stretch;
+}
+.ur-dgm {
+  flex: 1; margin: 0; border: 1px solid #e3e7ee; border-radius: 9px;
+  padding: 6px 6px 4px; background: #fcfcfe; min-width: 0;
+}
+.ur-dgm .truck-diagram { margin: 0; }
+.ur-dgm svg { width: 100%; height: auto; display: block; }
+.ur-dgm figcaption {
+  text-align: center; font-size: 8.5px; color: #6b7280; margin-top: 3px;
+  text-transform: uppercase; letter-spacing: .05em;
+}
+/* En el PDF el diagrama va sin selector ni leyenda (hay caption por vista). */
+.unit-report .view-toggle, .unit-report .truck-legend { display: none; }
+
+.ur-zoneline {
+  font-size: 9.5px; color: #374151; margin: 0 0 12px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+}
+.ur-zoneline-key {
+  font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  font-size: 8px; color: #6b7280;
+}
+.ur-zonechip {
+  border: 1px solid #e3d3d1; background: #fbeeec; color: #8a2a20;
+  border-radius: 5px; padding: 1px 7px;
+}
+.ur-zonechip em { font-style: normal; font-weight: 700; }
+.ur-zoneline-note { color: #9aa3b2; margin-left: auto; }
+
+.ur-defects h2 {
+  font-size: 13px; margin: 0 0 7px; color: #111827;
+  display: flex; align-items: baseline; gap: 8px;
+}
+.ur-defects-sub { font-size: 9.5px; font-weight: 500; color: #6b7280; }
+.ur-empty { font-size: 11px; color: #6b7280; }
+/* Dos columnas para compactar y entrar (en lo posible) en una sola página. */
+.ur-defect-list {
+  list-style: none; margin: 0; padding: 0;
+  columns: 2; column-gap: 9px;
+}
+.ur-defect {
+  border: 1px solid #e3e7ee; border-left-width: 4px; border-radius: 7px;
+  padding: 6px 10px; background: #fff; margin-bottom: 7px;
+  break-inside: avoid; page-break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+}
+.ur-defect.sev-critical { border-left-color: #dc2626; }
+.ur-defect.sev-major { border-left-color: #d97706; }
+.ur-defect.sev-minor { border-left-color: #64748b; }
+.ud-head {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  margin-bottom: 3px;
+}
+.ud-sev {
+  font-size: 7.5px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .05em; padding: 2px 6px; border-radius: 20px; color: #fff;
+}
+.ud-sev.sev-critical { background: #dc2626; }
+.ud-sev.sev-major { background: #d97706; }
+.ud-sev.sev-minor { background: #64748b; }
+.ud-cat { font-weight: 700; font-size: 11.5px; color: #111827; }
+.ud-loc { font-size: 10px; color: #4f46e5; }
+.ud-count {
+  margin-left: auto; font-size: 8.5px; font-weight: 700; color: #8a2a20;
+  background: #fbeeec; border: 1px solid #e3d3d1; border-radius: 20px;
+  padding: 1px 8px;
+}
+.ud-line {
+  margin: 1.5px 0; font-size: 10.5px; line-height: 1.42; color: #1f2937;
+}
+.ud-tag {
+  display: inline-block; min-width: 58px; color: #6b7280; font-weight: 700;
+  text-transform: uppercase; font-size: 7.5px; letter-spacing: .04em;
+  vertical-align: 1px;
+}
+.ud-tag-act { color: #4f46e5; }
+.ud-driver { font-style: italic; color: #374151; }
+.ud-val { color: #1f2937; }
+.ud-notes { display: flex; align-items: baseline; }
+.ud-notelist { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 0; }
+.ud-notelist li {
+  font-style: italic; color: #374151; font-size: 10.5px; line-height: 1.4;
+  padding-left: 9px; position: relative;
+}
+.ud-notelist li::before {
+  content: '•'; position: absolute; left: 0; color: #9aa3b2; font-style: normal;
+}
+.ud-notelist em { font-style: normal; font-weight: 700; color: #8a2a20; }
+
+.ur-foot {
+  margin-top: 16px; padding-top: 8px; border-top: 1px solid #e3e7ee;
+  display: flex; justify-content: space-between; gap: 16px;
+  font-size: 8px; color: #9aa3b2;
+}
+
+/* ===== Lista simple (Export list) — sin diagramas ===== */
+.summary-report {
+  width: 184mm; margin: 0 auto;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #1a2233; background: #fff; font-size: 10.5px; line-height: 1.45;
+}
+.sr-head {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  border-bottom: 2.5px solid #4f46e5; padding-bottom: 10px; margin-bottom: 12px;
+}
+.sr-list { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 16px; }
+.sr-unit {
+  break-inside: avoid; -webkit-column-break-inside: avoid;
+  margin-bottom: 9px; padding-bottom: 7px; border-bottom: 1px solid #eef0f4;
+}
+.sr-uhead {
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+  margin-bottom: 3px;
+}
+.sr-ucode { font-weight: 700; font-size: 11.5px; color: #111827; }
+.sr-ukind {
+  font-size: 8.5px; text-transform: uppercase; letter-spacing: .04em;
+  color: #6b7280;
+}
+.sr-uco { font-size: 9.5px; color: #6b7280; }
+.sr-uopen {
+  font-size: 8.5px; font-weight: 700; color: #8a2a20; background: #fbeeec;
+  border: 1px solid #e3d3d1; border-radius: 20px; padding: 1px 7px;
+}
+.sr-utot { margin-left: auto; font-size: 9px; color: #9aa3b2; }
+.sr-defs { list-style: none; margin: 0; padding: 0; }
+.sr-defs li {
+  font-size: 10px; line-height: 1.4; padding-left: 11px; position: relative;
+  color: #1f2937;
+}
+.sr-defs li::before { content: '•'; position: absolute; left: 2px; color: #9aa3b2; }
+.sr-cat { font-weight: 600; color: #111827; }
+.sr-body { color: #374151; }
+.sr-rep { font-style: normal; font-weight: 700; color: #8a2a20; }
+.sr-empty { font-size: 9.5px; color: #9aa3b2; margin: 2px 0 0; }
+.sr-foot {
+  margin-top: 14px; padding-top: 7px; border-top: 1px solid #e3e7ee;
+  font-size: 8px; color: #9aa3b2; text-align: center;
+}
+
+@media print {
+  #root { display: none !important; }
+  /* El reporte vuelve al flujo normal para imprimirse. */
+  .print-root { position: static !important; left: auto !important;
+    top: auto !important; width: auto !important; }
+  /* Forzar impresión de colores de fondo (chips, badges, diagrama). */
+  .print-root, .print-root * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  body { background: #fff; margin: 0; }
+  @page { size: A4; margin: 13mm; }
+  .ur-defect { box-shadow: none; }
 }

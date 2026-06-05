@@ -7,6 +7,44 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.12.0] - 2026-06-05
+
+### Añadido
+- **Conexión EN VIVO con Samsara** (`core/samsara.py`): la pestaña Defectos lee
+  los defectos abiertos directo de la API (`GET /defects/stream?isResolved=false`),
+  resolviendo nombre + tipo de unidad por `/assets` (vehicle→camión,
+  trailer/unpowered→tráiler) y la categoría por `/defect-types` (o **inferida del
+  comentario** cuando el defecto no la trae). Solo lectura; token en
+  `samsara.local.json` (gitignored). El endpoint `/api/dvir/open-defects`
+  **prefiere Samsara** y **cae al CSV** si la API falla; las empresas fuera del
+  org de Samsara (p.ej. MCC) siguen viniendo de su CSV.
+- **Dashboard de Defectos por RANGO** (nuevo `GET /api/dvir/defect-stats?days=N`):
+  KPIs y gráficos (Records, Open, Resolved, % Resolved, By status, Daily trend,
+  By defect type, Top units) salen de los defectos **abiertos + resueltos
+  creados en los últimos N días**, con **selector 7 / 30 / 90** (default **7**).
+- **Panel «By unit type»** (camión vs tráiler) en lugar de «Top drivers» (la API
+  de defectos no trae conductor).
+- **Reporte PDF por unidad** (vista imprimible → «Download PDF» al expandir):
+  muestra lo que escribió el driver y **propone una descripción/análisis**
+  (severidad, ubicación expandida LFO/RFI…, acción recomendada), **agrupado por
+  categoría**, con **todos los diagramas** de la unidad (Top/Front/Side o
+  Top/Side) y **auto-ajuste a una hoja** (escala el contenido sin recortar).
+- **Export masivo** («Export report»): modal para marcar/desmarcar unidades y
+  bajar un PDF con **una hoja por unidad**.
+- **Export de la lista** («Export list»): PDF liviano a **2 columnas** con las
+  unidades y sus defectos, **sin diagramas**.
+- **Conteo de repeticiones** (`reports`): los defectos repetidos muestran
+  **«×N» / «Reported N times»** (en el panel y en el PDF).
+- Soporte de **múltiples CSV** de defectos abiertos (`open_defects*.local.csv`,
+  uno por empresa).
+
+### Cambiado
+- La pestaña Defectos diferencia **camión vs tráiler** de forma autoritativa
+  (por tipo de asset en Samsara; por nombre/tipo de defecto en el CSV) y dibuja
+  el diagrama correcto.
+- `TruckDiagram` acepta una vista fija (`fixedView`) para renderizar todas las
+  vistas en el PDF, sin el selector interactivo.
+
 ## [0.11.0] - 2026-06-05
 
 ### Cambiado

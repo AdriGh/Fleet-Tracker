@@ -1,22 +1,19 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { listDefects, listOpenDefects, type Defect } from '../api'
+import { listDefectStats, listOpenDefects, type Defect } from '../api'
 import StatCard from '../components/StatCard'
 import RankBars from '../components/RankBars'
 import StatusDonut from '../components/StatusDonut'
 import DefectsTrendChart from '../components/DefectsTrendChart'
 import TruckDiagram from '../components/TruckDiagram'
-import { zoneOfCategory, type Kind, type ZoneId } from '../truckZones'
+import UnitReport from '../components/UnitReport'
+import SummaryReport from '../components/SummaryReport'
+import Modal from '../components/Modal'
+import { type Kind } from '../truckZones'
+import { analyzeUnit, items, categoryOf } from '../defectGroups'
 
 const STATUSES = ['Unsafe', 'Resolved', 'Safe']
 
 // --- helpers ---------------------------------------------------------------
-function items(detail: string): string[] {
-  return (detail || '').split(';').map((s) => s.trim()).filter(Boolean)
-}
-function categoryOf(item: string): string {
-  const i = item.indexOf(' - ')
-  return (i > 0 ? item.slice(0, i) : 'Other').trim()
-}
 function dayKey(l: string): number {
   const [mo, da] = l.split('.').map(Number)
   return (mo || 0) * 100 + (da || 0)
@@ -46,55 +43,6 @@ function statusSummary(st: Record<string, number>): string {
     .filter((s) => st[s])
     .map((s) => `${s} ${st[s]}`)
     .join(' / ')
-}
-
-// Ruido del DVIR que no es un defecto real (re-reportes sin cambios).
-const NOISE =
-  /^(previous inspection|nothing\s*(has\s*)?chang|same(\s|$|,|\.)|no\s*chang|still the same|everything still|all (still )?the same|same as before|same issues|same status)/i
-function bodyOf(item: string): string {
-  const i = item.indexOf(' - ')
-  return (i > 0 ? item.slice(i + 3) : item).trim()
-}
-function isNoise(item: string): boolean {
-  return NOISE.test(bodyOf(item))
-}
-function normKey(item: string): string {
-  return item.toLowerCase().replace(/\s+/g, ' ').replace(/[.,;]+$/, '').trim()
-}
-
-// Agrupa los defectos repetidos de una unidad y cuenta cuántas veces se reportó
-// cada uno; además acumula la cantidad por zona del camión.
-interface DefectGroup {
-  text: string
-  body: string
-  category: string
-  zone: ZoneId | null
-  count: number
-}
-function analyzeUnit(records: Defect[], kind: Kind): {
-  groups: DefectGroup[]
-  zones: Record<string, number>
-} {
-  const map = new Map<string, DefectGroup>()
-  const zones: Record<string, number> = {}
-  for (const d of records)
-    for (const raw of items(d.detail)) {
-      if (isNoise(raw)) continue
-      const cat = categoryOf(raw)
-      const zone = zoneOfCategory(cat, kind)
-      const key = normKey(raw)
-      let g = map.get(key)
-      if (!g) {
-        g = { text: raw, body: bodyOf(raw), category: cat, zone, count: 0 }
-        map.set(key, g)
-      }
-      g.count++
-      if (zone) zones[zone] = (zones[zone] ?? 0) + 1
-    }
-  const groups = [...map.values()].sort(
-    (a, b) => b.count - a.count || a.text.localeCompare(b.text),
-  )
-  return { groups, zones }
 }
 
 // Consolidación por unidad
@@ -160,7 +108,9 @@ function downloadCSV(m: Cell[][], name = 'defects.csv') {
 // Panel ancho que se despliega al hacer clic en una unidad: defectos agrupados
 // (con su frecuencia) a la izquierda y un diagrama del camión por zonas a la
 // derecha (rojo = con defectos, verde = sin defectos).
-function UnitPanel({ row }: { row: UnitRow }) {
+function UnitPanel(
+  { row, onDownload }: { row: UnitRow; onDownload: () => void },
+) {
   const kind: Kind = row.kind === 'trailer' ? 'trailer' : 'truck'
   const { groups, zones } = useMemo(
     () => analyzeUnit(row.records, kind), [row.records, kind])
@@ -174,6 +124,15 @@ function UnitPanel({ row }: { row: UnitRow }) {
           <span className="sub">
             {groups.length} distinct · {totalRep} reports
           </span>
+          <span className="head-spacer" />
+          <button className="btn btn-ghost up-pdf" onClick={onDownload}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <path d="M7 10l5 5 5-5" /><path d="M12 15V3" />
+            </svg>
+            Download PDF
+          </button>
         </div>
         {groups.length === 0 ? (
           <div className="empty mini">
@@ -210,35 +169,46 @@ function UnitPanel({ row }: { row: UnitRow }) {
   )
 }
 
+const RANGES = [
+  { days: 7, label: '7 days' },
+  { days: 30, label: '30 days' },
+  { days: 90, label: '90 days' },
+]
+
 export default function DefectsPage() {
-  const [all, setAll] = useState<Defect[]>([])
+  const [stats, setStats] = useState<Defect[]>([])
   const [openDefs, setOpenDefs] = useState<Defect[]>([])
+  const [rangeDays, setRangeDays] = useState(7)
   const [company, setCompany] = useState('')
   const [status, setStatus] = useState('')
-  const [driver, setDriver] = useState('')
   const [unit, setUnit] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('count')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [reportRows, setReportRows] = useState<UnitRow[] | null>(null)
+  const [listRows, setListRows] = useState<UnitRow[] | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [picked, setPicked] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    listDefects({})
-      .then(setAll)
+    listDefectStats(rangeDays)
+      .then(setStats)
       .catch((e) => setError(e instanceof Error ? e.message : 'Error'))
+  }, [rangeDays])
+
+  useEffect(() => {
     listOpenDefects().then(setOpenDefs).catch(() => {})
   }, [])
 
   const filtered = useMemo(() => {
-    const dq = driver.trim().toLowerCase()
     const uq = unit.trim().toLowerCase()
-    return all.filter((d) =>
+    return stats.filter((d) =>
       (!company || d.company === company) &&
       (!status || d.status === status) &&
-      (!dq || d.driver.toLowerCase().includes(dq)) &&
       (!uq || d.unit.toLowerCase().includes(uq)))
-  }, [all, company, status, driver, unit])
+  }, [stats, company, status, unit])
 
   const issues = useMemo(
     () => filtered.filter((d) => d.status !== 'Safe'), [filtered])
@@ -282,18 +252,22 @@ export default function DefectsPage() {
   const statusSegments = useMemo(() => [
     { label: 'Unsafe', value: filtered.filter((d) => d.status === 'Unsafe').length, tone: 'danger' as const },
     { label: 'Resolved', value: filtered.filter((d) => d.status === 'Resolved').length, tone: 'info' as const },
-    { label: 'Safe', value: filtered.filter((d) => d.status === 'Safe').length, tone: 'ok' as const },
   ], [filtered])
 
   const topUnits = useMemo(() => topCounts(issues, (d) => d.unit), [issues])
-  const topDrivers = useMemo(
-    () => topCounts(issues, (d) => d.driver), [issues])
+  // La API de defectos no trae conductor → en su lugar, camión vs trailer.
+  const byKind = useMemo(() => {
+    const trailers = issues.filter((d) => d.unit_kind === 'trailer').length
+    const trucks = issues.length - trailers
+    return [
+      { label: 'Trailers', value: trailers },
+      { label: 'Trucks', value: trucks },
+    ].filter((x) => x.value > 0)
+  }, [issues])
 
-  // Tabla "defectos abiertos": CHASER del histórico (DB) + MCC abiertos (CSV).
-  // Los MCC reemplazan al histórico; el resto queda como está.
-  const board = useMemo(
-    () => [...all.filter((d) => d.company !== 'MCC'), ...openDefs],
-    [all, openDefs])
+  // Tabla "Summary by unit": backlog de defectos ABIERTOS en vivo (Samsara +
+  // CSV de empresas fuera del org). Independiente del rango del dashboard.
+  const board = openDefs
   const boardFiltered = useMemo(() => {
     const uq = unit.trim().toLowerCase()
     return board.filter((d) =>
@@ -343,9 +317,9 @@ export default function DefectsPage() {
     setTimeout(() => setCopied(false), 2000)
   }
   function clearFilters() {
-    setCompany(''); setStatus(''); setDriver(''); setUnit('')
+    setCompany(''); setStatus(''); setUnit('')
   }
-  const hasFilter = company || status || driver || unit
+  const hasFilter = company || status || unit
 
   return (
     <div className="page">
@@ -353,7 +327,8 @@ export default function DefectsPage() {
         <div>
           <h1>Defects</h1>
           <p className="page-sub">
-            Defects reported in DVIRs — incidents, trend and types.
+            Defects reported in DVIRs (live from Samsara) — incidents, trend
+            and types over the selected range.
           </p>
         </div>
         <div className="head-actions">
@@ -369,15 +344,22 @@ export default function DefectsPage() {
 
       {error && <div className="banner error"><span>{error}</span></div>}
 
-      {/* Filtros */}
+      {/* Rango + filtros */}
       <div className="card">
         <div className="card-body filters-row">
+          <div className="company-tabs" role="tablist" aria-label="Date range">
+            {RANGES.map((r) => (
+              <button key={r.days}
+                className={`tab-btn ${rangeDays === r.days ? 'active' : ''}`}
+                onClick={() => setRangeDays(r.days)}>{r.label}</button>
+            ))}
+          </div>
+          <span className="head-spacer" />
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">All statuses</option>
-            {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            <option value="Unsafe">Open</option>
+            <option value="Resolved">Resolved</option>
           </select>
-          <input className="cell-input" placeholder="Driver…"
-            value={driver} onChange={(e) => setDriver(e.target.value)} />
           <input className="cell-input" placeholder="Unit…"
             value={unit} onChange={(e) => setUnit(e.target.value)} />
           {hasFilter && (
@@ -441,11 +423,10 @@ export default function DefectsPage() {
 
           <section className="card">
             <div className="card-head">
-              <h2>Top drivers</h2>
-              <span className="sub">click to filter</span>
+              <h2>By unit type</h2>
             </div>
             <div className="card-body">
-              <RankBars items={topDrivers} tone="accent" onClick={setDriver}
+              <RankBars items={byKind} tone="accent"
                 emptyText="No incidents." />
             </div>
           </section>
@@ -469,6 +450,25 @@ export default function DefectsPage() {
               className={`tab-btn ${company === '' ? 'active' : ''}`}
               onClick={() => setCompany('')}>All</button>
           </div>
+          <button className="btn btn-ghost export-btn"
+            disabled={sortedRows.length === 0}
+            onClick={() => setListRows(sortedRows)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+            </svg>
+            Export list
+          </button>
+          <button className="btn btn-ghost export-btn"
+            disabled={sortedRows.length === 0}
+            onClick={() => { setPicked(new Set()); setExportOpen(true) }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <path d="M7 10l5 5 5-5" /><path d="M12 15V3" />
+            </svg>
+            Export report
+          </button>
         </div>
         <div className="card-body">
           {sortedRows.length === 0 ? (
@@ -548,7 +548,8 @@ export default function DefectsPage() {
                         {open && (
                           <tr className="unit-detail-row">
                             <td colSpan={5}>
-                              <UnitPanel row={r} />
+                              <UnitPanel row={r}
+                                onDownload={() => setReportRows([r])} />
                             </td>
                           </tr>
                         )}
@@ -561,6 +562,87 @@ export default function DefectsPage() {
           )}
         </div>
       </section>
+
+      {exportOpen && (
+        <Modal title="Export defect reports (PDF)"
+          width={560} onClose={() => setExportOpen(false)}>
+          <ExportPicker
+            rows={sortedRows}
+            picked={picked}
+            setPicked={setPicked}
+            onExport={(rows) => {
+              setExportOpen(false)
+              setReportRows(rows)
+            }}
+          />
+        </Modal>
+      )}
+
+      {reportRows && (
+        <UnitReport rows={reportRows} onClose={() => setReportRows(null)} />
+      )}
+
+      {listRows && (
+        <SummaryReport
+          rows={listRows}
+          scope={company === 'MCC' ? 'MCCI'
+            : company === 'CHASER' ? 'Chaser' : 'All companies'}
+          onClose={() => setListRows(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+function ExportPicker({ rows, picked, setPicked, onExport }: {
+  rows: UnitRow[]
+  picked: Set<string>
+  setPicked: (s: Set<string>) => void
+  onExport: (rows: UnitRow[]) => void
+}) {
+  const allOn = rows.length > 0 && rows.every((r) => picked.has(r.unit))
+  function toggle(unit: string) {
+    const n = new Set(picked)
+    if (n.has(unit)) n.delete(unit)
+    else n.add(unit)
+    setPicked(n)
+  }
+  function toggleAll() {
+    setPicked(allOn ? new Set() : new Set(rows.map((r) => r.unit)))
+  }
+  const chosen = rows.filter((r) => picked.has(r.unit))
+
+  return (
+    <div className="export-picker">
+      <div className="ep-head">
+        <label className="ep-all">
+          <input type="checkbox" checked={allOn} onChange={toggleAll} />
+          <span>{allOn ? 'Deselect all' : 'Select all'}</span>
+        </label>
+        <span className="ep-count">{chosen.length} selected</span>
+      </div>
+      <ul className="ep-list">
+        {rows.map((r) => (
+          <li key={r.unit}>
+            <label className="ep-item">
+              <input type="checkbox" checked={picked.has(r.unit)}
+                onChange={() => toggle(r.unit)} />
+              <span className="ep-unit">{r.unit}</span>
+              <span className="ep-kind">
+                {r.kind === 'trailer' ? 'trailer' : 'truck'}
+              </span>
+              <span className="ep-co">{r.company}</span>
+              <span className="ep-defs">{r.count} defects</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="ep-foot">
+        <button className="btn btn-primary" disabled={chosen.length === 0}
+          onClick={() => onExport(chosen)}>
+          Download PDF ({chosen.length})
+        </button>
+      </div>
     </div>
   )
 }
