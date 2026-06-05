@@ -7,6 +7,14 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.10.2] - 2026-06-05
+
+### Añadido
+- **Logo / ícono de Fleet Tracker**: nuevo `favicon.svg` (squircle con gradiente
+  índigo→cyan, ruta de rastreo + pin de ubicación) para la app/pestaña, e
+  ícono `fleet-tracker.ico` multi-resolución para el acceso directo del
+  escritorio. Generado con `backend/scripts/make_icon.py` (reutilizable).
+
 ## [0.10.1] - 2026-06-05
 
 ### Cambiado
