@@ -31,3 +31,5 @@ dvir_testdata/
 Thumbs.db
 .vscode/
 .idea/
+
+backend/*.local.csv

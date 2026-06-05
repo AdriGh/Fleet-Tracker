@@ -10,7 +10,7 @@ export default function SafeDonut({ pct, caption }: Props) {
   if (pct === null) {
     return (
       <div className="empty mini">
-        <p>Sin datos del mes todavía.</p>
+        <p>No data for the month yet.</p>
       </div>
     )
   }

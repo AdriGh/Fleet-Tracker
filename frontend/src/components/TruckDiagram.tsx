@@ -38,7 +38,7 @@ export default function TruckDiagram({ zones, kind }: Props) {
   const cls = (id: ZoneId) => `truck-zone zone-${id} ${has(id) ? 'has' : 'ok'}`
   const tip = (id: ZoneId) => {
     const n = zones[id] ?? 0
-    return `${ZONE_LABEL[id]}: ${n > 0 ? `${n} defecto${n > 1 ? 's' : ''}` : 'sin defectos'}`
+    return `${ZONE_LABEL[id]}: ${n > 0 ? `${n} defect${n > 1 ? 's' : ''}` : 'no defects'}`
   }
 
   function Zone({ id, children }: { id: ZoneId; children: ReactNode }) {
@@ -90,7 +90,7 @@ export default function TruckDiagram({ zones, kind }: Props) {
     <div className="truck-diagram">
       {kind === 'trailer' ? (
         <svg viewBox="0 0 380 200" className="truck-svg" role="img"
-          aria-label="Diagrama del tráiler por zonas">
+          aria-label="Trailer diagram by zones">
           {/* tren rodaje / chasis */}
           <line className="truck-frame" x1="40" y1="150" x2="320" y2="150" />
 
@@ -145,7 +145,7 @@ export default function TruckDiagram({ zones, kind }: Props) {
         </svg>
       ) : (
         <svg viewBox="0 0 380 200" className="truck-svg" role="img"
-          aria-label="Diagrama del camión (Freightliner Cascadia) por zonas">
+          aria-label="Truck diagram (Freightliner Cascadia) by zones">
           {/* chasis */}
           <line className="truck-frame" x1="118" y1="150" x2="322" y2="150" />
 
@@ -217,8 +217,8 @@ export default function TruckDiagram({ zones, kind }: Props) {
       )}
 
       <ul className="truck-legend">
-        <li><span className="lg-swatch sw-has" /> Con defectos</li>
-        <li><span className="lg-swatch sw-ok" /> Sin defectos</li>
+        <li><span className="lg-swatch sw-has" /> With defects</li>
+        <li><span className="lg-swatch sw-ok" /> No defects</li>
       </ul>
     </div>
   )

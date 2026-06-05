@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { type ReactElement, useEffect, useState } from 'react'
 import { getHealth } from './api'
+import Logo from './components/Logo'
 import DvirPage from './views/DvirPage'
 import DefectsPage from './views/DefectsPage'
 import NotifyPage from './views/NotifyPage'
@@ -8,11 +9,50 @@ type Theme = 'light' | 'dark'
 
 const MENU = [
   { id: 'dvir', label: 'DVIR', soon: false },
-  { id: 'defectos', label: 'Defectos', soon: false },
-  { id: 'avisos', label: 'Avisos', soon: false },
+  { id: 'defectos', label: 'Defects', soon: false },
+  { id: 'avisos', label: 'Notices', soon: false },
   { id: 'roster', label: 'Roster', soon: true },
-  { id: 'flota', label: 'Flota', soon: true },
+  { id: 'flota', label: 'Fleet', soon: true },
 ]
+
+const ICONS: Record<string, ReactElement> = {
+  dvir: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 4h6a1 1 0 0 1 1 1v1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h2V5a1 1 0 0 1 1-1z" />
+      <path d="m9 13 2 2 4-4" />
+    </svg>
+  ),
+  defectos: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10.3 3.5 1.8 18a1.5 1.5 0 0 0 1.3 2.2h17.8A1.5 1.5 0 0 0 22.2 18L13.7 3.5a1.5 1.5 0 0 0-2.6 0z" />
+      <path d="M12 9v4M12 17h.01" />
+    </svg>
+  ),
+  avisos: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="m4 7 8 6 8-6" />
+    </svg>
+  ),
+  roster: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M3.5 19a5.5 5.5 0 0 1 11 0M17 8.5a3 3 0 0 1 0 5.8M20.5 19a4.5 4.5 0 0 0-3-4.2" />
+    </svg>
+  ),
+  flota: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 6h11v9H2zM13 9h4l3 3v3h-7z" />
+      <circle cx="6.5" cy="17.5" r="1.8" />
+      <circle cx="17.5" cy="17.5" r="1.8" />
+    </svg>
+  ),
+}
 
 function initialTheme(): Theme {
   const saved = localStorage.getItem('dvir-theme')
@@ -40,56 +80,66 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
-        <img src="/favicon.svg" alt="" />
-        <h1>DVIR Report Generator</h1>
-        <span className="version">v{version ?? '0.4.0'}</span>
-        <span className="spacer" />
-        <button
-          className="icon-btn"
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-          title={theme === 'dark' ? 'Tema claro' : 'Tema oscuro'}
-          aria-label="Cambiar tema"
-        >
-          {theme === 'dark' ? (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round">
-              <circle cx="12" cy="12" r="4.2" />
-              <path d="M12 2v3M12 19v3M5 12H2M22 12h-3M4.6 4.6l2.1 2.1M17.3
-                17.3l2.1 2.1M19.4 4.6l-2.1 2.1M6.7 17.3l-2.1 2.1" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
-            </svg>
-          )}
-        </button>
-        <span className="health">
-          <span className={`dot ${version ? '' : 'off'}`} />
-          {version ? 'Conectado' : 'Sin conexión'}
-        </span>
-      </header>
+      <aside className="sidebar">
+        <div className="brand">
+          <Logo />
+          <span className="brand-text">
+            <strong>Fleet Tracker</strong>
+            <span>Fleet compliance</span>
+          </span>
+        </div>
 
-      <nav className="menubar">
-        {MENU.map((item) => (
+        <nav className="nav">
+          {MENU.map((item) => (
+            <button
+              key={item.id}
+              className={`nav-item ${section === item.id ? 'active' : ''}`}
+              disabled={item.soon}
+              onClick={() => !item.soon && setSection(item.id)}
+            >
+              <span className="nav-ico">{ICONS[item.id]}</span>
+              <span className="nav-label">{item.label}</span>
+              {item.soon && <span className="soon">soon</span>}
+            </button>
+          ))}
+        </nav>
+
+        <div className="sidebar-foot">
           <button
-            key={item.id}
-            className={`menu-item ${section === item.id ? 'active' : ''}`}
-            disabled={item.soon}
-            onClick={() => !item.soon && setSection(item.id)}
+            className="icon-btn"
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
+            aria-label="Toggle theme"
           >
-            {item.label}
-            {item.soon && <span className="soon">pronto</span>}
+            {theme === 'dark' ? (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round">
+                <circle cx="12" cy="12" r="4.2" />
+                <path d="M12 2v3M12 19v3M5 12H2M22 12h-3M4.6 4.6l2.1 2.1M17.3
+                  17.3l2.1 2.1M19.4 4.6l-2.1 2.1M6.7 17.3l-2.1 2.1" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+              </svg>
+            )}
           </button>
-        ))}
-      </nav>
+          <span className="health">
+            <span className={`dot ${version ? '' : 'off'}`} />
+            {version ? 'Connected' : 'Offline'}
+          </span>
+          <span className="version">v{version ?? '0.4.0'}</span>
+        </div>
+      </aside>
 
-      <main className="container">
-        {section === 'dvir' && <DvirPage />}
-        {section === 'defectos' && <DefectsPage />}
-        {section === 'avisos' && <NotifyPage />}
-      </main>
+      <div className="main-area">
+        <main className="container">
+          {section === 'dvir' && <DvirPage />}
+          {section === 'defectos' && <DefectsPage />}
+          {section === 'avisos' && <NotifyPage />}
+        </main>
+      </div>
     </div>
   )
 }

@@ -212,6 +212,15 @@ export async function listDefects(filters: {
   return res.json()
 }
 
+// Defectos ABIERTOS (export de Samsara, CSV local). Misma forma que Defect,
+// con status = "Open". Carga temporal hasta conectar la API de Samsara.
+export async function listOpenDefects(): Promise<Defect[]> {
+  const res = await fetch('/api/dvir/open-defects')
+  if (!res.ok) throw new Error(await readError(res))
+  const data = await res.json()
+  return (data.defects ?? []) as Defect[]
+}
+
 // --- Tendencias -------------------------------------------------------
 
 export interface TrendPoint {

@@ -18,7 +18,7 @@ const PLOT_H = H - MT - MB
 
 export default function DefectsTrendChart({ days }: Props) {
   if (days.length === 0) {
-    return <div className="empty mini"><p>Sin incidencias en el período.</p></div>
+    return <div className="empty mini"><p>No incidents in the period.</p></div>
   }
   const n = days.length
   const colW = PLOT_W / n
@@ -59,7 +59,7 @@ export default function DefectsTrendChart({ days }: Props) {
           )
         })}
       </svg>
-      <p className="chart-caption">Incidencias (Unsafe + Resolved) por día</p>
+      <p className="chart-caption">Incidents (Unsafe + Resolved) per day</p>
     </div>
   )
 }

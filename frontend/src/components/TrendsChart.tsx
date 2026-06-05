@@ -33,7 +33,7 @@ export default function TrendsChart({ points }: Props) {
   if (days.length === 0) {
     return (
       <div className="empty mini">
-        <p>Genera informes y aquí verás la tendencia del mes.</p>
+        <p>Generate reports and you'll see the monthly trend here.</p>
       </div>
     )
   }
@@ -76,7 +76,7 @@ export default function TrendsChart({ points }: Props) {
           )
         })}
       </svg>
-      <p className="chart-caption">Incidencias (NO DVIR + Unsafe) por día</p>
+      <p className="chart-caption">Incidents (NO DVIR + Unsafe) per day</p>
     </div>
   )
 }

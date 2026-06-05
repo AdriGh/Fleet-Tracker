@@ -25,7 +25,7 @@ export default function RecentBlocks({
   if (blocks.length === 0) {
     return (
       <div className="empty mini">
-        <p>Aún no hay informes. Crea el primero con «Crear DVIR Report».</p>
+        <p>No reports yet. Create the first one with "Create DVIR Report".</p>
       </div>
     )
   }
@@ -35,8 +35,8 @@ export default function RecentBlocks({
       <table className="recent-table">
         <thead>
           <tr>
-            <th>Empresa</th>
-            <th>Día</th>
+            <th>Company</th>
+            <th>Day</th>
             {METRICS.map((m) => (
               <th key={m.key}>
                 <button
@@ -48,7 +48,7 @@ export default function RecentBlocks({
                 </button>
               </th>
             ))}
-            <th aria-label="Descargar" />
+            <th aria-label="Download" />
           </tr>
         </thead>
         <tbody>
@@ -72,7 +72,7 @@ export default function RecentBlocks({
                 <a
                   className="dl-btn"
                   href={downloadBlockUrl(b.id)}
-                  title="Descargar Excel"
+                  title="Download Excel"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"

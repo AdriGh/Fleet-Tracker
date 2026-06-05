@@ -9,7 +9,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from .. import __version__, config, db
-from ..core import batch, engine, excel, notify_service
+from ..core import batch, engine, excel, notify_service, open_defects
 from ..schemas import (
     BatchAnalyzeResponse,
     BatchGenerateRequest,
@@ -202,6 +202,18 @@ def dvir_defects(company: str | None = None, status: str | None = None,
     """Defectos reportados en los DVIR, con filtros."""
     return db.list_defects(company=company or None, status=status or None,
                            unit=unit or None)
+
+
+@router.get("/dvir/open-defects")
+def dvir_open_defects():
+    """Defectos ABIERTOS desde el export de Samsara (CSV local).
+
+    Carga temporal hasta conectar la API de Samsara. Devuelve filas con la
+    misma forma que /dvir/defects (status = "Open")."""
+    return {
+        "available": open_defects.is_available(),
+        "defects": open_defects.load(),
+    }
 
 
 @router.get("/dvir/trends")

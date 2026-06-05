@@ -25,7 +25,7 @@ export default function DriverModal({ name, onClose }: Props) {
   }, [name])
 
   return (
-    <Modal title={`Conductor · ${name}`} onClose={onClose} width={620}>
+    <Modal title={`Driver · ${name}`} onClose={onClose} width={620}>
       {error ? (
         <div className="banner error">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -36,27 +36,27 @@ export default function DriverModal({ name, onClose }: Props) {
           <span>{error}</span>
         </div>
       ) : !data ? (
-        <p className="modal-note">Cargando…</p>
+        <p className="modal-note">Loading…</p>
       ) : (
         <>
           <div className="stats">
             <div className="stat">
               <div className="stat-val">{data.compliance_pct.toFixed(0)}%</div>
-              <div className="stat-label">Cumplimiento</div>
+              <div className="stat-label">Compliance</div>
             </div>
             <div className="stat">
               <div className="stat-val">{data.ok_days}</div>
-              <div className="stat-label">Días con DVIR</div>
+              <div className="stat-label">Days with DVIR</div>
             </div>
             <div className="stat warn">
               <div className="stat-val">{data.missed_days}</div>
-              <div className="stat-label">Días sin DVIR</div>
+              <div className="stat-label">Days without DVIR</div>
             </div>
           </div>
 
-          <h3 className="modal-section">Días registrados</h3>
+          <h3 className="modal-section">Recorded days</h3>
           {data.days.length === 0 ? (
-            <p className="modal-note">Sin registros.</p>
+            <p className="modal-note">No records.</p>
           ) : (
             <div className="driver-days">
               {data.days.map((d) => (
@@ -64,7 +64,7 @@ export default function DriverModal({ name, onClose }: Props) {
                   <span className="dd-date">{d.date_label}</span>
                   <span className="dd-company">{d.company}</span>
                   <span className={`dd-tag ${d.missed ? 'bad' : 'ok'}`}>
-                    {d.missed ? '⚠ Sin DVIR' : '✓ DVIR'}
+                    {d.missed ? '⚠ No DVIR' : '✓ DVIR'}
                   </span>
                 </div>
               ))}
@@ -72,10 +72,10 @@ export default function DriverModal({ name, onClose }: Props) {
           )}
 
           <h3 className="modal-section">
-            Defectos reportados ({data.defects.length})
+            Reported defects ({data.defects.length})
           </h3>
           {data.defects.length === 0 ? (
-            <p className="modal-note">Sin defectos reportados.</p>
+            <p className="modal-note">No reported defects.</p>
           ) : (
             <div className="driver-defects">
               {data.defects.map((d, i) => (

@@ -7,6 +7,32 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.10.0] - 2026-06-05
+
+### Cambiado
+- **Rediseño completo de UI (Modern SaaS)** y renombre de la app a
+  **Fleet Tracker**: nuevo shell con **sidebar** (logo animado full-width +
+  navegación con iconos + tema/conexión/versión al pie), paleta **índigo/
+  violeta**, tokens de superficie más aireados, cards de radio mayor y sombras
+  suaves, títulos más grandes. Tokens **semánticos de UI** (`--ui-*`)
+  desacoplados de los colores Excel: el dashboard armoniza en claro/oscuro y la
+  **vista previa del DVIR sigue calcando** el reporte exacto.
+- **Logo animado** de Fleet Tracker (SVG): ruta de rastreo con pulso viajero,
+  radar ping y partículas; respeta `prefers-reduced-motion`.
+- Gráfico **«Por estado»** ahora ocupa el ancho (donut + barras de proporción
+  con %). Colores de estado: **Safe = verde**, **Resolved = celeste**,
+  **Unsafe = rojo**. Panel del camión balanceado (tarjeta centrada, más grande).
+- **Toda la interfaz pasa al inglés.**
+
+### Añadido
+- **Defectos abiertos**: el «Summary by unit» admite **defectos abiertos** desde
+  un export de Samsara (CSV local, `core/open_defects.py` + endpoint
+  `/api/dvir/open-defects`): empresa por prefijo (MEM/MDW… → MCCI), dedup y
+  filtrado de re-inspecciones. Botones **Chaser / MCCI / All** (reemplazan el
+  selector de día), columna de conductor quitada, píldora **Open** para MCCI.
+- Guía `backend/SAMSARA_SETUP.md` + `samsara.example.json` para conectar la API
+  de Samsara (token read-only, `defects/stream?isResolved=false`).
+
 ## [0.9.1] - 2026-06-04
 
 ### Cambiado

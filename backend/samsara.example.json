@@ -1,0 +1,5 @@
+{
+  "api_token": "PEGA_AQUI_TU_TOKEN_DE_SAMSARA",
+  "base_url": "https://api.samsara.com",
+  "open_only": true
+}

@@ -2,7 +2,7 @@ interface Props {
   label: string
   value: string | number
   sub?: string
-  tone?: 'default' | 'danger' | 'ok' | 'warn' | 'accent'
+  tone?: 'default' | 'danger' | 'ok' | 'warn' | 'accent' | 'info'
 }
 
 export default function StatCard({ label, value, sub, tone = 'default' }: Props) {

@@ -16,7 +16,7 @@ const TONE_MIX = ['accent', 'danger', 'ok', 'warn']
 export default function RankBars({
   items,
   tone = 'accent',
-  emptyText = 'Sin datos.',
+  emptyText = 'No data.',
   onClick,
 }: Props) {
   if (items.length === 0) {
