@@ -1,11 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#1F4E79"/>
-  <path d="M14 41V23h21v18" fill="none" stroke="#fff" stroke-width="4"
-        stroke-linejoin="round"/>
-  <path d="M35 29h9l6 7v5H35z" fill="none" stroke="#fff" stroke-width="4"
-        stroke-linejoin="round"/>
-  <circle cx="23" cy="45" r="5" fill="#1F4E79" stroke="#fff" stroke-width="4"/>
-  <circle cx="44" cy="45" r="5" fill="#1F4E79" stroke="#fff" stroke-width="4"/>
-  <path d="M39 16l5 5 10-11" fill="none" stroke="#7CD992" stroke-width="6"
-        stroke-linecap="round" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="ft" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="0.5" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="256" height="256" rx="58" fill="url(#ft)"/>
+  <!-- ruta de rastreo -->
+  <path d="M46 182 C98 104 148 196 192 108" fill="none" stroke="#fff"
+    stroke-width="22" stroke-linecap="round"/>
+  <!-- nodo de inicio -->
+  <circle cx="46" cy="182" r="16" fill="#fff"/>
+  <circle cx="46" cy="182" r="7" fill="#6366f1"/>
+  <!-- radar ping -->
+  <circle cx="194" cy="76" r="43.5" fill="none" stroke="#fff"
+    stroke-width="3" opacity="0.45"/>
+  <!-- pin de ubicación -->
+  <path d="M194 124 L169 90 A29 29 0 1 1 219 90 Z" fill="#fff"/>
+  <circle cx="194" cy="76" r="12" fill="#22d3ee"/>
 </svg>
