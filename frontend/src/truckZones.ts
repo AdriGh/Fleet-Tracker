@@ -85,7 +85,9 @@ const TRAILER_MAP: Record<string, ZoneId> = {
   ...SHARED,
   Doors: 'doors', // puertas traseras de carga
   'Landing Gear': 'landingGear',
+  'Coupling Devices': 'landingGear', // kingpin / acople, en el frente bajo
   'Rear End': 'body',
+  Roof: 'body',
   // El tráiler solo tiene luces traseras / de posición.
   Lights: 'lights',
   'Lights, Front': 'lights',

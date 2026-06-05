@@ -194,6 +194,8 @@ export interface Defect {
   dvir_type: string
   status: string
   detail: string
+  // Cuántas veces se reportó este defecto (re-reportes deduplicados). 1 si no aplica.
+  reports?: number
   mechanic: string
   mechanic_notes: string
 }
@@ -212,10 +214,19 @@ export async function listDefects(filters: {
   return res.json()
 }
 
-// Defectos ABIERTOS (export de Samsara, CSV local). Misma forma que Defect,
-// con status = "Open". Carga temporal hasta conectar la API de Samsara.
+// Defectos ABIERTOS (Samsara en vivo + CSV de empresas fuera del org). Misma
+// forma que Defect, con status = "Open". Alimenta la tabla "Summary by unit".
 export async function listOpenDefects(): Promise<Defect[]> {
   const res = await fetch('/api/dvir/open-defects')
+  if (!res.ok) throw new Error(await readError(res))
+  const data = await res.json()
+  return (data.defects ?? []) as Defect[]
+}
+
+// Estadísticas de defectos (abiertos + resueltos) creados en los últimos
+// `days` días, para el dashboard. status = "Unsafe" (abierto) / "Resolved".
+export async function listDefectStats(days: number): Promise<Defect[]> {
+  const res = await fetch(`/api/dvir/defect-stats?days=${days}`)
   if (!res.ok) throw new Error(await readError(res))
   const data = await res.json()
   return (data.defects ?? []) as Defect[]

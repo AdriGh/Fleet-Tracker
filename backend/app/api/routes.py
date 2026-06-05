@@ -3,13 +3,13 @@
 import io
 import re
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from .. import __version__, config, db
-from ..core import batch, engine, excel, notify_service, open_defects
+from ..core import batch, engine, excel, notify_service, open_defects, samsara
 from ..schemas import (
     BatchAnalyzeResponse,
     BatchGenerateRequest,
@@ -206,13 +206,73 @@ def dvir_defects(company: str | None = None, status: str | None = None,
 
 @router.get("/dvir/open-defects")
 def dvir_open_defects():
-    """Defectos ABIERTOS desde el export de Samsara (CSV local).
-
-    Carga temporal hasta conectar la API de Samsara. Devuelve filas con la
-    misma forma que /dvir/defects (status = "Open")."""
+    """Defectos ABIERTOS. Prefiere la API de Samsara en vivo; si no hay token
+    o la API falla, cae al export CSV local. Devuelve filas con la misma forma
+    que /dvir/defects (status = "Open")."""
+    csv_rows = open_defects.load()
+    if samsara.is_available():
+        try:
+            live = samsara.load()
+            # Samsara cubre algunos orgs (p.ej. Chaser); las empresas que NO
+            # estén en el org de Samsara (p.ej. MCC) siguen viniendo del CSV.
+            covered = {d["company"] for d in live}
+            merged = live + [d for d in csv_rows if d["company"] not in covered]
+            merged.sort(key=lambda d: d["unit"])
+            return {
+                "available": True,
+                "source": "samsara",
+                "live_companies": sorted(covered),
+                "defects": merged,
+            }
+        except Exception as exc:  # noqa: BLE001 — fallback ante cualquier fallo
+            return {
+                "available": open_defects.is_available(),
+                "source": "csv",
+                "error": f"Samsara no respondió ({exc}); usando CSV local.",
+                "defects": csv_rows,
+            }
     return {
         "available": open_defects.is_available(),
-        "defects": open_defects.load(),
+        "source": "csv",
+        "defects": csv_rows,
+    }
+
+
+@router.get("/dvir/defect-stats")
+def dvir_defect_stats(days: int = 7):
+    """Defectos (abiertos + resueltos) creados en los últimos `days` días, para
+    el dashboard. status = "Unsafe" (abierto) / "Resolved" (resuelto). Empresas
+    fuera del org de Samsara (p.ej. MCC) se completan con el CSV (como abiertas).
+    """
+    days = max(1, min(int(days), 365))
+    if samsara.is_available():
+        try:
+            rows = samsara.load_window(days)
+            live_co = {d["company"] for d in rows}
+            cutoff = (date.today() - timedelta(days=days)).isoformat()
+            for d in open_defects.load():
+                if d["company"] not in live_co and d["block_date"] >= cutoff:
+                    rows.append({**d, "status": "Unsafe"})
+            return {
+                "available": True,
+                "source": "samsara",
+                "days": days,
+                "live_companies": sorted(live_co),
+                "defects": rows,
+            }
+        except Exception as exc:  # noqa: BLE001 — fallback ante cualquier fallo
+            return {
+                "available": open_defects.is_available(),
+                "source": "csv",
+                "days": days,
+                "error": f"Samsara no respondió ({exc}); usando CSV local.",
+                "defects": [{**d, "status": "Unsafe"} for d in open_defects.load()],
+            }
+    return {
+        "available": open_defects.is_available(),
+        "source": "csv",
+        "days": days,
+        "defects": [{**d, "status": "Unsafe"} for d in open_defects.load()],
     }
 
 
