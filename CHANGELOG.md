@@ -7,6 +7,20 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.9.0] - 2026-06-04
+
+### Añadido
+- Tabla «Resumen por unidad»: cada unidad es **clickeable** y despliega un
+  **panel ancho**. A la derecha, un **diagrama del camión** (vista lateral,
+  tractor + tráiler) dividido por zonas (motor, parabrisas/espejos, luces
+  delanteras/traseras, cabina, neumáticos, frenos, suspensión, tráiler): las
+  zonas **con defectos** se marcan en **rojo sutil** y las **sin defectos** en
+  **verde**, con insignia de cantidad y tooltip. A la izquierda, la **lista de
+  defectos agrupados** mostrando cuántas veces reportó el conductor cada uno
+  (`×N`), ordenada por frecuencia.
+- Se filtran las re-inspecciones sin novedad (`Previous inspection`,
+  `Nothing changed`, `Same issues/status`…) para contar solo defectos reales.
+
 ## [0.8.0] - 2026-06-04
 
 ### Cambiado
