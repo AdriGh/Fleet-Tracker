@@ -106,7 +106,7 @@ export default function DvirPage() {
       }
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-head">
         <div>
           <h1>DVIR Dashboard</h1>

@@ -322,7 +322,7 @@ export default function DefectsPage() {
   const hasFilter = company || status || unit
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-head">
         <div>
           <h1>Defects</h1>

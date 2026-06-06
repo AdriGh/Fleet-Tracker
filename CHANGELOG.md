@@ -7,6 +7,14 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.13.1] - 2026-06-06
+
+### Cambiado
+- **Diseño full-width** extendido a las páginas **Defects** y **DVIR** (clase
+  `page-wide`, igual que Avisos): en resoluciones grandes usan todo el ancho
+  disponible en vez del cap de 1140px. Las grillas internas ya eran fluidas, así
+  que se adaptan solas.
+
 ## [0.13.0] - 2026-06-06
 
 ### Añadido
