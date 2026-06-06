@@ -1,5 +1,7 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { listDefectStats, listOpenDefects, type Defect } from '../api'
+import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 import RankBars from '../components/RankBars'
 import StatusDonut from '../components/StatusDonut'
@@ -176,8 +178,6 @@ const RANGES = [
 ]
 
 export default function DefectsPage() {
-  const [stats, setStats] = useState<Defect[]>([])
-  const [openDefs, setOpenDefs] = useState<Defect[]>([])
   const [rangeDays, setRangeDays] = useState(7)
   const [company, setCompany] = useState('')
   const [status, setStatus] = useState('')
@@ -186,21 +186,36 @@ export default function DefectsPage() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [copied, setCopied] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [reportRows, setReportRows] = useState<UnitRow[] | null>(null)
   const [listRows, setListRows] = useState<UnitRow[] | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [picked, setPicked] = useState<Set<string>>(new Set())
 
-  useEffect(() => {
-    listDefectStats(rangeDays)
-      .then(setStats)
-      .catch((e) => setError(e instanceof Error ? e.message : 'Error'))
-  }, [rangeDays])
+  // Dashboard (por rango): mantiene los datos previos al cambiar el rango
+  // (sin parpadeo) mientras llega la nueva ventana.
+  const statsQuery = useQuery({
+    queryKey: ['defect-stats', rangeDays],
+    queryFn: () => listDefectStats(rangeDays),
+    placeholderData: keepPreviousData,
+  })
+  // Backlog abierto (tabla): independiente del rango.
+  const openQuery = useQuery({
+    queryKey: ['open-defects'],
+    queryFn: () => listOpenDefects(),
+  })
 
-  useEffect(() => {
-    listOpenDefects().then(setOpenDefs).catch(() => {})
-  }, [])
+  const stats = statsQuery.data ?? []
+  const openDefs = openQuery.data ?? []
+  const err = statsQuery.error ?? openQuery.error
+  const error = err ? (err instanceof Error ? err.message : 'Error') : null
+  const dashLoading = statsQuery.isPending           // primera carga, sin datos
+  const boardLoading = openQuery.isPending
+  const fetching = statsQuery.isFetching || openQuery.isFetching
+
+  function refresh() {
+    statsQuery.refetch()
+    openQuery.refetch()
+  }
 
   const filtered = useMemo(() => {
     const uq = unit.trim().toLowerCase()
@@ -323,6 +338,7 @@ export default function DefectsPage() {
 
   return (
     <div className="page page-wide">
+      {fetching && <div className="loadbar" aria-hidden="true" />}
       <div className="page-head">
         <div>
           <h1>Defects</h1>
@@ -332,6 +348,15 @@ export default function DefectsPage() {
           </p>
         </div>
         <div className="head-actions">
+          <button className="btn btn-ghost" onClick={refresh}
+            disabled={fetching} title="Refresh from Samsara">
+            <svg className={fetching ? 'spin' : ''} viewBox="0 0 24 24"
+              width="15" height="15" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
+            </svg>
+            {fetching ? 'Refreshing…' : 'Refresh'}
+          </button>
           <button className="btn btn-ghost" onClick={handleCopy}>
             {copied ? 'Copied ✓' : 'Copy'}
           </button>
@@ -371,20 +396,39 @@ export default function DefectsPage() {
       </div>
 
       {/* KPIs */}
-      <div className="kpi-row">
-        <StatCard label="Records" value={kpis.total} tone="accent"
-          sub={hasFilter ? 'filtered' : 'total'} />
-        <StatCard label="Unsafe (open)" value={kpis.unsafe} tone="danger" />
-        <StatCard label="Resolved" value={kpis.resolved} tone="info" />
-        <StatCard label="% resolved"
-          value={kpis.pct === null ? '—' : `${kpis.pct}%`} tone="warn"
-          sub="of incidents" />
-        <StatCard label="Most affected unit"
-          value={kpis.topUnit?.label ?? '—'} tone="default"
-          sub={kpis.topUnit ? `${kpis.topUnit.value} incidents` : ''} />
-      </div>
+      {dashLoading ? (
+        <div className="kpi-row">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="skel-kpi" h={86} />
+          ))}
+        </div>
+      ) : (
+        <div className="kpi-row">
+          <StatCard label="Records" value={kpis.total} tone="accent"
+            sub={hasFilter ? 'filtered' : 'total'} />
+          <StatCard label="Unsafe (open)" value={kpis.unsafe} tone="danger" />
+          <StatCard label="Resolved" value={kpis.resolved} tone="info" />
+          <StatCard label="% resolved"
+            value={kpis.pct === null ? '—' : `${kpis.pct}%`} tone="warn"
+            sub="of incidents" />
+          <StatCard label="Most affected unit"
+            value={kpis.topUnit?.label ?? '—'} tone="default"
+            sub={kpis.topUnit ? `${kpis.topUnit.value} incidents` : ''} />
+        </div>
+      )}
 
       {/* Gráficos */}
+      {dashLoading ? (
+        <div className="defects-stack">
+          <Skeleton className="skel-chart" h={150} />
+          <Skeleton className="skel-chart" h={220} />
+          <div className="defects-grid-3">
+            <Skeleton className="skel-chart" h={200} />
+            <Skeleton className="skel-chart" h={200} />
+            <Skeleton className="skel-chart" h={200} />
+          </div>
+        </div>
+      ) : (
       <div className="defects-stack">
         <section className="card">
           <div className="card-head"><h2>By status</h2></div>
@@ -432,6 +476,7 @@ export default function DefectsPage() {
           </section>
         </div>
       </div>
+      )}
 
       {/* Resumen por unidad */}
       <section className="card">
@@ -471,7 +516,13 @@ export default function DefectsPage() {
           </button>
         </div>
         <div className="card-body">
-          {sortedRows.length === 0 ? (
+          {boardLoading ? (
+            <div className="skel-rows">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <Skeleton key={i} h={34} />
+              ))}
+            </div>
+          ) : sortedRows.length === 0 ? (
             <div className="empty mini"><p>No defects for these filters.</p></div>
           ) : (
             <div className="table-wrap">
