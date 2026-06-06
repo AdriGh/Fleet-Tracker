@@ -66,23 +66,49 @@ def _infer_type(comment: str, kind: str) -> str:
     return "Other"
 
 
-def _config() -> dict | None:
+def _read_config() -> dict | None:
     if not CONF_PATH.exists():
         return None
     try:
-        cfg = json.loads(CONF_PATH.read_text(encoding="utf-8"))
+        return json.loads(CONF_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    token = (cfg.get("api_token") or "").strip()
-    if not token or _PLACEHOLDER in token:
-        return None
-    cfg["base_url"] = (cfg.get("base_url") or "https://api.samsara.com").rstrip("/")
-    return cfg
+
+
+def _orgs() -> list[dict]:
+    """Lista de orgs de Samsara configurados.
+
+    Soporta multi-org: `{"orgs": [{api_token, base_url, company?}, ...]}` para
+    conectar varias empresas (p.ej. Chaser y MCC, que son orgs separados en
+    Samsara). Mantiene compatibilidad con el formato viejo de un solo token en
+    la raíz. `company` (opcional) fuerza la empresa de TODAS las unidades de ese
+    org; si no se da, se deduce por el prefijo del nombre (company_of).
+    """
+    raw = _read_config()
+    if not raw:
+        return []
+    default_open = raw.get("open_only", True)
+    entries = raw.get("orgs")
+    if not entries and raw.get("api_token"):
+        entries = [raw]  # formato viejo: un único org en la raíz
+    out: list[dict] = []
+    for o in entries or []:
+        token = (o.get("api_token") or "").strip()
+        if not token or _PLACEHOLDER in token:
+            continue
+        out.append({
+            "api_token": token,
+            "base_url": (o.get("base_url")
+                         or "https://api.samsara.com").rstrip("/"),
+            "company": (o.get("company") or "").strip() or None,
+            "open_only": o.get("open_only", default_open),
+        })
+    return out
 
 
 def is_available() -> bool:
-    """True si hay un token configurado (no garantiza que la API responda)."""
-    return _config() is not None
+    """True si hay al menos un org/token configurado."""
+    return bool(_orgs())
 
 
 def _get(cfg: dict, path: str) -> dict:
@@ -124,63 +150,64 @@ def load() -> list[dict]:
 
     Lanza excepción si la API falla; el endpoint la captura y cae al CSV.
     """
-    cfg = _config()
-    if not cfg:
+    orgs = _orgs()
+    if not orgs:
         return []
-    open_only = cfg.get("open_only", True)
-
-    # id de asset -> {name, type}; id de tipo -> label.
-    assets = {a["id"]: a for a in _paged(cfg, "/assets?limit=512")}
-    types = {t["id"]: t.get("label")
-             for t in _get(cfg, "/defect-types").get("data", [])}
 
     now = datetime.datetime.now(datetime.timezone.utc)
     start = (now - datetime.timedelta(days=_LOOKBACK_DAYS)).strftime(
         "%Y-%m-%dT%H:%M:%SZ")
     end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-    query = f"/defects/stream?startTime={start}&endTime={end}"
-    if open_only:
-        query += "&isResolved=false"
-    defects = _paged(cfg, query)
 
     # clave (unidad, categoría, comentario normalizado) -> registro acumulado
     seen: dict[tuple, dict] = {}
-    for r in defects:
-        if open_only and r.get("isResolved"):
-            continue
-        ref = r.get("vehicle") or r.get("trailer") or {}
-        asset = assets.get(ref.get("id"), {})
-        name = (asset.get("name") or ref.get("id") or "").strip()
-        if not name:
-            continue
-        kind = "truck" if asset.get("type") == "vehicle" else "trailer"
-        comment = (r.get("comment") or "").strip()
-        if _is_noise(comment):
-            continue
-        tid = r.get("defectTypeId")
-        dtype = types.get(tid) if tid else None
-        if not dtype:
-            dtype = _infer_type(comment, kind)
-        key = (name, dtype, comment.lower())
-        day = _parse_day(r.get("updatedAtTime") or r.get("createdAtTime"))
+    for cfg in orgs:
+        open_only = cfg.get("open_only", True)
+        assets = {a["id"]: a for a in _paged(cfg, "/assets?limit=512")}
+        types = {t["id"]: t.get("label")
+                 for t in _get(cfg, "/defect-types").get("data", [])}
+        query = f"/defects/stream?startTime={start}&endTime={end}"
+        if open_only:
+            query += "&isResolved=false"
+        defects = _paged(cfg, query)
 
-        cur = seen.get(key)
-        if cur is None:
-            seen[key] = {
-                "unit": name,
-                "kind": kind,
-                "detail": f"{dtype} - {comment}" if comment else dtype,
-                "notes": (r.get("mechanicNotes") or "").strip(),
-                "_day": day or datetime.date(1970, 1, 1),
-                "_n": 1,
-            }
-        else:
-            cur["_n"] += 1
-            if day and day > cur["_day"]:
-                cur["_day"] = day
-                notes = (r.get("mechanicNotes") or "").strip()
-                if notes:
-                    cur["notes"] = notes
+        for r in defects:
+            if open_only and r.get("isResolved"):
+                continue
+            ref = r.get("vehicle") or r.get("trailer") or {}
+            asset = assets.get(ref.get("id"), {})
+            name = (asset.get("name") or ref.get("id") or "").strip()
+            if not name:
+                continue
+            kind = "truck" if asset.get("type") == "vehicle" else "trailer"
+            comment = (r.get("comment") or "").strip()
+            if _is_noise(comment):
+                continue
+            tid = r.get("defectTypeId")
+            dtype = types.get(tid) if tid else None
+            if not dtype:
+                dtype = _infer_type(comment, kind)
+            key = (name, dtype, comment.lower())
+            day = _parse_day(r.get("updatedAtTime") or r.get("createdAtTime"))
+
+            cur = seen.get(key)
+            if cur is None:
+                seen[key] = {
+                    "unit": name,
+                    "kind": kind,
+                    "company": cfg["company"] or company_of(name),
+                    "detail": f"{dtype} - {comment}" if comment else dtype,
+                    "notes": (r.get("mechanicNotes") or "").strip(),
+                    "_day": day or datetime.date(1970, 1, 1),
+                    "_n": 1,
+                }
+            else:
+                cur["_n"] += 1
+                if day and day > cur["_day"]:
+                    cur["_day"] = day
+                    notes = (r.get("mechanicNotes") or "").strip()
+                    if notes:
+                        cur["notes"] = notes
 
     out: list[dict] = []
     for rec in seen.values():
@@ -188,7 +215,7 @@ def load() -> list[dict]:
         out.append({
             "date_label": f"{day.month}.{day.day}",
             "block_date": day.isoformat(),
-            "company": company_of(rec["unit"]),
+            "company": rec["company"],
             "driver": "",
             "unit": rec["unit"],
             "unit_kind": rec["kind"],
@@ -209,53 +236,55 @@ def load_window(days: int) -> list[dict]:
     `status` = "Unsafe" si está abierto, "Resolved" si está resuelto, para
     reusar el donut/KPIs existentes. Lanza excepción si la API falla.
     """
-    cfg = _config()
-    if not cfg:
+    orgs = _orgs()
+    if not orgs:
         return []
-    assets = {a["id"]: a for a in _paged(cfg, "/assets?limit=512")}
-    types = {t["id"]: t.get("label")
-             for t in _get(cfg, "/defect-types").get("data", [])}
 
     now = datetime.datetime.now(datetime.timezone.utc)
     cutoff = (now - datetime.timedelta(days=max(1, days))).date()
     start = cutoff.strftime("%Y-%m-%dT00:00:00Z")
     end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-    # El stream filtra por evento (creado/actualizado): un defecto viejo resuelto
-    # hace poco también aparece. Nos quedamos con los CREADOS en la ventana
-    # ("defectos reportados en los últimos N días").
-    defects = _paged(cfg, f"/defects/stream?startTime={start}&endTime={end}")
 
     out: list[dict] = []
-    for r in defects:
-        ref = r.get("vehicle") or r.get("trailer") or {}
-        asset = assets.get(ref.get("id"), {})
-        name = (asset.get("name") or ref.get("id") or "").strip()
-        if not name:
-            continue
-        kind = "truck" if asset.get("type") == "vehicle" else "trailer"
-        comment = (r.get("comment") or "").strip()
-        if _is_noise(comment):
-            continue
-        day = _parse_day(r.get("createdAtTime"))
-        if not day or day < cutoff:
-            continue
-        tid = r.get("defectTypeId")
-        dtype = types.get(tid) if tid else None
-        if not dtype:
-            dtype = _infer_type(comment, kind)
-        detail = f"{dtype} - {comment}" if comment else dtype
-        out.append({
-            "date_label": f"{day.month}.{day.day}",
-            "block_date": day.isoformat(),
-            "company": company_of(name),
-            "driver": "",
-            "unit": name,
-            "unit_kind": kind,
-            "dvir_type": "",
-            "status": "Resolved" if r.get("isResolved") else "Unsafe",
-            "detail": detail,
-            "mechanic": "",
-            "mechanic_notes": (r.get("mechanicNotes") or "").strip(),
-        })
+    for cfg in orgs:
+        assets = {a["id"]: a for a in _paged(cfg, "/assets?limit=512")}
+        types = {t["id"]: t.get("label")
+                 for t in _get(cfg, "/defect-types").get("data", [])}
+        # El stream filtra por evento (creado/actualizado): un defecto viejo
+        # resuelto hace poco también aparece. Nos quedamos con los CREADOS en la
+        # ventana ("defectos reportados en los últimos N días").
+        defects = _paged(cfg, f"/defects/stream?startTime={start}&endTime={end}")
+
+        for r in defects:
+            ref = r.get("vehicle") or r.get("trailer") or {}
+            asset = assets.get(ref.get("id"), {})
+            name = (asset.get("name") or ref.get("id") or "").strip()
+            if not name:
+                continue
+            kind = "truck" if asset.get("type") == "vehicle" else "trailer"
+            comment = (r.get("comment") or "").strip()
+            if _is_noise(comment):
+                continue
+            day = _parse_day(r.get("createdAtTime"))
+            if not day or day < cutoff:
+                continue
+            tid = r.get("defectTypeId")
+            dtype = types.get(tid) if tid else None
+            if not dtype:
+                dtype = _infer_type(comment, kind)
+            detail = f"{dtype} - {comment}" if comment else dtype
+            out.append({
+                "date_label": f"{day.month}.{day.day}",
+                "block_date": day.isoformat(),
+                "company": cfg["company"] or company_of(name),
+                "driver": "",
+                "unit": name,
+                "unit_kind": kind,
+                "dvir_type": "",
+                "status": "Resolved" if r.get("isResolved") else "Unsafe",
+                "detail": detail,
+                "mechanic": "",
+                "mechanic_notes": (r.get("mechanicNotes") or "").strip(),
+            })
     out.sort(key=lambda d: (d["block_date"], d["unit"]))
     return out

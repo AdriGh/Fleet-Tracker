@@ -50,6 +50,11 @@ REGION_CC: dict[str, list[str]] = {
     ],
 }
 
+# Ryan Andrews va SIEMPRE en copia, en todas las terminales (contacto de
+# Safety del aviso). Se fusiona con el CC de cada region (sin duplicar).
+RYAN = "randrews@memphiscitycartage.com"
+_ALWAYS_CC: list[str] = [RYAN]
+
 # Prefijos de region reconocidos (los de MCC). CHASER no lleva prefijo.
 _MCC_REGIONS = {"MDW", "MEM", "ATL", "SAV", "MIA"}
 
@@ -77,5 +82,19 @@ def region_from_truck(truck) -> str | None:
 
 
 def cc_for_region(region) -> list[str]:
-    """Lista de CC para una region (vacia si la region es None/desconocida)."""
-    return list(REGION_CC.get(region or "", []))
+    """Lista de CC para una region (vacia si la region es None/desconocida).
+
+    Fusiona el CC propio de la region con `_ALWAYS_CC` (Ryan), sin duplicar y
+    conservando el orden. Para region desconocida devuelve vacio (el conductor
+    cae en "revisar", no se envia).
+    """
+    if not region or region not in REGION_CC:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for email in list(REGION_CC[region]) + _ALWAYS_CC:
+        key = email.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(email)
+    return out

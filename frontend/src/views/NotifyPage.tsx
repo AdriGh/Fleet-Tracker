@@ -93,7 +93,7 @@ export default function NotifyPage() {
   const simulated = status ? status.dry_run : true
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-head">
         <div>
           <h1>NO DVIR Notices</h1>

@@ -1,5 +1,20 @@
 {
-  "api_token": "PEGA_AQUI_TU_TOKEN_DE_SAMSARA",
-  "base_url": "https://api.samsara.com",
-  "open_only": true
+  "open_only": true,
+  "orgs": [
+    {
+      "name": "Chaser",
+      "company": "CHASER",
+      "api_token": "PEGA_AQUI_EL_TOKEN_DE_CHASER",
+      "base_url": "https://api.samsara.com"
+    },
+    {
+      "name": "MCC (Memphis)",
+      "company": "MCC",
+      "api_token": "PEGA_AQUI_EL_TOKEN_DE_MCC",
+      "base_url": "https://api.samsara.com"
+    }
+  ],
+
+  "_nota": "Cada empresa (Chaser, MCC) es un org SEPARADO en Samsara, con su propio token. Agregá un objeto por org en 'orgs'. 'company' fuerza la empresa de todas las unidades de ese org (CHASER o MCC). Si solo tenés un token, dejá un solo objeto. Formato viejo (api_token en la raíz) sigue funcionando.",
+  "_base_url": "EE.UU. = https://api.samsara.com · Europa = https://api.eu.samsara.com"
 }
