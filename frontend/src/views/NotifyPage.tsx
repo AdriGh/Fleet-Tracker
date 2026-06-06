@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   notifyBlocks,
   notifyScan,
@@ -10,7 +11,6 @@ import {
 } from '../api'
 
 export default function NotifyPage() {
-  const [status, setStatus] = useState<NotifyBlocksResponse | null>(null)
   const [sheet, setSheet] = useState('')
   const [date, setDate] = useState('')
   const [scan, setScan] = useState<NotifyScanResponse | null>(null)
@@ -21,18 +21,19 @@ export default function NotifyPage() {
   const [error, setError] = useState('')
   const [sendResult, setSendResult] = useState<NotifySendResponse | null>(null)
 
+  const blocksQuery = useQuery({
+    queryKey: ['notify-blocks'], queryFn: notifyBlocks })
+  const status: NotifyBlocksResponse | null = blocksQuery.data ?? null
+  const busy = blocksQuery.isFetching || loading || sending
+
+  // Al cargar los bloques, seleccionar empresa/día por defecto.
   useEffect(() => {
-    notifyBlocks()
-      .then((b) => {
-        setStatus(b)
-        if (b.blocks.length) {
-          const first = b.blocks[0]
-          setSheet(first.sheet)
-          setDate(first.date_labels[first.date_labels.length - 1] ?? '')
-        }
-      })
-      .catch((e) => setError(String(e)))
-  }, [])
+    if (status && !sheet && status.blocks.length) {
+      const first = status.blocks[0]
+      setSheet(first.sheet)
+      setDate(first.date_labels[first.date_labels.length - 1] ?? '')
+    }
+  }, [status, sheet])
 
   const dateOptions = useMemo(() => {
     const blk = status?.blocks.find((b) => b.sheet === sheet)
@@ -94,6 +95,7 @@ export default function NotifyPage() {
 
   return (
     <div className="page page-wide">
+      {busy && <div className="loadbar" aria-hidden="true" />}
       <div className="page-head">
         <div>
           <h1>NO DVIR Notices</h1>
@@ -124,7 +126,11 @@ export default function NotifyPage() {
         </div>
       )}
 
-      {error && <div className="banner error">{error}</div>}
+      {(error || blocksQuery.error) && (
+        <div className="banner error">
+          {error || String(blocksQuery.error)}
+        </div>
+      )}
 
       <div className="card">
         <div className="card-body avisos-controls">

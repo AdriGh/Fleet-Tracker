@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getBlock,
   getTrends,
@@ -19,41 +20,46 @@ import MissingDrivers from '../components/MissingDrivers'
 import PreviewTable from '../components/PreviewTable'
 import RecentBlocks from '../components/RecentBlocks'
 import SafeDonut from '../components/SafeDonut'
+import Skeleton from '../components/Skeleton'
 import TrendsChart from '../components/TrendsChart'
 
+const EMPTY_MISSING: MissingResponse = { month: null, drivers: [] }
+const EMPTY_SUMMARY: MonthSummary = {
+  month: null, fleet_safe_pct: null, n_blocks: 0,
+}
+const EMPTY_TRENDS: TrendsResponse = { month: null, points: [] }
+
 export default function DvirPage() {
-  const [recent, setRecent] = useState<RecentBlock[]>([])
+  const qc = useQueryClient()
   const [sort, setSort] = useState<RecentSort>('created_at')
-  const [missing, setMissing] = useState<MissingResponse>({
-    month: null,
-    drivers: [],
-  })
-  const [summary, setSummary] = useState<MonthSummary>({
-    month: null,
-    fleet_safe_pct: null,
-    n_blocks: 0,
-  })
-  const [trends, setTrends] = useState<TrendsResponse>({
-    month: null,
-    points: [],
-  })
   const [selected, setSelected] = useState<BlockDetail | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [driverModal, setDriverModal] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    recentBlocks(sort)
-      .then(setRecent)
-      .catch((e) => setError(e instanceof Error ? e.message : 'Error'))
-  }, [sort])
+  const recentQuery = useQuery({
+    queryKey: ['recent-blocks', sort],
+    queryFn: () => recentBlocks(sort),
+    placeholderData: keepPreviousData,
+  })
+  const missingQuery = useQuery({
+    queryKey: ['missing-drivers'], queryFn: missingDrivers })
+  const summaryQuery = useQuery({
+    queryKey: ['month-summary'], queryFn: monthSummary })
+  const trendsQuery = useQuery({ queryKey: ['trends'], queryFn: getTrends })
 
-  useEffect(() => {
-    missingDrivers().then(setMissing).catch(() => {})
-    monthSummary().then(setSummary).catch(() => {})
-    getTrends().then(setTrends).catch(() => {})
-  }, [])
+  const recent: RecentBlock[] = recentQuery.data ?? []
+  const missing = missingQuery.data ?? EMPTY_MISSING
+  const summary = summaryQuery.data ?? EMPTY_SUMMARY
+  const trends = trendsQuery.data ?? EMPTY_TRENDS
+  const err = recentQuery.error ?? missingQuery.error
+    ?? summaryQuery.error ?? trendsQuery.error
+  const error = err ? (err instanceof Error ? err.message : 'Error') : null
+  const fetching = recentQuery.isFetching || missingQuery.isFetching
+    || summaryQuery.isFetching || trendsQuery.isFetching
+  const recentLoading = recentQuery.isPending
+  const sideLoading = missingQuery.isPending || summaryQuery.isPending
+  const trendsLoading = trendsQuery.isPending
 
   async function selectBlock(id: number) {
     try {
@@ -64,22 +70,24 @@ export default function DvirPage() {
   }
 
   async function handleCreated() {
+    setSort('created_at')
+    qc.invalidateQueries({ queryKey: ['missing-drivers'] })
+    qc.invalidateQueries({ queryKey: ['month-summary'] })
+    qc.invalidateQueries({ queryKey: ['trends'] })
     try {
-      const [r, m, s, t] = await Promise.all([
-        recentBlocks('created_at'),
-        missingDrivers(),
-        monthSummary(),
-        getTrends(),
-      ])
-      setSort('created_at')
-      setRecent(r)
-      setMissing(m)
-      setSummary(s)
-      setTrends(t)
+      const r = await recentBlocks('created_at')
+      qc.setQueryData(['recent-blocks', 'created_at'], r)
       if (r[0]) selectBlock(r[0].id)
     } catch {
       /* ignorar */
     }
+  }
+
+  function refresh() {
+    recentQuery.refetch()
+    missingQuery.refetch()
+    summaryQuery.refetch()
+    trendsQuery.refetch()
   }
 
   async function copyDay() {
@@ -107,6 +115,7 @@ export default function DvirPage() {
 
   return (
     <div className="page page-wide">
+      {fetching && <div className="loadbar" aria-hidden="true" />}
       <div className="page-head">
         <div>
           <h1>DVIR Dashboard</h1>
@@ -115,13 +124,24 @@ export default function DvirPage() {
             drivers.
           </p>
         </div>
-        <button className="btn btn-primary" onClick={() => setModalOpen(true)}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="2" width="17" height="17" strokeLinecap="round">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          Create DVIR Report
-        </button>
+        <div className="head-actions">
+          <button className="btn btn-ghost" onClick={refresh}
+            disabled={fetching} title="Refresh">
+            <svg className={fetching ? 'spin' : ''} viewBox="0 0 24 24"
+              width="15" height="15" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
+            </svg>
+            {fetching ? 'Refreshing…' : 'Refresh'}
+          </button>
+          <button className="btn btn-primary" onClick={() => setModalOpen(true)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" width="17" height="17" strokeLinecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            Create DVIR Report
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -142,13 +162,21 @@ export default function DvirPage() {
             <span className="sub">Sort by any metric</span>
           </div>
           <div className="card-body">
-            <RecentBlocks
-              blocks={recent}
-              sort={sort}
-              onSort={setSort}
-              onSelect={selectBlock}
-              selectedId={selected?.id ?? null}
-            />
+            {recentLoading ? (
+              <div className="skel-rows">
+                {Array.from({ length: 7 }).map((_, i) => (
+                  <Skeleton key={i} h={38} />
+                ))}
+              </div>
+            ) : (
+              <RecentBlocks
+                blocks={recent}
+                sort={sort}
+                onSort={setSort}
+                onSelect={selectBlock}
+                selectedId={selected?.id ?? null}
+              />
+            )}
           </div>
         </section>
 
@@ -158,7 +186,15 @@ export default function DvirPage() {
               <h2>Top missing DVIR this month</h2>
             </div>
             <div className="card-body">
-              <MissingDrivers data={missing} onSelect={setDriverModal} />
+              {sideLoading ? (
+                <div className="skel-rows">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <Skeleton key={i} h={28} />
+                  ))}
+                </div>
+              ) : (
+                <MissingDrivers data={missing} onSelect={setDriverModal} />
+              )}
             </div>
           </section>
 
@@ -167,7 +203,11 @@ export default function DvirPage() {
               <h2>{donut.title}</h2>
             </div>
             <div className="card-body">
-              <SafeDonut pct={donut.pct} caption={donut.caption} />
+              {sideLoading ? (
+                <Skeleton className="skel-chart" h={180} />
+              ) : (
+                <SafeDonut pct={donut.pct} caption={donut.caption} />
+              )}
             </div>
           </section>
         </div>
@@ -178,7 +218,11 @@ export default function DvirPage() {
             <span className="sub">incidents per day (NO DVIR + Unsafe)</span>
           </div>
           <div className="card-body">
-            <TrendsChart points={trends.points} />
+            {trendsLoading ? (
+              <Skeleton className="skel-chart" h={180} />
+            ) : (
+              <TrendsChart points={trends.points} />
+            )}
           </div>
         </section>
 

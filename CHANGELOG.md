@@ -7,6 +7,28 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.14.0] - 2026-06-06
+
+### Cambiado
+- **Backend asíncrono** (`core/samsara.py`): pasó de `urllib` bloqueante a
+  **`httpx.AsyncClient` + `asyncio`**. Los orgs (Chaser + MCC) y, dentro de cada
+  uno, `reference-data` + `defects` se piden **en paralelo** (`asyncio.gather`)
+  en vez de sumarse. Endpoints `/dvir/open-defects` y `/dvir/defect-stats` ahora
+  `async def`. **Caché de reference-data** (assets + defect-types, TTL 15 min)
+  compartida entre ambos endpoints, con lock por org. Flag **`?refresh=1`** para
+  bustear el caché. Resultado: la carga de Defects bajó ~**4×** (≈9 s → ≈2.3 s).
+  Nueva dependencia: `httpx` (en `requirements.txt`; `launch.bat` la instala).
+
+### Añadido
+- **Capa de carga en el frontend (TanStack Query)** en **todas** las páginas
+  (Defects, DVIR, Avisos): caché + **stale-while-revalidate** (volver a una
+  pestaña muestra los datos al instante y revalida en segundo plano).
+  - **Skeletons** con shimmer en la primera carga (KPIs, gráficos, tablas).
+  - **Barra de progreso** indeterminada arriba mientras hay un fetch.
+  - Botón **Refresh** (Defects y DVIR) que re-consulta Samsara.
+  - **Sin parpadeo** al cambiar el rango en Defects (`keepPreviousData`).
+  - Respeta `prefers-reduced-motion`.
+
 ## [0.13.1] - 2026-06-06
 
 ### Cambiado

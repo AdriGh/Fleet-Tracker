@@ -13,11 +13,14 @@ Solo lectura (scope Read Defects). Si algo falla, el endpoint cae al CSV.
 """
 
 import datetime
+import asyncio
 import json
 import re
+import time
 import urllib.parse
-import urllib.request
 from pathlib import Path
+
+import httpx
 
 from .open_defects import _is_noise, company_of
 
@@ -26,6 +29,13 @@ CONF_PATH = Path(__file__).resolve().parents[2] / "samsara.local.json"
 _LOOKBACK_DAYS = 730          # ventana del stream: 2 años atrás cubre lo abierto
 _TIMEOUT = 60
 _PLACEHOLDER = "PEGA_AQUI"    # token de ejemplo sin configurar
+
+# Caché de "reference data" por org (assets + defect-types): cambia rara vez, así
+# que se cachea con TTL largo y se comparte entre load() y load_window(), que
+# antes lo pedían por separado. Clave = token del org.
+_REF_TTL = 900  # 15 min
+_ref_cache: dict[str, tuple[float, dict]] = {}
+_ref_locks: dict[str, asyncio.Lock] = {}
 
 # Inferencia de categoría a partir del comentario, cuando el defecto no trae
 # `defectTypeId`. (patrón regex, categoría, solo_camión). El orden importa: se
@@ -111,29 +121,65 @@ def is_available() -> bool:
     return bool(_orgs())
 
 
-def _get(cfg: dict, path: str) -> dict:
-    req = urllib.request.Request(
+async def _get(client: httpx.AsyncClient, cfg: dict, path: str) -> dict:
+    r = await client.get(
         cfg["base_url"] + path,
         headers={"Authorization": "Bearer " + cfg["api_token"],
                  "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
-        return json.loads(r.read().decode("utf-8"))
+    r.raise_for_status()
+    return r.json()
 
 
-def _paged(cfg: dict, path: str) -> list[dict]:
-    """Recorre la paginación por cursor de Samsara (pagination.endCursor)."""
+async def _paged(client: httpx.AsyncClient, cfg: dict, path: str) -> list[dict]:
+    """Recorre la paginación por cursor de Samsara (pagination.endCursor).
+
+    Es secuencial por diseño: cada página necesita el `endCursor` de la anterior.
+    """
     out: list[dict] = []
     sep = "&" if "?" in path else "?"
     cursor = None
     for _ in range(200):  # tope de seguridad
         page = path + (f"{sep}after={urllib.parse.quote(cursor)}" if cursor else "")
-        d = _get(cfg, page)
+        d = await _get(client, cfg, page)
         out.extend(d.get("data", []))
         pg = d.get("pagination", {}) or {}
         cursor = pg.get("endCursor")
         if not (pg.get("hasNextPage") and cursor):
             break
     return out
+
+
+async def _reference(client: httpx.AsyncClient, cfg: dict) -> dict:
+    """{assets: id->asset, types: id->label} del org, cacheado con TTL.
+
+    assets y defect-types se piden en paralelo y se cachean (cambian poco). Un
+    lock por org evita el "thundering herd" cuando dos requests llegan juntos.
+    """
+    key = cfg["api_token"]
+    now = time.monotonic()
+    hit = _ref_cache.get(key)
+    if hit and hit[0] > now:
+        return hit[1]
+    lock = _ref_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        hit = _ref_cache.get(key)  # re-chequeo: otro request pudo cargarlo
+        if hit and hit[0] > now:
+            return hit[1]
+        assets_list, types_resp = await asyncio.gather(
+            _paged(client, cfg, "/assets?limit=512"),
+            _get(client, cfg, "/defect-types"),
+        )
+        ref = {
+            "assets": {a["id"]: a for a in assets_list},
+            "types": {t["id"]: t.get("label") for t in types_resp.get("data", [])},
+        }
+        _ref_cache[key] = (time.monotonic() + _REF_TTL, ref)
+        return ref
+
+
+def clear_cache() -> None:
+    """Vacía la caché de reference-data (para forzar datos frescos)."""
+    _ref_cache.clear()
 
 
 def _parse_day(raw: str) -> datetime.date | None:
@@ -145,69 +191,57 @@ def _parse_day(raw: str) -> datetime.date | None:
         return None
 
 
-def load() -> list[dict]:
-    """Defectos abiertos en vivo (deduplicados) con forma de `Defect`.
+async def _org_open(
+    client: httpx.AsyncClient, cfg: dict, start: str, end: str,
+) -> list[dict]:
+    """Defectos ABIERTOS de un org (deduplicados, con conteo de repeticiones)."""
+    open_only = cfg.get("open_only", True)
+    query = f"/defects/stream?startTime={start}&endTime={end}"
+    if open_only:
+        query += "&isResolved=false"
+    # reference-data (cacheada) y defectos, en paralelo.
+    ref, defects = await asyncio.gather(
+        _reference(client, cfg),
+        _paged(client, cfg, query),
+    )
+    assets, types = ref["assets"], ref["types"]
 
-    Lanza excepción si la API falla; el endpoint la captura y cae al CSV.
-    """
-    orgs = _orgs()
-    if not orgs:
-        return []
-
-    now = datetime.datetime.now(datetime.timezone.utc)
-    start = (now - datetime.timedelta(days=_LOOKBACK_DAYS)).strftime(
-        "%Y-%m-%dT%H:%M:%SZ")
-    end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    # clave (unidad, categoría, comentario normalizado) -> registro acumulado
     seen: dict[tuple, dict] = {}
-    for cfg in orgs:
-        open_only = cfg.get("open_only", True)
-        assets = {a["id"]: a for a in _paged(cfg, "/assets?limit=512")}
-        types = {t["id"]: t.get("label")
-                 for t in _get(cfg, "/defect-types").get("data", [])}
-        query = f"/defects/stream?startTime={start}&endTime={end}"
-        if open_only:
-            query += "&isResolved=false"
-        defects = _paged(cfg, query)
+    for r in defects:
+        if open_only and r.get("isResolved"):
+            continue
+        aref = r.get("vehicle") or r.get("trailer") or {}
+        asset = assets.get(aref.get("id"), {})
+        name = (asset.get("name") or aref.get("id") or "").strip()
+        if not name:
+            continue
+        kind = "truck" if asset.get("type") == "vehicle" else "trailer"
+        comment = (r.get("comment") or "").strip()
+        if _is_noise(comment):
+            continue
+        tid = r.get("defectTypeId")
+        dtype = types.get(tid) if tid else None
+        if not dtype:
+            dtype = _infer_type(comment, kind)
+        key = (name, dtype, comment.lower())
+        day = _parse_day(r.get("updatedAtTime") or r.get("createdAtTime"))
 
-        for r in defects:
-            if open_only and r.get("isResolved"):
-                continue
-            ref = r.get("vehicle") or r.get("trailer") or {}
-            asset = assets.get(ref.get("id"), {})
-            name = (asset.get("name") or ref.get("id") or "").strip()
-            if not name:
-                continue
-            kind = "truck" if asset.get("type") == "vehicle" else "trailer"
-            comment = (r.get("comment") or "").strip()
-            if _is_noise(comment):
-                continue
-            tid = r.get("defectTypeId")
-            dtype = types.get(tid) if tid else None
-            if not dtype:
-                dtype = _infer_type(comment, kind)
-            key = (name, dtype, comment.lower())
-            day = _parse_day(r.get("updatedAtTime") or r.get("createdAtTime"))
-
-            cur = seen.get(key)
-            if cur is None:
-                seen[key] = {
-                    "unit": name,
-                    "kind": kind,
-                    "company": cfg["company"] or company_of(name),
-                    "detail": f"{dtype} - {comment}" if comment else dtype,
-                    "notes": (r.get("mechanicNotes") or "").strip(),
-                    "_day": day or datetime.date(1970, 1, 1),
-                    "_n": 1,
-                }
-            else:
-                cur["_n"] += 1
-                if day and day > cur["_day"]:
-                    cur["_day"] = day
-                    notes = (r.get("mechanicNotes") or "").strip()
-                    if notes:
-                        cur["notes"] = notes
+        cur = seen.get(key)
+        if cur is None:
+            seen[key] = {
+                "unit": name, "kind": kind,
+                "company": cfg["company"] or company_of(name),
+                "detail": f"{dtype} - {comment}" if comment else dtype,
+                "notes": (r.get("mechanicNotes") or "").strip(),
+                "_day": day or datetime.date(1970, 1, 1), "_n": 1,
+            }
+        else:
+            cur["_n"] += 1
+            if day and day > cur["_day"]:
+                cur["_day"] = day
+                notes = (r.get("mechanicNotes") or "").strip()
+                if notes:
+                    cur["notes"] = notes
 
     out: list[dict] = []
     for rec in seen.values():
@@ -226,65 +260,94 @@ def load() -> list[dict]:
             "mechanic": "",
             "mechanic_notes": rec["notes"],
         })
-    out.sort(key=lambda d: d["unit"])
     return out
 
 
-def load_window(days: int) -> list[dict]:
-    """Defectos (ABIERTOS + RESUELTOS) creados en los últimos `days` días, para
-    el dashboard. Cada defecto es un "incidente" (sin deduplicar re-reportes).
-    `status` = "Unsafe" si está abierto, "Resolved" si está resuelto, para
-    reusar el donut/KPIs existentes. Lanza excepción si la API falla.
+async def load() -> list[dict]:
+    """Defectos abiertos en vivo (todos los orgs en paralelo), forma `Defect`.
+
+    Lanza excepción si la API falla; el endpoint la captura y cae al CSV.
     """
     orgs = _orgs()
     if not orgs:
         return []
+    now = datetime.datetime.now(datetime.timezone.utc)
+    start = (now - datetime.timedelta(days=_LOOKBACK_DAYS)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+    end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        per_org = await asyncio.gather(
+            *(_org_open(client, cfg, start, end) for cfg in orgs))
+
+    out = [row for sub in per_org for row in sub]
+    out.sort(key=lambda d: d["unit"])
+    return out
+
+
+async def _org_window(
+    client: httpx.AsyncClient, cfg: dict, start: str, end: str,
+    cutoff: datetime.date,
+) -> list[dict]:
+    """Defectos (abiertos + resueltos) CREADOS en la ventana, para un org."""
+    ref, defects = await asyncio.gather(
+        _reference(client, cfg),
+        _paged(client, cfg, f"/defects/stream?startTime={start}&endTime={end}"),
+    )
+    assets, types = ref["assets"], ref["types"]
+
+    out: list[dict] = []
+    for r in defects:
+        aref = r.get("vehicle") or r.get("trailer") or {}
+        asset = assets.get(aref.get("id"), {})
+        name = (asset.get("name") or aref.get("id") or "").strip()
+        if not name:
+            continue
+        kind = "truck" if asset.get("type") == "vehicle" else "trailer"
+        comment = (r.get("comment") or "").strip()
+        if _is_noise(comment):
+            continue
+        day = _parse_day(r.get("createdAtTime"))
+        if not day or day < cutoff:
+            continue
+        tid = r.get("defectTypeId")
+        dtype = types.get(tid) if tid else None
+        if not dtype:
+            dtype = _infer_type(comment, kind)
+        detail = f"{dtype} - {comment}" if comment else dtype
+        out.append({
+            "date_label": f"{day.month}.{day.day}",
+            "block_date": day.isoformat(),
+            "company": cfg["company"] or company_of(name),
+            "driver": "",
+            "unit": name,
+            "unit_kind": kind,
+            "dvir_type": "",
+            "status": "Resolved" if r.get("isResolved") else "Unsafe",
+            "detail": detail,
+            "mechanic": "",
+            "mechanic_notes": (r.get("mechanicNotes") or "").strip(),
+        })
+    return out
+
+
+async def load_window(days: int) -> list[dict]:
+    """Defectos (ABIERTOS + RESUELTOS) creados en los últimos `days` días, para
+    el dashboard (todos los orgs en paralelo). `status` = "Unsafe" (abierto) /
+    "Resolved". Lanza excepción si la API falla.
+    """
+    orgs = _orgs()
+    if not orgs:
+        return []
     now = datetime.datetime.now(datetime.timezone.utc)
     cutoff = (now - datetime.timedelta(days=max(1, days))).date()
     start = cutoff.strftime("%Y-%m-%dT00:00:00Z")
     end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    out: list[dict] = []
-    for cfg in orgs:
-        assets = {a["id"]: a for a in _paged(cfg, "/assets?limit=512")}
-        types = {t["id"]: t.get("label")
-                 for t in _get(cfg, "/defect-types").get("data", [])}
-        # El stream filtra por evento (creado/actualizado): un defecto viejo
-        # resuelto hace poco también aparece. Nos quedamos con los CREADOS en la
-        # ventana ("defectos reportados en los últimos N días").
-        defects = _paged(cfg, f"/defects/stream?startTime={start}&endTime={end}")
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        per_org = await asyncio.gather(
+            *(_org_window(client, cfg, start, end, cutoff) for cfg in orgs))
 
-        for r in defects:
-            ref = r.get("vehicle") or r.get("trailer") or {}
-            asset = assets.get(ref.get("id"), {})
-            name = (asset.get("name") or ref.get("id") or "").strip()
-            if not name:
-                continue
-            kind = "truck" if asset.get("type") == "vehicle" else "trailer"
-            comment = (r.get("comment") or "").strip()
-            if _is_noise(comment):
-                continue
-            day = _parse_day(r.get("createdAtTime"))
-            if not day or day < cutoff:
-                continue
-            tid = r.get("defectTypeId")
-            dtype = types.get(tid) if tid else None
-            if not dtype:
-                dtype = _infer_type(comment, kind)
-            detail = f"{dtype} - {comment}" if comment else dtype
-            out.append({
-                "date_label": f"{day.month}.{day.day}",
-                "block_date": day.isoformat(),
-                "company": cfg["company"] or company_of(name),
-                "driver": "",
-                "unit": name,
-                "unit_kind": kind,
-                "dvir_type": "",
-                "status": "Resolved" if r.get("isResolved") else "Unsafe",
-                "detail": detail,
-                "mechanic": "",
-                "mechanic_notes": (r.get("mechanicNotes") or "").strip(),
-            })
+    out = [row for sub in per_org for row in sub]
     out.sort(key=lambda d: (d["block_date"], d["unit"]))
     return out

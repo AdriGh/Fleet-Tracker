@@ -205,14 +205,16 @@ def dvir_defects(company: str | None = None, status: str | None = None,
 
 
 @router.get("/dvir/open-defects")
-def dvir_open_defects():
+async def dvir_open_defects(refresh: bool = False):
     """Defectos ABIERTOS. Prefiere la API de Samsara en vivo; si no hay token
     o la API falla, cae al export CSV local. Devuelve filas con la misma forma
     que /dvir/defects (status = "Open")."""
+    if refresh:
+        samsara.clear_cache()
     csv_rows = open_defects.load()
     if samsara.is_available():
         try:
-            live = samsara.load()
+            live = await samsara.load()
             # Samsara cubre algunos orgs (p.ej. Chaser); las empresas que NO
             # estén en el org de Samsara (p.ej. MCC) siguen viniendo del CSV.
             covered = {d["company"] for d in live}
@@ -239,15 +241,17 @@ def dvir_open_defects():
 
 
 @router.get("/dvir/defect-stats")
-def dvir_defect_stats(days: int = 7):
+async def dvir_defect_stats(days: int = 7, refresh: bool = False):
     """Defectos (abiertos + resueltos) creados en los últimos `days` días, para
     el dashboard. status = "Unsafe" (abierto) / "Resolved" (resuelto). Empresas
     fuera del org de Samsara (p.ej. MCC) se completan con el CSV (como abiertas).
     """
     days = max(1, min(int(days), 365))
+    if refresh:
+        samsara.clear_cache()
     if samsara.is_available():
         try:
-            rows = samsara.load_window(days)
+            rows = await samsara.load_window(days)
             live_co = {d["company"] for d in rows}
             cutoff = (date.today() - timedelta(days=days)).isoformat()
             for d in open_defects.load():
