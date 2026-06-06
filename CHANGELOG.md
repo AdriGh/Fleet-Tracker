@@ -7,6 +7,26 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.13.0] - 2026-06-06
+
+### Añadido
+- **Samsara multi-org**: `samsara.local.json` ahora acepta `orgs: [...]` (un
+  token por empresa, ya que Chaser y MCC son cuentas **separadas** en Samsara).
+  Cada org puede fijar `company` (CHASER/MCC) para forzar la empresa de todas
+  sus unidades. **MCC ahora se lee EN VIVO** junto con Chaser; el CSV de
+  open-defects queda como fallback. Compatible con el formato viejo de un solo
+  token en la raíz. Doc/ejemplo actualizados (`SAMSARA_SETUP.md`,
+  `samsara.example.json`).
+
+### Cambiado
+- **Avisos / CC**: **Ryan Andrews** (`randrews@memphiscitycartage.com`) ahora va
+  en copia en **todas** las terminales (vía `_ALWAYS_CC`, sin duplicar donde ya
+  estaba). Miami mantiene a **Roberto Victorero** (`rvictorero@…`).
+- **Avisos UI**: la página usa **todo el ancho** en resoluciones grandes
+  (`page-wide` + `:has()` rompe el cap de 1140px); el **preview** del email pasó
+  a ser un **panel sticky con scroll interno** (ya no estira la página) y las
+  columnas quedaron balanceadas, con apilado correcto en pantallas angostas.
+
 ## [0.12.0] - 2026-06-05
 
 ### Añadido

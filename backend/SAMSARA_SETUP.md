@@ -54,25 +54,42 @@ Todo el secreto va en un único archivo local **no versionado**:
 1. En la carpeta `backend/`, copiá `samsara.example.json` a
    **`samsara.local.json`**.
 
-2. Abrilo y completá:
+2. Abrilo y completá. **Cada empresa (Chaser, MCC) es un org SEPARADO en
+   Samsara, con su propio token.** Se listan en `orgs`:
 
    ```json
    {
-     "api_token": "PEGA_AQUI_TU_TOKEN",
-     "base_url": "https://api.samsara.com",
-     "open_only": true
+     "open_only": true,
+     "orgs": [
+       {
+         "name": "Chaser",
+         "company": "CHASER",
+         "api_token": "TOKEN_DE_CHASER",
+         "base_url": "https://api.samsara.com"
+       },
+       {
+         "name": "MCC (Memphis)",
+         "company": "MCC",
+         "api_token": "TOKEN_DE_MCC",
+         "base_url": "https://api.samsara.com"
+       }
+     ]
    }
    ```
 
-   - `api_token`: el token del paso anterior.
+   - `api_token`: el token de ESE org (creado con los pasos de arriba, en la
+     cuenta de Samsara de esa empresa).
+   - `company`: `CHASER` o `MCC` — fuerza la empresa de todas las unidades de
+     ese org (así caen en la pestaña correcta).
    - `base_url`: `https://api.samsara.com` (EE. UU.) o
      `https://api.eu.samsara.com` (Europa) — ver nota de región.
-   - `open_only`: `true` para traer solo los defectos **abiertos**
-     (`isResolved=false`). Dejalo en `true`.
+   - `open_only`: `true` para traer solo los defectos **abiertos**. Dejalo así.
+   - Si todavía tenés **un solo** token, dejá un solo objeto en `orgs`. Un org
+     con el token sin completar (placeholder) simplemente se ignora.
 
 3. Reiniciá la app (`launch.bat`). En la pestaña **Defectos** el banner debería
-   decir que está leyendo en vivo desde Samsara. Si el token falla, la app te
-   muestra el motivo y no rompe nada.
+   decir que está leyendo en vivo desde Samsara. Si un token falla, la app te
+   muestra el motivo y no rompe nada (cae al CSV).
 
 ---
 
