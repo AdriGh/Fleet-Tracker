@@ -12,8 +12,10 @@ from .. import __version__, config, db
 from pydantic import BaseModel
 
 from ..core import (
-    app_config, batch, engine, excel, notify_service, open_defects, samsara,
+    app_config, batch, driver_contacts, engine, excel, notify_service,
+    open_defects, samsara,
 )
+from ..core.contacts import name_key
 from ..schemas import (
     BatchAnalyzeResponse,
     BatchGenerateRequest,
@@ -356,17 +358,48 @@ async def fleet(refresh: bool = False):
 
 @router.get("/drivers")
 async def drivers_endpoint(refresh: bool = False):
-    """Conductores activos (Samsara). Solo Samsara (sin fallback)."""
+    """Conductores activos (Samsara) + email del snapshot local de Driver info.
+    El email NO se lee en vivo; viene del snapshot (ver /drivers/sync-contacts).
+    """
     if refresh:
         samsara.clear_cache()
     if not samsara.is_available():
-        return {"available": False, "source": "none", "drivers": []}
+        return {"available": False, "source": "none", "drivers": [],
+                "contacts": driver_contacts.info()}
     try:
-        return {"available": True, "source": "samsara",
-                "drivers": await samsara.list_drivers()}
+        drivers = await samsara.list_drivers()
     except Exception as exc:  # noqa: BLE001
         return {"available": False, "source": "error",
-                "error": str(exc), "drivers": []}
+                "error": str(exc), "drivers": [],
+                "contacts": driver_contacts.info()}
+    book = driver_contacts.load()
+    overrides = driver_contacts.manual()
+    for d in drivers:
+        k = name_key(d["name"])
+        d["email"] = overrides.get(k) or (book.get(k) or {}).get("email", "")
+    return {"available": True, "source": "samsara",
+            "contacts": driver_contacts.info(), "drivers": drivers}
+
+
+@router.post("/drivers/sync-contacts")
+def drivers_sync_contacts():
+    """Sincroniza el snapshot local de emails desde la hoja `Driver info`."""
+    try:
+        return driver_contacts.sync_from_sheet()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+class DriverEmailIn(BaseModel):
+    name: str
+    email: str
+
+
+@router.post("/drivers/email")
+def set_driver_email(body: DriverEmailIn):
+    """Override manual del email de un conductor (sobrevive a la sync)."""
+    driver_contacts.set_email(body.name, body.email)
+    return {"ok": True}
 
 
 @router.get("/dvir/trends")
