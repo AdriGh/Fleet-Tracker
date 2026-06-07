@@ -7,6 +7,33 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.17.0] - 2026-06-07
+
+### Cambiado
+- **El DVIR Report deja de medir la duración del DVIR.** Lo relevante para DOT
+  es que el conductor registre su **Pre-Trip** y **Post-Trip** en sus logs de
+  HoS (On Duty), no la duración del DVIR. Las columnas `Duration trk` /
+  `Duration trl` se reemplazan por **`Pre-trip`** y **`Post-trip`** (por
+  conductor).
+  - La duración de cada inspección se calcula como `End − Start` del custom
+    report de Samsara *"Pre-trip & Post-trip | Remark not empty"* (se suman
+    todos los segmentos On Duty con remark "Pre-Trip Inspection" /
+    "Post-Trip Inspection"). Verde si ≥ 15 min, rojo si < 15 min.
+  - Si el conductor no registró la inspección → **`⚠ NO PRE-TRIP`** (naranja).
+  - El banner **`⚠ NO DVIR`** ahora se fusiona de la columna D a la F (antes
+    D–H); Pre-trip y Post-trip (G, H) muestran su propio estado aunque no haya
+    DVIR.
+- **Avisos**: un conductor es infractor si su Pre-trip o Post-trip falta o dura
+  menos de 15 min (se mantiene la regla de NO DVIR). El correo lista esas
+  inspecciones en vez de la duración del DVIR.
+
+### Añadido
+- **`core/pretrip.py`**: parser del custom report de HoS (Driver Name, HoS
+  Status, Start/End Time, Remark) → duración de Pre/Post-trip por conductor.
+- En **Crear DVIR Report**, un tercer archivo opcional: el CSV de Pre/Post-trip
+  (se empareja por día y empresa, como el de actividad; si falta, esas filas
+  quedan como NO PRE-TRIP).
+
 ## [0.16.0] - 2026-06-07
 
 ### Añadido

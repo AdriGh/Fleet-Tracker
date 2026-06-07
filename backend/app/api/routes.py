@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from ..core import (
     app_config, batch, driver_contacts, engine, excel, notify_service,
-    open_defects, pm, samsara,
+    open_defects, pm, pretrip, samsara,
 )
 from ..core.contacts import name_key
 from ..schemas import (
@@ -117,12 +117,18 @@ def batch_generate(req: BatchGenerateRequest):
             raise HTTPException(
                 422, f"Bloque {block.company} {block.date_label}: "
                      "falta el CSV de DVIR o de actividad.")
+        # El report de Pre/Post-trip es opcional: si falta, las filas quedan
+        # como NO PRE-TRIP.
+        pt_file = store.get(block.pretrip_file_id) if block.pretrip_file_id \
+            else None
         try:
             dvir_df = engine.load_dvir(io.BytesIO(dvir[1]))
             activity_data = engine.load_activity(io.BytesIO(activity[1]))
+            pretrip_data = pretrip.load_pretrip_bytes(pt_file[1]) \
+                if pt_file else {}
             groups = engine.build_report(
                 dvir_df, activity_data, roster, engine.MIN_MILES,
-                block.company)
+                block.company, pretrip_data)
         except engine.ReportError as exc:
             raise HTTPException(
                 422, f"Bloque {block.company} {block.date_label}: "

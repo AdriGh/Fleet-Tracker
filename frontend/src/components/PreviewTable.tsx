@@ -6,21 +6,16 @@ interface Props {
   dateLabel?: string
 }
 
-const TRUCK_SIDE = new Set([
-  'Trk#',
-  'DVIR trk',
-  'Duration trk',
-  'Distance (mi)',
-])
+const TRUCK_SIDE = new Set(['Trk#', 'DVIR trk', 'Distance (mi)'])
+// Pre/Post-trip son por conductor: se fusionan hacia abajo como el nombre.
+const DRIVER_SIDE = new Set(['Pre-trip', 'Post-trip'])
 const STATUS_COLS = new Set(['DVIR trk', 'DVIR trl'])
-const DUR_COLS = new Set(['Duration trk', 'Duration trl'])
+const DUR_COLS = new Set(['Pre-trip', 'Post-trip'])
 const DUR_THRESHOLD = 900
 // Mismo formato que las celdas vacias (relleno azul).
 const BLUE_COLS = new Set(['Trl#', 'Distance (mi)'])
-// Columnas D..H que absorbe la celda "NO DVIR" al mergearse.
-const NODVIR_MERGE = new Set([
-  'Trl#', 'DVIR trl', 'Duration trk', 'Duration trl',
-])
+// Columnas D..F que absorbe la celda "NO DVIR" al mergearse (colspan 3).
+const NODVIR_MERGE = new Set(['Trl#', 'DVIR trl'])
 
 function statusClass(value: string): string {
   if (value.includes('NO DVIR')) return 'nodvir'
@@ -63,12 +58,12 @@ export default function PreviewTable({ columns, groups, dateLabel }: Props) {
               <tr key={`${gi}-${ri}`}>
                 {columns.map((col) => {
                   const value = String(row[col] ?? '')
-                  const mergedDriver = col === 'Driver'
+                  const mergedDriver = col === 'Driver' || DRIVER_SIDE.has(col)
                   const mergedTruck = group.truck_merge && TRUCK_SIDE.has(col)
 
                   // Celdas fusionadas: solo se pintan en la primera fila.
                   if ((mergedDriver || mergedTruck) && ri > 0) return null
-                  // NO DVIR: la celda "DVIR trk" se mergea de la D a la H.
+                  // NO DVIR: la celda "DVIR trk" se mergea de la D a la F.
                   if (noDvir && NODVIR_MERGE.has(col)) return null
 
                   const rowSpan =
@@ -76,7 +71,7 @@ export default function PreviewTable({ columns, groups, dateLabel }: Props) {
                       ? group.rows.length
                       : undefined
                   const colSpan =
-                    noDvir && col === 'DVIR trk' ? 5 : undefined
+                    noDvir && col === 'DVIR trk' ? 3 : undefined
 
                   const classes: string[] = []
                   if (col === 'Driver') classes.push('driver')
@@ -84,16 +79,18 @@ export default function PreviewTable({ columns, groups, dateLabel }: Props) {
                     const sc = statusClass(value)
                     if (sc) classes.push('status', sc)
                   }
-                  if (
-                    DUR_COLS.has(col) &&
-                    value &&
-                    value !== '-'
-                  ) {
-                    classes.push(
-                      durationSeconds(value) < DUR_THRESHOLD
-                        ? 'dur-low'
-                        : 'dur-high',
-                    )
+                  if (DUR_COLS.has(col) && value && value !== '-') {
+                    // '⚠ NO PRE-TRIP' en naranja (como NO DVIR); si no, rojo
+                    // < 15 min y verde >= 15 min.
+                    if (value.includes('NO PRE-TRIP')) {
+                      classes.push('status', 'nodvir')
+                    } else {
+                      classes.push(
+                        durationSeconds(value) < DUR_THRESHOLD
+                          ? 'dur-low'
+                          : 'dur-high',
+                      )
+                    }
                   }
                   if (value === '-' || BLUE_COLS.has(col)) classes.push('dash')
 

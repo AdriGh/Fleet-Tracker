@@ -27,8 +27,9 @@ previa del bloque seleccionado.
 
 Para generar un informe, pulsa **Crear DVIR Report**:
 
-1. Arrastra los CSV de DVIR y de actividad (uno o varios días, una o
-   ambas empresas).
+1. Arrastra los CSV de DVIR, de actividad y del report de
+   **Pre/Post-trip** (uno o varios días, una o ambas empresas). El de
+   Pre/Post-trip es opcional: si falta, esas filas quedan como NO PRE-TRIP.
 2. La app los empareja por día y empresa; revisa la tabla y, si hace
    falta, corrige el **tag del día** de cada fila.
 3. Pulsa **Crear DVIR Report** → se genera el Excel (una hoja por
@@ -44,10 +45,14 @@ reportados en los DVIR, filtrables por empresa, estado y unidad.
 
 ## Lógica del informe
 
-- **Duración** de un camión/tráiler = suma de todos sus DVIR del día.
+- **Pre-trip / Post-trip** (por conductor) = suma de los segmentos On Duty
+  con remark "Pre-Trip Inspection" / "Post-Trip Inspection" en sus logs de
+  HoS, según el custom report de Samsara. Es lo que importa para DOT (no la
+  duración del DVIR). Verde si ≥ 15 min, rojo si < 15 min, `⚠ NO PRE-TRIP`
+  si no la registró.
 - **Estado** mostrado = el del DVIR más reciente (por hora de firma).
 - Varios tráilers de un conductor → filas de continuación; las celdas
-  del lado del camión se fusionan verticalmente.
+  del lado del camión y las de Pre/Post-trip se fusionan verticalmente.
 - **NO DVIR** = un camión que aparece en el CSV de actividad por encima
   del umbral de millas pero sin DVIR de camión ese día. El conductor se
   toma del roster.
@@ -58,7 +63,7 @@ reportados en los DVIR, filtrables por empresa, estado y unidad.
 
 ```
 backend/            API FastAPI + motor de cruce
-  app/core/         duration, engine, excel
+  app/core/         engine, excel, pretrip (Pre/Post-trip de HoS)
   app/api/          endpoints
 frontend/           interfaz React + TypeScript (Vite)
   src/components/   FileDrop, PreviewTable

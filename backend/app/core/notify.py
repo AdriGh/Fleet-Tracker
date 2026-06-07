@@ -28,15 +28,16 @@ class Notice:
 
 
 def _summarize_units(reasons: list[dict]) -> list[str]:
-    """Texto por unidad infractora, p. ej. 'CF2254: NO DVIR' o
-    'CF2250 (camión): 5m 31s'."""
+    """Texto por motivo infractor, p. ej. 'CF2254: NO DVIR',
+    'Pre-trip: no registrado' o 'Post-trip: 7m 52s (< 15 min)'."""
     out = []
     for r in reasons:
-        side = "camión" if r["kind"] == "truck" else "tráiler"
         if r["type"] == "NO_DVIR":
             out.append(f"{r['unit']}: NO DVIR")
-        else:
-            out.append(f"{r['unit']} ({side}): {r['detail']} (< 15 min)")
+        elif r["type"] == "MISSING":
+            out.append(f"{r['inspection']}: no registrado")
+        else:  # SHORT
+            out.append(f"{r['inspection']}: {r['detail']} (< 15 min)")
     return out
 
 
@@ -170,9 +171,10 @@ def _issues_en(reasons: list[dict]) -> str:
     for r in reasons:
         if r["type"] == "NO_DVIR":
             out.append(f"  - {r['unit']}: no DVIR completed")
-        else:
-            side = "truck" if r["kind"] == "truck" else "trailer"
-            out.append(f"  - {r['unit']} ({side}): DVIR only {r['detail']} "
+        elif r["type"] == "MISSING":
+            out.append(f"  - {r['inspection']} inspection: not logged on duty")
+        else:  # SHORT
+            out.append(f"  - {r['inspection']} inspection: only {r['detail']} "
                        "— under the 15 min minimum")
     return "\n".join(out)
 

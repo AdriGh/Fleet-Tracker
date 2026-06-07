@@ -89,12 +89,16 @@ def company_from_units(df: pd.DataFrame):
 
 
 def classify_csv(df: pd.DataFrame) -> str:
-    """Devuelve 'dvir', 'activity', 'roster' o 'unknown'."""
+    """Devuelve 'dvir', 'activity', 'pretrip', 'roster' o 'unknown'."""
     cols = {c.strip().lower() for c in df.columns}
     if {"vehicle name", "author", "status"} <= cols:
         return "dvir"
     if "vehicle name" in cols and any(c.startswith("distance") for c in cols):
         return "activity"
+    # Custom report de HoS: Driver Name, HoS Status, Start/End Time, Remark.
+    if "remark" in cols and ("hos status" in cols or
+                             any(c.startswith("start") for c in cols)):
+        return "pretrip"
     if {"truck", "driver"} & cols and len(cols) <= 4:
         return "roster"
     return "unknown"
@@ -122,7 +126,7 @@ class AnalyzedFile:
 
         self.kind = classify_csv(df)
         self.dates = _find_dates(name)
-        if self.kind == "activity":
+        if self.kind in ("activity", "pretrip"):
             self.company = company_from_filename(name)
         elif self.kind == "dvir":
             self.company = (company_from_filename(name)
@@ -138,6 +142,11 @@ class AnalyzedFile:
         """Para actividad: el fin del rango (= dia del bloque)."""
         return self.dates[-1] if self.dates else None
 
+    @property
+    def pretrip_date(self):
+        """Para el report de Pre/Post-trip: el fin del rango (= dia del bloque)."""
+        return self.dates[-1] if self.dates else None
+
 
 def pair_blocks(files: list[AnalyzedFile]) -> dict:
     """Empareja los archivos en bloques (empresa + dia).
@@ -149,6 +158,7 @@ def pair_blocks(files: list[AnalyzedFile]) -> dict:
     """
     dvirs = [f for f in files if f.kind == "dvir" and not f.error]
     activities = [f for f in files if f.kind == "activity" and not f.error]
+    pretrips = [f for f in files if f.kind == "pretrip" and not f.error]
     warnings: list[str] = []
 
     # Indice de actividad por (empresa, fecha-fin).
@@ -157,17 +167,28 @@ def pair_blocks(files: list[AnalyzedFile]) -> dict:
         if act.company and act.activity_end:
             activity_index[(act.company, act.activity_end)] = act
 
+    # Indice del report de Pre/Post-trip por (empresa, fecha-fin).
+    pretrip_index: dict[tuple, AnalyzedFile] = {}
+    for pt in pretrips:
+        if pt.company and pt.pretrip_date:
+            pretrip_index[(pt.company, pt.pretrip_date)] = pt
+
     blocks = []
     for dv in sorted(dvirs, key=lambda f: (f.company or "", f.dvir_date
                                            or date.min)):
         d = dv.dvir_date
         act = activity_index.get((dv.company, d)) if d else None
+        pt = pretrip_index.get((dv.company, d)) if d else None
         if not dv.company:
             warnings.append(f"No se detecto la empresa de '{dv.name}'.")
         if d and not act:
             warnings.append(
                 f"Sin CSV de actividad para {dv.company or '?'} "
                 f"del {date_label(d)}.")
+        if d and not pt:
+            warnings.append(
+                f"Sin report de Pre/Post-trip para {dv.company or '?'} "
+                f"del {date_label(d)} — esas filas quedaran como NO PRE-TRIP.")
         blocks.append({
             "company": dv.company or "",
             "date_label": date_label(d) if d else "",
@@ -176,6 +197,8 @@ def pair_blocks(files: list[AnalyzedFile]) -> dict:
             "dvir_name": dv.name,
             "activity_file_id": act.file_id if act else "",
             "activity_name": act.name if act else "",
+            "pretrip_file_id": pt.file_id if pt else "",
+            "pretrip_name": pt.name if pt else "",
             "status": "ok" if (dv.company and act) else "incompleto",
         })
 

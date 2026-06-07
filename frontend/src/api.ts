@@ -54,6 +54,8 @@ export interface BatchBlock {
   dvir_name: string
   activity_file_id: string
   activity_name: string
+  pretrip_file_id: string
+  pretrip_name: string
   status: string
 }
 
@@ -69,6 +71,7 @@ export interface BatchBlockInput {
   date_label: string
   dvir_file_id: string
   activity_file_id: string
+  pretrip_file_id: string
 }
 
 export interface BatchSheetStat {

@@ -4,17 +4,15 @@
 
 import type { ReportGroup } from './api'
 
-const TRUCK_SIDE = new Set([
-  'Trk#', 'DVIR trk', 'Duration trk', 'Distance (mi)',
-])
-const DUR_COLS = new Set(['Duration trk', 'Duration trl'])
+const TRUCK_SIDE = new Set(['Trk#', 'DVIR trk', 'Distance (mi)'])
+// Pre/Post-trip son por conductor: se fusionan hacia abajo como el nombre.
+const DRIVER_SIDE = new Set(['Pre-trip', 'Post-trip'])
+const DUR_COLS = new Set(['Pre-trip', 'Post-trip'])
 const STATUS_COLS = new Set(['DVIR trk', 'DVIR trl'])
 // Mismo formato que las celdas vacias (relleno azul).
 const BLUE_COLS = new Set(['Trl#', 'Distance (mi)'])
-// Columnas D..H que absorbe la celda "NO DVIR" al mergearse.
-const NODVIR_MERGE = new Set([
-  'Trl#', 'DVIR trl', 'Duration trk', 'Duration trl',
-])
+// Columnas D..F que absorbe la celda "NO DVIR" al mergearse (colspan 3).
+const NODVIR_MERGE = new Set(['Trl#', 'DVIR trl'])
 
 const GREEN = 'background:#C6EFCE;color:#276221;font-weight:bold;'
 const RESOLVED = 'background:#C6EFCE;color:#006100;font-weight:bold;'
@@ -38,7 +36,8 @@ function cellStyle(col: string, value: string): string {
   let s = ''
   if (BLUE_COLS.has(col)) s = BLUE
   else if (value === '-') s = BLUE
-  else if (DUR_COLS.has(col) && value) s = durSecs(value) < 900 ? RED : GREEN
+  else if (DUR_COLS.has(col) && value)
+    s = value.includes('NO PRE-TRIP') ? NODVIR : durSecs(value) < 900 ? RED : GREEN
   else if (STATUS_COLS.has(col) && value) {
     if (value.includes('NO DVIR')) s = NODVIR
     else if (value === 'Safe') s = GREEN
@@ -72,13 +71,13 @@ export function buildBlock(
       const noDvir = String(row['DVIR trk'] ?? '').includes('NO DVIR')
       for (const col of columns) {
         const value = String(row[col] ?? '')
-        const mergedDriver = col === 'Driver'
+        const mergedDriver = col === 'Driver' || DRIVER_SIDE.has(col)
         const mergedTruck = g.truck_merge && TRUCK_SIDE.has(col)
         if ((mergedDriver || mergedTruck) && ri > 0) continue
-        // NO DVIR: la celda "NO DVIR" se mergea de la D a la H (colspan 5).
+        // NO DVIR: la celda "NO DVIR" se mergea de la D a la F (colspan 3).
         if (noDvir && col === 'DVIR trk') {
           tds.push(
-            `<td colspan="5" style="${cellStyle(col, value)}">${esc(value)}</td>`)
+            `<td colspan="3" style="${cellStyle(col, value)}">${esc(value)}</td>`)
           continue
         }
         if (noDvir && NODVIR_MERGE.has(col)) continue
