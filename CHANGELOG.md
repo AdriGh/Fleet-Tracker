@@ -7,6 +7,34 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.15.0] - 2026-06-07
+
+### Añadido
+- **Sección Fleet**: inventario en vivo de todas las unidades (Chaser + MCC)
+  desde Samsara `/assets` — tipo (camión/trailer), empresa, make/model/year,
+  VIN, patente y **defectos abiertos** por unidad. Filtros (empresa, tipo,
+  búsqueda), orden, Export CSV y Refresh.
+- **Sección Roster**: conductores **activos** desde Samsara `/fleet/drivers`
+  (`GET /api/drivers`) — nombre, empresa, teléfono, licencia, username. Filtros,
+  búsqueda, Export CSV.
+- **Sección Settings** (botón al fondo del sidebar) — primera función
+  configurable: **Archivo de unidades** (colapsable):
+  - **Archivado manual** desde Fleet (oculta unidades sin uso/chassis).
+  - **Auto-archivo por inactividad de DVIR**: archiva una unidad sin DVIR hace
+    más de N días, leyendo `/fleet/dvirs/history` de Samsara (troceado en
+    ventanas de ≤30 días). Configurable (on/off + días).
+  - Lista de **archivadas** dentro de Settings con Unarchive / Keep active.
+  - Persistencia en `app_config.local.json` (local, no versionado).
+- **Lectura de DVIRs de Samsara** (`core/samsara.list_fleet/list_drivers` +
+  `/fleet/dvirs/history`): un DVIR cubre el camión y su trailer enganchado.
+- Flag **`trailer_dvirs`** por org en `samsara.local.json` (Chaser `true`,
+  MCC `false`): los trailers solo se auto-archivan donde se les hace DVIR.
+
+### Cambiado
+- Auto-archivo y emparejado de DVIR por **id de asset** (no por nombre), para no
+  confundir unidades con nombre repetido. Robusto ante fallos de la API (la
+  flota nunca se vacía; si no hay datos de DVIR, no se auto-archiva).
+
 ## [0.14.0] - 2026-06-06
 
 ### Cambiado

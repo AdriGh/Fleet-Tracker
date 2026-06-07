@@ -65,13 +65,15 @@ Todo el secreto va en un único archivo local **no versionado**:
          "name": "Chaser",
          "company": "CHASER",
          "api_token": "TOKEN_DE_CHASER",
-         "base_url": "https://api.samsara.com"
+         "base_url": "https://api.samsara.com",
+         "trailer_dvirs": true
        },
        {
          "name": "MCC (Memphis)",
          "company": "MCC",
          "api_token": "TOKEN_DE_MCC",
-         "base_url": "https://api.samsara.com"
+         "base_url": "https://api.samsara.com",
+         "trailer_dvirs": false
        }
      ]
    }
@@ -84,6 +86,9 @@ Todo el secreto va en un único archivo local **no versionado**:
    - `base_url`: `https://api.samsara.com` (EE. UU.) o
      `https://api.eu.samsara.com` (Europa) — ver nota de región.
    - `open_only`: `true` para traer solo los defectos **abiertos**. Dejalo así.
+   - `trailer_dvirs` (default `true`): si a los **trailers** de ese org se les
+     hace DVIR. En **MCC = false** (no se les hace), así sus trailers **no se
+     auto-archivan** por inactividad de DVIR (solo a mano). En **Chaser = true**.
    - Si todavía tenés **un solo** token, dejá un solo objeto en `orgs`. Un org
      con el token sin completar (placeholder) simplemente se ignora.
 
