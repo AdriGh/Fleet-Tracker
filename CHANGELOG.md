@@ -7,6 +7,21 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.15.1] - 2026-06-07
+
+### Añadido
+- **Roster: emails de los conductores** desde un **snapshot local** de la hoja
+  `Driver info` (no se lee en vivo en cada carga). `core/driver_contacts.py`
+  guarda `driver_contacts.local.json` (gitignored, PII); botón **"Sync emails"**
+  para re-sincronizar a demanda. Email cruzado por nombre normalizado.
+  - **Email editable** por fila (override manual en `driver_emails.local.json`),
+    con **prioridad** sobre el snapshot y que **sobrevive** a la sync — para
+    nombres que no matchean o conductores ausentes en la hoja.
+  - Endpoints: `POST /api/drivers/sync-contacts`, `POST /api/drivers/email`.
+- **Settings → Archivo de unidades**: la lista de archivadas ahora tiene
+  **búsqueda**, **paginación (50/página)** y un **selector** ("+ Archive units")
+  para archivar varias unidades activas a mano desde Settings.
+
 ## [0.15.0] - 2026-06-07
 
 ### Añadido

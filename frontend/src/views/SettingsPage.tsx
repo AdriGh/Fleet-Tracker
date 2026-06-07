@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { fleetArchive, getSettings, listFleet, saveSettings } from '../api'
+import {
+  fleetArchive, getSettings, listFleet, saveSettings, type FleetUnit,
+} from '../api'
 import Skeleton from '../components/Skeleton'
+import Modal from '../components/Modal'
+
+const PAGE_SIZE = 50
 
 export default function SettingsPage() {
   const qc = useQueryClient()
@@ -15,13 +20,36 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [q, setQ] = useState('')
+  const [page, setPage] = useState(1)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [archiving, setArchiving] = useState(false)
 
+  const allUnits = fleetQuery.data ?? []
   const archived = useMemo(
-    () => (fleetQuery.data ?? [])
+    () => allUnits
       .filter((u) => u.archived)
       .sort((a, b) => a.company.localeCompare(b.company)
         || a.unit.localeCompare(b.unit)),
-    [fleetQuery.data])
+    [allUnits])
+  const activeUnits = useMemo(
+    () => allUnits
+      .filter((u) => !u.archived)
+      .sort((a, b) => a.company.localeCompare(b.company)
+        || a.unit.localeCompare(b.unit)),
+    [allUnits])
+
+  const archFiltered = useMemo(() => {
+    const s = q.trim().toLowerCase()
+    return s
+      ? archived.filter((u) => u.unit.toLowerCase().includes(s)
+          || u.company.toLowerCase().includes(s))
+      : archived
+  }, [archived, q])
+  const pages = Math.max(1, Math.ceil(archFiltered.length / PAGE_SIZE))
+  const pageSafe = Math.min(page, pages)
+  const pageRows = archFiltered.slice(
+    (pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE)
 
   async function archiveAction(id: string, action: string) {
     setBusyId(id)
@@ -30,6 +58,17 @@ export default function SettingsPage() {
       await qc.invalidateQueries({ queryKey: ['fleet'] })
     } finally {
       setBusyId(null)
+    }
+  }
+
+  async function archiveMany(ids: string[]) {
+    setArchiving(true)
+    try {
+      for (const id of ids) await fleetArchive(id, 'archive')
+      await qc.invalidateQueries({ queryKey: ['fleet'] })
+      setModalOpen(false)
+    } finally {
+      setArchiving(false)
     }
   }
 
@@ -139,20 +178,40 @@ export default function SettingsPage() {
 
             <hr className="settings-divider" />
 
-            <h3 className="settings-sub-h">
-              Archived units ({archived.length})
-            </h3>
+            <div className="archive-listhead">
+              <h3 className="settings-sub-h">
+                Archived units ({archived.length})
+              </h3>
+              <button className="btn btn-ghost btn-xs"
+                onClick={() => setModalOpen(true)}>
+                + Archive units
+              </button>
+            </div>
+
+            <div className="filters-row archive-search">
+              <input className="cell-input" placeholder="Search archived…"
+                value={q}
+                onChange={(e) => { setQ(e.target.value); setPage(1) }} />
+              {q && (
+                <button className="btn btn-ghost btn-xs"
+                  onClick={() => { setQ(''); setPage(1) }}>Clear</button>
+              )}
+            </div>
+
             {fleetQuery.isPending ? (
               <div className="skel-rows">
-                {Array.from({ length: 4 }).map((_, i) => (
+                {Array.from({ length: 6 }).map((_, i) => (
                   <Skeleton key={i} h={32} />
                 ))}
               </div>
             ) : archived.length === 0 ? (
               <div className="empty mini">
-                <p>No archived units. Archive unused units from the Fleet tab.</p>
+                <p>No archived units. Use “+ Archive units” or the Fleet tab.</p>
               </div>
+            ) : archFiltered.length === 0 ? (
+              <div className="empty mini"><p>No matches.</p></div>
             ) : (
+              <>
               <table className="defects-table fleet-table">
                 <thead>
                   <tr>
@@ -163,7 +222,7 @@ export default function SettingsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {archived.map((u) => (
+                  {pageRows.map((u) => (
                     <tr key={u.id}>
                       <td>
                         <span className="unit-cell">
@@ -202,10 +261,98 @@ export default function SettingsPage() {
                   ))}
                 </tbody>
               </table>
+              {pages > 1 && (
+                <div className="pager">
+                  <button className="btn btn-ghost btn-xs" disabled={pageSafe <= 1}
+                    onClick={() => setPage(pageSafe - 1)}>Prev</button>
+                  <span>Page {pageSafe} of {pages} · {archFiltered.length} units</span>
+                  <button className="btn btn-ghost btn-xs"
+                    disabled={pageSafe >= pages}
+                    onClick={() => setPage(pageSafe + 1)}>Next</button>
+                </div>
+              )}
+              </>
             )}
           </div>
         )}
       </section>
+
+      {modalOpen && (
+        <Modal title="Archive units" width={560}
+          onClose={() => setModalOpen(false)}>
+          <ArchivePicker units={activeUnits} busy={archiving}
+            onArchive={archiveMany} />
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+function ArchivePicker(
+  { units, busy, onArchive }: {
+    units: FleetUnit[]; busy: boolean; onArchive: (ids: string[]) => void
+  },
+) {
+  const [q, setQ] = useState('')
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const shown = useMemo(() => {
+    const s = q.trim().toLowerCase()
+    return s
+      ? units.filter((u) => u.unit.toLowerCase().includes(s)
+          || u.company.toLowerCase().includes(s))
+      : units
+  }, [units, q])
+  const allOn = shown.length > 0 && shown.every((u) => picked.has(u.id))
+
+  function toggle(id: string) {
+    setPicked((prev) => {
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id); else n.add(id)
+      return n
+    })
+  }
+  function toggleAll() {
+    setPicked((prev) => {
+      const n = new Set(prev)
+      if (allOn) shown.forEach((u) => n.delete(u.id))
+      else shown.forEach((u) => n.add(u.id))
+      return n
+    })
+  }
+
+  return (
+    <div className="export-picker">
+      <input className="cell-input" placeholder="Search active units…"
+        value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="ep-head">
+        <label className="ep-all">
+          <input type="checkbox" checked={allOn} onChange={toggleAll} />
+          <span>{allOn ? 'Deselect all' : 'Select all'}</span>
+        </label>
+        <span className="ep-count">{picked.size} selected</span>
+      </div>
+      <ul className="ep-list">
+        {shown.map((u) => (
+          <li key={u.id}>
+            <label className="ep-item">
+              <input type="checkbox" checked={picked.has(u.id)}
+                onChange={() => toggle(u.id)} />
+              <span className="ep-unit">{u.unit}</span>
+              <span className="ep-kind">
+                {u.asset_type === 'unpowered' ? 'trailer (unpowered)' : u.kind}
+              </span>
+              <span className="ep-co">{u.company}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="ep-foot">
+        <button className="btn btn-primary"
+          disabled={picked.size === 0 || busy}
+          onClick={() => onArchive([...picked])}>
+          {busy ? 'Archiving…' : `Archive ${picked.size}`}
+        </button>
+      </div>
     </div>
   )
 }

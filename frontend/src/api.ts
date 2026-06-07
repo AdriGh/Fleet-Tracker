@@ -294,6 +294,7 @@ export interface RosterDriver {
   name: string
   company: string
   phone: string
+  email: string
   username: string
   license_number: string
   license_state: string
@@ -304,6 +305,25 @@ export async function listRoster(): Promise<RosterDriver[]> {
   if (!res.ok) throw new Error(await readError(res))
   const data = await res.json()
   return (data.drivers ?? []) as RosterDriver[]
+}
+
+// Sincroniza el snapshot local de emails desde la hoja "Driver info".
+export async function syncDriverContacts(): Promise<
+  { count: number; with_email: number; source: string }
+> {
+  const res = await fetch('/api/drivers/sync-contacts', { method: 'POST' })
+  if (!res.ok) throw new Error(await readError(res))
+  return await res.json()
+}
+
+// Override manual del email de un conductor (sobrevive a la sync).
+export async function setDriverEmail(name: string, email: string): Promise<void> {
+  const res = await fetch('/api/drivers/email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, email }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
 }
 
 // --- Tendencias -------------------------------------------------------

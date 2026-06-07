@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { listRoster } from '../api'
+import { listRoster, setDriverEmail, syncDriverContacts } from '../api'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 
@@ -28,6 +28,11 @@ function fmtPhone(p: string): string {
 export default function RosterPage() {
   const [company, setCompany] = useState('')
   const [q, setQ] = useState('')
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState('')
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editVal, setEditVal] = useState('')
+  const [savingEmail, setSavingEmail] = useState(false)
 
   const rosterQuery = useQuery({ queryKey: ['roster'], queryFn: listRoster })
   const drivers = rosterQuery.data ?? []
@@ -50,17 +55,46 @@ export default function RosterPage() {
       (!s ||
         d.name.toLowerCase().includes(s) ||
         d.phone.includes(s) ||
+        d.email.toLowerCase().includes(s) ||
         d.username.toLowerCase().includes(s) ||
         d.license_number.toLowerCase().includes(s)))
   }, [drivers, company, q])
 
   const matrix = useMemo((): Cell[][] => {
-    const header = ['Driver', 'Company', 'Phone', 'License', 'State', 'Username']
+    const header = ['Driver', 'Company', 'Email', 'Phone', 'License', 'State',
+      'Username']
     const rows = filtered.map((d) => [
-      d.name, d.company, d.phone, d.license_number, d.license_state, d.username,
+      d.name, d.company, d.email, d.phone, d.license_number, d.license_state,
+      d.username,
     ])
     return [header, ...rows]
   }, [filtered])
+
+  async function saveEmail(name: string) {
+    setSavingEmail(true)
+    try {
+      await setDriverEmail(name, editVal.trim())
+      await rosterQuery.refetch()
+      setEditId(null)
+    } finally {
+      setSavingEmail(false)
+    }
+  }
+
+  async function sync() {
+    setSyncing(true)
+    setSyncMsg('')
+    try {
+      const r = await syncDriverContacts()
+      await rosterQuery.refetch()
+      setSyncMsg(`Synced ${r.with_email} emails`)
+      setTimeout(() => setSyncMsg(''), 3000)
+    } catch (e) {
+      setSyncMsg(e instanceof Error ? e.message : 'Sync failed')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   return (
     <div className="page page-wide">
@@ -73,6 +107,16 @@ export default function RosterPage() {
           </p>
         </div>
         <div className="head-actions">
+          {syncMsg && <span className="sync-msg">{syncMsg}</span>}
+          <button className="btn btn-ghost" onClick={sync} disabled={syncing}
+            title="Pull driver emails from the Driver info sheet">
+            <svg className={syncing ? 'spin' : ''} viewBox="0 0 24 24"
+              width="15" height="15" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
+            </svg>
+            {syncing ? 'Syncing…' : 'Sync emails'}
+          </button>
           <button className="btn btn-ghost" onClick={() => rosterQuery.refetch()}
             disabled={fetching} title="Refresh">
             <svg className={fetching ? 'spin' : ''} viewBox="0 0 24 24"
@@ -146,6 +190,7 @@ export default function RosterPage() {
                   <tr>
                     <th>Driver</th>
                     <th>Company</th>
+                    <th>Email</th>
                     <th>Phone</th>
                     <th>License</th>
                     <th>State</th>
@@ -157,6 +202,30 @@ export default function RosterPage() {
                     <tr key={d.id}>
                       <td className="unit-code">{d.name}</td>
                       <td>{d.company}</td>
+                      <td className="mono email-cell">
+                        {editId === d.id ? (
+                          <span className="email-edit">
+                            <input className="cell-input" autoFocus
+                              value={editVal} placeholder="email@…"
+                              onChange={(e) => setEditVal(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') saveEmail(d.name)
+                                if (e.key === 'Escape') setEditId(null)
+                              }} />
+                            <button className="btn btn-ghost btn-xs"
+                              disabled={savingEmail}
+                              onClick={() => saveEmail(d.name)}>Save</button>
+                            <button className="btn btn-ghost btn-xs"
+                              onClick={() => setEditId(null)}>✕</button>
+                          </span>
+                        ) : (
+                          <button className="email-show"
+                            title="Click to edit"
+                            onClick={() => { setEditId(d.id); setEditVal(d.email) }}>
+                            {d.email || <span className="muted">+ add</span>}
+                          </button>
+                        )}
+                      </td>
                       <td>{fmtPhone(d.phone)}</td>
                       <td className="mono vin">{d.license_number || '—'}</td>
                       <td>{d.license_state || '—'}</td>
