@@ -7,6 +7,26 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.16.0] - 2026-06-07
+
+### Añadido
+- **Sección PM (mantenimiento preventivo)** para camiones: combina el último PM
+  (export de Fullbay en `backend/pm.local.csv`, gitignored) con el **odómetro
+  actual en vivo de Samsara** (`obdOdometerMeters`, fallback gps) para calcular
+  el **próximo PM (cada 20.000 millas)** y las millas restantes.
+  - Tabla ordenada por urgencia: Last PM, Current (con fuente), Next due,
+    Remaining, **barra de progreso** y **Status** (Overdue / Due soon / On track
+    / Never performed / No odometer).
+  - **Gráfico de torta** "PM status" con la distribución de la flota (On track /
+    Overdue / Upcoming / Never performed) + leyenda con conteo y %.
+  - **Overrides manuales** por unidad (telemetría/Fullbay errados), editables
+    desde la UI y persistentes (`pm_overrides.local.json`, gitignored): override
+    de **millaje actual** y/o **del último PM**, y **excluir** unidades (con
+    sección para re-incluir). Prioridad del millaje: override → Samsara → reporte.
+  - Endpoints: `GET /api/pm`, `POST /api/pm/override`, `POST /api/pm/exclude`.
+  - `samsara.vehicle_odometers()` lee `/fleet/vehicles/stats`.
+- Componente `PieChart` (SVG, sin librería).
+
 ## [0.15.1] - 2026-06-07
 
 ### Añadido

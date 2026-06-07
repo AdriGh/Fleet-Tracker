@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from ..core import (
     app_config, batch, driver_contacts, engine, excel, notify_service,
-    open_defects, samsara,
+    open_defects, pm, samsara,
 )
 from ..core.contacts import name_key
 from ..schemas import (
@@ -399,6 +399,84 @@ class DriverEmailIn(BaseModel):
 def set_driver_email(body: DriverEmailIn):
     """Override manual del email de un conductor (sobrevive a la sync)."""
     driver_contacts.set_email(body.name, body.email)
+    return {"ok": True}
+
+
+@router.get("/pm")
+async def pm_tracker(refresh: bool = False):
+    """Tracker de PM: último PM (del CSV de Fullbay) + odómetro actual de Samsara
+    → millas hasta el próximo PM (cada 20.000 millas)."""
+    if refresh:
+        samsara.clear_cache()
+    records = pm.load()
+    if not records:
+        return {"available": False, "interval": pm.INTERVAL_MILES,
+                "units": [], "excluded": []}
+    ov = pm.load_overrides()
+    odo: dict = {}
+    if samsara.is_available():
+        try:
+            odo = await samsara.vehicle_odometers()
+        except Exception:  # noqa: BLE001
+            odo = {}
+
+    out: list[dict] = []
+    excluded: list[dict] = []
+    for r in records:
+        ou = ov.get(r["unit"], {})
+        if ou.get("exclude"):
+            excluded.append({"unit": r["unit"], "model": r["model"]})
+            continue
+        # Millaje actual: override manual > Samsara (obd/gps) > meter del reporte.
+        if ou.get("current_miles") is not None:
+            current, source = int(ou["current_miles"]), "manual"
+        else:
+            o = odo.get(r["unit"])
+            current = o["miles"] if o else r.get("report_miles")
+            source = o["source"] if o else (
+                "report" if r.get("report_miles") else None)
+        last = ou.get("last_pm_miles", r["last_pm_miles"])
+        next_due = last + pm.INTERVAL_MILES if last is not None else None
+        remaining = (next_due - current
+                     if next_due is not None and current is not None else None)
+        out.append({
+            **r,
+            "last_pm_miles": last,
+            "last_pm_overridden": "last_pm_miles" in ou,
+            "current_miles": current,
+            "current_source": source,
+            "current_overridden": "current_miles" in ou,
+            "next_due_miles": next_due,
+            "remaining": remaining,
+        })
+    out.sort(key=lambda x: x["remaining"] if x["remaining"] is not None else 1e12)
+    return {"available": True, "interval": pm.INTERVAL_MILES,
+            "units": out, "excluded": sorted(excluded, key=lambda e: e["unit"])}
+
+
+class PMOverrideIn(BaseModel):
+    unit: str
+    field: str           # current_miles | last_pm_miles
+    value: int | None = None
+
+
+@router.post("/pm/override")
+def pm_set_override(body: PMOverrideIn):
+    try:
+        pm.set_override(body.unit, body.field, body.value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True}
+
+
+class PMExcludeIn(BaseModel):
+    unit: str
+    excluded: bool
+
+
+@router.post("/pm/exclude")
+def pm_set_excluded(body: PMExcludeIn):
+    pm.set_excluded(body.unit, body.excluded)
     return {"ok": True}
 
 

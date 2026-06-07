@@ -6,6 +6,7 @@ import DefectsPage from './views/DefectsPage'
 import NotifyPage from './views/NotifyPage'
 import FleetPage from './views/FleetPage'
 import RosterPage from './views/RosterPage'
+import PMPage from './views/PMPage'
 import SettingsPage from './views/SettingsPage'
 
 type Theme = 'light' | 'dark'
@@ -16,6 +17,7 @@ const MENU = [
   { id: 'avisos', label: 'Notices', soon: false },
   { id: 'roster', label: 'Roster', soon: false },
   { id: 'flota', label: 'Fleet', soon: false },
+  { id: 'pm', label: 'PM', soon: false },
 ]
 
 const ICONS: Record<string, ReactElement> = {
@@ -53,6 +55,12 @@ const ICONS: Record<string, ReactElement> = {
       <path d="M2 6h11v9H2zM13 9h4l3 3v3h-7z" />
       <circle cx="6.5" cy="17.5" r="1.8" />
       <circle cx="17.5" cy="17.5" r="1.8" />
+    </svg>
+  ),
+  pm: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L4 16.8 7.2 20l5.3-5.3a4 4 0 0 0 5.2-5.4l-2.5 2.5-2.3-.5-.5-2.3z" />
     </svg>
   ),
   settings: (
@@ -160,6 +168,7 @@ export default function App() {
           {section === 'avisos' && <NotifyPage />}
           {section === 'flota' && <FleetPage />}
           {section === 'roster' && <RosterPage />}
+          {section === 'pm' && <PMPage />}
           {section === 'settings' && <SettingsPage />}
         </main>
       </div>
