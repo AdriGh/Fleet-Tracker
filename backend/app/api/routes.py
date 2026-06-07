@@ -9,7 +9,11 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from .. import __version__, config, db
-from ..core import batch, engine, excel, notify_service, open_defects, samsara
+from pydantic import BaseModel
+
+from ..core import (
+    app_config, batch, engine, excel, notify_service, open_defects, samsara,
+)
 from ..schemas import (
     BatchAnalyzeResponse,
     BatchGenerateRequest,
@@ -278,6 +282,91 @@ async def dvir_defect_stats(days: int = 7, refresh: bool = False):
         "days": days,
         "defects": [{**d, "status": "Unsafe"} for d in open_defects.load()],
     }
+
+
+class SettingsIn(BaseModel):
+    auto_archive_enabled: bool = False
+    auto_archive_days: int = 30
+
+
+class ArchiveIn(BaseModel):
+    id: str
+    action: str  # archive | unarchive | keep_active | auto
+
+
+@router.get("/settings")
+def get_settings():
+    """Configuración de la app (por ahora: archivo de unidades)."""
+    return app_config.get_settings()
+
+
+@router.post("/settings")
+def update_settings(body: SettingsIn):
+    return app_config.set_settings(body.auto_archive_enabled,
+                                   body.auto_archive_days)
+
+
+@router.post("/fleet/archive")
+def fleet_archive(body: ArchiveIn):
+    try:
+        app_config.apply_action(body.id, body.action)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True}
+
+
+@router.get("/fleet")
+async def fleet(refresh: bool = False):
+    """Inventario de la flota (todas las unidades de Samsara) con datos del
+    asset, defectos abiertos y estado de archivo (manual o auto por inactividad
+    de DVIR). Solo Samsara (sin fallback CSV).
+    """
+    if refresh:
+        samsara.clear_cache()
+    if not samsara.is_available():
+        return {"available": False, "source": "none", "units": [], "settings": app_config.get_settings()}
+    st = app_config.get_settings()
+    arch = app_config.archived_ids()
+    keep = app_config.kept_active_ids()
+    auto_days = st["auto_archive_days"] if st["auto_archive_enabled"] else None
+    try:
+        units = await samsara.list_fleet(auto_days)
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False, "source": "error",
+                "error": str(exc), "units": [], "settings": st}
+
+    for u in units:
+        uid = str(u.get("id"))
+        if uid in arch:
+            u["archived"], u["archive_reason"] = True, "manual"
+        elif (auto_days and u.get("dvir_known") and u.get("auto_eligible")
+              and not u.get("last_dvir") and uid not in keep):
+            u["archived"], u["archive_reason"] = True, "auto"
+        else:
+            u["archived"], u["archive_reason"] = False, None
+
+    return {
+        "available": True,
+        "source": "samsara",
+        "settings": st,
+        "archived_count": sum(1 for u in units if u["archived"]),
+        "units": units,
+    }
+
+
+@router.get("/drivers")
+async def drivers_endpoint(refresh: bool = False):
+    """Conductores activos (Samsara). Solo Samsara (sin fallback)."""
+    if refresh:
+        samsara.clear_cache()
+    if not samsara.is_available():
+        return {"available": False, "source": "none", "drivers": []}
+    try:
+        return {"available": True, "source": "samsara",
+                "drivers": await samsara.list_drivers()}
+    except Exception as exc:  # noqa: BLE001
+        return {"available": False, "source": "error",
+                "error": str(exc), "drivers": []}
 
 
 @router.get("/dvir/trends")

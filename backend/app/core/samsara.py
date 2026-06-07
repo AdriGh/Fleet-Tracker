@@ -37,6 +37,11 @@ _REF_TTL = 900  # 15 min
 _ref_cache: dict[str, tuple[float, dict]] = {}
 _ref_locks: dict[str, asyncio.Lock] = {}
 
+# Caché de "última fecha de DVIR por unidad" (para auto-archivo por inactividad).
+_DVIR_TTL = 600  # 10 min
+_dvir_cache: dict[tuple, tuple[float, dict]] = {}
+_dvir_locks: dict[tuple, asyncio.Lock] = {}
+
 # Inferencia de categoría a partir del comentario, cuando el defecto no trae
 # `defectTypeId`. (patrón regex, categoría, solo_camión). El orden importa: se
 # evalúa de arriba a abajo y gana el primero. Las categorías coinciden con las
@@ -112,6 +117,9 @@ def _orgs() -> list[dict]:
                          or "https://api.samsara.com").rstrip("/"),
             "company": (o.get("company") or "").strip() or None,
             "open_only": o.get("open_only", default_open),
+            # ¿A los TRAILERS de este org se les hace DVIR? (Chaser sí, MCC no).
+            # Si no, los trailers no se auto-archivan por inactividad de DVIR.
+            "trailer_dvirs": bool(o.get("trailer_dvirs", True)),
         })
     return out
 
@@ -178,8 +186,66 @@ async def _reference(client: httpx.AsyncClient, cfg: dict) -> dict:
 
 
 def clear_cache() -> None:
-    """Vacía la caché de reference-data (para forzar datos frescos)."""
+    """Vacía las cachés (reference-data + DVIRs) para forzar datos frescos."""
     _ref_cache.clear()
+    _dvir_cache.clear()
+
+
+# Samsara limita /fleet/dvirs/history a ~31 días por consulta → troceamos.
+_DVIR_CHUNK_DAYS = 30
+_DVIR_MAX_CHUNKS = 13  # tope de seguridad (~390 días)
+
+
+async def _last_dvir_by_unit(
+    client: httpx.AsyncClient, cfg: dict, days: int,
+) -> dict[str, datetime.date]:
+    """{id de vehículo -> fecha del DVIR más reciente} en los últimos `days`
+    días, leído de `/fleet/dvirs/history`. Se empareja por **id de asset** (no
+    por nombre) para no confundir unidades con nombre repetido. La ventana se
+    trocea en chunks de ≤30 días (límite de Samsara), pedidos en paralelo.
+    Cacheado. Los DVIRs son por vehículo (camión); los tráileres no hacen DVIR.
+    """
+    key = (cfg["api_token"], days)
+    now = time.monotonic()
+    hit = _dvir_cache.get(key)
+    if hit and hit[0] > now:
+        return hit[1]
+    lock = _dvir_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        hit = _dvir_cache.get(key)
+        if hit and hit[0] > now:
+            return hit[1]
+
+        # Ventanas consecutivas de ≤30 días que cubren [now - days, now].
+        nowdt = datetime.datetime.now(datetime.timezone.utc)
+        windows: list[tuple[str, str]] = []
+        remaining, end_dt = days, nowdt
+        while remaining > 0 and len(windows) < _DVIR_MAX_CHUNKS:
+            span = min(_DVIR_CHUNK_DAYS, remaining)
+            start_dt = end_dt - datetime.timedelta(days=span)
+            windows.append((start_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")))
+            end_dt = start_dt
+            remaining -= span
+
+        chunks = await asyncio.gather(*(
+            _paged(client, cfg,
+                   f"/fleet/dvirs/history?startTime={s}&endTime={e}")
+            for s, e in windows))
+
+        last: dict[str, datetime.date] = {}
+        for dvirs in chunks:
+            for d in dvirs:
+                day = _parse_day(d.get("endTime") or d.get("startTime"))
+                if not day:
+                    continue
+                # Un DVIR cubre el camión y (si está enganchado) el trailer.
+                for ref in (d.get("vehicle"), d.get("trailer")):
+                    aid = (ref or {}).get("id")
+                    if aid and (aid not in last or day > last[aid]):
+                        last[aid] = day
+        _dvir_cache[key] = (time.monotonic() + _DVIR_TTL, last)
+        return last
 
 
 def _parse_day(raw: str) -> datetime.date | None:
@@ -350,4 +416,113 @@ async def load_window(days: int) -> list[dict]:
 
     out = [row for sub in per_org for row in sub]
     out.sort(key=lambda d: (d["block_date"], d["unit"]))
+    return out
+
+
+async def _org_fleet(
+    client: httpx.AsyncClient, cfg: dict, start: str, end: str,
+    auto_days: int | None,
+) -> list[dict]:
+    """Inventario de unidades de un org + defectos abiertos + último DVIR."""
+    ref, opens = await asyncio.gather(
+        _reference(client, cfg),
+        _org_open(client, cfg, start, end),
+    )
+    # Auto-archivo: traer último DVIR por unidad. Es best-effort — si falla, la
+    # flota igual carga y NO se auto-archiva nada (evita archivar todo por error).
+    last_dvir: dict = {}
+    dvir_known = False
+    if auto_days:
+        try:
+            last_dvir = await _last_dvir_by_unit(client, cfg, auto_days)
+            dvir_known = True
+        except Exception:  # noqa: BLE001
+            dvir_known = False
+
+    open_count: dict[str, int] = {}
+    for d in opens:
+        open_count[d["unit"]] = open_count.get(d["unit"], 0) + 1
+
+    out: list[dict] = []
+    for a in ref["assets"].values():
+        name = (a.get("name") or "").strip()
+        if not name:
+            continue
+        atype = a.get("type")
+        kind = "truck" if atype == "vehicle" else "trailer"
+        ld = last_dvir.get(a.get("id"))
+        out.append({
+            "id": a.get("id"),
+            "unit": name,
+            "kind": kind,
+            "asset_type": atype,                       # vehicle/trailer/unpowered
+            "company": cfg["company"] or company_of(name),
+            "make": (a.get("make") or "").strip(),
+            "model": (a.get("model") or "").strip(),
+            "year": a.get("year") or "",
+            "vin": (a.get("vin") or "").strip(),
+            "plate": (a.get("licensePlate") or "").strip(),
+            "open_defects": open_count.get(name, 0),
+            "last_dvir": ld.isoformat() if ld else None,
+            "dvir_known": dvir_known,
+            # Elegible para auto-archivo por DVIR: camiones siempre; trailers
+            # solo si en ese org se les hace DVIR.
+            "auto_eligible": kind == "truck" or cfg.get("trailer_dvirs", True),
+        })
+    return out
+
+
+async def list_fleet(auto_days: int | None = None) -> list[dict]:
+    """Flota completa (todos los orgs) con datos del asset, defectos abiertos y,
+    si `auto_days` viene dado, el último DVIR de cada unidad (para auto-archivo).
+    Lanza excepción si la API falla.
+    """
+    orgs = _orgs()
+    if not orgs:
+        return []
+    now = datetime.datetime.now(datetime.timezone.utc)
+    start = (now - datetime.timedelta(days=_LOOKBACK_DAYS)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+    end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        per_org = await asyncio.gather(
+            *(_org_fleet(client, cfg, start, end, auto_days) for cfg in orgs))
+
+    out = [u for sub in per_org for u in sub]
+    out.sort(key=lambda u: (u["company"], u["unit"]))
+    return out
+
+
+async def _org_drivers(client: httpx.AsyncClient, cfg: dict) -> list[dict]:
+    drivers = await _paged(client, cfg, "/fleet/drivers?limit=512")
+    out: list[dict] = []
+    for d in drivers:
+        if (d.get("driverActivationStatus") or "active") != "active":
+            continue
+        name = (d.get("name") or "").strip()
+        if not name:
+            continue
+        out.append({
+            "id": d.get("id"),
+            "name": name,
+            "company": cfg["company"] or "—",
+            "phone": (d.get("phone") or "").strip(),
+            "username": (d.get("username") or "").strip(),
+            "license_number": (d.get("licenseNumber") or "").strip(),
+            "license_state": (d.get("licenseState") or "").strip(),
+        })
+    return out
+
+
+async def list_drivers() -> list[dict]:
+    """Conductores ACTIVOS de todos los orgs (Samsara `/fleet/drivers`)."""
+    orgs = _orgs()
+    if not orgs:
+        return []
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        per_org = await asyncio.gather(
+            *(_org_drivers(client, cfg) for cfg in orgs))
+    out = [d for sub in per_org for d in sub]
+    out.sort(key=lambda d: (d["company"], d["name"]))
     return out

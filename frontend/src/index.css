@@ -259,6 +259,8 @@ button {
   flex-direction: column;
   gap: 3px;
 }
+/* Grupo de nav empujado al fondo del sidebar (ej. Settings). */
+.nav-bottom { margin-top: auto; }
 .nav-item {
   border: none;
   background: none;
@@ -311,7 +313,7 @@ button {
 }
 
 .sidebar-foot {
-  margin-top: auto;
+  margin-top: 10px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -419,6 +421,7 @@ button {
   .nav {
     flex-direction: row;
   }
+  .nav-bottom { margin-top: 0; flex-direction: row; }
   .nav-item .soon {
     display: none;
   }
@@ -1811,6 +1814,56 @@ td.dur-high {
 .skel-chart { border-radius: var(--radius); display: block; }
 .skel-rows { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
 .spin { animation: spin .9s linear infinite; transform-origin: 50% 50%; }
+.fleet-table .vin { color: var(--text-muted); letter-spacing: .2px; }
+.fleet-table .muted { color: var(--text-muted); }
+.archive-tag {
+  margin-left: 7px; font-size: 9px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; padding: 1px 6px; border-radius: 20px;
+  background: var(--surface-2); color: var(--text-muted);
+  border: 1px solid var(--border); vertical-align: 1px;
+}
+.archive-tag.auto { background: var(--ui-warn-bg, #fef3c7); color: #92600a;
+  border-color: #f0d28a; }
+.btn-xs { font-size: 11.5px; padding: 4px 10px; }
+
+/* Settings */
+.settings-card { max-width: 720px; }
+.collapse-head {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  background: none; border: none; cursor: pointer; text-align: left;
+  padding: 16px 18px; font: inherit; color: inherit;
+}
+.collapse-head:hover { background: var(--surface-2); }
+.collapse-head h2 { font-size: 15px; margin: 0; }
+.collapse-head .sub { font-size: 12px; color: var(--text-muted); }
+.collapse-chevron {
+  width: 18px; height: 18px; flex: none; color: var(--text-muted);
+  transition: transform .18s ease;
+}
+.collapse-chevron.open { transform: rotate(90deg); }
+.settings-divider {
+  border: none; border-top: 1px solid var(--border); margin: 18px 0 14px;
+}
+.settings-sub-h { font-size: 13px; font-weight: 700; margin: 0 0 10px;
+  color: var(--text); }
+.settings-help { font-size: 13px; color: var(--text-muted); margin: 0 0 16px;
+  line-height: 1.5; }
+.settings-toggle { display: flex; gap: 10px; align-items: flex-start;
+  cursor: pointer; padding: 10px 0; }
+.settings-toggle input { width: 17px; height: 17px; margin-top: 2px;
+  flex: none; }
+.settings-toggle strong { display: block; font-size: 14px; }
+.settings-sub, .settings-note { display: block; font-size: 12.5px;
+  color: var(--text-muted); margin-top: 3px; line-height: 1.45; }
+.settings-days { padding: 6px 0 4px 27px; }
+.settings-days.disabled { opacity: .5; }
+.settings-days label { display: flex; flex-direction: column; gap: 5px;
+  font-size: 13px; font-weight: 600; max-width: 220px; }
+.settings-days input { padding: 8px 10px; border-radius: 7px;
+  border: 1px solid var(--border-strong); background: var(--surface);
+  color: var(--text); font: inherit; }
+.settings-actions { margin-top: 18px; padding-top: 14px;
+  border-top: 1px solid var(--border); }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .skel, .loadbar::before, .spin { animation: none; }

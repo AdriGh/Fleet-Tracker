@@ -232,6 +232,80 @@ export async function listDefectStats(days: number): Promise<Defect[]> {
   return (data.defects ?? []) as Defect[]
 }
 
+// --- Flota (inventario de unidades desde Samsara) ---------------------
+export interface FleetUnit {
+  id: string            // id único del asset en Samsara
+  unit: string
+  kind: string          // truck | trailer
+  asset_type: string    // vehicle | trailer | unpowered
+  company: string
+  make: string
+  model: string
+  year: number | string
+  vin: string
+  plate: string
+  open_defects: number
+  last_dvir: string | null
+  archived: boolean
+  archive_reason: string | null   // manual | auto | null
+}
+
+export async function listFleet(): Promise<FleetUnit[]> {
+  const res = await fetch('/api/fleet')
+  if (!res.ok) throw new Error(await readError(res))
+  const data = await res.json()
+  return (data.units ?? []) as FleetUnit[]
+}
+
+export async function fleetArchive(id: string, action: string): Promise<void> {
+  const res = await fetch('/api/fleet/archive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, action }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+// --- Configuración de la app (Settings) -------------------------------
+export interface AppSettings {
+  auto_archive_enabled: boolean
+  auto_archive_days: number
+}
+
+export async function getSettings(): Promise<AppSettings> {
+  const res = await fetch('/api/settings')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as AppSettings
+}
+
+export async function saveSettings(s: AppSettings): Promise<AppSettings> {
+  const res = await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(s),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as AppSettings
+}
+
+// --- Roster (conductores activos de Samsara) --------------------------
+export interface RosterDriver {
+  id: string
+  name: string
+  company: string
+  phone: string
+  username: string
+  license_number: string
+  license_state: string
+}
+
+export async function listRoster(): Promise<RosterDriver[]> {
+  const res = await fetch('/api/drivers')
+  if (!res.ok) throw new Error(await readError(res))
+  const data = await res.json()
+  return (data.drivers ?? []) as RosterDriver[]
+}
+
 // --- Tendencias -------------------------------------------------------
 
 export interface TrendPoint {
