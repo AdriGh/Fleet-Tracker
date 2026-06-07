@@ -326,6 +326,57 @@ export async function setDriverEmail(name: string, email: string): Promise<void>
   if (!res.ok) throw new Error(await readError(res))
 }
 
+// --- PM tracker (mantenimiento preventivo) ----------------------------
+export interface PMUnit {
+  unit: string
+  model: string
+  pm_type: string | null
+  last_pm_date: string | null
+  last_pm_miles: number | null
+  last_pm_overridden: boolean
+  report_miles: number | null
+  current_miles: number | null
+  current_source: string | null    // obd | gps | report | manual
+  current_overridden: boolean
+  next_due_miles: number | null
+  remaining: number | null
+}
+
+export interface PMResult {
+  available: boolean
+  interval: number
+  units: PMUnit[]
+  excluded: { unit: string; model: string }[]
+}
+
+export async function listPM(): Promise<PMResult> {
+  const res = await fetch('/api/pm')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as PMResult
+}
+
+export async function setPMOverride(
+  unit: string, field: 'current_miles' | 'last_pm_miles', value: number | null,
+): Promise<void> {
+  const res = await fetch('/api/pm/override', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ unit, field, value }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+export async function setPMExcluded(
+  unit: string, excluded: boolean,
+): Promise<void> {
+  const res = await fetch('/api/pm/exclude', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ unit, excluded }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
 // --- Tendencias -------------------------------------------------------
 
 export interface TrendPoint {

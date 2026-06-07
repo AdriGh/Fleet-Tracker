@@ -515,6 +515,38 @@ async def _org_drivers(client: httpx.AsyncClient, cfg: dict) -> list[dict]:
     return out
 
 
+async def _org_odometers(client: httpx.AsyncClient, cfg: dict) -> dict[str, dict]:
+    rows = await _paged(
+        client, cfg,
+        "/fleet/vehicles/stats?types=obdOdometerMeters,gpsOdometerMeters")
+    out: dict[str, dict] = {}
+    for x in rows:
+        name = (x.get("name") or "").strip()
+        if not name:
+            continue
+        obd = (x.get("obdOdometerMeters") or {}).get("value")
+        gps = (x.get("gpsOdometerMeters") or {}).get("value")
+        if obd:
+            out[name] = {"miles": round(obd / 1609.344), "source": "obd"}
+        elif gps:
+            out[name] = {"miles": round(gps / 1609.344), "source": "gps"}
+    return out
+
+
+async def vehicle_odometers() -> dict[str, dict]:
+    """{nombre de unidad -> {miles, source}} con el odómetro actual (obd>gps)."""
+    orgs = _orgs()
+    if not orgs:
+        return {}
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        per_org = await asyncio.gather(
+            *(_org_odometers(client, cfg) for cfg in orgs))
+    out: dict[str, dict] = {}
+    for d in per_org:
+        out.update(d)
+    return out
+
+
 async def list_drivers() -> list[dict]:
     """Conductores ACTIVOS de todos los orgs (Samsara `/fleet/drivers`)."""
     orgs = _orgs()
