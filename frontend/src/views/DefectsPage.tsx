@@ -535,18 +535,6 @@ export default function DefectsPage() {
               ))}
             </div>
           )}
-          <div className="company-tabs" role="tablist">
-            <button
-              className={`tab-btn ${company === 'CHASER' ? 'active' : ''}`}
-              onClick={() => { setCompany('CHASER'); setTerminal('') }}>
-              Chaser</button>
-            <button
-              className={`tab-btn ${company === 'MCC' ? 'active' : ''}`}
-              onClick={() => { setCompany('MCC'); setTerminal('') }}>MCCI</button>
-            <button
-              className={`tab-btn ${company === '' ? 'active' : ''}`}
-              onClick={() => { setCompany(''); setTerminal('') }}>All</button>
-          </div>
           <button className="btn btn-ghost export-btn"
             disabled={sortedRows.length === 0}
             onClick={() => setListRows(sortedRows)}>

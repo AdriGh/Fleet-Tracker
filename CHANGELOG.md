@@ -7,6 +7,16 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.18.1] - 2026-06-08
+
+### Cambiado
+- **Fleet y Defects**: se quita el selector de empresa (Chaser/MCCI/All); el
+  filtro geográfico queda unificado en el **selector de terminal**:
+  **Chaser · Memphis · Chicago · Miami · Georgia** (Atlanta + Savannah
+  agrupadas en *Georgia*). Los chips se muestran solo si hay unidades de esa
+  terminal. Las unidades de MCC sin prefijo de terminal (trailers/chassis)
+  quedan bajo "All terminals".
+
 ## [0.18.0] - 2026-06-08
 
 ### Añadido

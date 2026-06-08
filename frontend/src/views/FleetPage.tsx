@@ -171,15 +171,6 @@ export default function FleetPage() {
       <div className="card">
         <div className="card-body filters-row">
           <div className="company-tabs" role="tablist">
-            <button className={`tab-btn ${company === 'CHASER' ? 'active' : ''}`}
-              onClick={() => { setCompany('CHASER'); setTerminal('') }}>
-              Chaser</button>
-            <button className={`tab-btn ${company === 'MCC' ? 'active' : ''}`}
-              onClick={() => { setCompany('MCC'); setTerminal('') }}>MCCI</button>
-            <button className={`tab-btn ${company === '' ? 'active' : ''}`}
-              onClick={() => { setCompany(''); setTerminal('') }}>All</button>
-          </div>
-          <div className="company-tabs" role="tablist">
             <button className={`tab-btn ${type === '' ? 'active' : ''}`}
               onClick={() => setType('')}>All</button>
             <button className={`tab-btn ${type === 'truck' ? 'active' : ''}`}
