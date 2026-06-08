@@ -1,17 +1,20 @@
 // Terminal (region) de una unidad, deducida del prefijo de su nombre.
-//   MEM-RMF1826 -> MEM (Memphis) · MIA-… -> MIA · ATL/SAV/MDW …
-//   CF2248 / CI2037 (sin prefijo) -> CHASER
-// Las unidades de MCC sin prefijo reconocido caen en 'MCC' (sin terminal).
+//   MEM-… -> Memphis · MDW-… -> Chicago · MIA-… -> Miami
+//   ATL-… / SAV-… -> Georgia (Atlanta + Savannah agrupadas)
+//   CF2248 / CI2037 (sin prefijo) -> Chaser
+// Las unidades de MCC sin prefijo reconocido caen en 'MCC' (sin chip propio;
+// solo aparecen bajo "All terminals").
 
-const MCC_TERMINALS = new Set(['MDW', 'MEM', 'ATL', 'SAV', 'MIA'])
+const PREFIX_TO_TERMINAL: Record<string, string> = {
+  MEM: 'MEM', MDW: 'MDW', MIA: 'MIA', ATL: 'GA', SAV: 'GA',
+}
 
 export const TERMINAL_LABEL: Record<string, string> = {
   CHASER: 'Chaser',
   MEM: 'Memphis',
-  MIA: 'Miami',
-  ATL: 'Atlanta',
-  SAV: 'Savannah',
   MDW: 'Chicago',
+  MIA: 'Miami',
+  GA: 'Georgia',
   MCC: 'MCCI (other)',
 }
 
@@ -19,13 +22,13 @@ export const TERMINAL_LABEL: Record<string, string> = {
 export function terminalOf(unit: string, company?: string): string {
   const s = (unit || '').trim().toUpperCase()
   const m = s.match(/^([A-Z]{2,4})[\s-]/)
-  if (m && MCC_TERMINALS.has(m[1])) return m[1]
+  if (m && PREFIX_TO_TERMINAL[m[1]]) return PREFIX_TO_TERMINAL[m[1]]
   if ((company || '').toUpperCase() === 'MCC') return 'MCC'
   return 'CHASER'
 }
 
-/** Orden de presentación de las terminales. */
-const ORDER = ['CHASER', 'MEM', 'MIA', 'ATL', 'SAV', 'MDW', 'MCC']
+// Orden de presentación. 'MCC' (other) no se muestra como chip a propósito.
+const ORDER = ['CHASER', 'MEM', 'MDW', 'MIA', 'GA']
 
 /** Terminales presentes en un conjunto de unidades, en orden estable. */
 export function terminalsPresent(
