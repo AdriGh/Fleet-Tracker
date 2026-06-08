@@ -5,6 +5,7 @@ Expone funciones de alto nivel para los endpoints de la API.
 """
 
 from . import datasource, mailer
+from .cc_routing import region_from_truck
 from .contacts import parse_contacts
 from .notify import build_notices, render_email
 from .sheet_report import parse_blocks
@@ -60,7 +61,7 @@ def scan(sheet: str, date_label: str) -> dict:
     groups = parsed.get(date_label)
     if groups is None:
         raise KeyError(f"Bloque '{date_label}' no encontrado en '{sheet}'.")
-    book = parse_contacts(data.driver_info)
+    book = parse_contacts(data.driver_info, region_from_truck)
     notices, review = build_notices(groups, book)
     return {
         "sheet": sheet,

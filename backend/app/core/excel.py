@@ -10,7 +10,8 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from .duration import parse_duration
-from .engine import COLUMNS, MIN_DURATION_SECONDS, NO_DVIR_TEXT
+from .engine import (
+    COLUMNS, MIN_DURATION_SECONDS, NO_DVIR_TEXT, NO_PRETRIP_TEXT)
 
 # Colores en ARGB de 8 digitos (alfa FF = opaco), exactos del DVIR Report.
 HEADER_FILL = "FF1F4E79"
@@ -25,13 +26,16 @@ DASH_FILL, DASH_FONT = "FFD6E8F7", "FF1A1A1A"  # celda sin info
 DUR_LOW = ("FFFFC7CE", "FF9C0006")             # duracion < 15 min / mal
 DUR_HIGH = ("FFC6EFCE", "FF276221")            # duracion >= 15 min / ok
 DUR_THRESHOLD = MIN_DURATION_SECONDS           # segundos (15 min)
-DUR_COLS = ("Duration trk", "Duration trl")
+DUR_COLS = ("Pre-trip",)
 # Columnas que llevan el mismo formato que las celdas vacias (relleno azul).
 BLUE_COLS = ("Trl#", "Distance (mi)")
-# Indices 1-based de las columnas del lado del camion
-# (Trk#, DVIR trk, Duration trk, Distance (mi)).
-TRUCK_COLS = (3, 4, 7, 9)
-COL_WIDTHS = [16, 20, 12, 13, 12, 13, 14, 14, 14]
+# Indices 1-based de las columnas del lado del camion que se fusionan cuando
+# hay un unico camion (Trk#, DVIR trk, Distance (mi)).
+TRUCK_COLS = (3, 4, 8)
+# Indice 1-based de la columna por conductor (Pre-trip): se fusiona siempre
+# con el nombre a lo largo de las filas del conductor.
+DRIVER_COLS = (7,)
+COL_WIDTHS = [16, 20, 12, 13, 12, 13, 13, 13]
 
 _THIN = Side(style="thin", color="D9D9D9")
 _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
@@ -87,10 +91,14 @@ def _write_block(ws, start_row, date_label, groups):
                     cell.font = Font(name="Calibri", size=15,
                                      color=DASH_FONT)
                 elif name in DUR_COLS and value:
-                    # Duracion: rojo < 15 min, verde >= 15 min.
-                    fill, font_color = (
-                        DUR_LOW if parse_duration(value) < DUR_THRESHOLD
-                        else DUR_HIGH)
+                    # Pre-trip: '⚠ NO PRE-TRIP' en naranja (como NO DVIR);
+                    # si no, rojo < 15 min, verde >= 15 min.
+                    if value == NO_PRETRIP_TEXT:
+                        fill, font_color = STATUS_STYLES["NO DVIR"]
+                    else:
+                        fill, font_color = (
+                            DUR_LOW if parse_duration(value) < DUR_THRESHOLD
+                            else DUR_HIGH)
                     cell.fill = PatternFill("solid", fgColor=fill)
                     cell.font = Font(name="Calibri", size=15, bold=True,
                                      color=font_color)
@@ -104,14 +112,17 @@ def _write_block(ws, start_row, date_label, groups):
                         cell.fill = PatternFill("solid", fgColor=style[0])
                         cell.font = Font(name="Calibri", size=15, bold=True,
                                          color=style[1])
-            # NO DVIR: fusionar la celda "⚠ NO DVIR" de la D a la H (4-8).
+            # NO DVIR: fusionar la celda "⚠ NO DVIR" de la D a la F (4-6).
+            # Pre-trip (G) queda aparte con su propio estado.
             if entry.get("DVIR trk") == NO_DVIR_TEXT:
                 ws.merge_cells(start_row=row, start_column=4,
-                               end_row=row, end_column=8)
+                               end_row=row, end_column=6)
                 ws.cell(row=row, column=4).alignment = _CENTER
             row += 1
         if row - group_start > 1:
-            cols_to_merge = [2]
+            # Nombre (2) y Pre-trip (7) son por conductor: se fusionan
+            # siempre. El lado del camion solo cuando hay un unico camion.
+            cols_to_merge = [2, *DRIVER_COLS]
             if group["truck_merge"]:
                 cols_to_merge += list(TRUCK_COLS)
             for col in cols_to_merge:

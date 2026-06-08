@@ -9,6 +9,7 @@ import {
   type Notice,
   type NotifySendResponse,
 } from '../api'
+import { notifyOk, notifyErr } from '../toast'
 
 export default function NotifyPage() {
   const [sheet, setSheet] = useState('')
@@ -81,11 +82,17 @@ export default function NotifyPage() {
     if (!scan || selected.size === 0) return
     setSending(true)
     setError('')
+    const dry = status ? status.dry_run : true
     try {
       const r = await notifySend(sheet, date, [...selected])
       setSendResult(r)
+      notifyOk(
+        dry ? 'Simulación completada' : 'Avisos enviados',
+        `${selected.size} conductor${selected.size === 1 ? '' : 'es'}`,
+      )
     } catch (e) {
       setError(String(e))
+      notifyErr('No se pudieron enviar los avisos', e)
     } finally {
       setSending(false)
     }

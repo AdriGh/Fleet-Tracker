@@ -13,14 +13,13 @@ if errorlevel 1 (
   py -m pip install -r backend\requirements.txt
 )
 
-REM --- Frontend: compilar la interfaz si falta ---
-if not exist "frontend\dist\index.html" (
-  echo Compilando la interfaz ^(primera vez^)...
-  pushd frontend
-  if not exist "node_modules" call npm install
-  call npm run build
-  popd
-)
+REM --- Frontend: compilar la interfaz SIEMPRE (refleja la ultima version
+REM tras un git pull; el build es rapido tras la primera instalacion) ---
+echo Compilando la interfaz...
+pushd frontend
+if not exist "node_modules" call npm install
+call npm run build
+popd
 
 REM --- Arrancar el servidor en segundo plano ---
 start "Fleet Tracker - servidor" /min cmd /c ^

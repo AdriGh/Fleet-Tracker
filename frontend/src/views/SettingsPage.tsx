@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   fleetArchive, getSettings, listFleet, saveSettings, type FleetUnit,
 } from '../api'
+import { notifyOk, notifyErr } from '../toast'
 import Skeleton from '../components/Skeleton'
 import Modal from '../components/Modal'
 
@@ -96,8 +97,10 @@ export default function SettingsPage() {
       qc.invalidateQueries({ queryKey: ['fleet'] })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
+      notifyOk('Configuración guardada')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error')
+      notifyErr('No se pudo guardar', e)
     } finally {
       setSaving(false)
     }

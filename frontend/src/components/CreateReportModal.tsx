@@ -18,6 +18,7 @@ interface BlockRow {
   date_label: string
   dvir_file_id: string
   activity_file_id: string
+  pretrip_file_id: string
 }
 
 const COMPANIES = ['CHASER', 'MCC']
@@ -36,6 +37,8 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
   const dvirFiles = analysis?.files.filter((f) => f.kind === 'dvir') ?? []
   const activityFiles =
     analysis?.files.filter((f) => f.kind === 'activity') ?? []
+  const pretripFiles =
+    analysis?.files.filter((f) => f.kind === 'pretrip') ?? []
 
   async function handleFiles(files: File[]) {
     const csvs = files.filter((f) => f.name.toLowerCase().endsWith('.csv'))
@@ -51,6 +54,7 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
           date_label: b.date_label,
           dvir_file_id: b.dvir_file_id,
           activity_file_id: b.activity_file_id,
+          pretrip_file_id: b.pretrip_file_id,
         })),
       )
     } catch (err) {
@@ -83,6 +87,7 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
           date_label: b.date_label.trim(),
           dvir_file_id: b.dvir_file_id,
           activity_file_id: b.activity_file_id,
+          pretrip_file_id: b.pretrip_file_id,
         })),
       )
       setResult(res)
@@ -95,7 +100,7 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
   }
 
   return (
-    <Modal title="Create DVIR Report" onClose={onClose} width={760}>
+    <Modal title="Create DVIR Report" onClose={onClose} width={900}>
       {result ? (
         <div className="create-result">
           {result.warnings.length > 0 && (
@@ -177,14 +182,15 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
               <>
                 <span className="dz-file">
                   {analysis.files.length} files · {dvirFiles.length} DVIR
-                  · {activityFiles.length} activity
+                  · {activityFiles.length} activity ·{' '}
+                  {pretripFiles.length} pre/post-trip
                 </span>
                 <span className="dz-hint">Click to replace them</span>
               </>
             ) : (
               <>
                 <span className="dz-label">
-                  Drag the DVIR and activity CSVs
+                  Drag the DVIR, activity and pre/post-trip CSVs
                 </span>
                 <span className="dz-hint">
                   One or more days · both companies · .csv only
@@ -234,6 +240,7 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
                       <th>Day</th>
                       <th>DVIR CSV</th>
                       <th>Activity CSV</th>
+                      <th>Pre/Post-trip CSV</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -290,6 +297,23 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
                           >
                             <option value="">— unassigned —</option>
                             {activityFiles.map((f) => (
+                              <option key={f.file_id} value={f.file_id}>
+                                {f.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <select
+                            value={b.pretrip_file_id}
+                            onChange={(e) =>
+                              update(i, {
+                                pretrip_file_id: e.target.value,
+                              })
+                            }
+                          >
+                            <option value="">— none (NO PRE-TRIP) —</option>
+                            {pretripFiles.map((f) => (
                               <option key={f.file_id} value={f.file_id}>
                                 {f.name}
                               </option>

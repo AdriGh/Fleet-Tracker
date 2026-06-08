@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { listRoster, setDriverEmail, syncDriverContacts } from '../api'
+import { notifyOk, notifyErr } from '../toast'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 
@@ -76,6 +77,9 @@ export default function RosterPage() {
       await setDriverEmail(name, editVal.trim())
       await rosterQuery.refetch()
       setEditId(null)
+      notifyOk('Email guardado', name)
+    } catch (e) {
+      notifyErr('No se pudo guardar el email', e)
     } finally {
       setSavingEmail(false)
     }
@@ -89,8 +93,10 @@ export default function RosterPage() {
       await rosterQuery.refetch()
       setSyncMsg(`Synced ${r.with_email} emails`)
       setTimeout(() => setSyncMsg(''), 3000)
+      notifyOk('Emails sincronizados', `${r.with_email} con email`)
     } catch (e) {
       setSyncMsg(e instanceof Error ? e.message : 'Sync failed')
+      notifyErr('Falló la sincronización', e)
     } finally {
       setSyncing(false)
     }

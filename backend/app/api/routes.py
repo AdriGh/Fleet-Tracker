@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from ..core import (
     app_config, batch, driver_contacts, engine, excel, notify_service,
-    open_defects, pm, samsara,
+    open_defects, pm, pretrip, samsara,
 )
 from ..core.contacts import name_key
 from ..schemas import (
@@ -117,12 +117,18 @@ def batch_generate(req: BatchGenerateRequest):
             raise HTTPException(
                 422, f"Bloque {block.company} {block.date_label}: "
                      "falta el CSV de DVIR o de actividad.")
+        # El report de Pre/Post-trip es opcional: si falta, las filas quedan
+        # como NO PRE-TRIP.
+        pt_file = store.get(block.pretrip_file_id) if block.pretrip_file_id \
+            else None
         try:
             dvir_df = engine.load_dvir(io.BytesIO(dvir[1]))
             activity_data = engine.load_activity(io.BytesIO(activity[1]))
+            pretrip_data = pretrip.load_pretrip_bytes(pt_file[1]) \
+                if pt_file else {}
             groups = engine.build_report(
                 dvir_df, activity_data, roster, engine.MIN_MILES,
-                block.company)
+                block.company, pretrip_data)
         except engine.ReportError as exc:
             raise HTTPException(
                 422, f"Bloque {block.company} {block.date_label}: "
@@ -225,6 +231,10 @@ async def dvir_open_defects(refresh: bool = False):
             # estén en el org de Samsara (p.ej. MCC) siguen viniendo del CSV.
             covered = {d["company"] for d in live}
             merged = live + [d for d in csv_rows if d["company"] not in covered]
+            # Excluir assets archivados (p.ej. duplicados/mal etiquetados en
+            # Samsara): no deben contar en el backlog de defectos.
+            archived = set(app_config.archived_ids())
+            merged = [d for d in merged if d.get("asset_id") not in archived]
             merged.sort(key=lambda d: d["unit"])
             return {
                 "available": True,
@@ -258,6 +268,8 @@ async def dvir_defect_stats(days: int = 7, refresh: bool = False):
     if samsara.is_available():
         try:
             rows = await samsara.load_window(days)
+            archived = set(app_config.archived_ids())
+            rows = [d for d in rows if d.get("asset_id") not in archived]
             live_co = {d["company"] for d in rows}
             cutoff = (date.today() - timedelta(days=days)).isoformat()
             for d in open_defects.load():

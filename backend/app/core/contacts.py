@@ -12,9 +12,8 @@ deriva a la lista de "revisar".
 
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
-
-from .cc_routing import region_from_truck
 
 
 def name_key(name) -> str:
@@ -66,11 +65,19 @@ class ContactBook:
         return len(self.contacts)
 
 
-def parse_contacts(rows: list[list]) -> ContactBook:
+def parse_contacts(
+    rows: list[list],
+    region_resolver: Callable[[str], str | None] | None = None,
+) -> ContactBook:
     """Convierte las filas de la hoja `Driver info` en un ContactBook.
 
     `rows` es una lista de filas (cada una lista de celdas); la primera fila
     son los encabezados.
+
+    `region_resolver` (opcional): funcion que mapea un `Truck#` a su region.
+    Se inyecta para que este modulo (matching de nombres) no dependa de la
+    logica de ruteo por region (`cc_routing`). Si no se pasa, `Contact.region`
+    queda en None y quien necesite la region la resuelve aparte.
     """
     if not rows:
         return ContactBook([])
@@ -99,7 +106,7 @@ def parse_contacts(rows: list[list]) -> ContactBook:
             email=email,
             company=cell(row, i_company),
             truck=truck,
-            region=region_from_truck(truck),
+            region=region_resolver(truck) if region_resolver else None,
             key=name_key(name),
         ))
     return ContactBook(contacts)

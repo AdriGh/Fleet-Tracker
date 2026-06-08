@@ -30,6 +30,8 @@ class BatchBlock(BaseModel):
     dvir_name: str
     activity_file_id: str
     activity_name: str
+    pretrip_file_id: str = ""
+    pretrip_name: str = ""
     status: str
 
 
@@ -45,6 +47,7 @@ class BatchBlockInput(BaseModel):
     date_label: str
     dvir_file_id: str
     activity_file_id: str
+    pretrip_file_id: str = ""
 
 
 class BatchGenerateRequest(BaseModel):

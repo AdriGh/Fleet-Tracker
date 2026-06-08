@@ -16,29 +16,34 @@ from datetime import datetime
 
 import pandas as pd
 
-from .duration import format_duration, parse_duration
+from .contacts import name_key
+from .duration import format_duration
 
 # Columnas del informe, en orden.
 COLUMNS = [
     "Company", "Driver", "Trk#", "DVIR trk", "Trl#", "DVIR trl",
-    "Duration trk", "Duration trl", "Distance (mi)",
+    "Pre-trip", "Distance (mi)",
 ]
 
 # Columnas del lado del camion (se fusionan cuando hay un unico camion).
-TRUCK_SIDE = ("Trk#", "DVIR trk", "Duration trk", "Distance (mi)")
-TRAILER_SIDE = ("Trl#", "DVIR trl", "Duration trl")
+TRUCK_SIDE = ("Trk#", "DVIR trk", "Distance (mi)")
+TRAILER_SIDE = ("Trl#", "DVIR trl")
+# Columnas por conductor (Pre-trip viene de los logs de HoS, no por unidad):
+# se fusiona junto con el nombre a lo largo de todas sus filas.
+DRIVER_SIDE = ("Pre-trip",)
 
 NO_DVIR_TEXT = "⚠ NO DVIR"
+# El conductor no registró el Pre-trip en sus logs de HoS.
+NO_PRETRIP_TEXT = "⚠ NO PRE-TRIP"
 
 # Umbral de millas para considerar que un camion circulo (NO DVIR).
 MIN_MILES = 30.0
 
-# Umbral de duracion de un DVIR: por debajo se considera "corto", se marca
-# en rojo en el Excel y dispara aviso por correo. Protocolo vigente: 15 min.
+# Umbral de duracion del Pre-trip: por debajo se considera "corto",
+# se marca en rojo en el Excel y dispara aviso por correo. Protocolo: 15 min.
 MIN_DURATION_SECONDS = 900
 
-DVIR_REQUIRED = {"Vehicle Name", "Trailer", "Author", "Signed At",
-                 "Duration", "Status"}
+DVIR_REQUIRED = {"Vehicle Name", "Trailer", "Author", "Signed At", "Status"}
 
 
 class ReportError(ValueError):
@@ -155,11 +160,10 @@ def load_roster(source) -> dict:
 # Construccion del informe
 # ---------------------------------------------------------------------------
 def _consolidate(entries):
-    """entries: lista de (signed_at, status, segundos).
-    Devuelve (estado_mas_reciente, suma_segundos)."""
-    total = sum(secs for _, _, secs in entries)
+    """entries: lista de (signed_at, status).
+    Devuelve el estado del DVIR mas reciente (por hora de firma)."""
     latest = max(entries, key=lambda e: e[0] or datetime.min)
-    return latest[1] or "Safe", total
+    return latest[1] or "Safe"
 
 
 def _blank_row(company):
@@ -169,10 +173,29 @@ def _blank_row(company):
     return row
 
 
-def build_report(dvir_df, activity, roster, min_miles, company):
+def _trip_cell(pretrip: dict, driver: str, field: str = "pre") -> str:
+    """Texto de la celda Pre-trip de un conductor: la duración total de sus
+    segmentos On Duty con esa remark, o '⚠ NO PRE-TRIP' si no la hizo."""
+    rec = pretrip.get(name_key(driver)) if pretrip else None
+    secs = rec.get(field) if rec else None
+    return format_duration(secs) if secs is not None else NO_PRETRIP_TEXT
+
+
+def _no_trip_group(group: dict) -> bool:
+    """True si el conductor del grupo NO registró el pre-trip (celda
+    '⚠ NO PRE-TRIP'). Esos grupos van al fondo del reporte, junto con los
+    NO DVIR."""
+    return group["rows"][0].get("Pre-trip") == NO_PRETRIP_TEXT
+
+
+def build_report(dvir_df, activity, roster, min_miles, company, pretrip=None):
     """Devuelve una lista de grupos. Cada grupo:
         {"truck_merge": bool, "rows": [row_dict, ...]}
+
+    `pretrip`: {clave_de_nombre: {"pre", "post"}} de `core.pretrip` (logs de
+    HoS); solo se usa el pre-trip. Si es None, todos quedan como NO PRE-TRIP.
     """
+    pretrip = pretrip or {}
     # Lookup normalizado para resolver la distancia por camion sin que
     # un espacio o un cambio de mayusculas la pierdan.
     activity_by_norm = {norm(k): v for k, v in activity.items()}
@@ -189,42 +212,43 @@ def build_report(dvir_df, activity, roster, min_miles, company):
             continue
         signed = parse_signed_at(r["Signed At"])
         status = str(r["Status"]).strip() or "Safe"
-        secs = parse_duration(r["Duration"])
         d = drivers.setdefault(author, {"trucks": {}, "trailers": {}})
         veh = str(r["Vehicle Name"]).strip()
         trl = str(r["Trailer"]).strip()
         if veh:
-            d["trucks"].setdefault(veh, []).append((signed, status, secs))
+            d["trucks"].setdefault(veh, []).append((signed, status))
             truck_has_dvir.add(norm(veh))
         if trl:
-            d["trailers"].setdefault(trl, []).append((signed, status, secs))
+            d["trailers"].setdefault(trl, []).append((signed, status))
 
     groups = []
     for driver in drivers:
         data = drivers[driver]
-        trucks = [(u, *_consolidate(e))
+        trucks = [(u, _consolidate(e))
                   for u, e in sorted(data["trucks"].items())]
-        trailers = [(u, *_consolidate(e))
+        trailers = [(u, _consolidate(e))
                     for u, e in sorted(data["trailers"].items())]
         n = max(len(trucks), len(trailers), 1)
         rows = []
         for i in range(n):
             row = _blank_row(company)
             row["Driver"] = driver if i == 0 else ""
+            # Pre-trip es por conductor: va solo en la primera fila y se
+            # fusiona hacia abajo (como el nombre).
+            if i == 0:
+                row["Pre-trip"] = _trip_cell(pretrip, driver)
             if i < len(trucks):
-                unit, status, secs = trucks[i]
+                unit, status = trucks[i]
                 row["Trk#"] = unit
                 row["DVIR trk"] = status
-                row["Duration trk"] = format_duration(secs)
                 row["Distance (mi)"] = _dist(unit)
             elif i == 0 and not trucks:
                 for c in TRUCK_SIDE:
                     row[c] = "-"
             if i < len(trailers):
-                unit, status, secs = trailers[i]
+                unit, status = trailers[i]
                 row["Trl#"] = unit
                 row["DVIR trl"] = status
-                row["Duration trl"] = format_duration(secs)
             elif i == 0 and not trailers:
                 for c in TRAILER_SIDE:
                     row[c] = "-"
@@ -251,12 +275,19 @@ def build_report(dvir_df, activity, roster, min_miles, company):
         row["Driver"] = driver
         row["Trk#"] = unit
         row["DVIR trk"] = NO_DVIR_TEXT
+        row["Pre-trip"] = _trip_cell(pretrip, driver) if driver \
+            else NO_PRETRIP_TEXT
         row["Distance (mi)"] = _dist(unit)
         row["is_nodvir"] = True
         nodvir.append((norm(unit), {"truck_merge": False, "rows": [row]}))
     nodvir.sort(key=lambda x: x[0])
-    groups.extend(g for _, g in nodvir)
-    return groups
+
+    # Orden final: arriba los conductores con DVIR que registraron al menos una
+    # inspección (pre o post); al fondo, los que no registraron ninguna, y por
+    # último los NO DVIR. Cada bloque conserva el orden por unidad.
+    top = [g for g in groups if not _no_trip_group(g)]
+    bottom = [g for g in groups if _no_trip_group(g)]
+    return top + bottom + [g for _, g in nodvir]
 
 
 def report_stats(groups):

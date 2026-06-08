@@ -7,6 +7,75 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.18.0] - 2026-06-08
+
+### Añadido
+- **Pantalla de login** (capa visual): gate de acceso con `LoginPage` y botón
+  de cierre de sesión. Por ahora no hay backend de auth (la API sigue abierta).
+- **Notificaciones (Sonner)**: toasts de éxito/error en acciones clave (copiar
+  día DVIR, enviar avisos, guardar/sincronizar emails, guardar settings).
+- **Drawer de detalle de unidad (Vaul)**: clic en una unidad en **Fleet** (fila)
+  o **Defects** (código) abre un panel lateral con ficha, defectos abiertos y
+  PM, además de un botón para **archivar/excluir** la unidad.
+- **Fleet**: clasificación de tipo **Truck / Trailer / Chassis** (chassis =
+  `unpowered` con nombre-código tipo CELL/CELF/G…); se **oculta la chatarra**
+  (gateways sueltos y assets dados de baja). Filtros por **tipo** y por
+  **terminal** (Memphis/Miami/Atlanta/Savannah/Chicago/Chaser). KPI de Chassis.
+- **Defects**: **chips de categoría** color-codificados y filtro por **terminal**.
+- **PM**: filtro por **terminal**; gráfico de estado convertido en **donut**
+  interactivo (hover ↔ porción) con leyenda en pills 2×2.
+
+### Cambiado
+- **Logo** rediseñado (ilustración de tractomula + wordmark en itálica, estilo
+  Fullbay) y wordmark en itálica en sidebar y login.
+- **PM**: estados renombrados — `OK → On Track`, `No PM record → Never
+  Performed`, `Due soon → Upcoming`; el umbral de **Upcoming** pasa a
+  **5 500 millas**. Botones Edit/Exclude como **iconos** y marcas EDITED/MANUAL
+  como un lapicito discreto.
+- **Rediseño general** de listas (Fleet/Defects/PM): tipografía (encabezados en
+  mayúscula, códigos más marcados), animaciones de entrada y hovers, y botones
+  de acción como **iconos**.
+
+### Arreglado
+- **DVIR Report**: la columna **Post-trip** mostraba `⚠ NO PRE-TRIP` cuando
+  faltaba el log de post-trip → ahora muestra **`⚠ NO POST-TRIP`**. Además se
+  **quitó la columna Post-trip** del reporte (a pedido) y los conductores sin
+  Pre-trip se ordenan al fondo, junto con los NO DVIR.
+- **Defectos fantasma**: la lista de defectos abiertos arrastraba defectos
+  viejos (de 2025) colgados de assets renombrados/duplicados en Samsara. La
+  ventana del stream baja de **730 → 270 días**, así se descartan los fantasmas
+  sin perder ningún defecto vigente (incluidos los creados a mano). Los assets
+  archivados quedan excluidos de los defectos.
+- **`contacts`**: se rompe la dependencia circular con `cc_routing` inyectando
+  el resolutor de región.
+
+## [0.17.0] - 2026-06-07
+
+### Cambiado
+- **El DVIR Report deja de medir la duración del DVIR.** Lo relevante para DOT
+  es que el conductor registre su **Pre-Trip** y **Post-Trip** en sus logs de
+  HoS (On Duty), no la duración del DVIR. Las columnas `Duration trk` /
+  `Duration trl` se reemplazan por **`Pre-trip`** y **`Post-trip`** (por
+  conductor).
+  - La duración de cada inspección se calcula como `End − Start` del custom
+    report de Samsara *"Pre-trip & Post-trip | Remark not empty"* (se suman
+    todos los segmentos On Duty con remark "Pre-Trip Inspection" /
+    "Post-Trip Inspection"). Verde si ≥ 15 min, rojo si < 15 min.
+  - Si el conductor no registró la inspección → **`⚠ NO PRE-TRIP`** (naranja).
+  - El banner **`⚠ NO DVIR`** ahora se fusiona de la columna D a la F (antes
+    D–H); Pre-trip y Post-trip (G, H) muestran su propio estado aunque no haya
+    DVIR.
+- **Avisos**: un conductor es infractor si su Pre-trip o Post-trip falta o dura
+  menos de 15 min (se mantiene la regla de NO DVIR). El correo lista esas
+  inspecciones en vez de la duración del DVIR.
+
+### Añadido
+- **`core/pretrip.py`**: parser del custom report de HoS (Driver Name, HoS
+  Status, Start/End Time, Remark) → duración de Pre/Post-trip por conductor.
+- En **Crear DVIR Report**, un tercer archivo opcional: el CSV de Pre/Post-trip
+  (se empareja por día y empresa, como el de actividad; si falta, esas filas
+  quedan como NO PRE-TRIP).
+
 ## [0.16.0] - 2026-06-07
 
 ### Añadido
