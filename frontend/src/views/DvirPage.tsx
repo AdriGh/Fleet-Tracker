@@ -14,6 +14,7 @@ import {
   type TrendsResponse,
 } from '../api'
 import { copyBlock } from '../clipboard'
+import { notifyOk, notifyErr } from '../toast'
 import CreateReportModal from '../components/CreateReportModal'
 import DriverModal from '../components/DriverModal'
 import MissingDrivers from '../components/MissingDrivers'
@@ -92,9 +93,14 @@ export default function DvirPage() {
 
   async function copyDay() {
     if (!selected) return
-    await copyBlock(selected.columns, selected.groups, selected.date_label)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    try {
+      await copyBlock(selected.columns, selected.groups, selected.date_label)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+      notifyOk('Día copiado al portapapeles')
+    } catch (e) {
+      notifyErr('No se pudo copiar', e)
+    }
   }
 
   const donut = selected

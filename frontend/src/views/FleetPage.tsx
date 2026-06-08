@@ -1,11 +1,18 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { fleetArchive, listFleet } from '../api'
+import { fleetArchive, listFleet, type FleetUnit } from '../api'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
+import UnitDrawer from '../components/UnitDrawer'
+import IconButton from '../components/IconButton'
+import { terminalOf, terminalsPresent, TERMINAL_LABEL } from '../terminal'
 
 type SortKey = 'unit' | 'open'
 type Cell = string | number
+
+const TYPE_LABEL: Record<string, string> = {
+  truck: 'Truck', trailer: 'Trailer', chassis: 'Chassis',
+}
 
 function downloadCSV(m: Cell[][], name = 'fleet.csv') {
   const csv = m
@@ -23,11 +30,13 @@ function downloadCSV(m: Cell[][], name = 'fleet.csv') {
 export default function FleetPage() {
   const qc = useQueryClient()
   const [company, setCompany] = useState('')
-  const [kind, setKind] = useState('')
+  const [type, setType] = useState('')
+  const [terminal, setTerminal] = useState('')
   const [q, setQ] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('unit')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [selected, setSelected] = useState<FleetUnit | null>(null)
 
   const fleetQuery = useQuery({ queryKey: ['fleet'], queryFn: listFleet })
   const units = fleetQuery.data ?? []
@@ -46,28 +55,37 @@ export default function FleetPage() {
     }
   }
 
+  const active = useMemo(() => units.filter((u) => !u.archived), [units])
+
   const kpis = useMemo(() => {
-    const trucks = units.filter((u) => u.kind === 'truck').length
+    const by = (t: string) => active.filter((u) => u.unit_type === t).length
     return {
-      total: units.length,
-      trucks,
-      trailers: units.length - trucks,
-      withDefects: units.filter((u) => u.open_defects > 0).length,
+      total: active.length,
+      trucks: by('truck'),
+      trailers: by('trailer'),
+      chassis: by('chassis'),
+      withDefects: active.filter((u) => u.open_defects > 0).length,
     }
-  }, [units])
+  }, [active])
+
+  // Terminales presentes en la empresa seleccionada (para los chips de filtro).
+  const terminals = useMemo(
+    () => terminalsPresent(
+      active.filter((u) => !company || u.company === company)),
+    [active, company])
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
-    return units.filter((u) =>
-      !u.archived &&
+    return active.filter((u) =>
       (!company || u.company === company) &&
-      (!kind || u.kind === kind) &&
+      (!type || u.unit_type === type) &&
+      (!terminal || terminalOf(u.unit, u.company) === terminal) &&
       (!s ||
         u.unit.toLowerCase().includes(s) ||
         u.vin.toLowerCase().includes(s) ||
         u.plate.toLowerCase().includes(s) ||
         `${u.make} ${u.model}`.toLowerCase().includes(s)))
-  }, [units, company, kind, q])
+  }, [active, company, type, terminal, q])
 
   const sorted = useMemo(() => {
     const dir = sortDir === 'asc' ? 1 : -1
@@ -90,16 +108,16 @@ export default function FleetPage() {
   }
 
   const matrix = useMemo((): Cell[][] => {
-    const header = ['Unit', 'Type', 'Company', 'Make', 'Model', 'Year',
-      'VIN', 'Plate', 'Open defects']
+    const header = ['Unit', 'Type', 'Terminal', 'Company', 'Make', 'Model',
+      'Year', 'VIN', 'Plate', 'Open defects']
     const rows = sorted.map((u) => [
-      u.unit, u.kind, u.company, u.make, u.model, u.year, u.vin, u.plate,
-      u.open_defects,
+      u.unit, u.unit_type, TERMINAL_LABEL[terminalOf(u.unit, u.company)],
+      u.company, u.make, u.model, u.year, u.vin, u.plate, u.open_defects,
     ])
     return [header, ...rows]
   }, [sorted])
 
-  const hasFilter = company || kind || q
+  const hasFilter = company || type || terminal || q
 
   return (
     <div className="page page-wide">
@@ -134,7 +152,7 @@ export default function FleetPage() {
       {/* KPIs */}
       {loading ? (
         <div className="kpi-row">
-          {Array.from({ length: 4 }).map((_, i) => (
+          {Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} className="skel-kpi" h={86} />
           ))}
         </div>
@@ -143,6 +161,7 @@ export default function FleetPage() {
           <StatCard label="Total units" value={kpis.total} tone="accent" />
           <StatCard label="Trucks" value={kpis.trucks} tone="info" />
           <StatCard label="Trailers" value={kpis.trailers} tone="default" />
+          <StatCard label="Chassis" value={kpis.chassis} tone="default" />
           <StatCard label="With open defects" value={kpis.withDefects}
             tone="danger" />
         </div>
@@ -153,26 +172,42 @@ export default function FleetPage() {
         <div className="card-body filters-row">
           <div className="company-tabs" role="tablist">
             <button className={`tab-btn ${company === 'CHASER' ? 'active' : ''}`}
-              onClick={() => setCompany('CHASER')}>Chaser</button>
+              onClick={() => { setCompany('CHASER'); setTerminal('') }}>
+              Chaser</button>
             <button className={`tab-btn ${company === 'MCC' ? 'active' : ''}`}
-              onClick={() => setCompany('MCC')}>MCCI</button>
+              onClick={() => { setCompany('MCC'); setTerminal('') }}>MCCI</button>
             <button className={`tab-btn ${company === '' ? 'active' : ''}`}
-              onClick={() => setCompany('')}>All</button>
+              onClick={() => { setCompany(''); setTerminal('') }}>All</button>
           </div>
           <div className="company-tabs" role="tablist">
-            <button className={`tab-btn ${kind === '' ? 'active' : ''}`}
-              onClick={() => setKind('')}>All</button>
-            <button className={`tab-btn ${kind === 'truck' ? 'active' : ''}`}
-              onClick={() => setKind('truck')}>Trucks</button>
-            <button className={`tab-btn ${kind === 'trailer' ? 'active' : ''}`}
-              onClick={() => setKind('trailer')}>Trailers</button>
+            <button className={`tab-btn ${type === '' ? 'active' : ''}`}
+              onClick={() => setType('')}>All</button>
+            <button className={`tab-btn ${type === 'truck' ? 'active' : ''}`}
+              onClick={() => setType('truck')}>Trucks</button>
+            <button className={`tab-btn ${type === 'trailer' ? 'active' : ''}`}
+              onClick={() => setType('trailer')}>Trailers</button>
+            <button className={`tab-btn ${type === 'chassis' ? 'active' : ''}`}
+              onClick={() => setType('chassis')}>Chassis</button>
           </div>
+          {terminals.length > 1 && (
+            <div className="company-tabs" role="tablist">
+              <button className={`tab-btn ${terminal === '' ? 'active' : ''}`}
+                onClick={() => setTerminal('')}>All terminals</button>
+              {terminals.map((t) => (
+                <button key={t}
+                  className={`tab-btn ${terminal === t ? 'active' : ''}`}
+                  onClick={() => setTerminal(t)}>{TERMINAL_LABEL[t]}</button>
+              ))}
+            </div>
+          )}
           <span className="head-spacer" />
           <input className="cell-input" placeholder="Unit, VIN, plate, make…"
             value={q} onChange={(e) => setQ(e.target.value)} />
           {hasFilter && (
             <button className="btn btn-ghost"
-              onClick={() => { setCompany(''); setKind(''); setQ('') }}>
+              onClick={() => {
+                setCompany(''); setType(''); setTerminal(''); setQ('')
+              }}>
               Clear
             </button>
           )}
@@ -183,7 +218,7 @@ export default function FleetPage() {
       <section className="card">
         <div className="card-head">
           <h2>Units</h2>
-          <span className="sub">{sorted.length} of {units.length}</span>
+          <span className="sub">{sorted.length} of {active.length}</span>
         </div>
         <div className="card-body">
           {loading ? (
@@ -202,11 +237,9 @@ export default function FleetPage() {
                     <th className="sortable" onClick={() => setSort('unit')}>
                       Unit{arrow('unit')}
                     </th>
-                    <th>Company</th>
+                    <th>Type</th>
+                    <th>Terminal</th>
                     <th>Make / Model</th>
-                    <th>Year</th>
-                    <th>VIN</th>
-                    <th>Plate</th>
                     <th className="num sortable" onClick={() => setSort('open')}>
                       Open{arrow('open')}
                     </th>
@@ -214,51 +247,60 @@ export default function FleetPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sorted.map((u) => (
-                    <tr key={u.id}>
-                      <td>
-                        <span className="unit-cell">
-                          <span>
-                            <span className="unit-code">{u.unit}</span>
-                            <span className="unit-kind">
-                              {u.asset_type === 'unpowered'
-                                ? 'trailer (unpowered)' : u.kind}
+                  {sorted.map((u) => {
+                    const sub = u.vin || u.plate
+                    const vehicle = [u.make, u.model, u.year]
+                      .filter(Boolean).join(' ')
+                    return (
+                      <tr key={u.id} className="row-click"
+                        onClick={() => setSelected(u)}>
+                        <td>
+                          <span className="unit-cell">
+                            <span>
+                              <span className="unit-code">{u.unit}</span>
+                              {sub && (
+                                <span className="unit-sub mono">{sub}</span>
+                              )}
                             </span>
                           </span>
-                        </span>
-                      </td>
-                      <td>{u.company}</td>
-                      <td>{[u.make, u.model].filter(Boolean).join(' ') || '—'}</td>
-                      <td>{u.year || '—'}</td>
-                      <td className="mono vin">{u.vin || '—'}</td>
-                      <td>{u.plate || '—'}</td>
-                      <td className="num">
-                        {u.open_defects > 0 ? (
-                          <span className="status-pill open">
-                            {u.open_defects}
+                        </td>
+                        <td>
+                          <span className={`type-badge t-${u.unit_type}`}>
+                            {TYPE_LABEL[u.unit_type] ?? u.unit_type}
                           </span>
-                        ) : (
-                          <span className="muted">0</span>
-                        )}
-                      </td>
-                      <td className="num">
-                        {busyId === u.id ? (
-                          <span className="muted">…</span>
-                        ) : (
-                          <button className="btn btn-ghost btn-xs"
-                            onClick={() => archive(u.id)}>
-                            Archive
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td>{TERMINAL_LABEL[terminalOf(u.unit, u.company)]}</td>
+                        <td>{vehicle || <span className="muted">—</span>}</td>
+                        <td className="num">
+                          {u.open_defects > 0 ? (
+                            <span className="status-pill open">
+                              {u.open_defects}
+                            </span>
+                          ) : (
+                            <span className="muted">0</span>
+                          )}
+                        </td>
+                        <td className="num">
+                          {busyId === u.id ? (
+                            <span className="muted">…</span>
+                          ) : (
+                            <IconButton name="archive" title="Archivar unidad"
+                              onClick={(e) => {
+                                e.stopPropagation(); archive(u.id)
+                              }} />
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
           )}
         </div>
       </section>
+
+      <UnitDrawer unit={selected} onClose={() => setSelected(null)} />
     </div>
   )
 }

@@ -1,7 +1,11 @@
 import { Fragment, useMemo, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { listDefectStats, listOpenDefects, type Defect } from '../api'
+import {
+  listDefectStats, listFleet, listOpenDefects,
+  type Defect, type FleetUnit,
+} from '../api'
 import Skeleton from '../components/Skeleton'
+import UnitDrawer from '../components/UnitDrawer'
 import StatCard from '../components/StatCard'
 import RankBars from '../components/RankBars'
 import StatusDonut from '../components/StatusDonut'
@@ -11,7 +15,18 @@ import UnitReport from '../components/UnitReport'
 import SummaryReport from '../components/SummaryReport'
 import Modal from '../components/Modal'
 import { type Kind } from '../truckZones'
-import { analyzeUnit, items, categoryOf } from '../defectGroups'
+import { analyzeUnit, items, categoryOf, bodyOf } from '../defectGroups'
+import { terminalOf, terminalsPresent, TERMINAL_LABEL } from '../terminal'
+
+// Color de chip por categoría de defecto (las comunes; el resto, neutro).
+const CAT_TONE: Record<string, string> = {
+  Brakes: 'danger', Tires: 'warn', Wheels: 'warn', Lights: 'info',
+  Electrical: 'info', Doors: 'purple', Engine: 'danger',
+  Coupling: 'purple', Suspension: 'warn',
+}
+function catTone(cat: string): string {
+  return CAT_TONE[cat] ?? 'muted'
+}
 
 const STATUSES = ['Unsafe', 'Resolved', 'Safe']
 
@@ -149,8 +164,10 @@ function UnitPanel(
                   title={g.zone ? undefined : 'No zone assigned'}
                 />
                 <span className="dg-text">
-                  <span className="dg-cat">{g.category}</span>
-                  {g.body && <span className="dg-body"> — {g.body}</span>}
+                  <span className={`cat-chip t-${catTone(g.category)}`}>
+                    {g.category}
+                  </span>
+                  {g.body && <span className="dg-body">{g.body}</span>}
                 </span>
                 <span className={`dg-count${g.count > 1 ? ' rep' : ''}`}>
                   ×{g.count}
@@ -182,6 +199,7 @@ export default function DefectsPage() {
   const [company, setCompany] = useState('')
   const [status, setStatus] = useState('')
   const [unit, setUnit] = useState('')
+  const [terminal, setTerminal] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('count')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -203,6 +221,24 @@ export default function DefectsPage() {
     queryKey: ['open-defects'],
     queryFn: () => listOpenDefects(),
   })
+
+  // Drawer de detalle de unidad. La ficha completa (VIN, PM, etc.) sale del
+  // inventario de flota; se carga al abrir el primer drawer (caché compartida).
+  const [drawerUnit, setDrawerUnit] = useState<FleetUnit | null>(null)
+  const fleetQuery = useQuery({ queryKey: ['fleet'], queryFn: listFleet })
+  function openUnit(r: UnitRow) {
+    const key = r.unit.trim().toUpperCase().replace(/\s+/g, '')
+    const found = (fleetQuery.data ?? []).find(
+      (u) => u.unit.trim().toUpperCase().replace(/\s+/g, '') === key)
+    setDrawerUnit(found ?? {
+      id: r.unit, unit: r.unit, kind: r.kind,
+      unit_type: r.kind === 'trailer' ? 'trailer' : 'truck',
+      asset_type: r.kind === 'trailer' ? 'trailer' : 'vehicle',
+      company: r.company, make: '', model: '', year: '', vin: '', plate: '',
+      open_defects: r.count, last_dvir: null, archived: false,
+      archive_reason: null,
+    })
+  }
 
   const stats = statsQuery.data ?? []
   const openDefs = openQuery.data ?? []
@@ -283,12 +319,16 @@ export default function DefectsPage() {
   // Tabla "Summary by unit": backlog de defectos ABIERTOS en vivo (Samsara +
   // CSV de empresas fuera del org). Independiente del rango del dashboard.
   const board = openDefs
+  const boardTerminals = useMemo(
+    () => terminalsPresent(board.filter((d) => !company || d.company === company)),
+    [board, company])
   const boardFiltered = useMemo(() => {
     const uq = unit.trim().toLowerCase()
     return board.filter((d) =>
       (!company || d.company === company) &&
+      (!terminal || terminalOf(d.unit, d.company) === terminal) &&
       (!uq || d.unit.toLowerCase().includes(uq)))
-  }, [board, company, unit])
+  }, [board, company, terminal, unit])
   const unitRows = useMemo(() => consolidate(boardFiltered), [boardFiltered])
 
   const sortedRows = useMemo(() => {
@@ -332,9 +372,9 @@ export default function DefectsPage() {
     setTimeout(() => setCopied(false), 2000)
   }
   function clearFilters() {
-    setCompany(''); setStatus(''); setUnit('')
+    setCompany(''); setStatus(''); setUnit(''); setTerminal('')
   }
-  const hasFilter = company || status || unit
+  const hasFilter = company || status || unit || terminal
 
   return (
     <div className="page page-wide">
@@ -484,16 +524,28 @@ export default function DefectsPage() {
           <h2>Summary by unit</h2>
           <span className="sub">{sortedRows.length} units</span>
           <span className="head-spacer" />
+          {boardTerminals.length > 1 && (
+            <div className="company-tabs" role="tablist">
+              <button className={`tab-btn ${terminal === '' ? 'active' : ''}`}
+                onClick={() => setTerminal('')}>All terminals</button>
+              {boardTerminals.map((t) => (
+                <button key={t}
+                  className={`tab-btn ${terminal === t ? 'active' : ''}`}
+                  onClick={() => setTerminal(t)}>{TERMINAL_LABEL[t]}</button>
+              ))}
+            </div>
+          )}
           <div className="company-tabs" role="tablist">
             <button
               className={`tab-btn ${company === 'CHASER' ? 'active' : ''}`}
-              onClick={() => setCompany('CHASER')}>Chaser</button>
+              onClick={() => { setCompany('CHASER'); setTerminal('') }}>
+              Chaser</button>
             <button
               className={`tab-btn ${company === 'MCC' ? 'active' : ''}`}
-              onClick={() => setCompany('MCC')}>MCCI</button>
+              onClick={() => { setCompany('MCC'); setTerminal('') }}>MCCI</button>
             <button
               className={`tab-btn ${company === '' ? 'active' : ''}`}
-              onClick={() => setCompany('')}>All</button>
+              onClick={() => { setCompany(''); setTerminal('') }}>All</button>
           </div>
           <button className="btn btn-ghost export-btn"
             disabled={sortedRows.length === 0}
@@ -560,7 +612,14 @@ export default function DefectsPage() {
                                 <path d="m9 18 6-6-6-6" />
                               </svg>
                               <span>
-                                <span className="unit-code">{r.unit}</span>
+                                <button className="unit-link"
+                                  title="Ver detalle de la unidad"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openUnit(r)
+                                  }}>
+                                  {r.unit}
+                                </button>
                                 <span className="unit-kind">
                                   {r.kind === 'trailer' ? 'trailer' : 'truck'}
                                 </span>
@@ -587,7 +646,14 @@ export default function DefectsPage() {
                           <td className="num strong">{r.count}</td>
                           <td className="defect-detail">
                             <ul className="defect-items">
-                              {shown.map((it, k) => <li key={k}>{it}</li>)}
+                              {shown.map((it, k) => (
+                                <li key={k}>
+                                  <span className={`cat-chip t-${catTone(categoryOf(it))}`}>
+                                    {categoryOf(it)}
+                                  </span>
+                                  <span className="cat-body">{bodyOf(it)}</span>
+                                </li>
+                              ))}
                             </ul>
                             {r.defects.length > 3 && (
                               <span className="more-hint">
@@ -641,6 +707,8 @@ export default function DefectsPage() {
           onClose={() => setListRows(null)}
         />
       )}
+
+      <UnitDrawer unit={drawerUnit} onClose={() => setDrawerUnit(null)} />
     </div>
   )
 }

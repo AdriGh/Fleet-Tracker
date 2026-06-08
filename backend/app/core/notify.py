@@ -29,7 +29,7 @@ class Notice:
 
 def _summarize_units(reasons: list[dict]) -> list[str]:
     """Texto por motivo infractor, p. ej. 'CF2254: NO DVIR',
-    'Pre-trip: no registrado' o 'Post-trip: 7m 52s (< 15 min)'."""
+    'Pre-trip: no registrado' o 'Pre-trip: 7m 52s (< 15 min)'."""
     out = []
     for r in reasons:
         if r["type"] == "NO_DVIR":

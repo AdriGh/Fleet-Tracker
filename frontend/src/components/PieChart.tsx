@@ -1,4 +1,7 @@
-// Gráfico de torta simple (SVG) con leyenda (valor + %).
+// Donut chart (SVG) con leyenda en pills interactivas: al pasar el mouse por
+// una pill se resalta su porción (y viceversa) y el centro muestra su valor.
+import { useState } from 'react'
+
 export interface PieSlice {
   label: string
   value: number
@@ -6,46 +9,62 @@ export interface PieSlice {
 }
 
 export default function PieChart(
-  { data, size = 190 }: { data: PieSlice[]; size?: number },
+  { data, size = 210, centerUnit = 'trucks' }:
+  { data: PieSlice[]; size?: number; centerUnit?: string },
 ) {
+  const [hover, setHover] = useState<number | null>(null)
   const total = data.reduce((s, d) => s + d.value, 0)
-  const r = size / 2
-  const visible = data.filter((d) => d.value > 0)
+  const stroke = Math.round(size * 0.17)
+  const r = (size - stroke) / 2
+  const C = 2 * Math.PI * r
+  const c = size / 2
 
-  let acc = -Math.PI / 2 // arranca arriba
-  const slices = visible.map((d) => {
-    const frac = d.value / total
-    const a0 = acc
-    const a1 = acc + frac * 2 * Math.PI
-    acc = a1
-    const large = frac > 0.5 ? 1 : 0
-    const x0 = r + r * Math.cos(a0)
-    const y0 = r + r * Math.sin(a0)
-    const x1 = r + r * Math.cos(a1)
-    const y1 = r + r * Math.sin(a1)
-    const path = `M ${r} ${r} L ${x0.toFixed(2)} ${y0.toFixed(2)} `
-      + `A ${r} ${r} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z`
-    return { path, color: d.color }
-  })
+  let acc = 0
+  const arcs = data.map((d, i) => {
+    const frac = total ? d.value / total : 0
+    const arc = frac * C
+    const seg = { ...d, i, arc, offset: acc }
+    acc += arc
+    return seg
+  }).filter((s) => s.value > 0)
+
+  const center = hover != null ? data[hover] : null
+  const dim = (i: number) => hover != null && hover !== i
 
   return (
     <div className="piechart">
-      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size}
-        className="pie-svg" role="img" aria-label="PM status distribution">
-        {total === 0 ? (
-          <circle cx={r} cy={r} r={r} fill="var(--surface-2)" />
-        ) : visible.length === 1 ? (
-          <circle cx={r} cy={r} r={r} fill={visible[0].color} />
-        ) : (
-          slices.map((s, i) => (
-            <path key={i} d={s.path} fill={s.color}
-              stroke="var(--surface)" strokeWidth="1.5" />
-          ))
-        )}
-      </svg>
+      <div className="pie-donut" style={{ width: size, height: size }}>
+        <svg viewBox={`0 0 ${size} ${size}`} className="pie-svg" role="img"
+          aria-label="PM status distribution">
+          <g transform={`rotate(-90 ${c} ${c})`}>
+            <circle cx={c} cy={c} r={r} fill="none"
+              stroke="var(--surface-2)" strokeWidth={stroke} />
+            {arcs.map((s) => (
+              <circle key={s.i} cx={c} cy={c} r={r} fill="none"
+                stroke={s.color}
+                strokeWidth={hover === s.i ? stroke + 5 : stroke}
+                strokeDasharray={`${s.arc} ${C - s.arc}`}
+                strokeDashoffset={-s.offset}
+                strokeLinecap="butt"
+                className="pie-arc"
+                style={{ opacity: dim(s.i) ? 0.28 : 1 }}
+                onMouseEnter={() => setHover(s.i)}
+                onMouseLeave={() => setHover(null)} />
+            ))}
+          </g>
+        </svg>
+        <div className="pie-center">
+          <strong>{center ? center.value : total}</strong>
+          <span>{center ? center.label : centerUnit}</span>
+        </div>
+      </div>
+
       <ul className="pie-legend">
         {data.map((d, i) => (
-          <li key={i}>
+          <li key={i}
+            className={`pie-item${hover === i ? ' on' : ''}`}
+            onMouseEnter={() => setHover(i)}
+            onMouseLeave={() => setHover(null)}>
             <span className="pie-sw" style={{ background: d.color }} />
             <span className="pie-lbl">{d.label}</span>
             <span className="pie-val">{d.value}</span>

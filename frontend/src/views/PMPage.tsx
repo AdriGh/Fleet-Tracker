@@ -6,6 +6,21 @@ import {
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 import PieChart from '../components/PieChart'
+import IconButton from '../components/IconButton'
+import { terminalOf, terminalsPresent, TERMINAL_LABEL } from '../terminal'
+
+// Marca discreta para valores ajustados a mano (ícono lápiz con tooltip).
+function EditedFlag({ title }: { title: string }) {
+  return (
+    <span className="pm-flag" title={title} aria-label={title}>
+      <svg viewBox="0 0 24 24" width="11" height="11" fill="none"
+        stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+        strokeLinejoin="round">
+        <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      </svg>
+    </span>
+  )
+}
 
 type Cell = string | number
 
@@ -25,17 +40,21 @@ function downloadCSV(m: Cell[][], name = 'pm-tracker.csv') {
 const nf = (n: number | null | undefined) =>
   n == null ? '—' : n.toLocaleString('en-US')
 
+// Umbral (millas restantes) para considerar un PM "próximo".
+const UPCOMING_MILES = 5500
+
 type Tone = 'danger' | 'warn' | 'ok' | 'muted'
 function pmStatus(u: PMUnit): { label: string; tone: Tone } {
-  if (u.last_pm_miles == null) return { label: 'No PM record', tone: 'muted' }
-  if (u.remaining == null) return { label: 'No odometer', tone: 'muted' }
+  if (u.last_pm_miles == null) return { label: 'Never Performed', tone: 'muted' }
+  if (u.remaining == null) return { label: 'No Odometer', tone: 'muted' }
   if (u.remaining < 0) return { label: 'Overdue', tone: 'danger' }
-  if (u.remaining < 2000) return { label: 'Due soon', tone: 'warn' }
-  return { label: 'OK', tone: 'ok' }
+  if (u.remaining < UPCOMING_MILES) return { label: 'Upcoming', tone: 'warn' }
+  return { label: 'On Track', tone: 'ok' }
 }
 
 export default function PMPage() {
   const [q, setQ] = useState('')
+  const [terminal, setTerminal] = useState('')
   const [editUnit, setEditUnit] = useState<string | null>(null)
   const [editCurrent, setEditCurrent] = useState('')
   const [editLastPM, setEditLastPM] = useState('')
@@ -86,7 +105,8 @@ export default function PMPage() {
     tracked: units.length,
     overdue: units.filter((u) => u.remaining != null && u.remaining < 0).length,
     dueSoon: units.filter((u) =>
-      u.remaining != null && u.remaining >= 0 && u.remaining < 2000).length,
+      u.remaining != null && u.remaining >= 0
+      && u.remaining < UPCOMING_MILES).length,
   }), [units])
 
   const dist = useMemo(() => {
@@ -95,26 +115,28 @@ export default function PMPage() {
       if (u.last_pm_miles == null) never++
       else if (u.remaining == null) unknown++
       else if (u.remaining < 0) overdue++
-      else if (u.remaining < 2000) upcoming++
+      else if (u.remaining < UPCOMING_MILES) upcoming++
       else onTrack++
     }
     const out = [
-      { label: 'On track', value: onTrack, color: '#22c55e' },
+      { label: 'On Track', value: onTrack, color: '#22c55e' },
       { label: 'Overdue', value: overdue, color: '#dc2626' },
       { label: 'Upcoming', value: upcoming, color: '#f59e0b' },
-      { label: 'Never performed', value: never, color: '#94a3b8' },
+      { label: 'Never Performed', value: never, color: '#94a3b8' },
     ]
-    if (unknown) out.push({ label: 'No odometer', value: unknown, color: '#cbd5e1' })
+    if (unknown) out.push({ label: 'No Odometer', value: unknown, color: '#cbd5e1' })
     return out
   }, [units])
 
+  const terminals = useMemo(() => terminalsPresent(units), [units])
+
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
-    return s
-      ? units.filter((u) => u.unit.toLowerCase().includes(s)
-          || u.model.toLowerCase().includes(s))
-      : units
-  }, [units, q])
+    return units.filter((u) =>
+      (!terminal || terminalOf(u.unit) === terminal) &&
+      (!s || u.unit.toLowerCase().includes(s)
+        || u.model.toLowerCase().includes(s)))
+  }, [units, q, terminal])
 
   const matrix = useMemo((): Cell[][] => {
     const header = ['Unit', 'Model', 'Last PM', 'Last PM miles',
@@ -185,7 +207,7 @@ export default function PMPage() {
         <div className="kpi-row">
           <StatCard label="Trucks tracked" value={kpis.tracked} tone="accent" />
           <StatCard label="Overdue" value={kpis.overdue} tone="danger" />
-          <StatCard label="Due soon (<2k mi)" value={kpis.dueSoon} tone="warn" />
+          <StatCard label="Upcoming (<5.5k mi)" value={kpis.dueSoon} tone="warn" />
         </div>
       )}
 
@@ -203,11 +225,23 @@ export default function PMPage() {
 
       <div className="card">
         <div className="card-body filters-row">
+          {terminals.length > 1 && (
+            <div className="company-tabs" role="tablist">
+              <button className={`tab-btn ${terminal === '' ? 'active' : ''}`}
+                onClick={() => setTerminal('')}>All terminals</button>
+              {terminals.map((t) => (
+                <button key={t}
+                  className={`tab-btn ${terminal === t ? 'active' : ''}`}
+                  onClick={() => setTerminal(t)}>{TERMINAL_LABEL[t]}</button>
+              ))}
+            </div>
+          )}
           <span className="head-spacer" />
           <input className="cell-input" placeholder="Unit or model…"
             value={q} onChange={(e) => setQ(e.target.value)} />
-          {q && (
-            <button className="btn btn-ghost" onClick={() => setQ('')}>Clear</button>
+          {(q || terminal) && (
+            <button className="btn btn-ghost"
+              onClick={() => { setQ(''); setTerminal('') }}>Clear</button>
           )}
         </div>
       </div>
@@ -267,7 +301,7 @@ export default function PMPage() {
                               {u.last_pm_date}
                               <span className="pm-sub"> · {nf(u.last_pm_miles)} mi</span>
                               {u.last_pm_overridden && (
-                                <span className="pm-ovr">edited</span>
+                                <EditedFlag title="Último PM ajustado manualmente" />
                               )}
                             </>
                           ) : <span className="muted">—</span>}
@@ -281,11 +315,11 @@ export default function PMPage() {
                           ) : (
                             <>
                               {nf(u.current_miles)}
-                              {u.current_source && u.current_source !== 'obd' && (
-                                <span className={`pm-src ${u.current_source === 'manual' ? 'pm-ovr' : ''}`}>
-                                  {' '}{u.current_source}
-                                </span>
-                              )}
+                              {u.current_source === 'manual' ? (
+                                <EditedFlag title="Millaje actual ajustado manualmente" />
+                              ) : u.current_source && u.current_source !== 'obd' ? (
+                                <span className="pm-src">{' '}{u.current_source}</span>
+                              ) : null}
                             </>
                           )}
                         </td>
@@ -302,25 +336,24 @@ export default function PMPage() {
                           </span>
                         </td>
                         <td className="num pm-actions">
-                          {editUnit === u.unit ? (
-                            <>
-                              <button className="btn btn-ghost btn-xs"
-                                disabled={busy}
-                                onClick={() => saveEdit(u)}>Save</button>
-                              <button className="btn btn-ghost btn-xs"
-                                onClick={() => setEditUnit(null)}>✕</button>
-                            </>
-                          ) : (
-                            <>
-                              <button className="btn btn-ghost btn-xs"
-                                onClick={() => startEdit(u)}>Edit</button>
-                              <button className="btn btn-ghost btn-xs"
-                                disabled={busy}
-                                onClick={() => exclude(u.unit, true)}>
-                                Exclude
-                              </button>
-                            </>
-                          )}
+                          <span className="row-actions">
+                            {editUnit === u.unit ? (
+                              <>
+                                <IconButton name="save" title="Guardar"
+                                  disabled={busy} onClick={() => saveEdit(u)} />
+                                <IconButton name="cancel" title="Cancelar"
+                                  onClick={() => setEditUnit(null)} />
+                              </>
+                            ) : (
+                              <>
+                                <IconButton name="edit" title="Editar millaje"
+                                  onClick={() => startEdit(u)} />
+                                <IconButton name="exclude" title="Excluir del PM"
+                                  danger disabled={busy}
+                                  onClick={() => exclude(u.unit, true)} />
+                              </>
+                            )}
+                          </span>
                         </td>
                       </tr>
                     )
@@ -347,9 +380,8 @@ export default function PMPage() {
                     <li key={e.unit}>
                       <span className="unit-code">{e.unit}</span>
                       <span className="pm-sub">{e.model}</span>
-                      <button className="btn btn-ghost btn-xs"
-                        disabled={busy}
-                        onClick={() => exclude(e.unit, false)}>Include</button>
+                      <IconButton name="include" title="Volver a incluir"
+                        disabled={busy} onClick={() => exclude(e.unit, false)} />
                     </li>
                   ))}
                 </ul>

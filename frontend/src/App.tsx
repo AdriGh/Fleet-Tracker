@@ -1,4 +1,5 @@
 import { type ReactElement, useEffect, useState } from 'react'
+import { Toaster } from 'sonner'
 import { getHealth } from './api'
 import Logo from './components/Logo'
 import DvirPage from './views/DvirPage'
@@ -8,6 +9,7 @@ import FleetPage from './views/FleetPage'
 import RosterPage from './views/RosterPage'
 import PMPage from './views/PMPage'
 import SettingsPage from './views/SettingsPage'
+import LoginPage from './views/LoginPage'
 
 type Theme = 'light' | 'dark'
 
@@ -84,6 +86,9 @@ export default function App() {
   const [version, setVersion] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>(initialTheme)
   const [section, setSection] = useState('dvir')
+  const [authed, setAuthed] = useState(
+    () => localStorage.getItem('dvir-auth') === '1',
+  )
 
   useEffect(() => {
     getHealth()
@@ -96,8 +101,26 @@ export default function App() {
     localStorage.setItem('dvir-theme', theme)
   }, [theme])
 
+  if (!authed) {
+    return (
+      <LoginPage
+        onLogin={() => {
+          localStorage.setItem('dvir-auth', '1')
+          setAuthed(true)
+        }}
+      />
+    )
+  }
+
   return (
     <div className="app">
+      <Toaster
+        theme={theme}
+        position="top-right"
+        richColors
+        closeButton
+        toastOptions={{ style: { fontFamily: 'inherit' } }}
+      />
       <aside className="sidebar">
         <div className="brand">
           <Logo />
@@ -152,6 +175,21 @@ export default function App() {
                 <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
               </svg>
             )}
+          </button>
+          <button
+            className="icon-btn"
+            onClick={() => {
+              localStorage.removeItem('dvir-auth')
+              setAuthed(false)
+            }}
+            title="Sign out"
+            aria-label="Sign out"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <path d="m16 17 5-5-5-5M21 12H9" />
+            </svg>
           </button>
           <span className="health">
             <span className={`dot ${version ? '' : 'off'}`} />

@@ -7,10 +7,10 @@ interface Props {
 }
 
 const TRUCK_SIDE = new Set(['Trk#', 'DVIR trk', 'Distance (mi)'])
-// Pre/Post-trip son por conductor: se fusionan hacia abajo como el nombre.
-const DRIVER_SIDE = new Set(['Pre-trip', 'Post-trip'])
+// Pre-trip es por conductor: se fusiona hacia abajo como el nombre.
+const DRIVER_SIDE = new Set(['Pre-trip'])
 const STATUS_COLS = new Set(['DVIR trk', 'DVIR trl'])
-const DUR_COLS = new Set(['Pre-trip', 'Post-trip'])
+const DUR_COLS = new Set(['Pre-trip'])
 const DUR_THRESHOLD = 900
 // Mismo formato que las celdas vacias (relleno azul).
 const BLUE_COLS = new Set(['Trl#', 'Distance (mi)'])

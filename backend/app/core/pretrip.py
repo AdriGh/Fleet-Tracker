@@ -11,7 +11,8 @@ módulo agrega, por conductor, la duración total (End − Start) de los segment
 cuya remark dice "Pre-Trip Inspection" / "Post-Trip Inspection".
 
 Devuelve `{clave_de_nombre: {"pre": segundos|None, "post": segundos|None}}`
-donde `None` = no hizo esa inspección (→ se mostrará "⚠ NO PRE-TRIP").
+donde `None` = no hizo esa inspección (→ se mostrará "⚠ NO PRE-TRIP" en la
+columna Pre-trip o "⚠ NO POST-TRIP" en la columna Post-trip).
 """
 
 import io

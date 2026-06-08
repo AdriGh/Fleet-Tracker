@@ -1,19 +1,17 @@
 """Parseo de las hojas de bloques del DVIR Report (`CHASER 6`, `MCC 6`...).
 
 Cada hoja tiene las columnas:
-    Company, Driver, Trk#, DVIR, Trl#, DVIR Trl, Pre-trip, Post-trip,
-    Distance (mi)
+    Company, Driver, Trk#, DVIR, Trl#, DVIR Trl, Pre-trip, Distance (mi)
 
 y se divide en bloques diarios marcados por una fila con la etiqueta de fecha
 en la columna A (p. ej. "6.1", "6.2"). Dentro de cada bloque, un conductor
 puede ocupar varias filas (tractores/trailers extra como filas de
-continuacion con el nombre vacio). Pre-trip y Post-trip son por conductor:
-van en la primera fila del grupo.
+continuacion con el nombre vacio). Pre-trip es por conductor: va en la
+primera fila del grupo.
 
 Reglas de deteccion de infractor (protocolo vigente):
     - NO DVIR    -> la unidad no tiene DVIR de camion ese dia.
     - Pre-trip   -> no registrado (NO PRE-TRIP) o < 15 min (900 s).
-    - Post-trip  -> no registrado (NO PRE-TRIP) o < 15 min (900 s).
 """
 
 from dataclasses import dataclass, field
@@ -90,8 +88,7 @@ def parse_blocks(values: list[list]) -> dict[str, list[Group]]:
             "trl": _cell(row, 4),
             "dvir_trl": _cell(row, 5),
             "pre_trip": _cell(row, 6),
-            "post_trip": _cell(row, 7),
-            "distance": _cell(row, 8),
+            "distance": _cell(row, 7),
         })
 
     return blocks
@@ -99,7 +96,7 @@ def parse_blocks(values: list[list]) -> dict[str, list[Group]]:
 
 def _trip_reason(value: str, inspection: str, unit: str,
                  threshold: int) -> dict | None:
-    """Motivo de aviso para una inspeccion de log (Pre-trip/Post-trip).
+    """Motivo de aviso para una inspeccion de log (Pre-trip).
 
     `value`: texto de la celda ('18m 22s', '⚠ NO PRE-TRIP', ''). Devuelve un
     motivo si falta o dura menos del umbral, si no None.
@@ -108,7 +105,7 @@ def _trip_reason(value: str, inspection: str, unit: str,
     t = str(value or "").strip()
     if not t or t == "-":
         return None  # sin dato en la fila (p. ej. fila de continuacion)
-    if "NO PRE-TRIP" in t.upper() or "NO POST-TRIP" in t.upper():
+    if "NO PRE-TRIP" in t.upper():
         return {"unit": unit or "—", "kind": "driver", "inspection": inspection,
                 "type": "MISSING", "detail": t}
     if parse_duration(t) < threshold:
@@ -136,12 +133,10 @@ def offender_reasons(group: Group,
                 "detail": "NO DVIR",
             })
 
-    # Pre-trip / Post-trip son por conductor: viven en la primera fila con dato.
+    # Pre-trip es por conductor: vive en la primera fila con dato.
     unit = group.primary_unit()
     pre = next((r["pre_trip"] for r in group.rows if r["pre_trip"]), "")
-    post = next((r["post_trip"] for r in group.rows if r["post_trip"]), "")
-    for value, label in ((pre, "Pre-trip"), (post, "Post-trip")):
-        reason = _trip_reason(value, label, unit, threshold)
-        if reason:
-            reasons.append(reason)
+    reason = _trip_reason(pre, "Pre-trip", unit, threshold)
+    if reason:
+        reasons.append(reason)
     return reasons

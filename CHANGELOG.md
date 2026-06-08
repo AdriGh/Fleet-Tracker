@@ -7,6 +7,48 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.18.0] - 2026-06-08
+
+### Añadido
+- **Pantalla de login** (capa visual): gate de acceso con `LoginPage` y botón
+  de cierre de sesión. Por ahora no hay backend de auth (la API sigue abierta).
+- **Notificaciones (Sonner)**: toasts de éxito/error en acciones clave (copiar
+  día DVIR, enviar avisos, guardar/sincronizar emails, guardar settings).
+- **Drawer de detalle de unidad (Vaul)**: clic en una unidad en **Fleet** (fila)
+  o **Defects** (código) abre un panel lateral con ficha, defectos abiertos y
+  PM, además de un botón para **archivar/excluir** la unidad.
+- **Fleet**: clasificación de tipo **Truck / Trailer / Chassis** (chassis =
+  `unpowered` con nombre-código tipo CELL/CELF/G…); se **oculta la chatarra**
+  (gateways sueltos y assets dados de baja). Filtros por **tipo** y por
+  **terminal** (Memphis/Miami/Atlanta/Savannah/Chicago/Chaser). KPI de Chassis.
+- **Defects**: **chips de categoría** color-codificados y filtro por **terminal**.
+- **PM**: filtro por **terminal**; gráfico de estado convertido en **donut**
+  interactivo (hover ↔ porción) con leyenda en pills 2×2.
+
+### Cambiado
+- **Logo** rediseñado (ilustración de tractomula + wordmark en itálica, estilo
+  Fullbay) y wordmark en itálica en sidebar y login.
+- **PM**: estados renombrados — `OK → On Track`, `No PM record → Never
+  Performed`, `Due soon → Upcoming`; el umbral de **Upcoming** pasa a
+  **5 500 millas**. Botones Edit/Exclude como **iconos** y marcas EDITED/MANUAL
+  como un lapicito discreto.
+- **Rediseño general** de listas (Fleet/Defects/PM): tipografía (encabezados en
+  mayúscula, códigos más marcados), animaciones de entrada y hovers, y botones
+  de acción como **iconos**.
+
+### Arreglado
+- **DVIR Report**: la columna **Post-trip** mostraba `⚠ NO PRE-TRIP` cuando
+  faltaba el log de post-trip → ahora muestra **`⚠ NO POST-TRIP`**. Además se
+  **quitó la columna Post-trip** del reporte (a pedido) y los conductores sin
+  Pre-trip se ordenan al fondo, junto con los NO DVIR.
+- **Defectos fantasma**: la lista de defectos abiertos arrastraba defectos
+  viejos (de 2025) colgados de assets renombrados/duplicados en Samsara. La
+  ventana del stream baja de **730 → 270 días**, así se descartan los fantasmas
+  sin perder ningún defecto vigente (incluidos los creados a mano). Los assets
+  archivados quedan excluidos de los defectos.
+- **`contacts`**: se rompe la dependencia circular con `cc_routing` inyectando
+  el resolutor de región.
+
 ## [0.17.0] - 2026-06-07
 
 ### Cambiado

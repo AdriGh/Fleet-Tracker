@@ -45,14 +45,14 @@ reportados en los DVIR, filtrables por empresa, estado y unidad.
 
 ## Lógica del informe
 
-- **Pre-trip / Post-trip** (por conductor) = suma de los segmentos On Duty
-  con remark "Pre-Trip Inspection" / "Post-Trip Inspection" en sus logs de
-  HoS, según el custom report de Samsara. Es lo que importa para DOT (no la
-  duración del DVIR). Verde si ≥ 15 min, rojo si < 15 min, `⚠ NO PRE-TRIP`
-  si no la registró.
+- **Pre-trip** (por conductor) = suma de los segmentos On Duty con remark
+  "Pre-Trip Inspection" en sus logs de HoS, según el custom report de
+  Samsara. Es lo que importa para DOT (no la duración del DVIR). Verde si
+  ≥ 15 min, rojo si < 15 min, `⚠ NO PRE-TRIP` si no la registró. Los
+  conductores sin Pre-trip se ordenan al fondo, junto con los NO DVIR.
 - **Estado** mostrado = el del DVIR más reciente (por hora de firma).
 - Varios tráilers de un conductor → filas de continuación; las celdas
-  del lado del camión y las de Pre/Post-trip se fusionan verticalmente.
+  del lado del camión y la de Pre-trip se fusionan verticalmente.
 - **NO DVIR** = un camión que aparece en el CSV de actividad por encima
   del umbral de millas pero sin DVIR de camión ese día. El conductor se
   toma del roster.

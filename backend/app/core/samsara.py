@@ -26,7 +26,12 @@ from .open_defects import _is_noise, company_of
 
 CONF_PATH = Path(__file__).resolve().parents[2] / "samsara.local.json"
 
-_LOOKBACK_DAYS = 730          # ventana del stream: 2 años atrás cubre lo abierto
+# Ventana del stream de defectos abiertos. 270 días (~9 meses) captura todo lo
+# abierto vigente y descarta "fantasmas": defectos viejos colgados de assets
+# renombrados/duplicados en Samsara (p. ej. "867667 wrong trailer on tracker",
+# cuyos defectos son de 2025). Un defecto realmente abierto se re-reporta en
+# cada DVIR, así que se mantiene reciente y dentro de esta ventana.
+_LOOKBACK_DAYS = 270
 _TIMEOUT = 60
 _PLACEHOLDER = "PEGA_AQUI"    # token de ejemplo sin configurar
 
@@ -296,6 +301,7 @@ async def _org_open(
         if cur is None:
             seen[key] = {
                 "unit": name, "kind": kind,
+                "asset_id": aref.get("id"),
                 "company": cfg["company"] or company_of(name),
                 "detail": f"{dtype} - {comment}" if comment else dtype,
                 "notes": (r.get("mechanicNotes") or "").strip(),
@@ -319,6 +325,7 @@ async def _org_open(
             "driver": "",
             "unit": rec["unit"],
             "unit_kind": rec["kind"],
+            "asset_id": rec["asset_id"],
             "dvir_type": "",
             "status": "Open",
             "detail": rec["detail"],
@@ -388,6 +395,7 @@ async def _org_window(
             "driver": "",
             "unit": name,
             "unit_kind": kind,
+            "asset_id": aref.get("id"),
             "dvir_type": "",
             "status": "Resolved" if r.get("isResolved") else "Unsafe",
             "detail": detail,
@@ -417,6 +425,27 @@ async def load_window(days: int) -> list[dict]:
     out = [row for sub in per_org for row in sub]
     out.sort(key=lambda d: (d["block_date"], d["unit"]))
     return out
+
+
+def _classify_unit(name: str, atype: str) -> str | None:
+    """Tipo de unidad para el Fleet: 'truck' | 'trailer' | 'chassis'.
+
+    - vehicle  -> truck
+    - trailer  -> trailer
+    - unpowered: si el nombre es código alfabético (CELL, CELF, G3HX,
+      G7VK-4DA-E89…) es un **chassis**; si es numérico (277187, 390002…) es un
+      trailer. Si está vacío o dice "deactivated" es **chatarra** -> None
+      (gateway suelto / asset dado de baja) y se omite del inventario.
+    """
+    n = (name or "").strip()
+    if atype == "vehicle":
+        return "truck"
+    if atype == "trailer":
+        return "trailer"
+    # unpowered
+    if not n or "deactivat" in n.lower():
+        return None
+    return "chassis" if n[0].isalpha() else "trailer"
 
 
 async def _org_fleet(
@@ -449,12 +478,16 @@ async def _org_fleet(
         if not name:
             continue
         atype = a.get("type")
+        unit_type = _classify_unit(name, atype)
+        if unit_type is None:
+            continue  # chatarra: gateway suelto / asset dado de baja
         kind = "truck" if atype == "vehicle" else "trailer"
         ld = last_dvir.get(a.get("id"))
         out.append({
             "id": a.get("id"),
             "unit": name,
             "kind": kind,
+            "unit_type": unit_type,                    # truck/trailer/chassis
             "asset_type": atype,                       # vehicle/trailer/unpowered
             "company": cfg["company"] or company_of(name),
             "make": (a.get("make") or "").strip(),

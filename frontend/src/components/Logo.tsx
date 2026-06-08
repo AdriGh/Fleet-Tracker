@@ -1,40 +1,58 @@
-// Logo animado de Fleet Tracker: una ruta orgánica con un pulso de rastreo
-// que viaja, un radar "ping" en el destino y partículas ambientales.
-// Abstracto (sin formas duras), temático de seguimiento de flota.
-
-const ROUTE = 'M14 58 C 44 26, 78 72, 112 48 S 178 20, 226 42'
+// Logo de Fleet Tracker: ilustración icónica de una tractomula (semi) de
+// perfil con líneas de movimiento, en el gradiente rojo de la marca. Estilo
+// Fullbay (ícono + wordmark en itálica, este último renderizado aparte).
 
 export default function Logo() {
   return (
     <div className="brand-logo">
-      <svg viewBox="0 0 240 84" className="logo-svg" role="img"
+      <svg viewBox="0 0 224 120" className="logo-svg" role="img"
         aria-label="Fleet Tracker">
         <defs>
-          <linearGradient id="ftGrad" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0" stopColor="#6366f1" />
-            <stop offset="0.5" stopColor="#8b5cf6" />
-            <stop offset="1" stopColor="#22d3ee" />
+          <linearGradient id="ftGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#ff7a5c" />
+            <stop offset="0.55" stopColor="#e2231a" />
+            <stop offset="1" stopColor="#b3140d" />
+          </linearGradient>
+          <linearGradient id="ftWheel" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#9a140d" />
+            <stop offset="1" stopColor="#5e0b06" />
           </linearGradient>
         </defs>
 
-        {/* partículas ambientales */}
-        <circle className="ft-spark s1" cx="58" cy="30" r="1.7" />
-        <circle className="ft-spark s2" cx="150" cy="26" r="1.4" />
-        <circle className="ft-spark s3" cx="196" cy="62" r="1.6" />
-        <circle className="ft-spark s4" cx="96" cy="64" r="1.3" />
+        {/* líneas de movimiento (detrás del tráiler) */}
+        <g className="ft-speed" fill="none" stroke="url(#ftGrad)"
+          strokeLinecap="round">
+          <line x1="6" y1="40" x2="30" y2="40" strokeWidth="5" opacity="0.85" />
+          <line x1="0" y1="54" x2="22" y2="54" strokeWidth="5" opacity="0.55" />
+          <line x1="9" y1="68" x2="31" y2="68" strokeWidth="5" opacity="0.3" />
+        </g>
 
-        {/* ruta base + pulso viajero */}
-        <path className="ft-route" d={ROUTE} />
-        <path className="ft-route-glow" d={ROUTE} />
+        {/* carrocería: tráiler + tractor (un solo silueta) */}
+        <path
+          fill="url(#ftGrad)"
+          d="M34 84 V28 H150 V46 H172 L184 60 H204 L206 66 V84 Z"
+        />
 
-        {/* waypoints */}
-        <circle className="ft-node" cx="14" cy="58" r="3.4" />
-        <circle className="ft-node" cx="112" cy="48" r="3" />
+        {/* parabrisas */}
+        <path fill="#fff" opacity="0.92"
+          d="M174 49 H184 L192 59 H174 Z" />
 
-        {/* destino con radar ping */}
-        <circle className="ft-ping" cx="226" cy="42" r="6" />
-        <circle className="ft-ping ft-ping-2" cx="226" cy="42" r="6" />
-        <circle className="ft-core" cx="226" cy="42" r="4.4" />
+        {/* separación tráiler / tractor */}
+        <line x1="150" y1="30" x2="150" y2="82" stroke="#fff"
+          strokeOpacity="0.28" strokeWidth="2.5" />
+
+        {/* ruedas */}
+        <g>
+          <circle cx="56" cy="88" r="12" fill="url(#ftWheel)" />
+          <circle cx="84" cy="88" r="12" fill="url(#ftWheel)" />
+          <circle cx="150" cy="88" r="12" fill="url(#ftWheel)" />
+          <circle cx="192" cy="88" r="12" fill="url(#ftWheel)" />
+          {/* cubos */}
+          <circle cx="56" cy="88" r="4" fill="#ffd9c9" />
+          <circle cx="84" cy="88" r="4" fill="#ffd9c9" />
+          <circle cx="150" cy="88" r="4" fill="#ffd9c9" />
+          <circle cx="192" cy="88" r="4" fill="#ffd9c9" />
+        </g>
       </svg>
     </div>
   )

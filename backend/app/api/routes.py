@@ -231,6 +231,10 @@ async def dvir_open_defects(refresh: bool = False):
             # estén en el org de Samsara (p.ej. MCC) siguen viniendo del CSV.
             covered = {d["company"] for d in live}
             merged = live + [d for d in csv_rows if d["company"] not in covered]
+            # Excluir assets archivados (p.ej. duplicados/mal etiquetados en
+            # Samsara): no deben contar en el backlog de defectos.
+            archived = set(app_config.archived_ids())
+            merged = [d for d in merged if d.get("asset_id") not in archived]
             merged.sort(key=lambda d: d["unit"])
             return {
                 "available": True,
@@ -264,6 +268,8 @@ async def dvir_defect_stats(days: int = 7, refresh: bool = False):
     if samsara.is_available():
         try:
             rows = await samsara.load_window(days)
+            archived = set(app_config.archived_ids())
+            rows = [d for d in rows if d.get("asset_id") not in archived]
             live_co = {d["company"] for d in rows}
             cutoff = (date.today() - timedelta(days=days)).isoformat()
             for d in open_defects.load():

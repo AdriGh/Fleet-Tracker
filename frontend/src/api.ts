@@ -240,6 +240,7 @@ export interface FleetUnit {
   id: string            // id único del asset en Samsara
   unit: string
   kind: string          // truck | trailer
+  unit_type: string     // truck | trailer | chassis
   asset_type: string    // vehicle | trailer | unpowered
   company: string
   make: string
