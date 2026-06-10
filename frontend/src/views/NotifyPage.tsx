@@ -4,12 +4,20 @@ import {
   notifyBlocks,
   notifyScan,
   notifySend,
+  uploadNotifyMedia,
   type NotifyBlocksResponse,
   type NotifyScanResponse,
   type Notice,
+  type NotifyChannel,
   type NotifySendResponse,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
+
+type Media = { type: string; url: string; filename: string }
+const ALL_CHANNELS: NotifyChannel[] = ['email', 'sms']
+const CHANNEL_LABEL: Record<NotifyChannel, string> = {
+  email: '✉ Email', sms: '💬 SMS',
+}
 
 export default function NotifyPage() {
   const [sheet, setSheet] = useState('')
@@ -21,6 +29,20 @@ export default function NotifyPage() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [sendResult, setSendResult] = useState<NotifySendResponse | null>(null)
+  const [channels, setChannels] = useState<Set<NotifyChannel>>(
+    () => new Set<NotifyChannel>(['sms']))
+  const [media, setMedia] = useState<Media | null>(null)
+  const [uploadingMedia, setUploadingMedia] = useState(false)
+
+  function toggleChannel(c: NotifyChannel) {
+    setChannels((prev) => {
+      const next = new Set(prev)
+      if (next.has(c)) next.delete(c)
+      else next.add(c)
+      if (next.size === 0) next.add(c)   // al menos uno
+      return next
+    })
+  }
 
   const blocksQuery = useQuery({
     queryKey: ['notify-blocks'], queryFn: notifyBlocks })
@@ -78,17 +100,42 @@ export default function NotifyPage() {
     )
   }
 
+  async function onMediaPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setUploadingMedia(true)
+    try {
+      const r = await uploadNotifyMedia(file)
+      if (r.ok) {
+        setMedia({ type: r.media_type, url: r.media_url,
+          filename: r.filename })
+        notifyOk('Adjunto cargado', r.url_simulated ? '(simulado)' : r.filename)
+      } else {
+        notifyErr('No se pudo subir el adjunto', r.error)
+      }
+    } catch (err) {
+      notifyErr('No se pudo subir el adjunto', err)
+    } finally {
+      setUploadingMedia(false)
+    }
+  }
+
   async function runSend() {
-    if (!scan || selected.size === 0) return
+    if (!scan || selected.size === 0 || channels.size === 0) return
     setSending(true)
     setError('')
-    const dry = status ? status.dry_run : true
+    const chans = [...channels]
     try {
-      const r = await notifySend(sheet, date, [...selected])
+      const r = await notifySend(
+        sheet, date, [...selected], chans,
+        media ? { type: media.type, url: media.url } : null)
       setSendResult(r)
+      const sim = chans.every((c) => c === 'email'
+        ? r.email_dry_run : r.sms_dry_run)
       notifyOk(
-        dry ? 'Simulación completada' : 'Avisos enviados',
-        `${selected.size} conductor${selected.size === 1 ? '' : 'es'}`,
+        sim ? 'Simulación completada' : 'Avisos enviados',
+        `${selected.size} conductor${selected.size === 1 ? '' : 'es'} · ${chans.join('+')}`,
       )
     } catch (e) {
       setError(String(e))
@@ -98,7 +145,13 @@ export default function NotifyPage() {
     }
   }
 
-  const simulated = status ? status.dry_run : true
+  const emailSim = status ? status.dry_run : true
+  const smsSim = status ? status.sms_dry_run : true
+  const wantEmail = channels.has('email')
+  const wantSms = channels.has('sms')
+  const wantPhone = wantSms
+  const channelSim = [...channels].every((c) => c === 'email' ? emailSim
+    : smsSim)
 
   return (
     <div className="page page-wide">
@@ -114,14 +167,17 @@ export default function NotifyPage() {
       </div>
 
       {status && (
-        <div className={`banner ${simulated ? 'warn' : ''}`}>
+        <div className={`banner ${channelSim ? 'warn' : ''}`}>
           <span>
             {status.mode === 'live'
               ? `🔗 Reading live: ${status.spreadsheet}. `
-              : '🧪 Demo mode: sample data from your spreadsheet. '}
-            {simulated
-              ? 'SIMULATED sending (no emails are sent yet).'
-              : `Live sending active as ${status.sender}.`}
+              : '🧪 Demo mode: sample data. '}
+            {wantEmail && (emailSim
+              ? '✉ Email: SIMULADO. '
+              : `✉ Email: EN VIVO (${status.sender}). `)}
+            {wantSms && (smsSim
+              ? '💬 SMS: SIMULADO (configurá twilio.local.json). '
+              : '💬 SMS: EN VIVO. ')}
           </span>
         </div>
       )}
@@ -206,6 +262,7 @@ export default function NotifyPage() {
                         </th>
                         <th>Driver</th>
                         <th>Email</th>
+                        <th>Teléfono</th>
                         <th>Terminal</th>
                         <th>CC</th>
                         <th>Units</th>
@@ -228,7 +285,12 @@ export default function NotifyPage() {
                             />
                           </td>
                           <td>{n.driver}</td>
-                          <td className="mono">{n.email}</td>
+                          <td className="mono">{n.email || '—'}</td>
+                          <td className="mono">
+                            {n.sms_phone
+                              ? n.sms_phone
+                              : <span className="muted">— sin tel.</span>}
+                          </td>
                           <td>
                             <span className="chip">{n.region}</span>
                           </td>
@@ -272,6 +334,33 @@ export default function NotifyPage() {
             )}
 
             <div className="avisos-actions">
+              <div className="company-tabs" role="group" aria-label="Channels">
+                {ALL_CHANNELS.map((c) => (
+                  <button key={c}
+                    className={`tab-btn ${channels.has(c) ? 'active' : ''}`}
+                    onClick={() => toggleChannel(c)}>{CHANNEL_LABEL[c]}</button>
+                ))}
+              </div>
+
+              {wantPhone && (
+                <div className="wa-attach">
+                  {media ? (
+                    <span className="wa-attach-file">
+                      📎 {media.filename}
+                      <button className="icon-x" title="Quitar adjunto"
+                        onClick={() => setMedia(null)}>✕</button>
+                    </span>
+                  ) : (
+                    <label className="btn btn-ghost">
+                      {uploadingMedia ? 'Subiendo…' : '📎 Adjuntar imagen/video'}
+                      <input type="file" accept="image/*,video/*" hidden
+                        disabled={uploadingMedia} onChange={onMediaPick} />
+                    </label>
+                  )}
+                </div>
+              )}
+
+              <span className="head-spacer" />
               <button
                 className="btn btn-success"
                 onClick={runSend}
@@ -279,7 +368,7 @@ export default function NotifyPage() {
               >
                 {sending
                   ? 'Sending…'
-                  : simulated
+                  : channelSim
                     ? `Send ${selected.size} (simulated)`
                     : `Send ${selected.size}`}
               </button>
@@ -289,16 +378,26 @@ export default function NotifyPage() {
               <div className="banner">
                 <div>
                   <strong>
-                    {sendResult.dry_run
-                      ? 'Simulation completed'
-                      : 'Sending completed'}
+                    {channelSim ? 'Simulation completed' : 'Sending completed'}
                   </strong>
-                  <ul>
+                  <ul className="send-results">
                     {sendResult.results.map((r) => (
                       <li key={r.driver}>
-                        {r.ok ? '✅' : '❌'} {r.driver} → {r.to}
-                        {r.simulated ? ' (simulated)' : ''}
-                        {r.error ? ` — ${r.error}` : ''}
+                        <span className="sr-driver">{r.driver}</span>
+                        {r.email && (
+                          <span className="sr-ch">
+                            ✉ {r.email.ok ? '✅' : '❌'} {r.email.to || '—'}
+                            {r.email.simulated ? ' (sim)' : ''}
+                            {r.email.error ? ` — ${r.email.error}` : ''}
+                          </span>
+                        )}
+                        {r.sms && (
+                          <span className="sr-ch">
+                            💬 {r.sms.ok ? '✅' : '❌'} {r.sms.to || '—'}
+                            {r.sms.simulated ? ' (sim)' : ''}
+                            {r.sms.error ? ` — ${r.sms.error}` : ''}
+                          </span>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -314,22 +413,46 @@ export default function NotifyPage() {
             <div className="card-body">
               {focused ? (
                 <>
-                  <div className="prev-row">
-                    <span>To</span>
-                    <span className="mono">{focused.email || '—'}</span>
-                  </div>
-                  <div className="prev-row">
-                    <span>CC</span>
-                    <span className="mono">{focused.cc.join(', ') || '—'}</span>
-                  </div>
-                  <div className="prev-row">
-                    <span>Subject</span>
-                    <span>{focused.subject}</span>
-                  </div>
-                  <pre className="prev-body">{focused.body}</pre>
+                  {wantSms && (
+                    <div className="wa-preview">
+                      <div className="wa-preview-head">
+                        <span className="sms-badge">SMS</span>
+                        <span className="mono">{focused.sms_phone || '— sin teléfono'}</span>
+                      </div>
+                      {media && (
+                        <div className="wa-media-chip">
+                          {media.type === 'video'
+                            ? '🎬 video (link en el texto)'
+                            : '🖼 imagen (MMS)'} · {media.filename}
+                        </div>
+                      )}
+                      <div className="sms-bubble">
+                        {focused.sms_text}
+                        {media && media.type === 'video'
+                          ? `\nVideo: ${media.url}` : ''}
+                      </div>
+                    </div>
+                  )}
+                  {wantEmail && (
+                    <>
+                      <div className="prev-row">
+                        <span>To</span>
+                        <span className="mono">{focused.email || '—'}</span>
+                      </div>
+                      <div className="prev-row">
+                        <span>CC</span>
+                        <span className="mono">{focused.cc.join(', ') || '—'}</span>
+                      </div>
+                      <div className="prev-row">
+                        <span>Subject</span>
+                        <span>{focused.subject}</span>
+                      </div>
+                      <pre className="prev-body">{focused.body}</pre>
+                    </>
+                  )}
                 </>
               ) : (
-                <p className="empty">Select a driver to view the email.</p>
+                <p className="empty">Select a driver to view the notice.</p>
               )}
             </div>
           </aside>

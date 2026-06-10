@@ -1,0 +1,8 @@
+{
+  "account_sid": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "auth_token": "tu-auth-token",
+  "from_number": "+15551234567",
+  "messaging_service_sid": "",
+  "dry_run": true,
+  "sender_name": "Safety/Maintenance"
+}

@@ -1,0 +1,6 @@
+{
+  "cloud_name": "tu-cloud-name",
+  "api_key": "1234567890",
+  "api_secret": "tu-api-secret",
+  "dry_run": true
+}

@@ -25,6 +25,7 @@ class Notice:
     reasons: list[dict]
     review_reason: str = ""  # no vacio => va a la lista de revisar
     units: list[str] = field(default_factory=list)
+    phone: str = ""          # telefono del contacto (para SMS)
 
 
 def _summarize_units(reasons: list[dict]) -> list[str]:
@@ -81,6 +82,7 @@ def build_notices(groups: list[Group], book: ContactBook,
             cc=cc,
             reasons=reasons,
             units=_summarize_units(reasons),
+            phone=contact.phone if contact else "",
         )
 
         # Acumula todos los problemas que impiden enviar (no solo el primero).
@@ -115,32 +117,63 @@ BOLD_PARAGRAPH = (
     "773-765-8798."
 )
 
-# Plantilla oficial (texto provisto por Safety/Maintenance). Placeholders:
-#   {driver}  nombre del conductor
-#   {date}    fecha del bloque (legible, p. ej. "June 1")
-#   {issues}  lista de unidades/issues detectados
-DEFAULT_BODY = """Good Morning, {driver}
+# Texto oficial del aviso (provisto por Safety/Maintenance). SIN placeholders.
+# Lo comparten el email y el SMS (el email le agrega saludo, issues y firma).
+NOTICE_BODY = """Performing a Pre and Post-trip inspection is a requirement of the DOT and must be done for each and every shift.  As a company, we require a DVIR to be completed and submitted through the app as well.  We do this as a means of having proof that a proper Pre- and Post-trip inspection was performed.  If pulled over, an officer can immediately place you out of service for not having a Pre-trip inspection completed.  Further, all information entered into Samsara is available to all insurance providers.  When they see a driver habitually not doing the correct things that they are supposed to be doing, it results in a higher premium and could potentially lead to a driver being disqualified from working for us.  We do not wish for something so simple to become such a problem.  A proper 15 minute inspection sets you up for a successful day.  It reduces the chance of a breakdown or need for road service by an incredible 87%!!!!  This saves your time and the company's money.
 
-Please note, as per our conversation you did not complete a proper DVIR for the date of {date}.
+This is the correct process for starting your shift and having a Pre-trip and DVIR submitted properly:
 
-The following was flagged on your assigned unit(s):
-{issues}
+1........Open your Samsara app and certify any previous day's logs that have not been certified.  (ALL LOGS SHOULD BE CERTIFIED AT END OF SHIFT)
+2........Assign yourself to the truck you will be driving for the day.
+3.........Put yourself in "On Duty" status and enter the remark "Pre-Trip Inspection" (This is a prompted remark so you do not even need to type it, just select it)
+4.........Create a DVIR and select vehicle if bobtail and vehicle + tailer if already hooked to your box/chassis.  Vehicle and location info should automatically populate.
+5.........Choose Pre or post trip accordingly.
+6........Take and submit your walkaround photos.
+7.........Go through the list of vehicle defects.  Anything that needs correction or to be fixed should be noted. (A PROPER PRETRIP SHOULD LAST 15 MINS)
+8..........If all is safe and legal, mark as "Safe to Drive".....if not, "Unsafe"....and click next.
+9..........Certify and submit
+10.......add BOL or Load # as your shipping ID
 
-We as a company stress the importance of DVIR's for several reasons.  The first of which, quite simply, is that it is a Company requirement.  This is not optional.  If pulled over, an officer can immediately place you out of service for not having a proper DVIR completed.  Further, all information entered into Samsara is available to all insurance providers.  When they see a driver habitually not doing the correct things that they are supposed to be doing, it results in a higher premium and could potentially lead to a driver being disqualified from working for us.  We do not wish for something so simple to become such a problem.
+You should receive a message that all tasks have been completed and you can go about your day.
 
-A proper DVIR should take a minimum of 15 mins.  This time should be logged as on duty time and the times on the log need to match what is entered on the DVIR.  The app provides a list of everything that needs to be checked and marked properly.  If something is unsafe, it needs to be corrected BEFORE the truck or trailer/chassis can be used.  You cannot log any miles until a DVIR is completed.  Please use the resources and tools available to you such as being able to upload pics into the app to confirm items were checked such as tires, lights, mud flaps, etc.  A proper 15 minute inspection sets you up for a successful day.  It reduces the chance of a breakdown or need for road service by an incredible 87%!!!!  This saves your time and the company's money.
+When a driver receives a violation(s) on an inspection, this greatly affects the company's Safety scores.  The chain reaction leads, again, to higher insurance premiums, difficulty securing new customers/lanes of work, and, once a certain threshold is reached, EVERY TIME an officer sees one of our trucks they will pull you over which leads to more wasted time.   A driver can leave a company at any time, yet their violations will remain for 2 years.  We, as a company, need to protect our scores.  We cannot and will not allow driver's negligence to regulations, policies and procedures to jeopardize the company and the bottom line.
 
-When a driver receives a violation(s) on an inspection, this greatly affects the company's Safety scores.  The chain reaction leads, again, to higher insurance premiums, difficulty securing new customers/lanes of work, and, once a certain threshold is reached, EVERY TIME an officer sees one of our trucks they will pull you over which leads to more wasted time.   A driver can leave a company at any time, yet their violations will remain for 2 years.  We, as a company, need to protect our scores.  We cannot and will not allow driver's negligence to policy and procedure to jeopardize the company and the bottom line.
+We are monitoring these items closely internally and any deviation from the process will have consequences including immediate termination for egregious violations.
 
-As a result of not turning in a DVIR, you will be fined $100 for this.  This will be deducted from your next settlement check.  Any further infraction of this policy will result in termination.  No exceptions.  As stated, we will not keep a driver on the fleet that is not doing what they are required to do.
+As an  example.....If you submit a DVIR stating all equipment is safe and you are then pulled over and placed out of service for a bald tire.....this would have been something caught during a Pre-trip and will not be tolerated.  IF THERE IS SOMETHING WRONG WITH THE EQUIPMENT, REPORT IT SO WE CAN FIX IT!!!!
 
 If you have any questions, comments, thoughts, or issues with regards to Samsara, HOS, logs, or DVIR's, please reach out to Ryan Andrews at 773-765-8798.
 
-Your time and cooperation in this matter is greatly appreciated......DRIVE SAFE!!!!!
+Your time and cooperation in this matter is greatly appreciated......DRIVE SAFE!!!!!"""
 
-Sincerely,
-Adrian Ramirez
-Safety/Maintenance Dept."""
+# Versión COMPACTA para SMS: mantiene los 10 pasos completos pero recorta la
+# prosa explicativa (para bajar la cantidad de segmentos del SMS).
+SMS_NOTICE_BODY = """A Pre- and Post-trip inspection + a DVIR in the app are required by the DOT for every shift (15 min minimum). Skipping it can put you out of service, raises our insurance, and hurts our safety scores. Correct process:
+
+1. Open Samsara and certify any previous day's logs. (Certify ALL logs at end of shift.)
+2. Assign yourself to the truck for the day.
+3. Go "On Duty" and add the remark "Pre-Trip Inspection" (prompted, just select it).
+4. Create a DVIR: select vehicle if bobtail, or vehicle + trailer if hooked to your box/chassis. Vehicle and location auto-populate.
+5. Choose Pre- or Post-trip accordingly.
+6. Take and submit your walkaround photos.
+7. Go through the vehicle defects; note anything that needs fixing. (A proper pre-trip lasts 15 min.)
+8. If safe and legal, mark "Safe to Drive"; if not, "Unsafe". Click next.
+9. Certify and submit.
+10. Add BOL or Load # as your shipping ID.
+
+You'll get a message that all tasks are complete. Report any equipment issue so we can fix it; submitting a "safe" DVIR and then being placed out of service (e.g. a bald tire) will not be tolerated. Deviations have consequences, up to termination.
+
+Questions? Ryan Andrews 773-765-8798. DRIVE SAFE!"""
+
+# Email = saludo + lo que se marcó (unidad/issues) + el texto oficial + firma.
+# Placeholders: {driver}, {date}, {issues}.
+DEFAULT_BODY = (
+    "Good Morning, {driver}\n\n"
+    "This notice is regarding your DVIR for {date}. The following was flagged "
+    "on your assigned unit(s):\n{issues}\n\n"
+    + NOTICE_BODY
+    + "\n\nSincerely,\nAdrian Ramirez\nSafety/Maintenance Dept."
+)
 
 _MONTHS = ["", "January", "February", "March", "April", "May", "June",
            "July", "August", "September", "October", "November", "December"]
@@ -206,3 +239,13 @@ def render_email(notice: Notice, date_label: str,
     subject = subject_tpl.format(**ctx)
     text = body_tpl.format(**ctx)
     return subject, text, _render_html(text)
+
+
+# --- SMS ---------------------------------------------------------------------
+def render_sms(notice: Notice, date_label: str) -> str:
+    """Cuerpo del SMS: saludo breve + la versión compacta (`SMS_NOTICE_BODY`)."""
+    date = _format_date(date_label)
+    issues = ", ".join(notice.units) or "DVIR pending"
+    name = _first_name(notice.driver)
+    return (f"Hi {name}, regarding your DVIR for {date} ({issues}):\n\n"
+            + SMS_NOTICE_BODY)

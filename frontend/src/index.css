@@ -3170,3 +3170,63 @@ table.defects-table td {
 }
 .type-badge.t-truck { background: var(--ui-info-bg); color: var(--ui-info); }
 .type-badge.t-chassis { background: rgba(168, 85, 247, .14); color: #a855f7; }
+
+/* ===========================================================
+   Avisos por WhatsApp (canal + adjunto + preview)
+   =========================================================== */
+.avisos-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.wa-attach { display: inline-flex; align-items: center; gap: 8px; }
+.wa-attach .btn { cursor: pointer; }
+.wa-attach-file {
+  display: inline-flex; align-items: center; gap: 8px; font-size: 13px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  padding: 6px 10px; border-radius: 10px;
+}
+.icon-x {
+  border: none; background: none; color: var(--text-muted); cursor: pointer;
+  font-size: 13px; line-height: 1; padding: 0 2px;
+}
+.icon-x:hover { color: var(--ui-danger); }
+
+/* Preview de WhatsApp (burbuja estilo chat) */
+.wa-preview { margin-bottom: 16px; }
+.wa-preview-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 8px;
+}
+.wa-badge {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .4px; color: #fff; background: #25d366;
+  padding: 2px 9px; border-radius: 999px;
+}
+.wa-media-chip {
+  font-size: 12.5px; color: var(--text-muted); margin-bottom: 6px;
+}
+.wa-bubble {
+  background: #d9fdd3; color: #111; border-radius: 12px 12px 12px 4px;
+  padding: 10px 12px; font-size: 14px; line-height: 1.4;
+  white-space: pre-wrap; max-width: 90%;
+}
+[data-theme="dark"] .wa-bubble { background: #075e54; color: #e9ffe4; }
+
+/* Resultados de envío por canal */
+.send-results { margin: 6px 0 0; padding-left: 0; list-style: none; }
+.send-results li {
+  display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 3px 0;
+  font-size: 13px;
+}
+.sr-driver { font-weight: 700; min-width: 130px; }
+.sr-ch { color: var(--text-muted); }
+
+/* Preview de SMS (burbuja gris estilo mensajería) */
+.sms-badge {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .4px; color: #fff; background: #64748b;
+  padding: 2px 9px; border-radius: 999px;
+}
+.sms-bubble {
+  background: #e6e9ef; color: #111; border-radius: 12px 12px 12px 4px;
+  padding: 10px 12px; font-size: 14px; line-height: 1.4;
+  white-space: pre-wrap; max-width: 90%; margin-bottom: 4px;
+}
+[data-theme="dark"] .sms-bubble { background: #2a3140; color: #e8eaf0; }
