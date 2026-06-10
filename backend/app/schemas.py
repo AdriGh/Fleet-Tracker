@@ -75,3 +75,6 @@ class NotifySendRequest(BaseModel):
     sheet: str
     date_label: str
     drivers: list[str]
+    channels: list[str] = ["email"]   # email | sms (multi)
+    media_type: str = ""              # image | video
+    media_url: str = ""               # URL pública (SMS/MMS)

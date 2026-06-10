@@ -453,11 +453,14 @@ export interface Notice {
   region: string | null
   email: string
   cc: string[]
+  phone: string
+  sms_phone: string | null
   units: string[]
   reasons: NotifyReason[]
   review_reason: string
   subject: string
   body: string
+  sms_text: string
 }
 
 export interface NotifyBlock {
@@ -473,6 +476,8 @@ export interface NotifyBlocksResponse {
   gmail_configured: boolean
   dry_run: boolean
   sender: string
+  sms_configured: boolean
+  sms_dry_run: boolean
   blocks: NotifyBlock[]
 }
 
@@ -484,18 +489,42 @@ export interface NotifyScanResponse {
   review: Notice[]
 }
 
-export interface SendResult {
-  driver: string
+export interface ChannelResult {
   to: string
-  cc: string[]
+  cc?: string[]
   ok: boolean
   error: string
   simulated: boolean
 }
 
+export interface SendResult {
+  driver: string
+  email?: ChannelResult
+  sms?: ChannelResult
+}
+
+export type NotifyChannel = 'email' | 'sms'
+
 export interface NotifySendResponse {
-  dry_run: boolean
+  channels: NotifyChannel[]
+  email_dry_run: boolean
+  sms_dry_run: boolean
   results: SendResult[]
+}
+
+export interface NotifyMedia {
+  type: string       // image | video
+  url: string        // pública (SMS/MMS)
+}
+
+export interface NotifyMediaResponse {
+  ok: boolean
+  error: string
+  media_type: string
+  media_url: string
+  url_simulated: boolean
+  filename: string
+  size: number
 }
 
 export async function notifyBlocks(): Promise<NotifyBlocksResponse> {
@@ -518,12 +547,28 @@ export async function notifySend(
   sheet: string,
   dateLabel: string,
   drivers: string[],
+  channels: NotifyChannel[],
+  media?: NotifyMedia | null,
 ): Promise<NotifySendResponse> {
   const res = await fetch('/api/notify/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sheet, date_label: dateLabel, drivers }),
+    body: JSON.stringify({
+      sheet, date_label: dateLabel, drivers, channels,
+      media_type: media?.type ?? '',
+      media_url: media?.url ?? '',
+    }),
   })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function uploadNotifyMedia(
+  file: File,
+): Promise<NotifyMediaResponse> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const res = await fetch('/api/notify/media', { method: 'POST', body: fd })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }

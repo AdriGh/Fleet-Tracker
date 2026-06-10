@@ -12,8 +12,8 @@ from .. import __version__, config, db
 from pydantic import BaseModel
 
 from ..core import (
-    app_config, batch, driver_contacts, engine, excel, notify_service,
-    open_defects, pm, pretrip, samsara,
+    app_config, batch, driver_contacts, engine, excel, media_host,
+    notify_service, open_defects, pm, pretrip, samsara,
 )
 from ..core.contacts import name_key
 from ..schemas import (
@@ -557,7 +557,30 @@ def notify_send(req: NotifySendRequest):
     """Envia (o simula) los avisos de los conductores seleccionados."""
     if not req.drivers:
         raise HTTPException(422, "No se seleccionó ningún conductor.")
+    media = None
+    if req.media_type and req.media_url:
+        media = {"type": req.media_type, "url": req.media_url}
     try:
-        return notify_service.send(req.sheet, req.date_label, req.drivers)
+        return notify_service.send(
+            req.sheet, req.date_label, req.drivers, req.channels, media)
     except KeyError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+@router.post("/notify/media")
+async def notify_media(file: UploadFile = File(...)):
+    """Sube una imagen/video a Cloudinary (URL pública para SMS/MMS) para
+    adjuntarlo al aviso. En dry_run devuelve una URL ficticia."""
+    content = await file.read()
+    mime = file.content_type or "application/octet-stream"
+    kind = "video" if mime.startswith("video/") else (
+        "image" if mime.startswith("image/") else "document")
+    host = media_host.upload(content, mime, file.filename or "media")
+    return {
+        "ok": host["ok"],
+        "media_type": kind,
+        "media_url": host.get("url", ""),
+        "url_simulated": host.get("simulated", True),
+        "error": host.get("error", ""),
+        "filename": file.filename, "size": len(content),
+    }

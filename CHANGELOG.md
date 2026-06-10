@@ -7,7 +7,30 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
-## [0.18.1] - 2026-06-08
+## [0.19.0] - 2026-06-10
+
+### Añadido
+- **Avisos multi-canal (Email + SMS)**: en la página de Avisos se eligen los
+  canales (chips multi-selección) y se envía por los dos a la vez.
+- **SMS/MMS por Twilio** (`core/sms_service.py`): texto, imagen como **MMS** y
+  video como **link** en el cuerpo. Teléfonos normalizados a E.164. Modo
+  `dry_run` hasta cargar `backend/twilio.local.json`. Requiere registro
+  **A2P 10DLC**.
+- **Hosting de media (Cloudinary)** (`core/media_host.py`): como Twilio MMS
+  necesita URL pública y la app es local, el adjunto (imagen/video) se sube a
+  Cloudinary y se usa su URL. Config en `backend/cloudinary.local.json`.
+- Endpoint `/notify/media` (sube el adjunto) y `/notify/send` con `channels` +
+  media. Guía **`backend/SMS_SETUP.md`** + `twilio.example.json` /
+  `cloudinary.example.json`.
+- Preview de SMS estilo burbuja, columna de teléfono por conductor, resultados
+  por canal y banner de estado por canal.
+- `.mcp.json` (config del MCP de 21st.dev "Magic" por variable de entorno).
+
+### Cambiado
+- **Plantillas de aviso reescritas** (texto oficial de Safety/Maintenance): el
+  **email** lleva el texto completo (saludo + unidades marcadas + cuerpo +
+  firma); el **SMS** una versión **compacta** que conserva los 10 pasos del
+  proceso (~9 segmentos en vez de ~24).
 
 ### Cambiado
 - **Fleet y Defects**: se quita el selector de empresa (Chaser/MCCI/All); el

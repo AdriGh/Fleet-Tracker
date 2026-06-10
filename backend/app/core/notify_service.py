@@ -4,10 +4,10 @@
 Expone funciones de alto nivel para los endpoints de la API.
 """
 
-from . import datasource, mailer
+from . import datasource, mailer, sms_service
 from .cc_routing import region_from_truck
 from .contacts import parse_contacts
-from .notify import build_notices, render_email
+from .notify import build_notices, render_email, render_sms
 from .sheet_report import parse_blocks
 
 
@@ -19,12 +19,15 @@ def _notice_dict(n, date_label: str) -> dict:
         "region": n.region,
         "email": n.email,
         "cc": n.cc,
+        "phone": n.phone,
+        "sms_phone": sms_service.to_e164(n.phone),       # E.164 con '+'
         "units": n.units,
         "reasons": n.reasons,
         "review_reason": n.review_reason,
         "subject": subject,
         "body": body,
         "body_html": body_html,
+        "sms_text": render_sms(n, date_label),           # cuerpo del SMS
     }
 
 
@@ -40,6 +43,7 @@ def list_blocks() -> dict:
             "date_labels": list(parsed.keys()),
         })
     settings = mailer.load_settings()
+    sms = sms_service.load_settings()
     return {
         "mode": data.mode,
         "spreadsheet": data.spreadsheet,
@@ -47,6 +51,8 @@ def list_blocks() -> dict:
         "gmail_configured": settings.configured,
         "dry_run": settings.dry_run or not settings.configured,
         "sender": settings.sender,
+        "sms_configured": sms.configured,
+        "sms_dry_run": sms.dry_run or not sms.configured,
         "blocks": blocks,
     }
 
@@ -72,26 +78,55 @@ def scan(sheet: str, date_label: str) -> dict:
     }
 
 
-def send(sheet: str, date_label: str, drivers: list[str]) -> dict:
-    """Envia (o simula) los avisos de los conductores indicados."""
+def send(sheet: str, date_label: str, drivers: list[str],
+         channels: list[str] | None = None, media: dict | None = None) -> dict:
+    """Envía (o simula) los avisos de los conductores indicados.
+
+    `channels`: lista de 'email' | 'sms'.
+    `media`: {'type': 'image'|'video', 'url': <pública para SMS/MMS>} (opcional).
+    """
     scanned = scan(sheet, date_label)
-    settings = mailer.load_settings()
+    email_settings = mailer.load_settings()
+    sms = sms_service.load_settings()
+    chans = set(channels or ["email"])
     wanted = set(drivers)
     results = []
     for n in scanned["notices"]:
         if n["driver"] not in wanted:
             continue
-        res = mailer.send_email(settings, n["email"], n["cc"],
-                                n["subject"], n["body"], n["body_html"])
-        results.append({
-            "driver": n["driver"],
-            "to": n["email"],
-            "cc": n["cc"],
-            "ok": res["ok"],
-            "error": res["error"],
-            "simulated": res["simulated"],
-        })
+        row: dict = {"driver": n["driver"]}
+
+        if "email" in chans:
+            if n["email"]:
+                r = mailer.send_email(email_settings, n["email"], n["cc"],
+                                      n["subject"], n["body"], n["body_html"])
+                row["email"] = {"to": n["email"], "cc": n["cc"], "ok": r["ok"],
+                                "error": r["error"], "simulated": r["simulated"]}
+            else:
+                row["email"] = {"to": "", "ok": False, "simulated": False,
+                                "error": "sin email"}
+
+        if "sms" in chans:
+            if n["sms_phone"]:
+                body = n["sms_text"]
+                media_urls: list[str] = []
+                if media and media.get("url"):
+                    if media.get("type") == "video":
+                        body += f"\nVideo: {media['url']}"   # video → link
+                    else:
+                        media_urls = [media["url"]]          # imagen → MMS
+                r = sms_service.send_sms(sms, n["sms_phone"], body, media_urls)
+                row["sms"] = {"to": n["sms_phone"], "ok": r["ok"],
+                              "error": r.get("error", ""),
+                              "simulated": r["simulated"]}
+            else:
+                row["sms"] = {"to": "", "ok": False, "simulated": False,
+                              "error": "sin teléfono válido"}
+
+        results.append(row)
     return {
-        "dry_run": settings.dry_run or not settings.configured,
+        "channels": sorted(chans),
+        "email_dry_run": email_settings.dry_run or not email_settings.configured,
+        "sms_dry_run": sms.dry_run or not sms.configured,
         "results": results,
     }
