@@ -7,6 +7,35 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [0.20.0] - 2026-06-10
+
+### Añadido
+- **Rediseño grande (Fase 1–3)** — base visual de alto contraste enfocada a
+  comercializar la app.
+- **Fundación de diseño**: tipografía **Space Grotesk** (display) + **Geist**
+  (cuerpo); tokens de color con rojo de marca `#e11900`/`#ff4438`, charcoales
+  en capas (no planos), overlay de grano (ruido SVG), sombras tintadas y escala
+  de z-index. **Logo nuevo**: badge squircle rojo con flecha de navegación.
+- **Login comercial** (`views/LoginPage.tsx`): hero con **fotos rotativas**
+  (4 imágenes de logística que rotan cada 6s con cross-fade + Ken-Burns y dots
+  clicables), copy de marketing sincronizado, strip de stats de confianza y
+  panel de acceso premium. Las fotos son intercambiables y caen con gracia al
+  gradiente de marca si una URL falla. Respeta `prefers-reduced-motion`.
+- **Dashboard home** (`views/Dashboard.tsx`): nueva landing por defecto con
+  5 KPIs en vivo (Fleet SAFE del mes, defectos abiertos, PM vencidos/próximos,
+  unidades activas, DVIR pendientes), tendencia mensual, donut SAFE, listas de
+  "Requiere atención" (PM) y "Top DVIR pendientes", actividad reciente y
+  accesos rápidos a cada sección. Reusa las query keys existentes.
+
+### Cambiado
+- **Sidebar reorganizado** en grupos con encabezados: **Overview** (Dashboard),
+  **Operations** (DVIR, Defects, Notices, Fleet, PM Tracker), **Coming soon**
+  (Reports & Analytics, Work Orders — deshabilitados) y **Admin** (Roster,
+  Settings) al fondo.
+- **Roster movido a Admin**: la info sensible sale de la zona de operación
+  frontal y baja a la sección Admin del sidebar (el enmascarado/reveal llega
+  en una fase posterior).
+
 ## [0.19.0] - 2026-06-10
 
 ### Añadido

@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import Logo from '../components/Logo'
 
 type Props = {
@@ -6,20 +6,81 @@ type Props = {
 }
 
 /**
- * Pantalla de login (UI). Adaptada de un componente de 21st.dev al sistema
- * de diseño de la app (CSS plano + variables de tema, sin Tailwind).
+ * Pantalla de acceso comercial. Hero con fotos rotativas (logística/flota),
+ * copy de marketing y un panel de acceso premium.
+ *
+ * Las fotos son de Unsplash y son intercambiables: si una URL falla, el slide
+ * cae con gracia al gradiente de marca (no se ve roto). Para cambiar el set,
+ * edita SLIDES abajo.
  *
  * NOTA: por ahora es una compuerta de front-end (no hay endpoint de auth en el
  * backend). Acepta cualquier credencial no vacía y marca la sesión en
  * localStorage. Para seguridad real hay que cablear un endpoint /auth.
  */
+
+type Slide = {
+  src: string
+  alt: string
+  eyebrow: string
+  headline: string
+  sub: string
+}
+
+const SLIDES: Slide[] = [
+  {
+    src: 'https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?auto=format&fit=crop&w=1600&q=80',
+    alt: 'Semirremolque circulando por una autopista al atardecer',
+    eyebrow: 'Cumplimiento en vivo',
+    headline: 'Tu flota, inspeccionada al minuto',
+    sub: 'Reportes DVIR diarios que se arman solos desde Samsara.',
+  },
+  {
+    src: 'https://images.unsplash.com/photo-1519003722824-194d4455a60c?auto=format&fit=crop&w=1600&q=80',
+    alt: 'Camiones estacionados en una terminal de carga',
+    eyebrow: 'Defectos al instante',
+    headline: 'Cada defecto abierto, en un solo tablero',
+    sub: 'Importa la lista completa y avisa a los conductores en segundos.',
+  },
+  {
+    src: 'https://images.unsplash.com/photo-1586191582151-f73872dfd183?auto=format&fit=crop&w=1600&q=80',
+    alt: 'Cabina de un camión moderno en ruta',
+    eyebrow: 'Mantenimiento preventivo',
+    headline: 'Adelántate al próximo PM',
+    sub: 'Seguimiento por millaje y alertas antes de que venza el servicio.',
+  },
+  {
+    src: 'https://images.unsplash.com/photo-1591768793355-74d04bb6608f?auto=format&fit=crop&w=1600&q=80',
+    alt: 'Flota de camiones de carga vista desde el frente',
+    eyebrow: 'Multi-terminal',
+    headline: 'Chaser, Memphis, Chicago y más',
+    sub: 'Una vista unificada de cada terminal y cada unidad.',
+  },
+]
+
+const STATS = [
+  { v: '340+', k: 'Unidades activas' },
+  { v: '5', k: 'Terminales' },
+  { v: 'Live', k: 'Sync con Samsara' },
+]
+
 export default function LoginPage({ onLogin }: Props) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [remember, setRemember] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [glow, setGlow] = useState({ x: 50, y: 30, on: false })
+  const [slide, setSlide] = useState(0)
+  const [broken, setBroken] = useState<Record<number, boolean>>({})
+
+  // Auto-avance del carrusel cada 6s (se pausa si el usuario reduce movimiento)
+  useEffect(() => {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (reduce) return
+    const id = window.setInterval(() => {
+      setSlide((s) => (s + 1) % SLIDES.length)
+    }, 6000)
+    return () => window.clearInterval(id)
+  }, [])
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -31,52 +92,89 @@ export default function LoginPage({ onLogin }: Props) {
     onLogin()
   }
 
+  const active = SLIDES[slide]
+
   return (
     <div className="login-screen">
       <div className="login-card">
-        {/* Panel de marca con glow que sigue el cursor */}
-        <aside
-          className="login-brandpanel"
-          onMouseMove={(e) => {
-            const r = e.currentTarget.getBoundingClientRect()
-            setGlow({
-              x: ((e.clientX - r.left) / r.width) * 100,
-              y: ((e.clientY - r.top) / r.height) * 100,
-              on: true,
-            })
-          }}
-          onMouseLeave={() => setGlow((g) => ({ ...g, on: false }))}
-        >
-          <div
-            className="login-glow"
-            style={{
-              opacity: glow.on ? 1 : 0,
-              background: `radial-gradient(260px circle at ${glow.x}% ${glow.y}%, rgba(226,35,26,0.45), transparent 70%)`,
-            }}
-          />
-          <div className="login-brand-top">
-            <span className="login-logo">
+        {/* ----- Hero de marca con fotos rotativas ----- */}
+        <aside className="login-hero">
+          <div className="login-hero-photos" aria-hidden="true">
+            {SLIDES.map((s, i) => (
+              <div
+                key={s.src}
+                className={`login-hero-photo ${i === slide ? 'is-active' : ''}`}
+              >
+                {!broken[i] && (
+                  <img
+                    src={s.src}
+                    alt=""
+                    loading={i === 0 ? 'eager' : 'lazy'}
+                    onError={() => setBroken((b) => ({ ...b, [i]: true }))}
+                  />
+                )}
+              </div>
+            ))}
+            <div className="login-hero-scrim" />
+            <div className="login-hero-grain" />
+          </div>
+
+          <div className="login-hero-top">
+            <span className="login-hero-logo">
               <Logo />
             </span>
-            <span className="login-brand-name">Fleet Tracker</span>
+            <span className="login-hero-brand">
+              <strong>Fleet Tracker</strong>
+              <small>Compliance suite</small>
+            </span>
           </div>
-          <div className="login-brand-copy">
-            <h2>
-              Cumplimiento de flota, automatizado
-              <span className="login-dot">.</span>
-            </h2>
-            <p>
-              Reportes DVIR diarios, defectos y avisos — todo en un solo lugar.
-            </p>
+
+          <div className="login-hero-copy" key={slide}>
+            <span className="login-hero-eyebrow">{active.eyebrow}</span>
+            <h2>{active.headline}</h2>
+            <p>{active.sub}</p>
           </div>
-          <div className="login-brand-foot">DVIR Report Generator</div>
+
+          <div className="login-hero-foot">
+            <div className="login-hero-stats">
+              {STATS.map((s) => (
+                <div className="login-hero-stat" key={s.k}>
+                  <strong>{s.v}</strong>
+                  <span>{s.k}</span>
+                </div>
+              ))}
+            </div>
+            <div className="login-hero-dots" role="tablist" aria-label="Cambiar imagen">
+              {SLIDES.map((s, i) => (
+                <button
+                  key={s.src}
+                  type="button"
+                  className={`login-hero-dot ${i === slide ? 'is-active' : ''}`}
+                  onClick={() => setSlide(i)}
+                  aria-label={`Imagen ${i + 1}: ${s.alt}`}
+                  aria-selected={i === slide}
+                  role="tab"
+                />
+              ))}
+            </div>
+          </div>
         </aside>
 
-        {/* Panel del formulario */}
-        <section className="login-formpanel">
-          <div className="login-form-inner">
-            <h1 className="login-title">Iniciar sesión</h1>
-            <p className="login-subtitle">Accede a tu panel de cumplimiento.</p>
+        {/* ----- Panel de acceso ----- */}
+        <section className="login-panel">
+          <div className="login-panel-inner">
+            <div className="login-panel-brand">
+              <span className="login-panel-logo">
+                <Logo />
+              </span>
+              <span>Fleet Tracker</span>
+            </div>
+
+            <span className="login-kicker">Acceso al panel</span>
+            <h1 className="login-title">Bienvenido de vuelta</h1>
+            <p className="login-subtitle">
+              Entra para gestionar DVIR, defectos y mantenimiento de tu flota.
+            </p>
 
             <form className="login-form" onSubmit={handleSubmit}>
               <label className="login-field">
@@ -146,7 +244,7 @@ export default function LoginPage({ onLogin }: Props) {
               {error && <div className="login-error">{error}</div>}
 
               <button type="submit" className="login-submit">
-                <span>Entrar</span>
+                <span>Entrar al panel</span>
                 <span className="login-shimmer" />
               </button>
             </form>

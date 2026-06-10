@@ -2,6 +2,7 @@ import { type ReactElement, useEffect, useState } from 'react'
 import { Toaster } from 'sonner'
 import { getHealth } from './api'
 import Logo from './components/Logo'
+import Dashboard from './views/Dashboard'
 import DvirPage from './views/DvirPage'
 import DefectsPage from './views/DefectsPage'
 import NotifyPage from './views/NotifyPage'
@@ -13,16 +14,61 @@ import LoginPage from './views/LoginPage'
 
 type Theme = 'light' | 'dark'
 
-const MENU = [
-  { id: 'dvir', label: 'DVIR', soon: false },
-  { id: 'defectos', label: 'Defects', soon: false },
-  { id: 'avisos', label: 'Notices', soon: false },
-  { id: 'roster', label: 'Roster', soon: false },
-  { id: 'flota', label: 'Fleet', soon: false },
-  { id: 'pm', label: 'PM', soon: false },
+type NavItem = { id: string; label: string; soon?: boolean }
+type NavSection = { title: string; items: NavItem[] }
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    title: 'Overview',
+    items: [{ id: 'dashboard', label: 'Dashboard' }],
+  },
+  {
+    title: 'Operations',
+    items: [
+      { id: 'dvir', label: 'DVIR' },
+      { id: 'defectos', label: 'Defects' },
+      { id: 'avisos', label: 'Notices' },
+      { id: 'flota', label: 'Fleet' },
+      { id: 'pm', label: 'PM Tracker' },
+    ],
+  },
+  {
+    title: 'Coming soon',
+    items: [
+      { id: 'reports', label: 'Reports & Analytics', soon: true },
+      { id: 'workorders', label: 'Work Orders', soon: true },
+    ],
+  },
+]
+
+// Sección de administración (info sensible, al fondo del sidebar).
+const ADMIN_ITEMS: NavItem[] = [
+  { id: 'roster', label: 'Roster' },
+  { id: 'settings', label: 'Settings' },
 ]
 
 const ICONS: Record<string, ReactElement> = {
+  dashboard: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="8" height="8" rx="1.5" />
+      <rect x="13" y="3" width="8" height="5" rx="1.5" />
+      <rect x="13" y="10" width="8" height="11" rx="1.5" />
+      <rect x="3" y="13" width="8" height="8" rx="1.5" />
+    </svg>
+  ),
+  reports: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+    </svg>
+  ),
+  workorders: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L4 16.8 7.2 20l5.3-5.3a4 4 0 0 0 5.2-5.4l-2.5 2.5-2.3-.5-.5-2.3z" />
+    </svg>
+  ),
   dvir: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
       strokeLinecap="round" strokeLinejoin="round">
@@ -85,7 +131,7 @@ function initialTheme(): Theme {
 export default function App() {
   const [version, setVersion] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>(initialTheme)
-  const [section, setSection] = useState('dvir')
+  const [section, setSection] = useState('dashboard')
   const [authed, setAuthed] = useState(
     () => localStorage.getItem('dvir-auth') === '1',
   )
@@ -130,29 +176,36 @@ export default function App() {
           </span>
         </div>
 
-        <nav className="nav">
-          {MENU.map((item) => (
+        {NAV_SECTIONS.map((group) => (
+          <nav className="nav" key={group.title}>
+            <span className="nav-group-label">{group.title}</span>
+            {group.items.map((item) => (
+              <button
+                key={item.id}
+                className={`nav-item ${section === item.id ? 'active' : ''}`}
+                disabled={item.soon}
+                onClick={() => !item.soon && setSection(item.id)}
+              >
+                <span className="nav-ico">{ICONS[item.id]}</span>
+                <span className="nav-text">{item.label}</span>
+                {item.soon && <span className="soon">soon</span>}
+              </button>
+            ))}
+          </nav>
+        ))}
+
+        <nav className="nav nav-bottom">
+          <span className="nav-group-label">Admin</span>
+          {ADMIN_ITEMS.map((item) => (
             <button
               key={item.id}
               className={`nav-item ${section === item.id ? 'active' : ''}`}
-              disabled={item.soon}
-              onClick={() => !item.soon && setSection(item.id)}
+              onClick={() => setSection(item.id)}
             >
               <span className="nav-ico">{ICONS[item.id]}</span>
-              <span className="nav-label">{item.label}</span>
-              {item.soon && <span className="soon">soon</span>}
+              <span className="nav-text">{item.label}</span>
             </button>
           ))}
-        </nav>
-
-        <nav className="nav nav-bottom">
-          <button
-            className={`nav-item ${section === 'settings' ? 'active' : ''}`}
-            onClick={() => setSection('settings')}
-          >
-            <span className="nav-ico">{ICONS.settings}</span>
-            <span className="nav-label">Settings</span>
-          </button>
         </nav>
 
         <div className="sidebar-foot">
@@ -201,6 +254,7 @@ export default function App() {
 
       <div className="main-area">
         <main className="container">
+          {section === 'dashboard' && <Dashboard onNavigate={setSection} />}
           {section === 'dvir' && <DvirPage />}
           {section === 'defectos' && <DefectsPage />}
           {section === 'avisos' && <NotifyPage />}
