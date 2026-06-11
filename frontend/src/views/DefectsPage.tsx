@@ -383,7 +383,7 @@ export default function DefectsPage() {
         <div>
           <h1>Defects</h1>
           <p className="page-sub">
-            Defects reported in DVIRs (live from Samsara) — incidents, trend
+            Defects reported in DVIRs (live from Samsara): incidents, trend
             and types over the selected range.
           </p>
         </div>

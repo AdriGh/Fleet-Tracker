@@ -1,7 +1,9 @@
 import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  ackAlertEvents,
   getTrends,
+  listAlertEvents,
   listFleet,
   listOpenDefects,
   listPM,
@@ -11,6 +13,7 @@ import {
   type FleetUnit,
   type PMUnit,
 } from '../api'
+import { notifyOk, notifyErr } from '../toast'
 import SafeDonut from '../components/SafeDonut'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
@@ -63,7 +66,24 @@ const SHORTCUTS = [
   },
 ]
 
+const RULE_TONE: Record<string, string> = {
+  speeding: 'is-danger',
+  idle: 'is-warn',
+  low_fuel: 'is-warn',
+  low_def: 'is-warn',
+  no_gps: 'is-danger',
+  reefer_temp: 'is-danger',
+}
+
+function alertAgo(iso: string): string {
+  const diff = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000))
+  if (diff < 3600) return `${Math.max(1, Math.floor(diff / 60))}m`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h`
+  return `${Math.floor(diff / 86400)}d`
+}
+
 export default function Dashboard({ onNavigate }: Props) {
+  const qc = useQueryClient()
   const summaryQ = useQuery({ queryKey: ['month-summary'], queryFn: monthSummary })
   const openQ = useQuery({ queryKey: ['open-defects'], queryFn: listOpenDefects })
   const pmQ = useQuery({ queryKey: ['pm'], queryFn: listPM })
@@ -74,6 +94,24 @@ export default function Dashboard({ onNavigate }: Props) {
     queryKey: ['recent-blocks', 'created_at'],
     queryFn: () => recentBlocks('created_at', 5),
   })
+  const alertsQ = useQuery({
+    queryKey: ['alert-events'],
+    queryFn: () => listAlertEvents(8),
+    refetchInterval: 60_000,
+  })
+
+  const alertEvents = alertsQ.data ?? []
+  const unacked = alertEvents.filter((e) => !e.acked).length
+
+  async function ackAll() {
+    try {
+      const n = await ackAlertEvents()
+      qc.invalidateQueries({ queryKey: ['alert-events'] })
+      notifyOk('Alertas atendidas', `${n} evento${n === 1 ? '' : 's'}`)
+    } catch (e) {
+      notifyErr('No se pudo marcar', e)
+    }
+  }
 
   const fetching =
     summaryQ.isFetching || openQ.isFetching || pmQ.isFetching ||
@@ -134,7 +172,7 @@ export default function Dashboard({ onNavigate }: Props) {
         <div>
           <h1>Dashboard</h1>
           <p className="page-sub">
-            Estado de cumplimiento de la flota en un vistazo — DVIR, defectos,
+            Estado de cumplimiento de la flota en un vistazo: DVIR, defectos,
             mantenimiento e inventario.
           </p>
         </div>
@@ -282,6 +320,54 @@ export default function Dashboard({ onNavigate }: Props) {
                   <li key={d.driver} className="dash-list-item">
                     <span className="dash-list-name">{d.driver}</span>
                     <span className="dash-tag is-warn">{d.misses} {d.misses === 1 ? 'falta' : 'faltas'}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+
+        {/* Alertas de flota (G3) */}
+        <section className="card dash-alerts">
+          <div className="card-head">
+            <h2>Fleet alerts</h2>
+            {unacked > 0 ? (
+              <button className="btn-link" onClick={ackAll}>
+                Ack all ({unacked})
+              </button>
+            ) : (
+              <button className="btn-link"
+                onClick={() => onNavigate('settings')}>
+                Rules →
+              </button>
+            )}
+          </div>
+          <div className="card-body">
+            {alertsQ.isPending ? (
+              <div className="skel-rows">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} h={30} />
+                ))}
+              </div>
+            ) : alertEvents.length === 0 ? (
+              <div className="empty mini">
+                <p>
+                  No alerts. Enable speeding, idle, fuel, DEF or GPS rules
+                  in Settings.
+                </p>
+              </div>
+            ) : (
+              <ul className="dash-list">
+                {alertEvents.map((e) => (
+                  <li key={e.id}
+                    className={`dash-list-item ${e.acked ? 'is-acked' : ''}`}>
+                    <span className={`dash-tag ${RULE_TONE[e.rule] ?? 'is-warn'}`}>
+                      {e.rule_label}
+                    </span>
+                    <span className="dash-list-name" title={e.message}>
+                      <strong>{e.unit}</strong> · {e.message}
+                    </span>
+                    <span className="dash-list-meta">{alertAgo(e.ts)}</span>
                   </li>
                 ))}
               </ul>

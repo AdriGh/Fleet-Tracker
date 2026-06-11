@@ -3,7 +3,7 @@
 import io
 import re
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -11,9 +11,13 @@ from fastapi.responses import FileResponse
 from .. import __version__, config, db
 from pydantic import BaseModel
 
+from fastapi import Header
+
 from ..core import (
-    app_config, batch, driver_contacts, engine, excel, media_host,
-    notify_service, open_defects, pm, pretrip, samsara,
+    alerts, app_config, auth, batch, driver_contacts, engine, excel,
+    integrations_admin, local_config, mailer, media_host, notify_service,
+    open_defects, org_config, pm, pois, pretrip, reefer, samsara,
+    sms_service, tms, tracking, unit_settings, workorders,
 )
 from ..core.contacts import name_key
 from ..schemas import (
@@ -320,6 +324,645 @@ def update_settings(body: SettingsIn):
                                    body.auto_archive_days)
 
 
+class TmsDriverIn(BaseModel):
+    name: str
+    company: str | None = None
+    driver_company: str | None = None
+    role: str | None = None
+    pay_type: str | None = None
+    pay_pct: float | None = None
+    truck: str | None = None
+    trailer: str | None = None
+    hired_date: str | None = None
+    emergency_name: str | None = None
+    emergency_phone: str | None = None
+    cdl_exp: str | None = None
+    med_exp: str | None = None
+    mvr_exp: str | None = None
+    chouse_exp: str | None = None
+    notes: str | None = None
+
+
+class LoadStopIn(BaseModel):
+    kind: str = "pickup"
+    name: str = ""
+    city: str = ""
+    state: str = ""
+    appt: str = ""
+
+
+class LoadIn(BaseModel):
+    broker: str
+    ref: str = ""
+    driver: str = ""
+    unit: str = ""
+    hauling_rate: float = 0
+    accessorials: float = 0
+    pay_pct: float = 0
+    miles: float | None = None
+    stops: list[LoadStopIn] = []
+
+
+class LoadPatch(BaseModel):
+    status: str | None = None
+    broker: str | None = None
+    ref: str | None = None
+    driver: str | None = None
+    unit: str | None = None
+    hauling_rate: float | None = None
+    accessorials: float | None = None
+    pay_pct: float | None = None
+    miles: float | None = None
+    tags: list[str] | None = None
+    docs: dict | None = None
+    notes: str | None = None
+
+
+@router.get("/tms/drivers")
+async def tms_drivers():
+    """Roster vivo + perfil TMS por conductor."""
+    return {"drivers": await tms.list_drivers()}
+
+
+@router.post("/tms/drivers")
+def tms_driver_save(body: TmsDriverIn):
+    fields = {k: v for k, v in body.model_dump().items()
+              if k != "name" and v is not None}
+    try:
+        return tms.save_driver(body.name, fields)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/tms/loads")
+def tms_loads(status: str = "", driver: str = ""):
+    return {"loads": tms.list_loads(status, driver),
+            "stats": tms.load_stats()}
+
+
+@router.post("/tms/loads")
+def tms_load_create(body: LoadIn):
+    try:
+        return tms.create_load(
+            body.broker, body.ref, body.driver, body.unit,
+            body.hauling_rate, body.accessorials, body.pay_pct,
+            body.miles, [s.model_dump() for s in body.stops])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/tms/loads/{load_id}")
+def tms_load_get(load_id: int):
+    ld = tms.get_load(load_id)
+    if ld is None:
+        raise HTTPException(status_code=404, detail="Load no encontrada")
+    return ld
+
+
+@router.patch("/tms/loads/{load_id}")
+def tms_load_patch(load_id: int, body: LoadPatch):
+    ld = tms.update_load(
+        load_id, {k: v for k, v in body.model_dump().items()
+                  if v is not None})
+    if ld is None:
+        raise HTTPException(status_code=404, detail="Load no encontrada")
+    return ld
+
+
+@router.post("/tms/loads/{load_id}/stops")
+def tms_load_add_stop(load_id: int, body: LoadStopIn):
+    ld = tms.add_stop(load_id, body.kind, body.name, body.city,
+                      body.state, body.appt)
+    if ld is None:
+        raise HTTPException(status_code=404, detail="Load no encontrada")
+    return ld
+
+
+@router.delete("/tms/loads/{load_id}/stops/{stop_id}")
+def tms_load_del_stop(load_id: int, stop_id: int):
+    ld = tms.delete_stop(load_id, stop_id)
+    if ld is None:
+        raise HTTPException(status_code=404, detail="Load no encontrada")
+    return ld
+
+
+class WorkOrderIn(BaseModel):
+    unit: str
+    title: str
+    complaint: str = ""
+    company: str = ""
+    mechanic: str = ""
+    priority: str = "normal"
+    is_pm: bool = False
+    source: str = "manual"
+
+
+class WorkOrderPatch(BaseModel):
+    status: str | None = None
+    priority: str | None = None
+    title: str | None = None
+    complaint: str | None = None
+    mechanic: str | None = None
+    notes: str | None = None
+    is_pm: bool | None = None
+    pm_miles: int | None = None
+
+
+class WoLineIn(BaseModel):
+    kind: str          # part | labor
+    description: str
+    qty: float = 1
+    unit_cost: float = 0
+
+
+@router.get("/workorders")
+def wo_list(status: str = "", unit: str = ""):
+    return {"workorders": workorders.list_wos(status, unit),
+            "stats": workorders.stats(),
+            "mechanics": workorders.mechanics()}
+
+
+@router.post("/workorders")
+def wo_create(body: WorkOrderIn):
+    try:
+        return workorders.create_wo(
+            body.unit, body.title, body.complaint, body.company,
+            body.mechanic, body.priority, body.is_pm, body.source)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/workorders/{wo_id}")
+def wo_get(wo_id: int):
+    wo = workorders.get_wo(wo_id)
+    if wo is None:
+        raise HTTPException(status_code=404, detail="WO no encontrado")
+    return wo
+
+
+@router.patch("/workorders/{wo_id}")
+def wo_patch(wo_id: int, body: WorkOrderPatch):
+    wo = workorders.update_wo(
+        wo_id, {k: v for k, v in body.model_dump().items()
+                if v is not None})
+    if wo is None:
+        raise HTTPException(status_code=404, detail="WO no encontrado")
+    return wo
+
+
+@router.post("/workorders/{wo_id}/lines")
+def wo_add_line(wo_id: int, body: WoLineIn):
+    try:
+        wo = workorders.add_line(wo_id, body.kind, body.description,
+                                 body.qty, body.unit_cost)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if wo is None:
+        raise HTTPException(status_code=404, detail="WO no encontrado")
+    return wo
+
+
+@router.delete("/workorders/{wo_id}/lines/{line_id}")
+def wo_del_line(wo_id: int, line_id: int):
+    wo = workorders.delete_line(wo_id, line_id)
+    if wo is None:
+        raise HTTPException(status_code=404, detail="WO no encontrado")
+    return wo
+
+
+@router.get("/reefer")
+async def reefer_live():
+    """Snapshot del cold chain (fase G4). Si Samsara no tiene trailers
+    con reefer todavía, sirve el set DEMO etiquetado (demo: true)."""
+    return await reefer.load_live()
+
+
+@router.get("/reefer/history")
+async def reefer_history(id: str, hours: int = 24):
+    """Serie de temperaturas de un reefer para el chart (24 h default)."""
+    return await reefer.history(id, max(1, min(hours, 72)))
+
+
+@router.get("/track")
+async def track_live():
+    """Snapshot del Live Map: unidades con GPS + duty status (fase G1).
+
+    Si el token aún no tiene los scopes nuevos, devuelve available=False
+    con missing_scopes para que la UI muestre el setup guiado.
+    """
+    return await tracking.load_live()
+
+
+class AlertsSettingsIn(BaseModel):
+    rules: dict = {}
+    channels: dict = {}
+    recipients: dict = {}
+
+
+class AckIn(BaseModel):
+    ids: list[int] | None = None
+
+
+class UnitSettingsIn(BaseModel):
+    unit: str
+    nickname: str = ""
+    group: str = ""
+    muted: bool = False
+    notes: str = ""
+
+
+@router.get("/alerts/settings")
+def alerts_settings():
+    return alerts.get_settings()
+
+
+@router.post("/alerts/settings")
+def alerts_settings_save(body: AlertsSettingsIn):
+    return alerts.save_settings(body.model_dump())
+
+
+@router.get("/alerts/events")
+def alerts_events(limit: int = 50, unacked: int = 0):
+    return {"events": alerts.list_events(limit=min(limit, 200),
+                                         unacked_only=bool(unacked))}
+
+
+@router.post("/alerts/ack")
+def alerts_ack(body: AckIn):
+    return {"acked": alerts.ack_events(body.ids)}
+
+
+@router.get("/units/settings")
+def units_settings(unit: str = ""):
+    """Perfil de una unidad (o todos si no se pasa `unit`)."""
+    if unit:
+        return unit_settings.get_unit(unit)
+    return unit_settings.all_settings()
+
+
+@router.post("/units/settings")
+def units_settings_save(body: UnitSettingsIn):
+    try:
+        return unit_settings.set_unit(body.unit, body.nickname,
+                                      body.group, body.muted, body.notes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+class PoiIn(BaseModel):
+    kind: str
+    name: str
+    lat: float
+    lng: float
+    address: str = ""
+    phone: str = ""
+    subtype: str = ""
+
+
+class PoiSearchIn(BaseModel):
+    query: str
+    lat: float | None = None
+    lng: float | None = None
+
+
+@router.get("/pois")
+def list_pois():
+    """POIs del mapa (talleres/dealers/básculas) + atribución ODbL."""
+    return {"attribution": pois.attribution(), "pois": pois.list_pois()}
+
+
+@router.post("/pois")
+def add_poi(body: PoiIn):
+    try:
+        return pois.add_poi(body.kind, body.name, body.lat, body.lng,
+                            body.address, body.phone, body.subtype)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/pois/{poi_id}")
+def delete_poi(poi_id: str):
+    if not pois.delete_poi(poi_id):
+        raise HTTPException(status_code=404, detail="POI no encontrado")
+    return {"ok": True}
+
+
+@router.post("/pois/google-search")
+async def poi_google_search(body: PoiSearchIn):
+    """Búsqueda Google Places para mostrar EN LISTA (nunca en el mapa —
+    los ToS de Google prohíben pintar Places sobre mapas no-Google)."""
+    q = body.query.strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="query vacío")
+    return await pois.google_search(q, body.lat, body.lng)
+
+
+# ----- Auth (fase G7) ----------------------------------------------------
+
+class AuthSetupIn(BaseModel):
+    name: str
+    username: str
+    password: str
+
+
+class AuthLoginIn(BaseModel):
+    username: str
+    password: str
+
+
+class UserIn(BaseModel):
+    name: str
+    username: str
+    password: str
+    role: str = "viewer"
+
+
+class UserPatch(BaseModel):
+    role: str | None = None
+    active: bool | None = None
+    password: str | None = None
+    name: str | None = None
+
+
+def _require_admin(authorization: str | None) -> dict:
+    user = auth.user_from_header(authorization)
+    if user is None:
+        raise HTTPException(status_code=401, detail="No autenticado")
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403,
+                            detail="Requiere rol de administrador")
+    return user
+
+
+@router.get("/auth/status")
+def auth_status(authorization: str | None = Header(default=None)):
+    """Estado de autenticación. Allowlisted: nunca devuelve 401."""
+    user = auth.user_from_header(authorization)
+    return {
+        "setup_needed": not auth.users_exist(),
+        "authenticated": user is not None,
+        "user": user,
+        "branding": org_config.branding(),
+    }
+
+
+@router.post("/auth/setup")
+def auth_setup(body: AuthSetupIn):
+    """Crea el PRIMER usuario (admin). Solo con la tabla vacía."""
+    try:
+        user = auth.setup_admin(body.name, body.username, body.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    result = auth.login(body.username, body.password)
+    return {"user": user, "token": result["token"] if result else ""}
+
+
+@router.post("/auth/login")
+def auth_login(body: AuthLoginIn):
+    result = auth.login(body.username, body.password)
+    if result is None:
+        raise HTTPException(status_code=401,
+                            detail="Usuario o contraseña incorrectos")
+    return result
+
+
+@router.get("/auth/users")
+def auth_users(authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    return {"users": auth.list_users()}
+
+
+@router.post("/auth/users")
+def auth_users_create(body: UserIn,
+                      authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    try:
+        return auth.create_user(body.name, body.username, body.password,
+                                body.role)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.patch("/auth/users/{user_id}")
+def auth_users_patch(user_id: int, body: UserPatch,
+                     authorization: str | None = Header(default=None)):
+    admin = _require_admin(authorization)
+    try:
+        user = auth.update_user(
+            user_id,
+            {k: v for k, v in body.model_dump().items() if v is not None},
+            acting_admin_id=admin["id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if user is None:
+        raise HTTPException(status_code=404, detail="Usuario no existe")
+    return user
+
+
+# ----- Configuración de empresa (fase G7) ---------------------------------
+
+@router.get("/org/branding")
+def org_branding():
+    """Branding para el login/wizard. Allowlisted (sin token)."""
+    return org_config.branding()
+
+
+@router.get("/org")
+def org_get():
+    return org_config.get()
+
+
+@router.post("/org")
+def org_save(body: dict,
+             authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    return org_config.save(body)
+
+
+class IntegrationTestIn(BaseModel):
+    provider: str
+
+
+class IntegrationConfigIn(BaseModel):
+    provider: str
+    values: dict
+
+
+@router.post("/integrations/test")
+async def integrations_test(body: IntegrationTestIn):
+    """Chequeo vivo de un proveedor (lecturas mínimas; nunca envía)."""
+    return await integrations_admin.test(body.provider)
+
+
+@router.get("/integrations/specs")
+def integrations_specs():
+    """Campos editables por proveedor, con secretos enmascarados."""
+    return integrations_admin.config_specs()
+
+
+@router.post("/integrations/config")
+def integrations_config(body: IntegrationConfigIn):
+    """Escribe credenciales al *.local.json del proveedor (merge)."""
+    try:
+        return integrations_admin.save_config(body.provider, body.values)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+# Qué proveedores soportan test/configure desde la UI.
+_TESTABLE = {"samsara", "motive", "twilio", "cloudinary", "gmail",
+             "gplaces", "gsheets", "fullbay"}
+_CONFIGURABLE = {"samsara", "motive", "twilio", "cloudinary",
+                 "gplaces", "gmail"}
+
+
+@router.get("/integrations")
+def integrations_status():
+    """Hub de Conectividad (Settings): estado de cada integración externa.
+
+    Solo estado y metadatos — NUNCA credenciales (los tokens viven en
+    backend/*.local.json hasta que llegue la edición en-app, fase G6/G7).
+    Estados: connected | live | dry_run | not_configured | available | planned.
+    """
+    orgs = samsara.org_summaries()
+    email = mailer.load_settings()
+    sms = sms_service.load_settings()
+    media = media_host.load_settings()
+    avisos = local_config.load()
+    sheets_ok = bool(avisos.get("spreadsheet_id")
+                     and avisos.get("service_account_file"))
+
+    def chan(settings) -> str:
+        if not settings.configured:
+            return "not_configured"
+        return "dry_run" if settings.dry_run else "live"
+
+    pm_detail = "Waiting for pm.local.csv (Fullbay fleet export)"
+    if pm.is_available():
+        mtime = datetime.fromtimestamp(pm.CSV_PATH.stat().st_mtime)
+        pm_detail = f"pm.local.csv · updated {mtime:%m/%d/%Y}"
+
+    out = {
+        "groups": [
+            {
+                "id": "eld",
+                "label": "ELD / Telematics",
+                "note": ("Read-only API tokens. Token editing moves in-app "
+                         "with the multi-ELD adapter."),
+                "providers": [
+                    {
+                        "id": "samsara", "name": "Samsara",
+                        "kind": "Telematics + ELD",
+                        "status": "connected" if orgs else "not_configured",
+                        "detail": (f"{len(orgs)} org{'s' if len(orgs) != 1 else ''} · "
+                                   + ", ".join(o["company"] for o in orgs)
+                                   if orgs else "No API tokens configured"),
+                        "items": [
+                            {"label": o["company"],
+                             "value": f"token …{o['token_tail']}"}
+                            for o in orgs
+                        ],
+                    },
+                    {
+                        "id": "motive", "name": "Motive",
+                        "kind": "Telematics + ELD",
+                        "status": "available",
+                        "detail": "Public self-serve REST API + OAuth. "
+                                  "Adapter planned.",
+                        "items": [],
+                    },
+                    {
+                        "id": "geotab", "name": "Geotab",
+                        "kind": "Telematics + ELD",
+                        "status": "planned",
+                        "detail": "JSON-RPC API with customer database "
+                                  "credentials.",
+                        "items": [],
+                    },
+                    {
+                        "id": "panda", "name": "Panda ELD",
+                        "kind": "ELD",
+                        "status": "planned",
+                        "detail": "No public API yet — partnership required.",
+                        "items": [],
+                    },
+                ],
+            },
+            {
+                "id": "messaging",
+                "label": "Messaging",
+                "note": "",
+                "providers": [
+                    {
+                        "id": "gmail", "name": "Email · Gmail SMTP",
+                        "kind": "Notices channel",
+                        "status": chan(email),
+                        "detail": email.sender or "No sender configured",
+                        "items": [],
+                    },
+                    {
+                        "id": "twilio", "name": "SMS · Twilio",
+                        "kind": "Notices channel",
+                        "status": chan(sms),
+                        "detail": (sms.from_number
+                                   or sms.messaging_service_sid
+                                   or "No credentials configured"),
+                        "items": [],
+                    },
+                    {
+                        "id": "cloudinary", "name": "Media · Cloudinary",
+                        "kind": "MMS attachments hosting",
+                        "status": chan(media),
+                        "detail": (media.cloud_name
+                                   or "No credentials configured"),
+                        "items": [],
+                    },
+                ],
+            },
+            {
+                "id": "data",
+                "label": "Data sources",
+                "note": "",
+                "providers": [
+                    {
+                        "id": "gsheets", "name": "Google Sheets",
+                        "kind": "DVIR Report workbook (live)",
+                        "status": "connected" if sheets_ok
+                                  else "not_configured",
+                        "detail": ("Service account · read-only"
+                                   if sheets_ok
+                                   else "avisos.local.json incomplete"),
+                        "items": [],
+                    },
+                    {
+                        "id": "fullbay", "name": "Fullbay",
+                        "kind": "PM history (CSV export)",
+                        "status": "connected" if pm.is_available()
+                                  else "not_configured",
+                        "detail": pm_detail,
+                        "items": [],
+                    },
+                    {
+                        "id": "gplaces", "name": "Google Places",
+                        "kind": "Map services search (list only)",
+                        "status": "connected" if pois.google_configured()
+                                  else "not_configured",
+                        "detail": ("Text Search API"
+                                   if pois.google_configured()
+                                   else "Configure a Places API key"),
+                        "items": [],
+                    },
+                ],
+            },
+        ],
+    }
+    for g in out["groups"]:
+        for p in g["providers"]:
+            p["testable"] = p["id"] in _TESTABLE
+            p["configurable"] = p["id"] in _CONFIGURABLE
+    return out
+
+
 @router.post("/fleet/archive")
 def fleet_archive(body: ArchiveIn):
     try:
@@ -417,13 +1060,16 @@ def set_driver_email(body: DriverEmailIn):
 @router.get("/pm")
 async def pm_tracker(refresh: bool = False):
     """Tracker de PM: último PM (del CSV de Fullbay) + odómetro actual de Samsara
-    → millas hasta el próximo PM (cada 20.000 millas)."""
+    → millas hasta el próximo PM. El intervalo y el umbral "Upcoming" son
+    configurables por empresa (org.local.json, fase G7)."""
+    interval = org_config.threshold("pm_interval_miles")
+    upcoming = org_config.threshold("pm_upcoming_miles")
     if refresh:
         samsara.clear_cache()
     records = pm.load()
     if not records:
-        return {"available": False, "interval": pm.INTERVAL_MILES,
-                "units": [], "excluded": []}
+        return {"available": False, "interval": interval,
+                "upcoming_miles": upcoming, "units": [], "excluded": []}
     ov = pm.load_overrides()
     odo: dict = {}
     if samsara.is_available():
@@ -448,7 +1094,7 @@ async def pm_tracker(refresh: bool = False):
             source = o["source"] if o else (
                 "report" if r.get("report_miles") else None)
         last = ou.get("last_pm_miles", r["last_pm_miles"])
-        next_due = last + pm.INTERVAL_MILES if last is not None else None
+        next_due = last + interval if last is not None else None
         remaining = (next_due - current
                      if next_due is not None and current is not None else None)
         out.append({
@@ -462,8 +1108,9 @@ async def pm_tracker(refresh: bool = False):
             "remaining": remaining,
         })
     out.sort(key=lambda x: x["remaining"] if x["remaining"] is not None else 1e12)
-    return {"available": True, "interval": pm.INTERVAL_MILES,
-            "units": out, "excluded": sorted(excluded, key=lambda e: e["unit"])}
+    return {"available": True, "interval": interval,
+            "upcoming_miles": upcoming, "units": out,
+            "excluded": sorted(excluded, key=lambda e: e["unit"])}
 
 
 class PMOverrideIn(BaseModel):

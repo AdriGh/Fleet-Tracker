@@ -40,15 +40,17 @@ function downloadCSV(m: Cell[][], name = 'pm-tracker.csv') {
 const nf = (n: number | null | undefined) =>
   n == null ? '—' : n.toLocaleString('en-US')
 
-// Umbral (millas restantes) para considerar un PM "próximo".
+// Umbral fallback (millas restantes) para considerar un PM "próximo".
+// El valor real viene del API (configurable por empresa, fase G7).
 const UPCOMING_MILES = 5500
 
 type Tone = 'danger' | 'warn' | 'ok' | 'muted'
-function pmStatus(u: PMUnit): { label: string; tone: Tone } {
+function pmStatus(u: PMUnit,
+                  upcoming: number): { label: string; tone: Tone } {
   if (u.last_pm_miles == null) return { label: 'Never Performed', tone: 'muted' }
   if (u.remaining == null) return { label: 'No Odometer', tone: 'muted' }
   if (u.remaining < 0) return { label: 'Overdue', tone: 'danger' }
-  if (u.remaining < UPCOMING_MILES) return { label: 'Upcoming', tone: 'warn' }
+  if (u.remaining < upcoming) return { label: 'Upcoming', tone: 'warn' }
   return { label: 'On Track', tone: 'ok' }
 }
 
@@ -65,6 +67,7 @@ export default function PMPage() {
   const units = data?.units ?? []
   const excludedUnits = data?.excluded ?? []
   const interval = data?.interval ?? 20000
+  const upcoming = data?.upcoming_miles ?? UPCOMING_MILES
 
   function startEdit(u: PMUnit) {
     setEditUnit(u.unit)
@@ -106,27 +109,27 @@ export default function PMPage() {
     overdue: units.filter((u) => u.remaining != null && u.remaining < 0).length,
     dueSoon: units.filter((u) =>
       u.remaining != null && u.remaining >= 0
-      && u.remaining < UPCOMING_MILES).length,
-  }), [units])
+      && u.remaining < upcoming).length,
+  }), [units, upcoming])
 
   const dist = useMemo(() => {
-    let onTrack = 0, overdue = 0, upcoming = 0, never = 0, unknown = 0
+    let onTrack = 0, overdue = 0, upcomingN = 0, never = 0, unknown = 0
     for (const u of units) {
       if (u.last_pm_miles == null) never++
       else if (u.remaining == null) unknown++
       else if (u.remaining < 0) overdue++
-      else if (u.remaining < UPCOMING_MILES) upcoming++
+      else if (u.remaining < upcoming) upcomingN++
       else onTrack++
     }
     const out = [
       { label: 'On Track', value: onTrack, color: '#22c55e' },
       { label: 'Overdue', value: overdue, color: '#dc2626' },
-      { label: 'Upcoming', value: upcoming, color: '#f59e0b' },
+      { label: 'Upcoming', value: upcomingN, color: '#f59e0b' },
       { label: 'Never Performed', value: never, color: '#94a3b8' },
     ]
     if (unknown) out.push({ label: 'No Odometer', value: unknown, color: '#cbd5e1' })
     return out
-  }, [units])
+  }, [units, upcoming])
 
   const terminals = useMemo(() => terminalsPresent(units), [units])
 
@@ -144,16 +147,16 @@ export default function PMPage() {
     const rows = filtered.map((u) => [
       u.unit, u.model, u.last_pm_date ?? '', u.last_pm_miles ?? '',
       u.current_miles ?? '', u.current_source ?? '', u.next_due_miles ?? '',
-      u.remaining ?? '', pmStatus(u).label,
+      u.remaining ?? '', pmStatus(u, upcoming).label,
     ])
     return [header, ...rows]
-  }, [filtered])
+  }, [filtered, upcoming])
 
   function bar(u: PMUnit) {
     if (u.last_pm_miles == null || u.current_miles == null) return null
     const used = u.current_miles - u.last_pm_miles
     const pct = Math.max(0, Math.min(used / interval, 1)) * 100
-    const tone = pmStatus(u).tone
+    const tone = pmStatus(u, upcoming).tone
     return (
       <div className="pm-bar" title={`${nf(used)} / ${nf(interval)} mi`}>
         <span className={`pm-bar-fill tone-${tone}`} style={{ width: `${pct}%` }} />
@@ -168,7 +171,7 @@ export default function PMPage() {
         <div>
           <h1>PM Tracker</h1>
           <p className="page-sub">
-            Preventive maintenance every {nf(interval)} miles — last PM from
+            Preventive maintenance every {nf(interval)} miles. Last PM from
             Fullbay, current odometer live from Samsara.
           </p>
         </div>
@@ -207,7 +210,9 @@ export default function PMPage() {
         <div className="kpi-row">
           <StatCard label="Trucks tracked" value={kpis.tracked} tone="accent" />
           <StatCard label="Overdue" value={kpis.overdue} tone="danger" />
-          <StatCard label="Upcoming (<5.5k mi)" value={kpis.dueSoon} tone="warn" />
+          <StatCard
+            label={`Upcoming (<${(upcoming / 1000).toLocaleString('en-US')}k mi)`}
+            value={kpis.dueSoon} tone="warn" />
         </div>
       )}
 
@@ -277,7 +282,7 @@ export default function PMPage() {
                 </thead>
                 <tbody>
                   {filtered.map((u) => {
-                    const st = pmStatus(u)
+                    const st = pmStatus(u, upcoming)
                     return (
                       <tr key={u.unit}>
                         <td>

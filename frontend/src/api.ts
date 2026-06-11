@@ -9,6 +9,30 @@ export interface ReportGroup {
   rows: ReportRow[]
 }
 
+// --- Token + fetch autenticado (fase G7) --------------------------------
+const TOKEN_KEY = 'ft-token'
+export const getToken = () => localStorage.getItem(TOKEN_KEY) ?? ''
+export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t)
+export const clearToken = () => localStorage.removeItem(TOKEN_KEY)
+
+// Shadow del fetch global SOLO en este módulo: toda llamada a la API
+// lleva Authorization, y un 401 limpia el token y avisa a App para
+// volver al login (evento 'ft-unauthorized').
+async function fetch(input: RequestInfo | URL,
+                     init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers)
+  const tok = getToken()
+  if (tok && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${tok}`)
+  }
+  const res = await window.fetch(input, { ...init, headers })
+  if (res.status === 401 && tok) {
+    clearToken()
+    window.dispatchEvent(new Event('ft-unauthorized'))
+  }
+  return res
+}
+
 async function readError(res: Response): Promise<string> {
   try {
     const data = await res.json()
@@ -292,6 +316,665 @@ export async function saveSettings(s: AppSettings): Promise<AppSettings> {
   return (await res.json()) as AppSettings
 }
 
+// --- Live Map (tracking en vivo, fase G1) -------------------------------
+export interface TrackVehicle {
+  id: string
+  unit: string
+  company: string
+  lat: number
+  lng: number
+  heading: number | null
+  speed_mph: number
+  location: string
+  gps_time: string
+  engine: string            // On | Off | Idle | ''
+  fuel_pct: number | null
+  def_pct: number | null
+  odometer_mi: number | null
+  driver: string
+  duty: string              // driving | onDuty | sleeperBed | offDuty | ...
+  moving_for_s: number | null
+}
+
+export interface TrackSummary {
+  drivers: number
+  vehicles: number
+  moving: number
+  unknown: number
+  driving: number
+  onDuty: number
+  sleeperBed: number
+  offDuty: number
+  yardMove: number
+  personalConveyance: number
+}
+
+export interface TrackResponse {
+  available: boolean
+  missing_scopes: string[]
+  error: string
+  hos_available: boolean
+  generated_at: string
+  vehicles: TrackVehicle[]
+  summary: TrackSummary
+}
+
+export async function getTrack(): Promise<TrackResponse> {
+  const res = await fetch('/api/track')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// --- POIs del mapa (talleres, dealers, básculas — fase G2) --------------
+export type PoiKind = 'repair' | 'dealer_truck' | 'dealer_trailer' | 'scale'
+
+export interface Poi {
+  id: string
+  kind: PoiKind
+  subtype: string        // 'enforcement' en básculas DOT
+  name: string
+  lat: number
+  lng: number
+  address: string
+  phone: string
+  brand: string
+  source: string
+}
+
+export async function listPois(): Promise<{ attribution: string; pois: Poi[] }> {
+  const res = await fetch('/api/pois')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// --- Auth (fase G7) -------------------------------------------------------
+export interface AuthUser {
+  id: number
+  username: string
+  name: string
+  role: string             // admin | dispatcher | mechanic | viewer
+}
+
+export interface OrgBranding {
+  app_name: string
+  tagline: string
+  accent: string           // '' = rojo de fábrica
+}
+
+export interface AuthStatus {
+  setup_needed: boolean
+  authenticated: boolean
+  user: AuthUser | null
+  branding: OrgBranding
+}
+
+export async function authStatus(): Promise<AuthStatus> {
+  const res = await fetch('/api/auth/status')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function authLogin(
+  username: string, password: string,
+): Promise<{ token: string; user: AuthUser }> {
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function authSetup(
+  name: string, username: string, password: string,
+): Promise<{ token: string; user: AuthUser }> {
+  const res = await fetch('/api/auth/setup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, username, password }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export interface AppUser extends AuthUser {
+  active: boolean
+  created_at: string
+}
+
+export async function listAppUsers(): Promise<AppUser[]> {
+  const res = await fetch('/api/auth/users')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()).users as AppUser[]
+}
+
+export async function createAppUser(body: {
+  name: string; username: string; password: string; role: string
+}): Promise<AppUser> {
+  const res = await fetch('/api/auth/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function patchAppUser(
+  id: number,
+  patch: { role?: string; active?: boolean; password?: string
+           name?: string },
+): Promise<AppUser> {
+  const res = await fetch(`/api/auth/users/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// --- Configuración de empresa (fase G7) -----------------------------------
+export interface OrgConfig {
+  branding: OrgBranding
+  thresholds: {
+    dvir_min_minutes: number
+    pm_interval_miles: number
+    pm_upcoming_miles: number
+    defect_lookback_days: number
+  }
+  cc: Record<string, string[]>
+  always_cc: string[]
+}
+
+export async function getOrg(): Promise<OrgConfig> {
+  const res = await fetch('/api/org')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function saveOrg(
+  partial: Partial<OrgConfig>,
+): Promise<OrgConfig> {
+  const res = await fetch('/api/org', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(partial),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// --- TMS: Drivers & Loads (fase G-TMS, referencia QuickManage) -----------
+export interface TmsDriverRow {
+  name: string
+  company: string
+  phone: string
+  email: string
+  license_number: string
+  license_state: string
+  has_profile: boolean
+  driver_company: string
+  role: string            // owner_operator | company_driver | lease_operator
+  pay_type: string        // percentage | flat | mileage | hourly
+  pay_pct: number
+  truck: string
+  trailer: string
+  hired_date: string
+  emergency_name: string
+  emergency_phone: string
+  cdl_exp: string
+  med_exp: string
+  mvr_exp: string
+  chouse_exp: string
+  notes: string
+}
+
+export async function listTmsDrivers(): Promise<TmsDriverRow[]> {
+  const res = await fetch('/api/tms/drivers')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()).drivers as TmsDriverRow[]
+}
+
+export async function saveTmsDriver(
+  body: Partial<TmsDriverRow> & { name: string },
+): Promise<Partial<TmsDriverRow>> {
+  const res = await fetch('/api/tms/drivers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export type LoadStatus =
+  | 'upcoming' | 'dispatched' | 'in_transit'
+  | 'delivered' | 'invoiced' | 'closed'
+
+export interface LoadStop {
+  id: number
+  seq: number
+  kind: 'pickup' | 'delivery'
+  name: string
+  city: string
+  state: string
+  appt: string
+}
+
+export interface Load {
+  id: number
+  created_at: string
+  updated_at: string
+  status: LoadStatus
+  broker: string
+  ref: string
+  driver: string
+  unit: string
+  hauling_rate: number
+  accessorials: number
+  pay_pct: number
+  miles: number | null
+  rate_per_mile: number | null
+  tags: string[]
+  docs: { rc: boolean; bol: boolean; pod: boolean }
+  notes: string
+  total: number
+  payout: number
+  n_stops: number
+  origin: LoadStop | null
+  destination: LoadStop | null
+  stops?: LoadStop[]
+}
+
+export interface LoadStats {
+  active: number
+  in_transit: number
+  delivered_30d: number
+  revenue_30d: number
+}
+
+export async function listLoads(
+  status = '', driver = '',
+): Promise<{ loads: Load[]; stats: LoadStats }> {
+  const qs = new URLSearchParams()
+  if (status) qs.set('status', status)
+  if (driver) qs.set('driver', driver)
+  const res = await fetch(`/api/tms/loads?${qs}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function createLoad(body: {
+  broker: string; ref?: string; driver?: string; unit?: string
+  hauling_rate?: number; accessorials?: number; pay_pct?: number
+  miles?: number | null
+  stops?: { kind: string; name: string; city: string; state: string
+            appt: string }[]
+}): Promise<Load> {
+  const res = await fetch('/api/tms/loads', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function getLoad(id: number): Promise<Load> {
+  const res = await fetch(`/api/tms/loads/${id}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function patchLoad(
+  id: number, patch: Record<string, unknown>,
+): Promise<Load> {
+  const res = await fetch(`/api/tms/loads/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// --- Work Orders (fase G5 — reemplazo de Fullbay) ------------------------
+export type WoStatus = 'open' | 'in_progress' | 'waiting_parts' | 'completed'
+export type WoPriority = 'low' | 'normal' | 'high'
+
+export interface WoLine {
+  id: number
+  kind: 'part' | 'labor'
+  description: string
+  qty: number
+  unit_cost: number
+  total: number
+}
+
+export interface WorkOrder {
+  id: number
+  created_at: string
+  updated_at: string
+  closed_at: string | null
+  unit: string
+  company: string
+  status: WoStatus
+  priority: WoPriority
+  title: string
+  complaint: string
+  mechanic: string
+  notes: string
+  is_pm: boolean
+  pm_miles: number | null
+  source: string
+  total: number
+  n_lines: number
+  lines?: WoLine[]
+}
+
+export interface WoStats {
+  open: number
+  in_progress: number
+  waiting_parts: number
+  completed_30d: number
+  cost_30d: number
+}
+
+export async function listWorkOrders(
+  status = '', unit = '',
+): Promise<{ workorders: WorkOrder[]; stats: WoStats; mechanics: string[] }> {
+  const qs = new URLSearchParams()
+  if (status) qs.set('status', status)
+  if (unit) qs.set('unit', unit)
+  const res = await fetch(`/api/workorders?${qs}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function createWorkOrder(body: {
+  unit: string; title: string; complaint?: string; company?: string
+  mechanic?: string; priority?: WoPriority; is_pm?: boolean; source?: string
+}): Promise<WorkOrder> {
+  const res = await fetch('/api/workorders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function getWorkOrder(id: number): Promise<WorkOrder> {
+  const res = await fetch(`/api/workorders/${id}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function patchWorkOrder(
+  id: number, patch: Partial<WorkOrder>,
+): Promise<WorkOrder> {
+  const res = await fetch(`/api/workorders/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function addWoLine(
+  id: number,
+  line: { kind: 'part' | 'labor'; description: string; qty: number
+          unit_cost: number },
+): Promise<WorkOrder> {
+  const res = await fetch(`/api/workorders/${id}/lines`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(line),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function deleteWoLine(
+  id: number, lineId: number,
+): Promise<WorkOrder> {
+  const res = await fetch(`/api/workorders/${id}/lines/${lineId}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// --- Cold chain / reefers (fase G4) --------------------------------------
+export interface ReeferAlarm {
+  code: number | string
+  description: string
+  severity: number          // 1 ok-to-run · 2 check · 3 immediate
+  operator_action: string
+}
+
+export interface ReeferUnit {
+  id: string
+  unit: string
+  company: string
+  setpoint_f: number | null
+  return_f: number | null
+  supply_f: number | null
+  ambient_f: number | null
+  run_mode: string
+  state: string
+  fuel_pct: number | null
+  door: string
+  alarms: ReeferAlarm[]
+  updated: string
+  demo: boolean
+}
+
+export interface ReeferResponse {
+  available: boolean
+  demo: boolean
+  live_empty: boolean
+  missing_scopes: string[]
+  units: ReeferUnit[]
+}
+
+export interface ReeferPoint {
+  time: string
+  setpoint_f: number | null
+  return_f: number | null
+  supply_f: number | null
+}
+
+export async function getReefer(): Promise<ReeferResponse> {
+  const res = await fetch('/api/reefer')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function getReeferHistory(
+  id: string, hours = 24,
+): Promise<{ demo: boolean; points: ReeferPoint[] }> {
+  const res = await fetch(
+    `/api/reefer/history?id=${encodeURIComponent(id)}&hours=${hours}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// --- Alertas de flota (fase G3) -----------------------------------------
+export interface AlertRule {
+  enabled: boolean
+  mph?: number
+  minutes?: number
+  pct?: number
+  hours?: number
+  deviation_f?: number
+}
+
+export interface AlertsSettings {
+  rules: {
+    speeding: AlertRule
+    idle: AlertRule
+    low_fuel: AlertRule
+    low_def: AlertRule
+    no_gps: AlertRule
+    reefer_temp: AlertRule
+  }
+  channels: { email: boolean; sms: boolean }
+  recipients: { emails: string[]; phones: string[] }
+}
+
+export interface AlertEvent {
+  id: number
+  ts: string
+  unit: string
+  company: string
+  rule: string
+  rule_label: string
+  value: string
+  message: string
+  acked: boolean
+}
+
+export async function getAlertsSettings(): Promise<AlertsSettings> {
+  const res = await fetch('/api/alerts/settings')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function saveAlertsSettings(
+  s: Partial<AlertsSettings>,
+): Promise<AlertsSettings> {
+  const res = await fetch('/api/alerts/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(s),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function listAlertEvents(
+  limit = 50, unackedOnly = false,
+): Promise<AlertEvent[]> {
+  const res = await fetch(
+    `/api/alerts/events?limit=${limit}&unacked=${unackedOnly ? 1 : 0}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()).events as AlertEvent[]
+}
+
+export async function ackAlertEvents(ids?: number[]): Promise<number> {
+  const res = await fetch('/api/alerts/ack', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: ids ?? null }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()).acked
+}
+
+// --- Device settings por unidad (fase G3) -------------------------------
+export interface UnitSettings {
+  nickname: string
+  group: string
+  muted: boolean
+  notes: string
+}
+
+export async function getUnitSettings(unit: string): Promise<UnitSettings> {
+  const res = await fetch(`/api/units/settings?unit=${encodeURIComponent(unit)}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function saveUnitSettings(
+  unit: string, s: UnitSettings,
+): Promise<UnitSettings> {
+  const res = await fetch('/api/units/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ unit, ...s }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// --- Conectividad (hub de integraciones en Settings) -------------------
+export type IntegrationStatus =
+  | 'connected' | 'live' | 'dry_run' | 'not_configured'
+  | 'available' | 'planned'
+
+export interface IntegrationProvider {
+  id: string
+  name: string
+  kind: string
+  status: IntegrationStatus
+  detail: string
+  items: { label: string; value: string }[]
+  testable: boolean
+  configurable: boolean
+}
+
+export interface IntegrationField {
+  key: string
+  label: string
+  kind: 'text' | 'password' | 'toggle'
+  tail?: string
+  value?: boolean
+}
+
+export interface IntegrationSpec {
+  title: string
+  help: string
+  danger?: boolean
+  fields?: IntegrationField[]
+  orgs?: { company: string; token_tail: string; trailer_dvirs: boolean }[]
+}
+
+export async function getIntegrationSpecs(): Promise<Record<string, IntegrationSpec>> {
+  const res = await fetch('/api/integrations/specs')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function testIntegration(
+  provider: string,
+): Promise<{ ok: boolean; detail: string }> {
+  const res = await fetch('/api/integrations/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function saveIntegrationConfig(
+  provider: string, values: Record<string, unknown>,
+): Promise<void> {
+  const res = await fetch('/api/integrations/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider, values }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+export interface IntegrationGroup {
+  id: string
+  label: string
+  note: string
+  providers: IntegrationProvider[]
+}
+
+export async function getIntegrations(): Promise<{ groups: IntegrationGroup[] }> {
+  const res = await fetch('/api/integrations')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
 // --- Roster (conductores activos de Samsara) --------------------------
 export interface RosterDriver {
   id: string
@@ -349,6 +1032,7 @@ export interface PMUnit {
 export interface PMResult {
   available: boolean
   interval: number
+  upcoming_miles: number
   units: PMUnit[]
   excluded: { unit: string; model: string }[]
 }

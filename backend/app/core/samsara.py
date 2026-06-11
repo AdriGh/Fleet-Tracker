@@ -32,6 +32,15 @@ CONF_PATH = Path(__file__).resolve().parents[2] / "samsara.local.json"
 # cuyos defectos son de 2025). Un defecto realmente abierto se re-reporta en
 # cada DVIR, así que se mantiene reciente y dentro de esta ventana.
 _LOOKBACK_DAYS = 270
+
+
+def _lookback_days() -> int:
+    """Ventana de defectos, configurable por empresa (G7) con fallback
+    a los 270 días que filtran los assets fantasma renombrados."""
+    from . import org_config
+    return org_config.threshold("defect_lookback_days")
+
+
 _TIMEOUT = 60
 _PLACEHOLDER = "PEGA_AQUI"    # token de ejemplo sin configurar
 
@@ -93,6 +102,23 @@ def _read_config() -> dict | None:
         return json.loads(CONF_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+def org_summaries() -> list[dict]:
+    """Resumen de los orgs configurados SIN exponer tokens.
+
+    Para el hub de Conectividad de Settings: empresa, host y la cola del
+    token (4 chars) como identificador visual.
+    """
+    out: list[dict] = []
+    for o in _orgs():
+        out.append({
+            "company": o["company"] or "(auto)",
+            "base_url": o["base_url"],
+            "token_tail": o["api_token"][-4:],
+            "trailer_dvirs": o["trailer_dvirs"],
+        })
+    return out
 
 
 def _orgs() -> list[dict]:
@@ -345,7 +371,7 @@ async def load() -> list[dict]:
     if not orgs:
         return []
     now = datetime.datetime.now(datetime.timezone.utc)
-    start = (now - datetime.timedelta(days=_LOOKBACK_DAYS)).strftime(
+    start = (now - datetime.timedelta(days=_lookback_days())).strftime(
         "%Y-%m-%dT%H:%M:%SZ")
     end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -514,7 +540,7 @@ async def list_fleet(auto_days: int | None = None) -> list[dict]:
     if not orgs:
         return []
     now = datetime.datetime.now(datetime.timezone.utc)
-    start = (now - datetime.timedelta(days=_LOOKBACK_DAYS)).strftime(
+    start = (now - datetime.timedelta(days=_lookback_days())).strftime(
         "%Y-%m-%dT%H:%M:%SZ")
     end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 

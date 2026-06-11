@@ -11,7 +11,7 @@ from openpyxl.utils import get_column_letter
 
 from .duration import parse_duration
 from .engine import (
-    COLUMNS, MIN_DURATION_SECONDS, NO_DVIR_TEXT, NO_PRETRIP_TEXT)
+    COLUMNS, NO_DVIR_TEXT, NO_PRETRIP_TEXT, min_duration_seconds)
 
 # Colores en ARGB de 8 digitos (alfa FF = opaco), exactos del DVIR Report.
 HEADER_FILL = "FF1F4E79"
@@ -25,7 +25,7 @@ STATUS_STYLES = {
 DASH_FILL, DASH_FONT = "FFD6E8F7", "FF1A1A1A"  # celda sin info
 DUR_LOW = ("FFFFC7CE", "FF9C0006")             # duracion < 15 min / mal
 DUR_HIGH = ("FFC6EFCE", "FF276221")            # duracion >= 15 min / ok
-DUR_THRESHOLD = MIN_DURATION_SECONDS           # segundos (15 min)
+# DUR_THRESHOLD ahora es dinámico: ver min_duration_seconds() (fase G7).
 DUR_COLS = ("Pre-trip",)
 # Columnas que llevan el mismo formato que las celdas vacias (relleno azul).
 BLUE_COLS = ("Trl#", "Distance (mi)")
@@ -97,7 +97,8 @@ def _write_block(ws, start_row, date_label, groups):
                         fill, font_color = STATUS_STYLES["NO DVIR"]
                     else:
                         fill, font_color = (
-                            DUR_LOW if parse_duration(value) < DUR_THRESHOLD
+                            DUR_LOW
+                            if parse_duration(value) < min_duration_seconds()
                             else DUR_HIGH)
                     cell.fill = PatternFill("solid", fgColor=fill)
                     cell.font = Font(name="Calibri", size=15, bold=True,

@@ -43,6 +43,16 @@ MIN_MILES = 30.0
 # se marca en rojo en el Excel y dispara aviso por correo. Protocolo: 15 min.
 MIN_DURATION_SECONDS = 900
 
+
+def min_duration_seconds() -> int:
+    """Umbral del pre-trip corto, configurable por empresa (fase G7).
+
+    Lee org.local.json con fallback al protocolo de 15 min. Llamar en
+    tiempo de uso (los defaults de parámetro se congelan al importar).
+    """
+    from . import org_config
+    return org_config.threshold("dvir_min_minutes") * 60
+
 DVIR_REQUIRED = {"Vehicle Name", "Trailer", "Author", "Signed At", "Status"}
 
 
