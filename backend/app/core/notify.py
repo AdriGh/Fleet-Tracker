@@ -43,9 +43,16 @@ def _summarize_units(reasons: list[dict]) -> list[str]:
 
 
 def build_notices(groups: list[Group], book: ContactBook,
-                  threshold: int = MIN_DURATION_SECONDS
+                  threshold: int | None = None
                   ) -> tuple[list[Notice], list[Notice]]:
-    """Devuelve (notices, review) para un bloque diario."""
+    """Devuelve (notices, review) para un bloque diario.
+
+    `threshold=None` usa el umbral configurable de la empresa (fase G7),
+    resuelto en tiempo de uso (no en el default del parámetro).
+    """
+    from .engine import min_duration_seconds
+    if threshold is None:
+        threshold = min_duration_seconds()
     notices: list[Notice] = []
     review: list[Notice] = []
 

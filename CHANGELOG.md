@@ -7,6 +7,91 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.0.0] - 2026-06-11
+
+El release mayor: el **Rework G completo (8 fases)**. Fleet Tracker pasa de
+herramienta interna a plataforma de operaciones de flota white-label:
+tracking en vivo, alertas, cold chain, work orders, TMS de despacho,
+multi-ELD y productización con auth real.
+
+### Añadido
+- **Live Map (G1)**: mapa en tiempo real (MapLibre + OpenFreeMap, sin API
+  key) con la flota completa de Samsara — velocidad, rumbo, ubicación
+  geocodificada, engine state, fuel % y DEF % por unidad; panel lateral
+  estilo Panda ELD con **botón de copiar coordenadas** y abrir en Google
+  Maps; barra de duty status DR/ON/SB/OFF desde HoS clocks; clustering,
+  búsqueda, filtro "Moving", refresco cada 20 s. Backend
+  `core/tracking.py` (stats feed + hos/clocks por org en paralelo).
+- **Servicios en el mapa (G2)**: dataset propio de **4,281 POIs**
+  (talleres de camión, dealers de trucks y trailers/reefers, básculas —
+  OSM con atribución ODbL + Illinois DOT) sembrado en SQLite desde
+  `backend/data/pois_seed.json`; capas con chips de filtro y sub-filtro
+  "DOT only"; popups con teléfono/coordenadas; **Nearby services** (los 5
+  más cercanos a la unidad seleccionada con distancia en millas); CRUD de
+  POIs; proxy de búsqueda Google Places **solo-lista** (sus ToS prohíben
+  pintar resultados en mapas no-Google).
+- **Alertas de flota (G3)** (`core/alerts.py`): 6 reglas configurables
+  (velocidad, idle, fuel bajo, DEF bajo, sin GPS, desviación de reefer)
+  evaluadas cada 60 s en background con cooldown de 60 min por
+  unidad+regla; feed en Dashboard con Ack, toasts in-app; email/SMS
+  **opt-in y apagados por defecto**; device settings por unidad
+  (apodo, grupo, mute, notas) en el drawer de Fleet.
+- **Cold Chain (G4)** (`core/reefer.py`): monitoreo de reefers vía
+  trailer stats de Samsara (setpoint/return/supply/ambient en °F,
+  alarmas con severidad, run mode, fuel, puertas), chart SVG de 24 h por
+  unidad, export CSV y **modo demo etiquetado** mientras no haya
+  hardware de reefer reportando; regla de alerta por desviación que
+  solo evalúa datos reales.
+- **Work Orders (G5)**: pipeline de taller (Open → In Progress → Waiting
+  Parts → Completed) con partes y labor (qty × costo, totales en vivo),
+  mecánicos, prioridades, KPIs de costo 30d; **botón "→ WO" en cada
+  defecto abierto** del drawer de unidad; **cerrar un WO de PM con
+  odómetro actualiza el PM tracker** (adiós dependencia del CSV de
+  Fullbay para registrar servicios).
+- **Dispatch TMS (G-TMS)**: secciones **Drivers** (perfil estilo
+  QuickManage: tarjetas de vencimientos CDL/Med/MVR/Clearinghouse con
+  semáforo, contrato con % de pago, equipo asignado, contacto de
+  emergencia, pestaña Trips) y **Loads** (entrada de cargas con stops
+  dinámicos y citas, **payout del driver calculado en vivo según su
+  contrato**, pipeline de 6 estados, tags, checklist de documentos
+  RC/BOL/POD, desglose invoice vs payout).
+- **Multi-ELD (G6)**: capa `core/providers/` con la interfaz
+  `TelematicsProvider` (Samsara la implementa; **Motive** cableado con
+  ping real y mapa de endpoints); **Test de conexión** por integración
+  (lecturas mínimas seguras, login SMTP sin enviar) y **Configure desde
+  la UI** (escribe los `*.local.json` mergeando; los secretos jamás se
+  devuelven — solo colas enmascaradas).
+- **Productización (G7)**: **autenticación real** (pbkdf2-sha256,
+  tokens HMAC de 30 días, middleware que exige token en toda la API,
+  roles admin/dispatcher/mechanic/viewer con anti-lockout), **wizard de
+  primer arranque** (crea el admin, nombra la empresa, elige el acento),
+  **white-label en vivo** (nombre/tagline/acento aplicados a toda la app
+  vía color-mix), **Settings → Company** (umbrales de negocio y CC
+  routing por terminal configurables — los hardcodeos de Chaser/MCCI
+  quedan como defaults de fábrica) y **Settings → Users** (gestión de
+  cuentas y roles). `PRODUCT.md` con la estrategia de diseño.
+- Sidebar **colapsable a riel de iconos** y reorganizado (Overview /
+  Operations / Dispatch / Admin); hub **Connectivity** en Settings.
+- Dataset y branding listos para otras empresas: defaults de fábrica +
+  `org.local.json` por tenant.
+
+### Cambiado
+- **Avisos rediseñado**: flujo en 3 pasos, pills de estado por canal
+  (con LIVE en rojo), tabla de destinatarios con avatares, dock de
+  envío, resultados como timeline y preview tipo cliente de correo con
+  tabs Email/SMS y marco de teléfono.
+- **Login real**: usuario+contraseña contra `/api/auth/login` con
+  errores del servidor; branding de la empresa en el hero.
+- PM: el intervalo y el umbral "Upcoming" salen de la configuración de
+  empresa; pase de taste-skill (sin emojis en UI nueva, copy revisado).
+
+### Seguridad
+- Toda la API exige `Authorization: Bearer` (allowlist mínima: salud,
+  login/setup/estado y branding). El primer arranque queda abierto SOLO
+  hasta crear la cuenta admin.
+- Credenciales siempre en `*.local.json` gitignored; la edición en-app
+  nunca expone secretos. Canales de envío reales opt-in.
+
 ## [0.20.0] - 2026-06-10
 
 ### Añadido

@@ -126,7 +126,7 @@ export default function DvirPage() {
         <div>
           <h1>DVIR Dashboard</h1>
           <p className="page-sub">
-            Daily fleet inspections — reports, compliance and pending
+            Daily fleet inspections: reports, compliance and pending
             drivers.
           </p>
         </div>

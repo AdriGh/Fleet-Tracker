@@ -126,7 +126,7 @@ export default function FleetPage() {
         <div>
           <h1>Fleet</h1>
           <p className="page-sub">
-            Every unit across Chaser and MCC (live from Samsara) — type,
+            Every unit across Chaser and MCC (live from Samsara): type,
             details and open defects.
           </p>
         </div>

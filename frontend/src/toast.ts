@@ -14,6 +14,10 @@ export const notifyErr = (message: string, err?: unknown) =>
     description: err instanceof Error ? err.message : undefined,
   })
 
+/** Advertencia (ámbar): alertas de flota y avisos no fatales. */
+export const notifyWarn = (message: string, description?: string) =>
+  toast.warning(message, { description })
+
 /** Promesa: muestra "cargando" y resuelve a éxito/error automáticamente. */
 export const notifyPromise = <T>(
   promise: Promise<T>,

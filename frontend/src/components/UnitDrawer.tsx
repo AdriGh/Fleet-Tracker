@@ -1,10 +1,14 @@
 // Drawer lateral (Vaul) con el detalle de una unidad: ficha del asset,
-// defectos abiertos y, si es camión, su estado de PM. Los datos se reusan
-// de las queries en caché (open-defects, pm).
-import { useState } from 'react'
+// defectos abiertos, device settings (apodo/grupo/mute de alertas/notas)
+// y, si es camión, su estado de PM. Los datos se reusan de las queries
+// en caché (open-defects, pm).
+import { useEffect, useState } from 'react'
 import { Drawer } from 'vaul'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { fleetArchive, listOpenDefects, listPM, type FleetUnit } from '../api'
+import {
+  createWorkOrder, fleetArchive, getUnitSettings, listOpenDefects,
+  listPM, saveUnitSettings, type FleetUnit, type UnitSettings,
+} from '../api'
 import { notifyOk, notifyErr } from '../toast'
 
 const norm = (s: string) => s.trim().toUpperCase().replace(/\s+/g, '')
@@ -29,6 +33,62 @@ export default function UnitDrawer(
   const isTruck = unit?.kind === 'truck'
   const qc = useQueryClient()
   const [archiving, setArchiving] = useState(false)
+
+  // Device settings (G3): apodo, grupo, mute de alertas, notas.
+  const settingsQ = useQuery({
+    queryKey: ['unit-settings', unit?.unit],
+    queryFn: () => getUnitSettings(unit!.unit),
+    enabled: open,
+  })
+  const [form, setForm] = useState<UnitSettings | null>(null)
+  const [savingForm, setSavingForm] = useState(false)
+  useEffect(() => {
+    setForm(settingsQ.data ?? null)
+  }, [settingsQ.data])
+
+  const formDirty = !!form && !!settingsQ.data && (
+    form.nickname !== settingsQ.data.nickname ||
+    form.group !== settingsQ.data.group ||
+    form.muted !== settingsQ.data.muted ||
+    form.notes !== settingsQ.data.notes)
+
+  async function saveForm() {
+    if (!unit || !form) return
+    setSavingForm(true)
+    try {
+      const saved = await saveUnitSettings(unit.unit, form)
+      qc.setQueryData(['unit-settings', unit.unit], saved)
+      qc.invalidateQueries({ queryKey: ['unit-settings-all'] })
+      notifyOk('Perfil guardado', unit.unit)
+    } catch (e) {
+      notifyErr('No se pudo guardar el perfil', e)
+    } finally {
+      setSavingForm(false)
+    }
+  }
+
+  // Defecto -> Work Order (pipeline G5).
+  const [creatingWo, setCreatingWo] = useState<number | null>(null)
+  async function defectToWo(idx: number, detail: string, dvirType: string) {
+    if (!unit) return
+    setCreatingWo(idx)
+    try {
+      const title = (detail || `${dvirType} defect`).slice(0, 90)
+      const wo = await createWorkOrder({
+        unit: unit.unit,
+        title,
+        complaint: `From open defect (${dvirType || 'DVIR'}): ${detail}`,
+        company: unit.company,
+        source: 'defect',
+      })
+      qc.invalidateQueries({ queryKey: ['workorders'] })
+      notifyOk('Work order creada', `#${wo.id} · ${unit.unit} — ábrela en Work Orders`)
+    } catch (e) {
+      notifyErr('No se pudo crear la WO', e)
+    } finally {
+      setCreatingWo(null)
+    }
+  }
 
   async function archive() {
     if (!unit) return
@@ -137,12 +197,70 @@ export default function UnitDrawer(
                             {d.dvir_type && (
                               <span className="ud-type">{d.dvir_type}</span>
                             )}
+                            <button className="btn btn-ghost btn-xs ud-towo"
+                              title="Crear work order desde este defecto"
+                              disabled={creatingWo === i}
+                              onClick={() =>
+                                defectToWo(i, d.detail, d.dvir_type)}>
+                              {creatingWo === i ? 'Creando…' : '→ WO'}
+                            </button>
                           </div>
                           <p className="ud-def-text">{d.detail || '—'}</p>
                           {d.driver && <span className="ud-def-by">{d.driver}</span>}
                         </li>
                       ))}
                     </ul>
+                  )}
+                </section>
+
+                {/* Device settings (G3) */}
+                <section className="ud-sec">
+                  <h3>Device settings</h3>
+                  {settingsQ.isPending || !form ? (
+                    <p className="ud-muted">Cargando…</p>
+                  ) : (
+                    <div className="ud-form">
+                      <label className="ud-field">
+                        <span>Nickname</span>
+                        <input className="cell-input" value={form.nickname}
+                          placeholder="e.g. La Bestia"
+                          onChange={(e) => setForm(
+                            { ...form, nickname: e.target.value })} />
+                      </label>
+                      <label className="ud-field">
+                        <span>Group</span>
+                        <input className="cell-input" value={form.group}
+                          placeholder="e.g. Reefer team"
+                          onChange={(e) => setForm(
+                            { ...form, group: e.target.value })} />
+                      </label>
+                      <label className="settings-toggle ud-toggle">
+                        <input type="checkbox" checked={form.muted}
+                          onChange={(e) => setForm(
+                            { ...form, muted: e.target.checked })} />
+                        <span>
+                          <strong>Mute alerts</strong>
+                          <span className="settings-sub">
+                            This unit will not fire speeding, idle, fuel,
+                            DEF or GPS alerts.
+                          </span>
+                        </span>
+                      </label>
+                      <label className="ud-field">
+                        <span>Notes</span>
+                        <textarea className="cell-input ud-notes"
+                          value={form.notes} rows={2}
+                          placeholder="Operational notes for this unit…"
+                          onChange={(e) => setForm(
+                            { ...form, notes: e.target.value })} />
+                      </label>
+                      {formDirty && (
+                        <button className="btn btn-primary btn-xs ud-save"
+                          onClick={saveForm} disabled={savingForm}>
+                          {savingForm ? 'Saving…' : 'Save profile'}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </section>
 

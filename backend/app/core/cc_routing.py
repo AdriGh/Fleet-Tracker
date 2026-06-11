@@ -84,15 +84,22 @@ def region_from_truck(truck) -> str | None:
 def cc_for_region(region) -> list[str]:
     """Lista de CC para una region (vacia si la region es None/desconocida).
 
-    Fusiona el CC propio de la region con `_ALWAYS_CC` (Ryan), sin duplicar y
-    conservando el orden. Para region desconocida devuelve vacio (el conductor
-    cae en "revisar", no se envia).
+    Fusiona el CC propio de la region con la lista "always", sin duplicar
+    y conservando el orden. Para region desconocida devuelve vacio (el
+    conductor cae en "revisar", no se envia).
+
+    Fase G7: si org.local.json define `cc`/`always_cc`, esos mapas
+    REEMPLAZAN a los hardcodeados (que quedan como default de fábrica).
     """
-    if not region or region not in REGION_CC:
+    from . import org_config
+    cc_map, always = org_config.cc_override()
+    region_cc = cc_map if cc_map else REGION_CC
+    always_cc = always if always else _ALWAYS_CC
+    if not region or region not in region_cc:
         return []
     out: list[str] = []
     seen: set[str] = set()
-    for email in list(REGION_CC[region]) + _ALWAYS_CC:
+    for email in list(region_cc[region]) + list(always_cc):
         key = email.lower()
         if key not in seen:
             seen.add(key)

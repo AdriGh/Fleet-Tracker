@@ -78,6 +78,182 @@ class Defect(Base):
         back_populates="defect_items")
 
 
+class Poi(Base):
+    """Punto de interés del Live Map (talleres, dealers, básculas).
+
+    Se siembra desde `backend/data/pois_seed.json` (OSM + DOTs estatales,
+    con atribución ODbL) y se cura a mano desde la app. `kind`:
+    repair | dealer_truck | dealer_trailer | scale. `subtype`:
+    'enforcement' para básculas DOT, '' para el resto.
+    """
+    __tablename__ = "poi"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(20), index=True)
+    subtype: Mapped[str] = mapped_column(String(20), default="")
+    name: Mapped[str] = mapped_column(String(140))
+    lat: Mapped[float] = mapped_column(Float)
+    lng: Mapped[float] = mapped_column(Float)
+    address: Mapped[str] = mapped_column(String(180), default="")
+    phone: Mapped[str] = mapped_column(String(40), default="")
+    brand: Mapped[str] = mapped_column(String(60), default="")
+    source: Mapped[str] = mapped_column(String(20), default="manual")
+
+
+class WorkOrder(Base):
+    """Orden de trabajo (fase G5 — reemplazo de Fullbay para flota propia).
+
+    Estados: open -> in_progress -> waiting_parts -> completed.
+    Si `is_pm` y se completa con `pm_miles`, el PM tracker se actualiza
+    vía override (core/workorders.py), sin depender del CSV de Fullbay.
+    """
+    __tablename__ = "work_order"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    closed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+    unit: Mapped[str] = mapped_column(String(64), index=True)
+    company: Mapped[str] = mapped_column(String(64), default="")
+    status: Mapped[str] = mapped_column(String(20), default="open",
+                                        index=True)
+    priority: Mapped[str] = mapped_column(String(10), default="normal")
+    title: Mapped[str] = mapped_column(String(140))
+    complaint: Mapped[str] = mapped_column(Text, default="")
+    mechanic: Mapped[str] = mapped_column(String(80), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    is_pm: Mapped[bool] = mapped_column(Boolean, default=False)
+    pm_miles: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source: Mapped[str] = mapped_column(String(20), default="manual")
+
+    lines: Mapped[list["WorkOrderLine"]] = relationship(
+        back_populates="wo", cascade="all, delete-orphan")
+
+
+class WorkOrderLine(Base):
+    """Línea de un WO: parte (qty × costo) o labor (horas × tarifa)."""
+    __tablename__ = "work_order_line"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    wo_id: Mapped[int] = mapped_column(ForeignKey("work_order.id"))
+    kind: Mapped[str] = mapped_column(String(10), default="part")
+    description: Mapped[str] = mapped_column(String(160))
+    qty: Mapped[float] = mapped_column(Float, default=1.0)
+    unit_cost: Mapped[float] = mapped_column(Float, default=0.0)
+
+    wo: Mapped[WorkOrder] = relationship(back_populates="lines")
+
+
+class User(Base):
+    """Usuario de la app (fase G7): auth real con roles.
+
+    Roles: admin (todo) · dispatcher · mechanic · viewer. El hash es
+    pbkdf2-sha256 con salt propio ("salt_hex$hash_hex", core/auth.py).
+    """
+    __tablename__ = "user"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(40), unique=True,
+                                          index=True)
+    name: Mapped[str] = mapped_column(String(120), default="")
+    role: Mapped[str] = mapped_column(String(16), default="viewer")
+    pw_hash: Mapped[str] = mapped_column(String(200))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class TmsDriver(Base):
+    """Perfil TMS de un conductor (fase G-TMS).
+
+    Extiende el roster vivo de Samsara con datos de despacho: contrato
+    (rol, tipo de pago, %), equipo asignado, vencimientos de compliance
+    y contacto de emergencia. Clave = nombre normalizado del roster.
+    Vive solo en SQLite local (PII, gitignored).
+    """
+    __tablename__ = "tms_driver"
+
+    name: Mapped[str] = mapped_column(String(128), primary_key=True)
+    company: Mapped[str] = mapped_column(String(64), default="")
+    driver_company: Mapped[str] = mapped_column(String(120), default="")
+    role: Mapped[str] = mapped_column(String(24), default="owner_operator")
+    pay_type: Mapped[str] = mapped_column(String(16), default="percentage")
+    pay_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    truck: Mapped[str] = mapped_column(String(32), default="")
+    trailer: Mapped[str] = mapped_column(String(32), default="")
+    hired_date: Mapped[str] = mapped_column(String(12), default="")
+    emergency_name: Mapped[str] = mapped_column(String(120), default="")
+    emergency_phone: Mapped[str] = mapped_column(String(40), default="")
+    cdl_exp: Mapped[str] = mapped_column(String(12), default="")
+    med_exp: Mapped[str] = mapped_column(String(12), default="")
+    mvr_exp: Mapped[str] = mapped_column(String(12), default="")
+    chouse_exp: Mapped[str] = mapped_column(String(12), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+
+
+class Load(Base):
+    """Carga / trip (fase G-TMS, referencia QuickManage).
+
+    Pipeline: upcoming -> dispatched -> in_transit -> delivered ->
+    invoiced -> closed. Payout del driver = hauling × pay_pct% +
+    accessorials (los accesorios van 100% al driver).
+    """
+    __tablename__ = "load"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    status: Mapped[str] = mapped_column(String(16), default="upcoming",
+                                        index=True)
+    broker: Mapped[str] = mapped_column(String(120), default="")
+    ref: Mapped[str] = mapped_column(String(60), default="")
+    driver: Mapped[str] = mapped_column(String(128), default="", index=True)
+    unit: Mapped[str] = mapped_column(String(32), default="")
+    hauling_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    accessorials: Mapped[float] = mapped_column(Float, default=0.0)
+    pay_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    miles: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tags: Mapped[str] = mapped_column(String(160), default="")
+    docs: Mapped[str] = mapped_column(String(60), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+
+    stops: Mapped[list["LoadStop"]] = relationship(
+        back_populates="load", cascade="all, delete-orphan",
+        order_by="LoadStop.seq")
+
+
+class LoadStop(Base):
+    """Parada de una carga: pickup o delivery, con cita."""
+    __tablename__ = "load_stop"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    load_id: Mapped[int] = mapped_column(ForeignKey("load.id"))
+    seq: Mapped[int] = mapped_column(Integer, default=1)
+    kind: Mapped[str] = mapped_column(String(10), default="pickup")
+    name: Mapped[str] = mapped_column(String(120), default="")
+    city: Mapped[str] = mapped_column(String(80), default="")
+    state: Mapped[str] = mapped_column(String(4), default="")
+    appt: Mapped[str] = mapped_column(String(24), default="")
+
+    load: Mapped[Load] = relationship(back_populates="stops")
+
+
+class AlertEvent(Base):
+    """Evento de alerta de flota (fase G3): velocidad, idle, fuel/DEF
+    bajos, GPS sin señal. Los genera el evaluador de core/alerts.py."""
+    __tablename__ = "alert_event"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, index=True)
+    vehicle_id: Mapped[str] = mapped_column(String(40))
+    unit: Mapped[str] = mapped_column(String(64))
+    company: Mapped[str] = mapped_column(String(64), default="")
+    rule: Mapped[str] = mapped_column(String(24), index=True)
+    value: Mapped[str] = mapped_column(String(64), default="")
+    message: Mapped[str] = mapped_column(String(240))
+    acked: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 Base.metadata.create_all(_engine)
 
 

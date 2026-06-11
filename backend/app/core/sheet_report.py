@@ -115,13 +115,18 @@ def _trip_reason(value: str, inspection: str, unit: str,
 
 
 def offender_reasons(group: Group,
-                     threshold: int = MIN_DURATION_SECONDS) -> list[dict]:
+                     threshold: int | None = None) -> list[dict]:
     """Lista de motivos por los que un conductor debe recibir aviso.
 
     Cada motivo: {unit, kind, type, detail, inspection?}
       type: "NO_DVIR" | "MISSING" | "SHORT"
       kind: "truck" | "driver"
+
+    `threshold=None` usa el umbral configurable de la empresa (G7).
     """
+    from .engine import min_duration_seconds
+    if threshold is None:
+        threshold = min_duration_seconds()
     reasons: list[dict] = []
     # NO DVIR (lado camion): puede haber varias unidades en el grupo.
     for r in group.rows:

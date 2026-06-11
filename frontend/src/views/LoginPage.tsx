@@ -1,8 +1,11 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import Logo from '../components/Logo'
+import { authLogin, setToken, type AuthUser } from '../api'
 
 type Props = {
-  onLogin: () => void
+  appName: string
+  tagline: string
+  onLogin: (user: AuthUser) => void
 }
 
 /**
@@ -57,18 +60,21 @@ const SLIDES: Slide[] = [
   },
 ]
 
+// Cifras reales del sistema (inventario vivo de Samsara): ~430 unidades
+// clasificadas (trucks + trailers + chassis) en 5 terminales.
 const STATS = [
-  { v: '340+', k: 'Unidades activas' },
+  { v: '430+', k: 'Unidades rastreadas' },
   { v: '5', k: 'Terminales' },
   { v: 'Live', k: 'Sync con Samsara' },
 ]
 
-export default function LoginPage({ onLogin }: Props) {
+export default function LoginPage({ appName, tagline, onLogin }: Props) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [remember, setRemember] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
   const [slide, setSlide] = useState(0)
   const [broken, setBroken] = useState<Record<number, boolean>>({})
 
@@ -82,14 +88,24 @@ export default function LoginPage({ onLogin }: Props) {
     return () => window.clearInterval(id)
   }, [])
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (!email.trim() || !password) {
-      setError('Ingresa tu correo y contraseña.')
+      setError('Ingresa tu usuario y contraseña.')
       return
     }
     setError(null)
-    onLogin()
+    setSubmitting(true)
+    try {
+      const r = await authLogin(email.trim(), password)
+      setToken(r.token)
+      onLogin(r.user)
+    } catch (err) {
+      setError(err instanceof Error
+        ? err.message : 'No se pudo iniciar sesión.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const active = SLIDES[slide]
@@ -124,8 +140,8 @@ export default function LoginPage({ onLogin }: Props) {
               <Logo />
             </span>
             <span className="login-hero-brand">
-              <strong>Fleet Tracker</strong>
-              <small>Compliance suite</small>
+              <strong>{appName}</strong>
+              <small>{tagline}</small>
             </span>
           </div>
 
@@ -167,7 +183,7 @@ export default function LoginPage({ onLogin }: Props) {
               <span className="login-panel-logo">
                 <Logo />
               </span>
-              <span>Fleet Tracker</span>
+              <span>{appName}</span>
             </div>
 
             <span className="login-kicker">Acceso al panel</span>
@@ -178,11 +194,11 @@ export default function LoginPage({ onLogin }: Props) {
 
             <form className="login-form" onSubmit={handleSubmit}>
               <label className="login-field">
-                <span>Correo</span>
+                <span>Usuario</span>
                 <input
-                  type="email"
-                  autoComplete="email"
-                  placeholder="tucorreo@empresa.com"
+                  type="text"
+                  autoComplete="username"
+                  placeholder="tu usuario"
                   value={email}
                   onChange={(e) => {
                     setEmail(e.target.value)
@@ -243,8 +259,9 @@ export default function LoginPage({ onLogin }: Props) {
 
               {error && <div className="login-error">{error}</div>}
 
-              <button type="submit" className="login-submit">
-                <span>Entrar al panel</span>
+              <button type="submit" className="login-submit"
+                disabled={submitting}>
+                <span>{submitting ? 'Entrando…' : 'Entrar al panel'}</span>
                 <span className="login-shimmer" />
               </button>
             </form>
