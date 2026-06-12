@@ -158,5 +158,5 @@ def write_workbook(sheets, out_path):
                                block["groups"])
             row += 1  # fila en blanco entre bloques
     if not wb.sheetnames:
-        wb.create_sheet(title="Vacio")
+        wb.create_sheet(title="Empty")
     wb.save(out_path)

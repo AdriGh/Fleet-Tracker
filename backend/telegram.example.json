@@ -1,0 +1,6 @@
+{
+  "bot_token": "123456789:AAE_PEGA_AQUI_EL_TOKEN_DE_BOTFATHER",
+  "chat_id": "-1001234567890",
+  "dry_run": true,
+  "notify_statuses": ["assigned"]
+}

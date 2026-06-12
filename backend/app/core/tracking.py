@@ -57,6 +57,21 @@ def _auth_error(exc: BaseException) -> bool:
             and exc.response.status_code in (401, 403))
 
 
+def _is_stale(iso: str, now: float, max_age_s: int = 900) -> bool:
+    """True si el ping GPS tiene más de `max_age_s` (15 min default).
+
+    Una unidad con GPS viejo conserva su última velocidad reportada en
+    el snapshot de Samsara: sin este guard aparecería "Moving" para
+    siempre (p. ej. un truck apagado hace 61 h con speed 72)."""
+    if not iso:
+        return True
+    try:
+        ts = datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return True
+    return (now - ts) > max_age_s
+
+
 def _val(node: dict | None, *keys: str):
     """Valor de un stat de Samsara, tolerante a singular/plural.
 
@@ -191,12 +206,17 @@ async def load_live() -> dict:
             if lat is None or lng is None:
                 continue
             speed = float(gps.get("speedMilesPerHour") or 0.0)
-            if speed > 1.0:
+            gps_time = gps.get("time") or ""
+            stale = _is_stale(gps_time, now)
+            # Con GPS viejo la velocidad/idle reportadas no son actuales:
+            # no cuentan como movimiento ni disparan alertas de idle.
+            moving_now = speed > 1.0 and not stale
+            if moving_now:
                 _moving_since.setdefault(vid, now)
             else:
                 _moving_since.pop(vid, None)
             engine = _val(v, "engineState", "engineStates") or ""
-            if engine == "Idle":
+            if engine == "Idle" and not stale:
                 _idle_since.setdefault(vid, now)
             else:
                 _idle_since.pop(vid, None)
@@ -211,9 +231,10 @@ async def load_live() -> dict:
                 "lng": lng,
                 "heading": gps.get("headingDegrees"),
                 "speed_mph": round(speed, 1),
+                "stale": stale,
                 "location": ((gps.get("reverseGeo") or {})
                              .get("formattedLocation") or ""),
-                "gps_time": gps.get("time") or "",
+                "gps_time": gps_time,
                 "engine": engine,
                 "fuel_pct": _val(fuel_row, "fuelPercent", "fuelPercents"),
                 "def_pct": _def_pct(fuel_row),
@@ -227,8 +248,14 @@ async def load_live() -> dict:
                                if vid in _idle_since else None),
             })
 
-    vehicles.sort(key=lambda x: (-(x["speed_mph"] or 0), x["unit"]))
-    moving = sum(1 for x in vehicles if (x["speed_mph"] or 0) > 1.0)
+    # Frescos y en movimiento primero; los de GPS viejo van al fondo.
+    vehicles.sort(key=lambda x: (
+        x["stale"],
+        -(0 if x["stale"] else (x["speed_mph"] or 0)),
+        x["unit"],
+    ))
+    moving = sum(1 for x in vehicles
+                 if not x["stale"] and (x["speed_mph"] or 0) > 1.0)
 
     return {
         "available": stats_ok,

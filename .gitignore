@@ -36,3 +36,5 @@ backend/*.local.csv
 
 # Scratch / previews (no versionar)
 /sandbox/
+backend/uploads/
+/graphify-out/

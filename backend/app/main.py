@@ -61,11 +61,11 @@ async def _require_auth(request: Request, call_next):
             # abierta SOLO hasta crear el admin en el wizard.
             if auth.users_exist():
                 return JSONResponse(
-                    {"detail": "No autenticado"}, status_code=401)
+                    {"detail": "Not authenticated"}, status_code=401)
         elif (any(path.startswith(p) for p in _ADMIN_PREFIXES)
               and user["role"] != "admin"):
             return JSONResponse(
-                {"detail": "Requiere rol de administrador"},
+                {"detail": "Admin role required"},
                 status_code=403)
     return await call_next(request)
 
@@ -106,7 +106,7 @@ else:
     @app.get("/")
     def index_dev():
         return {
-            "message": "Frontend sin compilar. Ejecuta 'npm run dev' en "
-                       "frontend/ o 'npm run build' para la version final.",
+            "message": "Frontend not built. Run 'npm run dev' in "
+                       "frontend/ or 'npm run build' for the final version.",
             "api": "/api/health",
         }

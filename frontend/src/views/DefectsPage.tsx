@@ -601,7 +601,7 @@ export default function DefectsPage() {
                               </svg>
                               <span>
                                 <button className="unit-link"
-                                  title="Ver detalle de la unidad"
+                                  title="View unit details"
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     openUnit(r)

@@ -156,12 +156,12 @@ export default function NotifyPage() {
       if (r.ok) {
         setMedia({ type: r.media_type, url: r.media_url,
           filename: r.filename })
-        notifyOk('Adjunto cargado', r.url_simulated ? '(simulado)' : r.filename)
+        notifyOk('Attachment uploaded', r.url_simulated ? '(simulated)' : r.filename)
       } else {
-        notifyErr('No se pudo subir el adjunto', r.error)
+        notifyErr('Could not upload attachment', r.error)
       }
     } catch (err) {
-      notifyErr('No se pudo subir el adjunto', err)
+      notifyErr('Could not upload attachment', err)
     } finally {
       setUploadingMedia(false)
     }
@@ -180,12 +180,12 @@ export default function NotifyPage() {
       const sim = chans.every((c) => c === 'email'
         ? r.email_dry_run : r.sms_dry_run)
       notifyOk(
-        sim ? 'Simulación completada' : 'Avisos enviados',
-        `${selected.size} conductor${selected.size === 1 ? '' : 'es'} · ${chans.join('+')}`,
+        sim ? 'Simulation completed' : 'Notices sent',
+        `${selected.size} driver${selected.size === 1 ? '' : 's'} · ${chans.join('+')}`,
       )
     } catch (e) {
       setError(String(e))
-      notifyErr('No se pudieron enviar los avisos', e)
+      notifyErr('Could not send the notices', e)
     } finally {
       setSending(false)
     }
@@ -434,13 +434,13 @@ export default function NotifyPage() {
                     <span className="nf-attach">
                       <i>{IcoClip}</i>
                       {media.filename}
-                      <button className="icon-x" title="Quitar adjunto"
+                      <button className="icon-x" title="Remove attachment"
                         onClick={() => setMedia(null)}>✕</button>
                     </span>
                   ) : (
                     <label className="btn btn-ghost nf-attach-btn">
                       <i className="nf-btn-ico">{IcoClip}</i>
-                      {uploadingMedia ? 'Subiendo…' : 'Attach image/video'}
+                      {uploadingMedia ? 'Uploading…' : 'Attach image/video'}
                       <input type="file" accept="image/*,video/*" hidden
                         disabled={uploadingMedia} onChange={onMediaPick} />
                     </label>
@@ -537,7 +537,7 @@ export default function NotifyPage() {
                     <span className="phone-meta">
                       <strong>{focused.driver}</strong>
                       <span className="mono">
-                        {focused.sms_phone || 'sin teléfono'}
+                        {focused.sms_phone || 'no phone'}
                       </span>
                     </span>
                     <span className="sms-badge">SMS</span>
@@ -546,8 +546,8 @@ export default function NotifyPage() {
                     <div className="wa-media-chip">
                       <i className="nf-ci">{IcoClip}</i>
                       {media.type === 'video'
-                        ? 'video (link en el texto)'
-                        : 'imagen (MMS)'} · {media.filename}
+                        ? 'video (link in the text)'
+                        : 'image (MMS)'} · {media.filename}
                     </div>
                   )}
                   <div className="sms-bubble">
@@ -566,7 +566,7 @@ export default function NotifyPage() {
                     <div className="mail-meta">
                       <strong>Safety &amp; Maintenance</strong>
                       <span>
-                        to <span className="mono">{focused.email || 'sin email'}</span>
+                        to <span className="mono">{focused.email || 'no email'}</span>
                       </span>
                       {focused.cc.length > 0 && (
                         <span className="mail-cc">

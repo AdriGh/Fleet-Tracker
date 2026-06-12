@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """Genera el ícono de Fleet Tracker (.ico multi-resolución + PNG de preview).
 
-Squircle con gradiente índigo→violeta→cyan, una ruta de rastreo blanca y un
-pin de ubicación con punto cyan. Estilo coherente con el logo animado de la app.
+Badge squircle con gradiente rojo (la marca actual de Logo.tsx): flecha de
+navegación blanca (heading) + nodo de ruta. Mantener en sync con
+frontend/src/components/Logo.tsx y frontend/public/favicon.svg.
 
 Uso:  py backend/scripts/make_icon.py
 Salida: frontend/public/fleet-tracker.ico  y  un PNG de preview en %TEMP%.
@@ -21,9 +22,9 @@ S = 4                      # supersampling
 R = BASE * S              # render size
 k = S                     # 256-space -> render-space factor
 
-C0 = (0x63, 0x66, 0xF1)   # indigo
-C1 = (0x8B, 0x5C, 0xF6)   # violeta
-C2 = (0x22, 0xD3, 0xEE)   # cyan
+C0 = (0xFF, 0x4D, 0x3D)   # rojo claro
+C1 = (0xE1, 0x19, 0x00)   # rojo marca
+C2 = (0xB7, 0x14, 0x00)   # rojo oscuro
 WHITE = (255, 255, 255)
 
 
@@ -31,61 +32,36 @@ def lerp(a, b, t):
     return tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3))
 
 
-def bezier(p0, p1, p2, p3, n=80):
-    pts = []
-    for i in range(n + 1):
-        t = i / n
-        m = 1 - t
-        x = (m**3 * p0[0] + 3 * m * m * t * p1[0]
-             + 3 * m * t * t * p2[0] + t**3 * p3[0])
-        y = (m**3 * p0[1] + 3 * m * m * t * p1[1]
-             + 3 * m * t * t * p2[1] + t**3 * p3[1])
-        pts.append((x * k, y * k))
-    return pts
-
-
-# --- fondo con gradiente diagonal (3 stops) ---------------------------------
+# --- fondo con gradiente diagonal (3 stops, 0 / 0.55 / 1) -------------------
 g = Image.new("RGB", (BASE, BASE))
 gp = g.load()
 for y in range(BASE):
     for x in range(BASE):
         t = (x + y) / (2 * (BASE - 1))
-        gp[x, y] = lerp(C0, C1, t / 0.5) if t < 0.5 else lerp(C1, C2, (t - 0.5) / 0.5)
+        gp[x, y] = (lerp(C0, C1, t / 0.55) if t < 0.55
+                    else lerp(C1, C2, (t - 0.55) / 0.45))
 g = g.resize((R, R), Image.LANCZOS).convert("RGBA")
 
-# máscara squircle
+# máscara squircle (12..244 en espacio 256, rx 72 — igual que favicon.svg)
 mask = Image.new("L", (R, R), 0)
-ImageDraw.Draw(mask).rounded_rectangle([0, 0, R - 1, R - 1], radius=58 * k, fill=255)
+ImageDraw.Draw(mask).rounded_rectangle(
+    [12 * k, 12 * k, 244 * k - 1, 244 * k - 1], radius=72 * k, fill=255)
 img = Image.new("RGBA", (R, R), (0, 0, 0, 0))
 img.paste(g, (0, 0), mask)
 
 d = ImageDraw.Draw(img)
 
-# --- ruta de rastreo (trazo suave por estampado de círculos) ----------------
-route = bezier((46, 182), (98, 104), (148, 196), (192, 108), n=240)
-br = 11 * k                # radio del pincel -> ancho ~22
-for x, y in route:
-    d.ellipse([x - br, y - br, x + br, y + br], fill=WHITE)
-# nodo de inicio (anillo blanco con centro índigo)
-sx, sy = route[0]
-d.ellipse([sx - 16 * k, sy - 16 * k, sx + 16 * k, sy + 16 * k], fill=WHITE)
-d.ellipse([sx - 7 * k, sy - 7 * k, sx + 7 * k, sy + 7 * k], fill=C0)
+# --- flecha de navegación (heading), misma geometría que Logo.tsx ×4 --------
+arrow = [(128, 60), (180, 184), (172, 190.8), (128, 164),
+         (84, 190.8), (76, 184)]
+d.polygon([(x * k, y * k) for x, y in arrow], fill=WHITE)
 
-# --- pin de ubicación al final ----------------------------------------------
-cx, cy, r = 194 * k, 76 * k, 29 * k
-tip = (194 * k, 124 * k)
-# anillo de radar (sutil)
-ring = r * 1.5
-d.ellipse([cx - ring, cy - ring, cx + ring, cy + ring],
-          outline=(255, 255, 255, 110), width=int(3 * k))
-# teardrop = balón + triángulo
-d.polygon([(cx - r * 0.84, cy + r * 0.52), (cx + r * 0.84, cy + r * 0.52), tip],
-          fill=WHITE)
-d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=WHITE)
-# punto cyan (centro del pin)
-d.ellipse([cx - r * 0.42, cy - r * 0.42, cx + r * 0.42, cy + r * 0.42], fill=C2)
+# --- nodo de ruta ------------------------------------------------------------
+nx, ny, nr = 128 * k, 202 * k, 9.6 * k
+d.ellipse([nx - nr, ny - nr, nx + nr, ny + nr],
+          fill=(255, 255, 255, 140))
 
-# --- downscale + exportar ---------------------------------------------------
+# --- downscale + exportar ----------------------------------------------------
 icon = img.resize((BASE, BASE), Image.LANCZOS)
 icon.save(OUT_PNG)
 OUT_ICO.parent.mkdir(parents=True, exist_ok=True)

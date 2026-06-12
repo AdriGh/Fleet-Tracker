@@ -32,40 +32,40 @@ type Slide = {
 const SLIDES: Slide[] = [
   {
     src: 'https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?auto=format&fit=crop&w=1600&q=80',
-    alt: 'Semirremolque circulando por una autopista al atardecer',
-    eyebrow: 'Cumplimiento en vivo',
-    headline: 'Tu flota, inspeccionada al minuto',
-    sub: 'Reportes DVIR diarios que se arman solos desde Samsara.',
+    alt: 'Semi truck driving down a highway at sunset',
+    eyebrow: 'Live compliance',
+    headline: 'Your fleet, inspected to the minute',
+    sub: 'Daily DVIR reports that build themselves from Samsara.',
   },
   {
     src: 'https://images.unsplash.com/photo-1519003722824-194d4455a60c?auto=format&fit=crop&w=1600&q=80',
-    alt: 'Camiones estacionados en una terminal de carga',
-    eyebrow: 'Defectos al instante',
-    headline: 'Cada defecto abierto, en un solo tablero',
-    sub: 'Importa la lista completa y avisa a los conductores en segundos.',
+    alt: 'Trucks parked at a freight terminal',
+    eyebrow: 'Defects in real time',
+    headline: 'Every open defect, on a single board',
+    sub: 'Import the full list and notify drivers in seconds.',
   },
   {
     src: 'https://images.unsplash.com/photo-1586191582151-f73872dfd183?auto=format&fit=crop&w=1600&q=80',
-    alt: 'Cabina de un camión moderno en ruta',
-    eyebrow: 'Mantenimiento preventivo',
-    headline: 'Adelántate al próximo PM',
-    sub: 'Seguimiento por millaje y alertas antes de que venza el servicio.',
+    alt: 'Cab of a modern truck on the road',
+    eyebrow: 'Preventive maintenance',
+    headline: 'Stay ahead of the next PM',
+    sub: 'Mileage-based tracking and alerts before service is due.',
   },
   {
     src: 'https://images.unsplash.com/photo-1591768793355-74d04bb6608f?auto=format&fit=crop&w=1600&q=80',
-    alt: 'Flota de camiones de carga vista desde el frente',
+    alt: 'Fleet of cargo trucks seen from the front',
     eyebrow: 'Multi-terminal',
-    headline: 'Chaser, Memphis, Chicago y más',
-    sub: 'Una vista unificada de cada terminal y cada unidad.',
+    headline: 'Chaser, Memphis, Chicago and more',
+    sub: 'One unified view of every terminal and every unit.',
   },
 ]
 
 // Cifras reales del sistema (inventario vivo de Samsara): ~430 unidades
 // clasificadas (trucks + trailers + chassis) en 5 terminales.
 const STATS = [
-  { v: '430+', k: 'Unidades rastreadas' },
-  { v: '5', k: 'Terminales' },
-  { v: 'Live', k: 'Sync con Samsara' },
+  { v: '430+', k: 'Units tracked' },
+  { v: '5', k: 'Terminals' },
+  { v: 'Live', k: 'Samsara sync' },
 ]
 
 export default function LoginPage({ appName, tagline, onLogin }: Props) {
@@ -91,7 +91,7 @@ export default function LoginPage({ appName, tagline, onLogin }: Props) {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (!email.trim() || !password) {
-      setError('Ingresa tu usuario y contraseña.')
+      setError('Enter your username and password.')
       return
     }
     setError(null)
@@ -102,7 +102,7 @@ export default function LoginPage({ appName, tagline, onLogin }: Props) {
       onLogin(r.user)
     } catch (err) {
       setError(err instanceof Error
-        ? err.message : 'No se pudo iniciar sesión.')
+        ? err.message : 'Couldn\'t sign in.')
     } finally {
       setSubmitting(false)
     }
@@ -160,14 +160,14 @@ export default function LoginPage({ appName, tagline, onLogin }: Props) {
                 </div>
               ))}
             </div>
-            <div className="login-hero-dots" role="tablist" aria-label="Cambiar imagen">
+            <div className="login-hero-dots" role="tablist" aria-label="Change image">
               {SLIDES.map((s, i) => (
                 <button
                   key={s.src}
                   type="button"
                   className={`login-hero-dot ${i === slide ? 'is-active' : ''}`}
                   onClick={() => setSlide(i)}
-                  aria-label={`Imagen ${i + 1}: ${s.alt}`}
+                  aria-label={`Image ${i + 1}: ${s.alt}`}
                   aria-selected={i === slide}
                   role="tab"
                 />
@@ -186,19 +186,19 @@ export default function LoginPage({ appName, tagline, onLogin }: Props) {
               <span>{appName}</span>
             </div>
 
-            <span className="login-kicker">Acceso al panel</span>
-            <h1 className="login-title">Bienvenido de vuelta</h1>
+            <span className="login-kicker">Dashboard access</span>
+            <h1 className="login-title">Welcome back</h1>
             <p className="login-subtitle">
-              Entra para gestionar DVIR, defectos y mantenimiento de tu flota.
+              Sign in to manage DVIR, defects and maintenance for your fleet.
             </p>
 
             <form className="login-form" onSubmit={handleSubmit}>
               <label className="login-field">
-                <span>Usuario</span>
+                <span>Username</span>
                 <input
                   type="text"
                   autoComplete="username"
-                  placeholder="tu usuario"
+                  placeholder="your username"
                   value={email}
                   onChange={(e) => {
                     setEmail(e.target.value)
@@ -208,7 +208,7 @@ export default function LoginPage({ appName, tagline, onLogin }: Props) {
               </label>
 
               <label className="login-field">
-                <span>Contraseña</span>
+                <span>Password</span>
                 <div className="login-pw">
                   <input
                     type={showPw ? 'text' : 'password'}
@@ -224,7 +224,7 @@ export default function LoginPage({ appName, tagline, onLogin }: Props) {
                     type="button"
                     className="login-pw-toggle"
                     onClick={() => setShowPw((v) => !v)}
-                    aria-label={showPw ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    aria-label={showPw ? 'Hide password' : 'Show password'}
                   >
                     {showPw ? (
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -250,10 +250,10 @@ export default function LoginPage({ appName, tagline, onLogin }: Props) {
                     checked={remember}
                     onChange={(e) => setRemember(e.target.checked)}
                   />
-                  <span>Recordarme</span>
+                  <span>Remember me</span>
                 </label>
                 <a href="#" className="login-forgot" onClick={(e) => e.preventDefault()}>
-                  ¿Olvidaste tu contraseña?
+                  Forgot your password?
                 </a>
               </div>
 
@@ -261,13 +261,13 @@ export default function LoginPage({ appName, tagline, onLogin }: Props) {
 
               <button type="submit" className="login-submit"
                 disabled={submitting}>
-                <span>{submitting ? 'Entrando…' : 'Entrar al panel'}</span>
+                <span>{submitting ? 'Signing in…' : 'Sign in'}</span>
                 <span className="login-shimmer" />
               </button>
             </form>
 
             <p className="login-foot">
-              ¿Problemas para entrar? Contacta a tu administrador.
+              Trouble signing in? Contact your administrator.
             </p>
           </div>
         </section>

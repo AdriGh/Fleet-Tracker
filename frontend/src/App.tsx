@@ -15,7 +15,8 @@ import DvirPage from './views/DvirPage'
 import DefectsPage from './views/DefectsPage'
 import NotifyPage from './views/NotifyPage'
 import FleetPage from './views/FleetPage'
-import PMPage from './views/PMPage'
+import MaintBoardPage from './views/MaintBoardPage'
+import UnitProfilePage from './views/UnitProfilePage'
 import ReeferPage from './views/ReeferPage'
 import WorkOrdersPage from './views/WorkOrdersPage'
 import DriversPage from './views/DriversPage'
@@ -47,6 +48,7 @@ const NAV_SECTIONS: NavSection[] = [
       { id: 'avisos', label: 'Notices' },
       { id: 'flota', label: 'Fleet' },
       { id: 'pm', label: 'PM Tracker' },
+      { id: 'dot', label: 'DOT Inspections' },
       { id: 'coldchain', label: 'Cold Chain' },
       { id: 'workorders', label: 'Work Orders' },
     ],
@@ -135,6 +137,13 @@ const ICONS: Record<string, ReactElement> = {
       <path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L4 16.8 7.2 20l5.3-5.3a4 4 0 0 0 5.2-5.4l-2.5 2.5-2.3-.5-.5-2.3z" />
     </svg>
   ),
+  dot: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 4h6M9 4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2M9 4v2h6V4" />
+      <path d="m9.5 13 1.8 1.8 3.2-3.6" />
+    </svg>
+  ),
   coldchain: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
       strokeLinecap="round" strokeLinejoin="round">
@@ -180,6 +189,8 @@ export default function App() {
   const [version, setVersion] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>(initialTheme)
   const [section, setSection] = useState('dashboard')
+  // H3: perfil completo de unidad (se superpone a la sección actual).
+  const [profileUnit, setProfileUnit] = useState<string | null>(null)
   // Sesión real (fase G7): el token vive en localStorage ('ft-token');
   // /api/auth/status decide entre wizard, login o app.
   const [sessionUser, setSessionUser] = useState<AuthUser | null>(null)
@@ -341,39 +352,42 @@ export default function App() {
           </button>
         </div>
 
-        {NAV_SECTIONS.map((group) => (
-          <nav className="nav" key={group.title}>
-            <span className="nav-group-label">{group.title}</span>
-            {group.items.map((item) => (
+        {/* Zona scrolleable: el nav nunca desborda la pantalla */}
+        <div className="sidebar-scroll">
+          {NAV_SECTIONS.map((group) => (
+            <nav className="nav" key={group.title}>
+              <span className="nav-group-label">{group.title}</span>
+              {group.items.map((item) => (
+                <button
+                  key={item.id}
+                  className={`nav-item ${section === item.id ? 'active' : ''}`}
+                  disabled={item.soon}
+                  title={navCollapsed ? item.label : undefined}
+                  onClick={() => !item.soon && setSection(item.id)}
+                >
+                  <span className="nav-ico">{ICONS[item.id]}</span>
+                  <span className="nav-text">{item.label}</span>
+                  {item.soon && <span className="soon">soon</span>}
+                </button>
+              ))}
+            </nav>
+          ))}
+
+          <nav className="nav nav-bottom">
+            <span className="nav-group-label">Admin</span>
+            {ADMIN_ITEMS.map((item) => (
               <button
                 key={item.id}
                 className={`nav-item ${section === item.id ? 'active' : ''}`}
-                disabled={item.soon}
                 title={navCollapsed ? item.label : undefined}
-                onClick={() => !item.soon && setSection(item.id)}
+                onClick={() => setSection(item.id)}
               >
                 <span className="nav-ico">{ICONS[item.id]}</span>
                 <span className="nav-text">{item.label}</span>
-                {item.soon && <span className="soon">soon</span>}
               </button>
             ))}
           </nav>
-        ))}
-
-        <nav className="nav nav-bottom">
-          <span className="nav-group-label">Admin</span>
-          {ADMIN_ITEMS.map((item) => (
-            <button
-              key={item.id}
-              className={`nav-item ${section === item.id ? 'active' : ''}`}
-              title={navCollapsed ? item.label : undefined}
-              onClick={() => setSection(item.id)}
-            >
-              <span className="nav-ico">{ICONS[item.id]}</span>
-              <span className="nav-text">{item.label}</span>
-            </button>
-          ))}
-        </nav>
+        </div>
 
         <div className="sidebar-foot">
           {sessionUser && (
@@ -439,6 +453,11 @@ export default function App() {
 
       <div className="main-area">
         <main className="container">
+          {profileUnit && (
+            <UnitProfilePage unit={profileUnit}
+              onClose={() => setProfileUnit(null)} />
+          )}
+          {!profileUnit && <>
           {section === 'dashboard' && <Dashboard onNavigate={setSection} />}
           {section === 'map' && (
             <Suspense fallback={<div className="loadbar" aria-hidden="true" />}>
@@ -448,8 +467,9 @@ export default function App() {
           {section === 'dvir' && <DvirPage />}
           {section === 'defectos' && <DefectsPage />}
           {section === 'avisos' && <NotifyPage />}
-          {section === 'flota' && <FleetPage />}
-          {section === 'pm' && <PMPage />}
+          {section === 'flota' && <FleetPage onOpenUnit={setProfileUnit} />}
+          {section === 'pm' && <MaintBoardPage kind="pm" />}
+          {section === 'dot' && <MaintBoardPage kind="dot" />}
           {section === 'coldchain' && <ReeferPage />}
           {section === 'workorders' && <WorkOrdersPage />}
           {section === 'drivers' && <DriversPage />}
@@ -462,6 +482,7 @@ export default function App() {
               isAdmin={sessionUser?.role === 'admin'}
             />
           )}
+          </>}
         </main>
       </div>
     </div>

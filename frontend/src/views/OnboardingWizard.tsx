@@ -9,15 +9,15 @@ import { notifyErr } from '../toast'
 type Props = { onDone: () => void }
 
 const ACCENTS: { value: string; label: string }[] = [
-  { value: '', label: 'Rojo Fleet Tracker' },
-  { value: '#2563eb', label: 'Azul' },
-  { value: '#16a34a', label: 'Verde' },
-  { value: '#d97706', label: 'Ámbar' },
-  { value: '#7c3aed', label: 'Violeta' },
+  { value: '', label: 'Fleet Tracker red' },
+  { value: '#2563eb', label: 'Blue' },
+  { value: '#16a34a', label: 'Green' },
+  { value: '#d97706', label: 'Amber' },
+  { value: '#7c3aed', label: 'Violet' },
   { value: '#0d9488', label: 'Teal' },
 ]
 
-const STEPS = ['Tu cuenta', 'Tu empresa', 'Listo']
+const STEPS = ['Your account', 'Your company', 'Done']
 
 export default function OnboardingWizard({ onDone }: Props) {
   const [step, setStep] = useState(0)
@@ -52,7 +52,7 @@ export default function OnboardingWizard({ onDone }: Props) {
       setToken(r.token)
       setStep(1)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudo crear la cuenta')
+      setError(e instanceof Error ? e.message : 'Couldn\'t create the account')
     } finally {
       setBusy(false)
     }
@@ -71,8 +71,8 @@ export default function OnboardingWizard({ onDone }: Props) {
       })
       setStep(2)
     } catch (e) {
-      notifyErr('No se pudo guardar la empresa', e)
-      setError(e instanceof Error ? e.message : 'Error guardando')
+      notifyErr('Couldn\'t save the company', e)
+      setError(e instanceof Error ? e.message : 'Couldn\'t save')
     } finally {
       setBusy(false)
     }
@@ -86,7 +86,7 @@ export default function OnboardingWizard({ onDone }: Props) {
           <strong>{appName.trim() || 'Fleet Tracker'}</strong>
         </div>
 
-        <ol className="wiz-steps" aria-label="Progreso de configuración">
+        <ol className="wiz-steps" aria-label="Setup progress">
           {STEPS.map((s, i) => (
             <li key={s}
               className={i < step ? 'done' : i === step ? 'now' : ''}
@@ -107,19 +107,19 @@ export default function OnboardingWizard({ onDone }: Props) {
 
         {step === 0 && (
           <div className="wiz-body" key="s0">
-            <h1>Crea la cuenta de administrador</h1>
+            <h1>Create the admin account</h1>
             <p className="wiz-sub">
-              La primera cuenta controla usuarios, integraciones y la
-              configuración de la empresa.
+              The first account controls users, integrations and the
+              company settings.
             </p>
             <label className="ud-field">
-              <span>Tu nombre</span>
+              <span>Your name</span>
               <input className="cell-input" value={name} autoFocus
                 placeholder="Adrian Ramirez" autoComplete="name"
                 onChange={(e) => setName(e.target.value)} />
             </label>
             <label className="ud-field">
-              <span>Usuario</span>
+              <span>Username</span>
               <input className="cell-input" value={username}
                 placeholder="adrian" autoComplete="username"
                 onChange={(e) => setUsername(
@@ -127,26 +127,26 @@ export default function OnboardingWizard({ onDone }: Props) {
             </label>
             <div className="wiz-row">
               <label className="ud-field">
-                <span>Contraseña (mín. 8)</span>
+                <span>Password (min. 8)</span>
                 <input className="cell-input" type="password"
                   value={password} autoComplete="new-password"
                   onChange={(e) => setPassword(e.target.value)} />
               </label>
               <label className="ud-field">
-                <span>Confirmar</span>
+                <span>Confirm</span>
                 <input className="cell-input" type="password"
                   value={confirm} autoComplete="new-password"
                   onChange={(e) => setConfirm(e.target.value)} />
               </label>
             </div>
             {pwMismatch && (
-              <p className="wiz-error">Las contraseñas no coinciden.</p>
+              <p className="wiz-error">Passwords do not match.</p>
             )}
             {error && <p className="wiz-error">{error}</p>}
             <div className="wiz-actions">
               <button className="btn btn-primary" disabled={!step1Valid || busy}
                 onClick={createAdmin}>
-                {busy ? 'Creando…' : 'Crear cuenta'}
+                {busy ? 'Creating…' : 'Create account'}
               </button>
             </div>
           </div>
@@ -154,13 +154,13 @@ export default function OnboardingWizard({ onDone }: Props) {
 
         {step === 1 && (
           <div className="wiz-body" key="s1">
-            <h1>Nombra tu operación</h1>
+            <h1>Name your operation</h1>
             <p className="wiz-sub">
-              El nombre y el acento se aplican a toda la app. Se puede
-              cambiar después en Settings.
+              The name and accent apply across the whole app. You can
+              change them later in Settings.
             </p>
             <label className="ud-field">
-              <span>Nombre de la app</span>
+              <span>App name</span>
               <input className="cell-input" value={appName} autoFocus
                 onChange={(e) => setAppName(e.target.value)} />
             </label>
@@ -170,9 +170,9 @@ export default function OnboardingWizard({ onDone }: Props) {
                 placeholder="Fleet compliance"
                 onChange={(e) => setTagline(e.target.value)} />
             </label>
-            <span className="ud-field"><span>Color de acento</span></span>
+            <span className="ud-field"><span>Accent color</span></span>
             <div className="wiz-accents" role="radiogroup"
-              aria-label="Color de acento">
+              aria-label="Accent color">
               {ACCENTS.map((a) => (
                 <button key={a.label} type="button"
                   role="radio" aria-checked={accent === a.value}
@@ -181,7 +181,7 @@ export default function OnboardingWizard({ onDone }: Props) {
                   style={{ background: a.value || '#e11900' }}
                   onClick={() => setAccent(a.value)} />
               ))}
-              <label className="wiz-accent-custom" title="Color personalizado">
+              <label className="wiz-accent-custom" title="Custom color">
                 <input type="color"
                   value={accent || '#e11900'}
                   onChange={(e) => setAccent(e.target.value)} />
@@ -192,11 +192,11 @@ export default function OnboardingWizard({ onDone }: Props) {
             <div className="wiz-actions">
               <button className="btn btn-ghost" disabled={busy}
                 onClick={() => setStep(2)}>
-                Saltar
+                Skip
               </button>
               <button className="btn btn-primary" disabled={busy}
                 onClick={saveCompany}>
-                {busy ? 'Guardando…' : 'Continuar'}
+                {busy ? 'Saving…' : 'Continue'}
               </button>
             </div>
           </div>
@@ -210,15 +210,15 @@ export default function OnboardingWizard({ onDone }: Props) {
                 <path d="M20 6 9 17l-5-5" />
               </svg>
             </span>
-            <h1>Todo listo</h1>
+            <h1>All set</h1>
             <p className="wiz-sub">
-              Siguiente parada: <strong>Settings → Connectivity</strong> para
-              conectar Samsara, email y SMS. El Live Map y el Dashboard se
-              encienden solos con datos.
+              Next stop: <strong>Settings → Connectivity</strong> to
+              connect Samsara, email and SMS. The Live Map and Dashboard
+              light up on their own once data flows in.
             </p>
             <div className="wiz-actions">
               <button className="btn btn-primary" onClick={onDone}>
-                Entrar al panel
+                Go to the dashboard
               </button>
             </div>
           </div>

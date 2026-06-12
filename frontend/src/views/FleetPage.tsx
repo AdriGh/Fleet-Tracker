@@ -27,7 +27,10 @@ function downloadCSV(m: Cell[][], name = 'fleet.csv') {
   URL.revokeObjectURL(url)
 }
 
-export default function FleetPage() {
+export default function FleetPage({ onOpenUnit }: {
+  // H3: clic en la fila abre el perfil completo de la unidad.
+  onOpenUnit?: (unit: string) => void
+}) {
   const qc = useQueryClient()
   const [company, setCompany] = useState('')
   const [type, setType] = useState('')
@@ -244,7 +247,9 @@ export default function FleetPage() {
                       .filter(Boolean).join(' ')
                     return (
                       <tr key={u.id} className="row-click"
-                        onClick={() => setSelected(u)}>
+                        onClick={() => (onOpenUnit
+                          ? onOpenUnit(u.unit)
+                          : setSelected(u))}>
                         <td>
                           <span className="unit-cell">
                             <span>
@@ -275,7 +280,7 @@ export default function FleetPage() {
                           {busyId === u.id ? (
                             <span className="muted">…</span>
                           ) : (
-                            <IconButton name="archive" title="Archivar unidad"
+                            <IconButton name="archive" title="Archive unit"
                               onClick={(e) => {
                                 e.stopPropagation(); archive(u.id)
                               }} />

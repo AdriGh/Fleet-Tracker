@@ -1,0 +1,10 @@
+{
+  "provider": "auto",
+  "aws_access_key_id": "",
+  "aws_secret_access_key": "",
+  "aws_region": "us-east-1",
+  "ollama_url": "http://127.0.0.1:11434",
+  "ollama_model": "qwen2.5vl:7b",
+  "api_key": "",
+  "model": "claude-opus-4-8"
+}

@@ -90,14 +90,14 @@ def load_live(cfg: dict):
     company_sheets = _pick_company_sheets(titles, cfg)
     if not company_sheets:
         raise RuntimeError(
-            "No se encontraron hojas de empresa tipo 'CHASER N' / 'MCC N' "
-            f"en la planilla. Hojas disponibles: {titles}")
+            "No company sheets like 'CHASER N' / 'MCC N' found "
+            f"in the spreadsheet. Available sheets: {titles}")
 
     di_title = _pick_driver_info(titles, cfg)
     if di_title is None:
         raise RuntimeError(
-            "No se encontro la hoja 'Driver info' en la planilla. "
-            f"Hojas disponibles: {titles}")
+            "Sheet 'Driver info' not found in the spreadsheet. "
+            f"Available sheets: {titles}")
 
     sheets = {t: _read(svc, sid, t) for t in company_sheets}
     driver_info = _read(svc, sid, di_title)

@@ -29,7 +29,7 @@ const SHORTCUTS = [
   {
     id: 'dvir',
     label: 'DVIR Reports',
-    desc: 'Arma el reporte diario de inspecciones.',
+    desc: 'Build the daily inspection report.',
     icon: (
       <path d="M9 4h6a1 1 0 0 1 1 1v1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h2V5a1 1 0 0 1 1-1zm0 9 2 2 4-4" />
     ),
@@ -37,7 +37,7 @@ const SHORTCUTS = [
   {
     id: 'defectos',
     label: 'Defects',
-    desc: 'Backlog de defectos abiertos por unidad.',
+    desc: 'Backlog of open defects by unit.',
     icon: (
       <path d="M10.3 3.5 1.8 18a1.5 1.5 0 0 0 1.3 2.2h17.8A1.5 1.5 0 0 0 22.2 18L13.7 3.5a1.5 1.5 0 0 0-2.6 0zM12 9v4m0 4h.01" />
     ),
@@ -45,13 +45,13 @@ const SHORTCUTS = [
   {
     id: 'avisos',
     label: 'Notices',
-    desc: 'Avisa a conductores por SMS o email.',
+    desc: 'Notify drivers by SMS or email.',
     icon: <path d="M3 5h18v14H3zm1 2 8 6 8-6" />,
   },
   {
     id: 'flota',
     label: 'Fleet',
-    desc: 'Inventario de unidades en vivo.',
+    desc: 'Live unit inventory.',
     icon: (
       <path d="M2 6h11v9H2zM13 9h4l3 3v3h-7zM6.5 17.5h.01M17.5 17.5h.01" />
     ),
@@ -59,7 +59,7 @@ const SHORTCUTS = [
   {
     id: 'pm',
     label: 'PM Tracker',
-    desc: 'Mantenimiento preventivo por millaje.',
+    desc: 'Preventive maintenance by mileage.',
     icon: (
       <path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L4 16.8 7.2 20l5.3-5.3a4 4 0 0 0 5.2-5.4l-2.5 2.5-2.3-.5-.5-2.3z" />
     ),
@@ -107,9 +107,9 @@ export default function Dashboard({ onNavigate }: Props) {
     try {
       const n = await ackAlertEvents()
       qc.invalidateQueries({ queryKey: ['alert-events'] })
-      notifyOk('Alertas atendidas', `${n} evento${n === 1 ? '' : 's'}`)
+      notifyOk('Alerts acknowledged', `${n} event${n === 1 ? '' : 's'}`)
     } catch (e) {
-      notifyErr('No se pudo marcar', e)
+      notifyErr('Could not acknowledge', e)
     }
   }
 
@@ -172,8 +172,8 @@ export default function Dashboard({ onNavigate }: Props) {
         <div>
           <h1>Dashboard</h1>
           <p className="page-sub">
-            Estado de cumplimiento de la flota en un vistazo: DVIR, defectos,
-            mantenimiento e inventario.
+            Fleet compliance status at a glance: DVIR, defects,
+            maintenance and inventory.
           </p>
         </div>
         <div className="head-actions">
@@ -204,33 +204,33 @@ export default function Dashboard({ onNavigate }: Props) {
       ) : (
         <div className="kpi-row">
           <StatCard
-            label="Fleet SAFE (mes)"
+            label="Fleet SAFE (month)"
             value={summary?.fleet_safe_pct != null ? `${summary.fleet_safe_pct.toFixed(1)}%` : '—'}
-            sub={summary?.n_blocks ? `${summary.n_blocks} días` : 'sin datos'}
+            sub={summary?.n_blocks ? `${summary.n_blocks} days` : 'no data'}
             tone={summary?.fleet_safe_pct != null && summary.fleet_safe_pct < 90 ? 'warn' : 'ok'}
           />
           <StatCard
-            label="Defectos abiertos"
+            label="Open defects"
             value={openDefects.length}
-            sub={`${unitsAffected} unidades`}
+            sub={`${unitsAffected} units`}
             tone={openDefects.length ? 'danger' : 'ok'}
           />
           <StatCard
-            label="PM vencidos"
+            label="Overdue PMs"
             value={pmStats.overdue}
-            sub={`${pmStats.upcoming} próximos`}
+            sub={`${pmStats.upcoming} upcoming`}
             tone={pmStats.overdue ? 'danger' : 'ok'}
           />
           <StatCard
-            label="Unidades activas"
+            label="Active units"
             value={fleetStats.active}
             sub={`${fleetStats.truck} trk · ${fleetStats.trailer} trl · ${fleetStats.chassis} chs`}
             tone="info"
           />
           <StatCard
-            label="DVIR pendientes"
+            label="Missing DVIRs"
             value={missing.length}
-            sub="conductores este mes"
+            sub="drivers this month"
             tone={missing.length ? 'warn' : 'ok'}
           />
         </div>
@@ -240,8 +240,8 @@ export default function Dashboard({ onNavigate }: Props) {
         {/* Tendencia */}
         <section className="card dash-trend">
           <div className="card-head">
-            <h2>Tendencia mensual</h2>
-            <span className="sub">incidentes por día (NO DVIR + Unsafe)</span>
+            <h2>Monthly trend</h2>
+            <span className="sub">incidents per day (NO DVIR + Unsafe)</span>
           </div>
           <div className="card-body">
             {trendsQ.isPending ? (
@@ -255,7 +255,7 @@ export default function Dashboard({ onNavigate }: Props) {
         {/* Donut SAFE */}
         <section className="card dash-donut">
           <div className="card-head">
-            <h2>Fleet SAFE este mes</h2>
+            <h2>Fleet SAFE this month</h2>
           </div>
           <div className="card-body">
             {summaryQ.isPending ? (
@@ -264,7 +264,7 @@ export default function Dashboard({ onNavigate }: Props) {
               <SafeDonut
                 pct={summary?.fleet_safe_pct ?? null}
                 caption={summary?.month
-                  ? `Promedio de ${summary.n_blocks} ${summary.n_blocks === 1 ? 'día' : 'días'}`
+                  ? `${summary.n_blocks}-day average`
                   : ''}
               />
             )}
@@ -274,8 +274,8 @@ export default function Dashboard({ onNavigate }: Props) {
         {/* Requiere atención */}
         <section className="card dash-attention">
           <div className="card-head">
-            <h2>Requiere atención</h2>
-            <button className="btn-link" onClick={() => onNavigate('pm')}>Ver PM →</button>
+            <h2>Needs attention</h2>
+            <button className="btn-link" onClick={() => onNavigate('pm')}>View PM →</button>
           </div>
           <div className="card-body">
             {pmQ.isPending ? (
@@ -283,7 +283,7 @@ export default function Dashboard({ onNavigate }: Props) {
                 {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} h={30} />)}
               </div>
             ) : pmStats.attention.length === 0 ? (
-              <div className="empty mini"><p>Sin PM vencidos ni próximos. 👌</p></div>
+              <div className="empty mini"><p>No overdue or upcoming PMs.</p></div>
             ) : (
               <ul className="dash-list">
                 {pmStats.attention.map((a) => (
@@ -291,8 +291,8 @@ export default function Dashboard({ onNavigate }: Props) {
                     <span className="dash-list-code">{a.unit}</span>
                     <span className={`dash-tag ${a.remaining < 0 ? 'is-danger' : 'is-warn'}`}>
                       {a.remaining < 0
-                        ? `vencido ${Math.abs(Math.round(a.remaining)).toLocaleString()} mi`
-                        : `faltan ${Math.round(a.remaining).toLocaleString()} mi`}
+                        ? `${Math.abs(Math.round(a.remaining)).toLocaleString()} mi overdue`
+                        : `${Math.round(a.remaining).toLocaleString()} mi left`}
                     </span>
                   </li>
                 ))}
@@ -304,8 +304,8 @@ export default function Dashboard({ onNavigate }: Props) {
         {/* DVIR pendientes */}
         <section className="card dash-missing">
           <div className="card-head">
-            <h2>Top DVIR pendientes</h2>
-            <button className="btn-link" onClick={() => onNavigate('dvir')}>Ver DVIR →</button>
+            <h2>Top missing DVIRs</h2>
+            <button className="btn-link" onClick={() => onNavigate('dvir')}>View DVIR →</button>
           </div>
           <div className="card-body">
             {missingQ.isPending ? (
@@ -313,13 +313,13 @@ export default function Dashboard({ onNavigate }: Props) {
                 {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} h={30} />)}
               </div>
             ) : missing.length === 0 ? (
-              <div className="empty mini"><p>Nadie pendiente este mes. ✅</p></div>
+              <div className="empty mini"><p>Nobody missing this month.</p></div>
             ) : (
               <ul className="dash-list">
                 {missing.slice(0, 6).map((d) => (
                   <li key={d.driver} className="dash-list-item">
                     <span className="dash-list-name">{d.driver}</span>
-                    <span className="dash-tag is-warn">{d.misses} {d.misses === 1 ? 'falta' : 'faltas'}</span>
+                    <span className="dash-tag is-warn">{d.misses} {d.misses === 1 ? 'miss' : 'misses'}</span>
                   </li>
                 ))}
               </ul>
@@ -378,8 +378,8 @@ export default function Dashboard({ onNavigate }: Props) {
         {/* Actividad reciente */}
         <section className="card dash-recent">
           <div className="card-head">
-            <h2>Actividad reciente</h2>
-            <button className="btn-link" onClick={() => onNavigate('dvir')}>Ver todo →</button>
+            <h2>Recent activity</h2>
+            <button className="btn-link" onClick={() => onNavigate('dvir')}>View all →</button>
           </div>
           <div className="card-body">
             {recentQ.isPending ? (
@@ -387,7 +387,7 @@ export default function Dashboard({ onNavigate }: Props) {
                 {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} h={34} />)}
               </div>
             ) : recent.length === 0 ? (
-              <div className="empty mini"><p>Aún no hay reportes generados.</p></div>
+              <div className="empty mini"><p>No reports generated yet.</p></div>
             ) : (
               <ul className="dash-list">
                 {recent.map((b) => (

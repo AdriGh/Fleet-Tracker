@@ -126,15 +126,15 @@ def create_user(name: str, username: str, password: str,
     username = username.strip().lower()
     name = name.strip()
     if not username or not password:
-        raise ValueError("usuario y contraseña son obligatorios")
+        raise ValueError("username and password are required")
     if len(password) < 8:
-        raise ValueError("la contraseña necesita al menos 8 caracteres")
+        raise ValueError("password needs at least 8 characters")
     if role not in ROLES:
         role = "viewer"
     with SessionLocal() as session:
         if session.scalar(select(User).where(
                 User.username == username)):
-            raise ValueError(f"el usuario '{username}' ya existe")
+            raise ValueError(f"user '{username}' already exists")
         u = User(username=username[:40], name=name[:120], role=role,
                  pw_hash=hash_password(password), active=True,
                  created_at=datetime.now())
@@ -147,7 +147,7 @@ def create_user(name: str, username: str, password: str,
 def setup_admin(name: str, username: str, password: str) -> dict:
     """Crea el PRIMER usuario (admin). Solo válido con la tabla vacía."""
     if users_exist():
-        raise ValueError("la app ya tiene usuarios")
+        raise ValueError("the app already has users")
     return create_user(name, username, password, role="admin")
 
 
@@ -188,12 +188,12 @@ def update_user(user_id: int, fields: dict,
         if "active" in fields:
             # Un admin no puede desactivarse a sí mismo (lockout).
             if not fields["active"] and u.id == acting_admin_id:
-                raise ValueError("no puedes desactivar tu propia cuenta")
+                raise ValueError("you can't deactivate your own account")
             u.active = bool(fields["active"])
         if fields.get("password"):
             if len(str(fields["password"])) < 8:
                 raise ValueError(
-                    "la contraseña necesita al menos 8 caracteres")
+                    "password needs at least 8 characters")
             u.pw_hash = hash_password(str(fields["password"]))
         if "name" in fields:
             u.name = str(fields["name"]).strip()[:120]

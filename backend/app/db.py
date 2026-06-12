@@ -101,11 +101,14 @@ class Poi(Base):
 
 
 class WorkOrder(Base):
-    """Orden de trabajo (fase G5 — reemplazo de Fullbay para flota propia).
+    """Orden de trabajo (G5, pipeline H2 — reemplazo de Fullbay).
 
-    Estados: open -> in_progress -> waiting_parts -> completed.
-    Si `is_pm` y se completa con `pm_miles`, el PM tracker se actualiza
-    vía override (core/workorders.py), sin depender del CSV de Fullbay.
+    Pipeline: open -> assigned -> in_progress -> completed -> invoiced
+    -> closed (pagada; cierre manual). `waiting_parts` es un flag, no un
+    estado (la espera de partes no rompe la secuencia). Gates de avance
+    en core/workorders.py: assigned exige mecánico, invoiced exige
+    total > 0. Si `is_pm` y llega a completed con `pm_miles`, el PM
+    tracker se actualiza vía override.
     """
     __tablename__ = "work_order"
 
@@ -113,6 +116,8 @@ class WorkOrder(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime)
     closed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)        # sello de COMPLETED (histórico)
+    invoiced_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True)
     unit: Mapped[str] = mapped_column(String(64), index=True)
     company: Mapped[str] = mapped_column(String(64), default="")
@@ -125,6 +130,14 @@ class WorkOrder(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     is_pm: Mapped[bool] = mapped_column(Boolean, default=False)
     pm_miles: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mileage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    service_date: Mapped[str | None] = mapped_column(
+        String(10), nullable=True)      # YYYY-MM-DD (form del jefe)
+    waiting_parts: Mapped[bool] = mapped_column(Boolean, default=False)
+    # H3b: campaña de mantenimiento asociada (pm|dot|kingpins|dpf|clutch
+    # o ''). Al FACTURAR la orden se registra el servicio en la campaña
+    # (maint_record) y el perfil de la unidad se actualiza solo.
+    campaign: Mapped[str] = mapped_column(String(12), default="")
     source: Mapped[str] = mapped_column(String(20), default="manual")
 
     lines: Mapped[list["WorkOrderLine"]] = relationship(
@@ -254,7 +267,74 @@ class AlertEvent(Base):
     acked: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class UnitDoc(Base):
+    """Documento adjunto de una unidad (fase H3, pestaña Attachments del
+    perfil): copia del PM, copia del DOT, CAB card, registration, etc.
+    El archivo vive en backend/uploads/units/<unit>/ (gitignored)."""
+    __tablename__ = "unit_doc"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    unit: Mapped[str] = mapped_column(String(64), index=True)
+    kind: Mapped[str] = mapped_column(String(20), default="other")
+    filename: Mapped[str] = mapped_column(String(140))
+    stored: Mapped[str] = mapped_column(String(200))   # ruta relativa
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    note: Mapped[str] = mapped_column(String(200), default="")
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class MaintRecord(Base):
+    """Evento de mantenimiento por unidad (fase H1): kind 'pm' (servicio
+    preventivo) o 'dot' (inspección anual DOT). Historial editable desde
+    los dashboards gemelos PM/DOT; el más reciente por fecha manda."""
+    __tablename__ = "maint_record"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    unit: Mapped[str] = mapped_column(String(64), index=True)
+    kind: Mapped[str] = mapped_column(String(8), index=True)   # pm | dot
+    date: Mapped[str] = mapped_column(String(10))              # YYYY-MM-DD
+    mileage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notes: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 Base.metadata.create_all(_engine)
+
+
+def _migrate() -> None:
+    """Migraciones aditivas para SQLite (create_all no agrega columnas a
+    tablas existentes). Idempotente: solo agrega lo que falte."""
+    with _engine.connect() as conn:
+        cols = {r[1] for r in conn.exec_driver_sql(
+            "PRAGMA table_info(work_order)").fetchall()}
+        adds = {
+            "invoiced_at": "DATETIME",
+            "mileage": "INTEGER",
+            "service_date": "VARCHAR(10)",
+            "waiting_parts": "BOOLEAN DEFAULT 0",
+            "campaign": "VARCHAR(12) DEFAULT ''",
+        }
+        for col, ddl in adds.items():
+            if col not in cols:
+                conn.exec_driver_sql(
+                    f"ALTER TABLE work_order ADD COLUMN {col} {ddl}")
+        # H2: waiting_parts deja de ser estado del pipeline; los WOs
+        # viejos pasan a in_progress con el flag prendido.
+        conn.exec_driver_sql(
+            "UPDATE work_order SET status='in_progress', waiting_parts=1 "
+            "WHERE status='waiting_parts'")
+        # H3: el estado 'closed' se eliminó; invoiced es terminal.
+        conn.exec_driver_sql(
+            "UPDATE work_order SET status='invoiced' "
+            "WHERE status='closed'")
+        # H3b: el flag is_pm viejo pasa a la campaña 'pm'.
+        conn.exec_driver_sql(
+            "UPDATE work_order SET campaign='pm' "
+            "WHERE is_pm=1 AND (campaign IS NULL OR campaign='')")
+        conn.commit()
+
+
+_migrate()
 
 
 # ---------------------------------------------------------------------------

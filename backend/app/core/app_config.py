@@ -75,7 +75,7 @@ def apply_action(asset_id: str, action: str) -> None:
     elif action == "auto":
         keep.discard(asset_id); arch.discard(asset_id)
     else:
-        raise ValueError(f"acción desconocida: {action}")
+        raise ValueError(f"unknown action: {action}")
     d["archived_ids"] = sorted(arch)
     d["kept_active_ids"] = sorted(keep)
     _save(d)

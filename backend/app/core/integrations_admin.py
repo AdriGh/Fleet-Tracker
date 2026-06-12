@@ -24,7 +24,10 @@ from pathlib import Path
 import httpx
 
 from .. import config
-from . import local_config, mailer, media_host, pm, pois, samsara, sms_service
+from . import (
+    docscan, local_config, mailer, media_host, pm, pois, samsara,
+    sms_service, telegram_notify,
+)
 from .providers import registry
 
 _TIMEOUT = 15
@@ -59,6 +62,8 @@ def config_specs() -> dict[str, dict]:
     avisos = local_config.load()
     motive = _read_json(config.BACKEND_DIR / "motive.local.json")
     google = _read_json(pois.GOOGLE_CONF)
+    telegram = telegram_notify.load_settings()
+    claude = docscan.load_settings()
 
     return {
         "samsara": {
@@ -108,6 +113,22 @@ def config_specs() -> dict[str, dict]:
                  "kind": "toggle", "value": cloud.dry_run},
             ],
         },
+        "telegram": {
+            "title": "Telegram shop notifications",
+            "help": ("Bot from @BotFather + the shop group chat id "
+                     "(starts with -100). Notifies the group when a "
+                     "work order is assigned."),
+            "fields": [
+                {"key": "bot_token", "label": "Bot token",
+                 "kind": "password",
+                 "tail": _tail(telegram.get("bot_token", ""))},
+                {"key": "chat_id", "label": "Group chat id",
+                 "kind": "text", "tail": telegram.get("chat_id", "")},
+                {"key": "dry_run", "label": "Dry run (simulate sends)",
+                 "kind": "toggle",
+                 "value": bool(telegram.get("dry_run", True))},
+            ],
+        },
         "gplaces": {
             "title": "Google Places API",
             "help": ("Text Search key. Results show in lists only "
@@ -116,6 +137,32 @@ def config_specs() -> dict[str, dict]:
                 {"key": "places_api_key", "label": "Places API key",
                  "kind": "password",
                  "tail": _tail(google.get("places_api_key", ""))},
+            ],
+        },
+        "docscan": {
+            "title": "AI document scan",
+            "help": ("Scans shop invoices and estimates to autofill work "
+                     "orders. Engines: AWS Textract AnalyzeExpense "
+                     "($0.008/page, the commercial-grade option), local "
+                     "Ollama (free, needs 'ollama pull qwen2.5vl:7b') or "
+                     "Claude API. Auto picks Textract if AWS keys exist, "
+                     "then Claude, then local."),
+            "fields": [
+                {"key": "provider",
+                 "label": "Provider (auto | textract | ollama | anthropic)",
+                 "kind": "text", "tail": claude["provider"]},
+                {"key": "aws_access_key_id", "label": "AWS access key id",
+                 "kind": "password",
+                 "tail": _tail(claude["aws_access_key_id"])},
+                {"key": "aws_secret_access_key",
+                 "label": "AWS secret access key", "kind": "password",
+                 "tail": _tail(claude["aws_secret_access_key"])},
+                {"key": "aws_region", "label": "AWS region",
+                 "kind": "text", "tail": claude["aws_region"]},
+                {"key": "ollama_model", "label": "Local model (Ollama)",
+                 "kind": "text", "tail": claude["ollama_model"]},
+                {"key": "api_key", "label": "Anthropic API key (optional)",
+                 "kind": "password", "tail": _tail(claude["api_key"])},
             ],
         },
         "gmail": {
@@ -164,6 +211,14 @@ def save_config(provider: str, values: dict) -> dict:
     elif provider == "cloudinary":
         merge(media_host.SETTINGS_PATH,
               ["cloud_name", "api_key", "api_secret", "dry_run"])
+    elif provider == "telegram":
+        merge(telegram_notify.SETTINGS_PATH,
+              ["bot_token", "chat_id", "dry_run"])
+    elif provider == "docscan":
+        merge(docscan.SETTINGS_PATH,
+              ["provider", "api_key", "model", "ollama_url",
+               "ollama_model", "aws_access_key_id",
+               "aws_secret_access_key", "aws_region"])
     elif provider == "gplaces":
         merge(pois.GOOGLE_CONF, ["places_api_key"])
     elif provider == "gmail":
@@ -172,7 +227,7 @@ def save_config(provider: str, values: dict) -> dict:
     elif provider == "samsara":
         _save_samsara_orgs(values)
     else:
-        raise ValueError(f"Proveedor no configurable: {provider}")
+        raise ValueError(f"Provider not configurable: {provider}")
     return {"ok": True}
 
 
@@ -268,6 +323,12 @@ async def test(provider: str) -> dict:
                 return {"ok": False, "detail": f"{type(exc).__name__}"}
 
         return await asyncio.to_thread(smtp_login)
+
+    if provider == "telegram":
+        return await telegram_notify.ping()
+
+    if provider == "docscan":
+        return await docscan.ping()
 
     if provider == "gplaces":
         if not pois.google_configured():

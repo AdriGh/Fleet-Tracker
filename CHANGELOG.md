@@ -7,6 +7,92 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.1.0] - 2026-06-12
+
+Rework H fases 1-3b: mantenimiento DOT+PM unificado, pipeline de Work
+Orders estilo UNIQ con Telegram, escáner AI de invoices (4 motores) y
+perfil de unidad estilo Fullbay. Además: fix de causa raíz del Live Map,
+toda la UI en inglés y logo/favicon a la marca actual.
+
+### Añadido
+- **DOT Inspections + PM Tracker unificados (H1)**: tablero compartido
+  `views/MaintBoardPage.tsx` (reemplaza PMPage) para los kinds `pm` y
+  `dot`; tabla `maint_record` (cada edición es un evento, manda el más
+  reciente por fecha), `core/maint.py` con board unificado (PM fusiona
+  CSV Fullbay + overrides + records; DOT vence +365 días, upcoming ≤30);
+  `ops_status` manual por unidad (out_of_service|in_shop); endpoints
+  `/api/maint/{kind}`, `/maint/record`, `/maint/ops-status`,
+  `/maint/odometer/{unit}`; tarjetas de status filtrables con % y barra,
+  tabla editable inline, modal Add PM/DOT con botón "Current" (odómetro
+  Samsara en un clic) y animación de confirmación en cascada.
+- **Work Orders pipeline secuencial (H2)**: open → assigned →
+  in_progress → completed → invoiced; StageBar de chevrones estilo UNIQ
+  (hover previsualiza el camino, clic multi-salto); gates de negocio
+  (assigned exige mecánico, invoiced exige total>0, retroceder deshace
+  sellos); columnas nuevas mileage/service_date/invoiced_at y
+  "Waiting for parts" como flag; form del jefe con botón Current; 6
+  KPIs; el hook de PM dispara desde completed.
+- **Notificaciones Telegram (H2)**: `core/telegram_notify.py` — bot al
+  group chat del taller al cambiar de estado un WO (configurable por
+  estado, dry_run por defecto); test getMe sin enviar; en Settings →
+  Connectivity con Configure+Test; guía `backend/TELEGRAM_SETUP.md` +
+  `telegram.example.json`.
+- **Escáner AI de invoices (H2.5/H2.5b)**: `core/docscan.py` con 4
+  motores y resolución auto (Textract si hay creds AWS > Claude si hay
+  api key > Ollama local gratis > heurístico regex para PDFs digitales):
+  AWS Textract AnalyzeExpense (grado comercial, PDF→PNG por página vía
+  pypdfium2, merge multi-página, overlay heurístico para campos de
+  flota), Anthropic (messages.parse + Pydantic), Ollama local
+  (qwen2.5vl:7b, salida estructurada nativa, verificado E2E). Endpoint
+  POST `/api/workorders/scan`; dropzone en New work order que autollena
+  el form y agrega las líneas extraídas; reconciliación de cantidades
+  qty=total/unitario; provider "docscan" en Settings → Connectivity.
+  Deps nuevas: anthropic, pypdf, pypdfium2, boto3.
+- **Perfil de unidad estilo Fullbay (H3a)**: `views/UnitProfilePage.tsx`
+  (clic en una fila de Fleet) con 4 pestañas — Components & PMs
+  (campañas por unidad: pm/dot por defecto, kingpins/dpf/clutch opt-in,
+  con last done/next due/status y "Record done" + historial), Active
+  Services (WOs abiertas por status), Service History (WOs facturadas
+  con Edit/Delete) y Attachments (documentos por unidad con multi-upload
+  drag&drop, download autenticado y delete; tabla `unit_doc`, archivos
+  en `backend/uploads/` gitignored). Header con 3 stat cards (costo 12m,
+  servicios activos, odómetro vivo + PM remaining).
+- **WO ↔ campañas (H3b)**: campo `campaign` en work_order (migración
+  is_pm → 'pm'); select de campaña en crear y en el drawer; al facturar
+  se crea el maint_record de la campaña (idempotente por "WO #id:" en
+  notas) y el perfil Components & PMs se actualiza solo; modal New work
+  order a dos columnas con preview del documento junto al form (img o
+  iframe PDF, sticky); líneas del modal editables (kind/desc/qty/costo,
+  quitar, "+ Add line").
+- Docs vivos nuevos: `docs/ROADMAP-H.md` (plan del rework),
+  `docs/STRATEGY-data.md` (investigación de mercado/datos),
+  `docs/map-debug-plan.md` (postmortem del mapa) y `handoff.md` (raíz).
+
+### Cambiado
+- **Toda la UI en inglés** (~310 strings: vistas, componentes y mensajes
+  de error del backend que viajan por la API); comentarios de código
+  quedan en español; valores almacenados/comparados intactos.
+- **Logo/favicon a la marca actual**: `favicon.svg` y
+  `fleet-tracker.ico` redibujados (badge rojo + flecha de navegación);
+  `make_icon.py` actualizado.
+- Work Orders: el estado `closed` se eliminó del pipeline (migración
+  closed → invoiced; invoiced es terminal); las WOs ahora se pueden
+  editar inline (title/complaint) y eliminar (DELETE + confirm).
+- Los modales se renderizan vía portal en `document.body`
+  (`components/Modal.tsx`) y la animación de página usa
+  `fill-mode: backwards` — inmuniza los modales contra el bug de
+  containing block de Chrome con `position:fixed`.
+
+### Arreglado
+- **Live Map borroso y con la cámara perdida**: `.map-shell` (grid) no
+  acotaba la fila → el canvas WebGL heredaba ~10,540px y se clampeaba a
+  4096px estirado; fix `grid-template-rows: minmax(0,1fr)` +
+  `min-height:0` en la cadena (verificado con Playwright headless;
+  postmortem en `docs/map-debug-plan.md`).
+- Cantidades del escaneo de invoices: WoLineExtract ganó `total` y
+  `_normalize` reconcilia qty cuando qty×unitario no cuadra (caso Loves
+  39×$3.51 verificado).
+
 ## [1.0.0] - 2026-06-11
 
 El release mayor: el **Rework G completo (8 fases)**. Fleet Tracker pasa de

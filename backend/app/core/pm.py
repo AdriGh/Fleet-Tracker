@@ -43,7 +43,7 @@ def _save_overrides(d: dict) -> None:
 def set_override(unit: str, field: str, value) -> None:
     """field: current_miles | last_pm_miles. value=None borra el override."""
     if field not in ("current_miles", "last_pm_miles"):
-        raise ValueError(f"campo inválido: {field}")
+        raise ValueError(f"invalid field: {field}")
     d = load_overrides()
     u = d.setdefault(unit, {})
     if value is None or value == "":

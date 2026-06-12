@@ -188,7 +188,7 @@ export default function DriversPage() {
                               <span key={doc.label}
                                 className={`tms-doc ${tone}`}
                                 title={v ? `${doc.label}: ${v}`
-                                  : `${doc.label}: sin fecha`}>
+                                  : `${doc.label}: no date`}>
                                 {doc.label}
                               </span>
                             )
@@ -241,9 +241,9 @@ function DriverProfile({ driver, onBack }: {
     try {
       await saveTmsDriver(form)
       await qc.invalidateQueries({ queryKey: ['tms-drivers'] })
-      notifyOk('Perfil guardado', driver.name)
+      notifyOk('Profile saved', driver.name)
     } catch (e) {
-      notifyErr('No se pudo guardar', e)
+      notifyErr('Could not save', e)
     } finally {
       setSaving(false)
     }

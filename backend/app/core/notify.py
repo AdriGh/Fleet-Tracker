@@ -95,14 +95,14 @@ def build_notices(groups: list[Group], book: ContactBook,
         # Acumula todos los problemas que impiden enviar (no solo el primero).
         problems: list[str] = []
         if contact is None:
-            problems.append("no está en 'Driver info'")
+            problems.append("not in 'Driver info'")
         else:
             if not contact.email:
-                problems.append("sin email en 'Driver info'")
+                problems.append("no email in 'Driver info'")
             if not cc:
                 problems.append(
-                    f"terminal no reconocida (unidad {unit or '—'}; "
-                    "cargar el prefijo regional, p. ej. ATL-CI2033)")
+                    f"terminal not recognized (unit {unit or '—'}; "
+                    "add the regional prefix, e.g. ATL-CI2033)")
 
         if problems:
             notice.review_reason = "; ".join(problems)

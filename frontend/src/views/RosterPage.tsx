@@ -113,9 +113,9 @@ export default function RosterPage({ embedded = false }: Props) {
       await setDriverEmail(name, editVal.trim())
       await rosterQuery.refetch()
       setEditId(null)
-      notifyOk('Email guardado', name)
+      notifyOk('Email saved', name)
     } catch (e) {
-      notifyErr('No se pudo guardar el email', e)
+      notifyErr('Couldn\'t save the email', e)
     } finally {
       setSavingEmail(false)
     }
@@ -129,10 +129,10 @@ export default function RosterPage({ embedded = false }: Props) {
       await rosterQuery.refetch()
       setSyncMsg(`Synced ${r.with_email} emails`)
       setTimeout(() => setSyncMsg(''), 3000)
-      notifyOk('Emails sincronizados', `${r.with_email} con email`)
+      notifyOk('Emails synced', `${r.with_email} with email`)
     } catch (e) {
       setSyncMsg(e instanceof Error ? e.message : 'Sync failed')
-      notifyErr('Falló la sincronización', e)
+      notifyErr('Sync failed', e)
     } finally {
       setSyncing(false)
     }
