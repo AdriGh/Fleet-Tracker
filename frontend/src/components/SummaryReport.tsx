@@ -45,7 +45,7 @@ function SummaryUnit({ row }: { row: SummaryRow }) {
           {groups.map((g, i) => (
             <li key={i}>
               <span className="sr-cat">{g.category}</span>
-              {g.body && <span className="sr-body"> — {g.body}</span>}
+              {g.body && <span className="sr-body"> · {g.body}</span>}
               {g.count > 1 && <em className="sr-rep"> ×{g.count}</em>}
             </li>
           ))}
@@ -86,7 +86,7 @@ export default function SummaryReport(
             </div>
           </div>
           <div className="ur-title">
-            <h1>Open Defects — Summary</h1>
+            <h1>Open Defects · Summary</h1>
             <span className="ur-gen">
               {scope} · {rows.length} units · {totalDefects} open ·
               {' '}Generated {generated}

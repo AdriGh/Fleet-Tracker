@@ -325,6 +325,7 @@ export interface TrackVehicle {
   lng: number
   heading: number | null
   speed_mph: number
+  stale: boolean           // GPS sin reportar >15 min
   location: string
   gps_time: string
   engine: string            // On | Off | Idle | ''
@@ -641,7 +642,8 @@ export async function patchLoad(
 }
 
 // --- Work Orders (fase G5 — reemplazo de Fullbay) ------------------------
-export type WoStatus = 'open' | 'in_progress' | 'waiting_parts' | 'completed'
+export type WoStatus =
+  'open' | 'assigned' | 'in_progress' | 'completed' | 'invoiced'
 export type WoPriority = 'low' | 'normal' | 'high'
 
 export interface WoLine {
@@ -668,15 +670,25 @@ export interface WorkOrder {
   notes: string
   is_pm: boolean
   pm_miles: number | null
+  campaign: string
+  mileage: number | null
+  service_date: string | null
+  waiting_parts: boolean
+  invoiced_at: string | null
   source: string
   total: number
   n_lines: number
   lines?: WoLine[]
+  // Presente solo si el PATCH disparo una notificacion de Telegram.
+  telegram?: { sent: boolean; simulated?: boolean; detail?: string }
 }
 
 export interface WoStats {
   open: number
+  assigned: number
   in_progress: number
+  completed: number
+  invoiced: number
   waiting_parts: number
   completed_30d: number
   cost_30d: number
@@ -693,9 +705,150 @@ export async function listWorkOrders(
   return res.json()
 }
 
+export async function deleteWorkOrder(id: number): Promise<void> {
+  const res = await fetch(`/api/workorders/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+// --- Perfil de unidad (fase H3) ----------------------------------------
+export interface UnitCampaign {
+  key: string
+  label: string
+  due: 'miles' | 'days' | 'none'
+  default: boolean
+  last_date: string | null
+  last_miles: number | null
+  next_due_miles?: number | null
+  next_due_date?: string | null
+  to_due: number | null
+  status: string
+  records: { id: number; date: string; mileage: number | null
+             notes: string }[]
+}
+
+export interface UnitCampaignsResult {
+  unit: string
+  model: string
+  current_miles: number | null
+  current_source: string | null
+  campaigns: UnitCampaign[]
+  available: { key: string; label: string }[]
+}
+
+export async function getUnitCampaigns(
+  unit: string, model = '',
+): Promise<UnitCampaignsResult> {
+  const qs = model ? `?model=${encodeURIComponent(model)}` : ''
+  const res = await fetch(
+    `/api/units/${encodeURIComponent(unit)}/campaigns${qs}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function toggleUnitCampaign(
+  unit: string, key: string, enabled: boolean,
+): Promise<void> {
+  const res = await fetch(
+    `/api/units/${encodeURIComponent(unit)}/campaigns`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, enabled }),
+    })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+export interface UnitDoc {
+  id: number
+  unit: string
+  kind: string
+  kind_label: string
+  filename: string
+  size: number
+  note: string
+  uploaded_at: string
+}
+
+export async function listUnitDocs(unit: string): Promise<{
+  docs: UnitDoc[]
+  kinds: { key: string; label: string }[]
+}> {
+  const res = await fetch(`/api/units/${encodeURIComponent(unit)}/docs`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function uploadUnitDocs(
+  unit: string, kind: string, files: File[],
+): Promise<{ saved: UnitDoc[]; errors: string[] }> {
+  const fd = new FormData()
+  for (const f of files) fd.append('files', f)
+  const res = await fetch(
+    `/api/units/${encodeURIComponent(unit)}/docs?kind=${encodeURIComponent(kind)}`,
+    { method: 'POST', body: fd })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function deleteUnitDoc(id: number): Promise<void> {
+  const res = await fetch(`/api/units/docs/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+// Descarga autenticada: un <a href> directo no llevaría el Bearer token
+// (el middleware lo exige), así que se baja por fetch y blob.
+export async function downloadUnitDoc(
+  id: number, filename: string,
+): Promise<void> {
+  const res = await fetch(`/api/units/docs/${id}/download`)
+  if (!res.ok) throw new Error(await readError(res))
+  const url = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// --- Escáner AI de documentos (fase H2.5) ------------------------------
+export interface WoScanLine {
+  kind: 'part' | 'labor'
+  description: string
+  qty: number
+  unit_cost: number
+}
+
+export interface WoScanExtract {
+  unit: string | null
+  service_date: string | null
+  mileage: number | null
+  title: string | null
+  complaint: string | null
+  mechanic: string | null
+  vendor: string | null
+  invoice_number: string | null
+  is_pm: boolean
+  lines: WoScanLine[]
+}
+
+export async function scanWoDocument(file: File): Promise<{
+  extract: WoScanExtract
+  model: string
+  tokens: { input: number; output: number }
+}> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const res = await fetch('/api/workorders/scan', {
+    method: 'POST',
+    body: fd,
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
 export async function createWorkOrder(body: {
   unit: string; title: string; complaint?: string; company?: string
   mechanic?: string; priority?: WoPriority; is_pm?: boolean; source?: string
+  mileage?: number | null; service_date?: string; campaign?: string
 }): Promise<WorkOrder> {
   const res = await fetch('/api/workorders', {
     method: 'POST',
@@ -1063,6 +1216,78 @@ export async function setPMExcluded(
     body: JSON.stringify({ unit, excluded }),
   })
   if (!res.ok) throw new Error(await readError(res))
+}
+
+// --- Tableros gemelos PM / DOT (fase H1) -------------------------------
+export type MaintKind = 'pm' | 'dot'
+export type OpsStatus = '' | 'out_of_service' | 'in_shop'
+
+export interface MaintRow {
+  unit: string
+  model: string
+  driver: string
+  current_miles: number | null
+  current_source: string | null      // obd | gps | report | manual
+  current_overridden: boolean
+  ops_status: OpsStatus
+  notes: string
+  last_date: string | null           // YYYY-MM-DD
+  last_miles: number | null
+  last_overridden?: boolean          // solo pm
+  next_due_miles?: number | null     // pm
+  next_due_date?: string | null      // dot
+  to_due: number | null              // pm: millas · dot: días
+  status: string   // on_track|upcoming|overdue|never|no_meter|out_of_service|in_shop
+}
+
+export interface MaintBoardResult {
+  available: boolean
+  kind: MaintKind
+  interval_miles: number
+  upcoming_miles: number
+  interval_days: number
+  upcoming_days: number
+  units: MaintRow[]
+  excluded: { unit: string; model: string }[]
+}
+
+export async function getMaintBoard(
+  kind: MaintKind,
+): Promise<MaintBoardResult> {
+  const res = await fetch(`/api/maint/${kind}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as MaintBoardResult
+}
+
+export async function addMaintRecord(p: {
+  kind: MaintKind; unit: string; date: string;
+  mileage?: number | null; notes?: string
+}): Promise<void> {
+  const res = await fetch('/api/maint/record', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(p),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+export async function setOpsStatus(
+  unit: string, status: OpsStatus,
+): Promise<void> {
+  const res = await fetch('/api/maint/ops-status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ unit, status }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+export async function getUnitOdometer(
+  unit: string,
+): Promise<{ unit: string; miles: number | null; source: string | null }> {
+  const res = await fetch(`/api/maint/odometer/${encodeURIComponent(unit)}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return await res.json()
 }
 
 // --- Tendencias -------------------------------------------------------

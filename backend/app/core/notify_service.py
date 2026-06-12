@@ -62,11 +62,11 @@ def scan(sheet: str, date_label: str) -> dict:
     data = datasource.load_report()
     values = data.sheets.get(sheet)
     if values is None:
-        raise KeyError(f"Hoja '{sheet}' no encontrada.")
+        raise KeyError(f"Sheet '{sheet}' not found.")
     parsed = parse_blocks(values)
     groups = parsed.get(date_label)
     if groups is None:
-        raise KeyError(f"Bloque '{date_label}' no encontrado en '{sheet}'.")
+        raise KeyError(f"Block '{date_label}' not found in '{sheet}'.")
     book = parse_contacts(data.driver_info, region_from_truck)
     notices, review = build_notices(groups, book)
     return {
@@ -104,7 +104,7 @@ def send(sheet: str, date_label: str, drivers: list[str],
                                 "error": r["error"], "simulated": r["simulated"]}
             else:
                 row["email"] = {"to": "", "ok": False, "simulated": False,
-                                "error": "sin email"}
+                                "error": "no email"}
 
         if "sms" in chans:
             if n["sms_phone"]:
@@ -121,7 +121,7 @@ def send(sheet: str, date_label: str, drivers: list[str],
                               "simulated": r["simulated"]}
             else:
                 row["sms"] = {"to": "", "ok": False, "simulated": False,
-                              "error": "sin teléfono válido"}
+                              "error": "no valid phone"}
 
         results.append(row)
     return {

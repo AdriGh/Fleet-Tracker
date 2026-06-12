@@ -144,7 +144,7 @@ export default function MapPage({ theme }: Props) {
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
     return vehicles.filter((v) =>
-      (!onlyMoving || v.speed_mph > 1) &&
+      (!onlyMoving || (v.speed_mph > 1 && !v.stale)) &&
       (!s ||
         v.unit.toLowerCase().includes(s) ||
         v.driver.toLowerCase().includes(s)))
@@ -177,7 +177,7 @@ export default function MapPage({ theme }: Props) {
       properties: {
         id: v.id,
         unit: v.unit,
-        moving: v.speed_mph > 1 ? 1 : 0,
+        moving: v.speed_mph > 1 && !v.stale ? 1 : 0,
       },
     })),
   }), [filtered])
@@ -233,9 +233,9 @@ export default function MapPage({ theme }: Props) {
   async function copyCoords(v: TrackVehicle) {
     try {
       await navigator.clipboard.writeText(coordsOf(v))
-      notifyOk('Coordenadas copiadas', coordsOf(v))
+      notifyOk('Coordinates copied', coordsOf(v))
     } catch (e) {
-      notifyErr('No se pudo copiar', e)
+      notifyErr('Could not copy', e)
     }
   }
 
@@ -355,12 +355,12 @@ export default function MapPage({ theme }: Props) {
             ) : (
               filtered.map((v) => {
                 const duty = DUTY[v.duty]
-                const moving = v.speed_mph > 1
+                const moving = v.speed_mph > 1 && !v.stale
                 return (
                   <div
                     key={v.id}
                     ref={(el) => { rowRefs.current[v.id] = el }}
-                    className={`map-row ${selected === v.id ? 'on' : ''}`}
+                    className={`map-row ${selected === v.id ? 'on' : ''} ${v.stale ? 'is-stale' : ''}`}
                     onClick={() => select(v)}
                   >
                     <div className="map-row-top">
@@ -391,7 +391,7 @@ export default function MapPage({ theme }: Props) {
                       </span>
                       <button
                         className="map-mini-btn"
-                        title={`Copiar coordenadas: ${coordsOf(v)}`}
+                        title={`Copy coordinates: ${coordsOf(v)}`}
                         onClick={(e) => { e.stopPropagation(); copyCoords(v) }}
                       >
                         <svg viewBox="0 0 24 24" {...STROKE}>
@@ -401,7 +401,7 @@ export default function MapPage({ theme }: Props) {
                       </button>
                       <a
                         className="map-mini-btn"
-                        title="Abrir en Google Maps"
+                        title="Open in Google Maps"
                         href={`https://www.google.com/maps?q=${v.lat},${v.lng}`}
                         target="_blank" rel="noreferrer"
                         onClick={(e) => e.stopPropagation()}
@@ -434,11 +434,13 @@ export default function MapPage({ theme }: Props) {
                     <div className="map-row-meta">
                       <span className={`map-eng eng-${(v.engine || 'na').toLowerCase()}`}>
                         <span className="nf-dot" />
-                        {moving && v.moving_for_s != null
-                          ? `Moving for ${fmtDuration(v.moving_for_s)}`
-                          : v.engine
-                            ? `Engine ${v.engine}`
-                            : 'No engine data'}
+                        {v.stale
+                          ? 'GPS stale'
+                          : moving && v.moving_for_s != null
+                            ? `Moving for ${fmtDuration(v.moving_for_s)}`
+                            : v.engine
+                              ? `Engine ${v.engine}`
+                              : 'No engine data'}
                       </span>
                       {v.fuel_pct != null && (
                         <span title="Fuel level">
@@ -484,7 +486,7 @@ export default function MapPage({ theme }: Props) {
                   <span className="map-nearby-mi">{mi.toFixed(0)} mi</span>
                   <a
                     className="map-mini-btn"
-                    title="Abrir en Google Maps"
+                    title="Open in Google Maps"
                     href={`https://www.google.com/maps?q=${poi.lat},${poi.lng}`}
                     target="_blank" rel="noreferrer"
                   >
@@ -544,7 +546,7 @@ export default function MapPage({ theme }: Props) {
                 className={`map-layer-chip sub ${dotOnly ? 'on' : ''}`}
                 onClick={() => setDotOnly((d) => !d)}
                 aria-pressed={dotOnly}
-                title="Solo básculas de enforcement (DOT)"
+                title="Enforcement (DOT) scales only"
               >
                 DOT only
               </button>
@@ -557,6 +559,20 @@ export default function MapPage({ theme }: Props) {
             mapStyle={theme === 'dark' ? STYLE_DARK : STYLE_LIGHT}
             interactiveLayerIds={['unit-clusters', 'unit-dots', 'poi-dots']}
             onClick={onMapClick}
+            // Operación de flota US: limitar el mundo evita perderse en
+            // Groenlandia y mantiene los tiles en zooms útiles.
+            minZoom={2.5}
+            maxZoom={18}
+            maxBounds={[[-135, 12], [-52, 58]]}
+            renderWorldCopies={false}
+            onLoad={() => {
+              // Re-medir el canvas tras el primer layout y tras la
+              // animación de entrada de la página (canvas nítido y
+              // pan/zoom alineados, pase lo que pase con el layout).
+              const m = mapRef.current
+              m?.resize()
+              window.setTimeout(() => m?.resize(), 450)
+            }}
             attributionControl={{
               compact: true,
               customAttribution:
@@ -698,9 +714,9 @@ export default function MapPage({ theme }: Props) {
                         try {
                           await navigator.clipboard.writeText(
                             `${selectedPoi.lat.toFixed(5)}, ${selectedPoi.lng.toFixed(5)}`)
-                          notifyOk('Coordenadas copiadas')
+                          notifyOk('Coordinates copied')
                         } catch (e) {
-                          notifyErr('No se pudo copiar', e)
+                          notifyErr('Could not copy', e)
                         }
                       }}>
                       Copy coords

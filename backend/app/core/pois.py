@@ -85,7 +85,7 @@ def add_poi(kind: str, name: str, lat: float, lng: float,
             address: str = "", phone: str = "",
             subtype: str = "") -> dict:
     if kind not in KINDS:
-        raise ValueError(f"kind inválido: {kind}")
+        raise ValueError(f"invalid kind: {kind}")
     poi = Poi(
         id=f"man-{uuid.uuid4().hex[:12]}",
         kind=kind, subtype=subtype[:20],

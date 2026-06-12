@@ -1,13 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Work Orders (fase G5 — el reemplazo de Fullbay para flota propia).
+"""Work Orders (G5; pipeline H2 — el reemplazo de Fullbay).
 
-Pipeline: defecto (o manual) -> WO -> partes/labor -> completado.
-Al completar un WO marcado como PM con millaje, se actualiza el override
-`last_pm_miles` del PM tracker: el ciclo de mantenimiento se cierra
-dentro de la app sin re-exportar el CSV de Fullbay.
+Pipeline secuencial estilo TMS (H3: "closed" se eliminó; invoiced es
+el estado terminal):
+    open -> assigned -> in_progress -> completed -> invoiced
 
-Estados válidos: open -> in_progress -> waiting_parts -> completed
-(la UI permite saltar entre ellos; `completed` sella closed_at).
+Gates de avance (estilo QuickManage; la barra estilo UNIQ del frontend
+permite saltar varias etapas de un clic, validando TODOS los gates del
+camino):
+- assigned o más: requiere mecánico asignado.
+- invoiced: requiere total > 0 (líneas de partes/labor).
+Retroceder está permitido (deshace sellos de invoiced/completed).
+
+`waiting_parts` es un FLAG (la espera de partes no rompe la secuencia).
+Al llegar a completed un WO de PM con millaje, se actualiza el override
+`last_pm_miles` del PM tracker sin re-exportar el CSV de Fullbay.
 """
 
 from __future__ import annotations
@@ -19,9 +26,20 @@ from sqlalchemy import func, select
 from ..db import SessionLocal, WorkOrder, WorkOrderLine
 from . import pm
 
-STATUSES = ("open", "in_progress", "waiting_parts", "completed")
+STATUSES = ("open", "assigned", "in_progress", "completed", "invoiced")
+_ORDER = {s: i for i, s in enumerate(STATUSES)}
 PRIORITIES = ("low", "normal", "high")
 LINE_KINDS = ("part", "labor")
+
+
+def gate_error(target: str, mechanic: str, total: float) -> str | None:
+    """Por qué NO se puede avanzar a `target` (None = se puede)."""
+    ti = _ORDER[target]
+    if ti >= _ORDER["assigned"] and not (mechanic or "").strip():
+        return "assign a mechanic before moving past Open"
+    if ti >= _ORDER["invoiced"] and total <= 0:
+        return "add parts or labor lines before invoicing"
+    return None
 
 
 def _line_dict(ln: WorkOrderLine) -> dict:
@@ -42,6 +60,8 @@ def _wo_dict(wo: WorkOrder, with_lines: bool = False) -> dict:
         "created_at": wo.created_at.isoformat(),
         "updated_at": wo.updated_at.isoformat(),
         "closed_at": wo.closed_at.isoformat() if wo.closed_at else None,
+        "invoiced_at": (wo.invoiced_at.isoformat()
+                        if wo.invoiced_at else None),
         "unit": wo.unit,
         "company": wo.company,
         "status": wo.status,
@@ -52,6 +72,10 @@ def _wo_dict(wo: WorkOrder, with_lines: bool = False) -> dict:
         "notes": wo.notes,
         "is_pm": wo.is_pm,
         "pm_miles": wo.pm_miles,
+        "campaign": wo.campaign or "",
+        "mileage": wo.mileage,
+        "service_date": wo.service_date,
+        "waiting_parts": wo.waiting_parts,
         "source": wo.source,
         "total": total,
         "n_lines": len(wo.lines),
@@ -80,21 +104,31 @@ def get_wo(wo_id: int) -> dict | None:
 def create_wo(unit: str, title: str, complaint: str = "",
               company: str = "", mechanic: str = "",
               priority: str = "normal", is_pm: bool = False,
-              source: str = "manual") -> dict:
+              source: str = "manual", mileage: int | None = None,
+              service_date: str = "", campaign: str = "") -> dict:
+    from . import maint                  # import diferido (orden de carga)
     unit = unit.strip()
     title = title.strip()
     if not unit or not title:
-        raise ValueError("unit y title son obligatorios")
+        raise ValueError("unit and title are required")
     if priority not in PRIORITIES:
         priority = "normal"
+    if campaign and campaign not in maint.CAMPAIGNS:
+        campaign = ""
     now = datetime.now()
     wo = WorkOrder(
         created_at=now, updated_at=now,
         unit=unit[:64], company=company.strip()[:64],
-        status="open", priority=priority,
+        # Crear ya asignada si vino mecánico (gate de assigned cumplido).
+        status="assigned" if mechanic.strip() else "open",
+        priority=priority,
         title=title[:140], complaint=complaint.strip(),
         mechanic=mechanic.strip()[:80], notes="",
-        is_pm=bool(is_pm), source=source[:20] or "manual",
+        is_pm=bool(is_pm) or campaign == "pm",
+        campaign=campaign,
+        source=source[:20] or "manual",
+        mileage=(int(mileage) if mileage not in (None, "") else None),
+        service_date=(service_date.strip()[:10] or None),
     )
     with SessionLocal() as session:
         session.add(wo)
@@ -103,19 +137,19 @@ def create_wo(unit: str, title: str, complaint: str = "",
 
 
 def update_wo(wo_id: int, fields: dict) -> dict | None:
-    """Actualiza campos editables. Completar un WO de PM con millaje
-    actualiza el override last_pm_miles del PM tracker."""
+    """Actualiza campos editables, con gates de pipeline en los cambios
+    de estado. Al cruzar completed, un WO de PM con millaje actualiza el
+    override last_pm_miles del PM tracker. Lanza ValueError si un gate
+    bloquea el avance (el mensaje se muestra tal cual en la UI)."""
+    from . import maint                  # import diferido (orden de carga)
     with SessionLocal() as session:
         wo = session.get(WorkOrder, wo_id)
         if wo is None:
             return None
+        was_invoiced = wo.invoiced_at is not None
 
-        if "status" in fields and fields["status"] in STATUSES:
-            wo.status = fields["status"]
-            if wo.status == "completed":
-                wo.closed_at = wo.closed_at or datetime.now()
-            else:
-                wo.closed_at = None
+        # Campos simples primero: permite "asignar mecánico + avanzar"
+        # en el mismo request (el gate ve el mecánico nuevo).
         if "priority" in fields and fields["priority"] in PRIORITIES:
             wo.priority = fields["priority"]
         for key, cap in (("title", 140), ("mechanic", 80),
@@ -127,21 +161,74 @@ def update_wo(wo_id: int, fields: dict) -> dict | None:
                 setattr(wo, key, str(fields[key]).strip())
         if "is_pm" in fields:
             wo.is_pm = bool(fields["is_pm"])
-        if "pm_miles" in fields:
-            try:
-                wo.pm_miles = (int(fields["pm_miles"])
-                               if fields["pm_miles"] not in ("", None)
-                               else None)
-            except (TypeError, ValueError):
-                pass
+        if "campaign" in fields:
+            c = str(fields["campaign"]).strip()
+            wo.campaign = c if c in maint.CAMPAIGNS else ""
+            if wo.campaign == "pm":
+                wo.is_pm = True
+        if "waiting_parts" in fields:
+            wo.waiting_parts = bool(fields["waiting_parts"])
+        for key in ("pm_miles", "mileage"):
+            if key in fields:
+                try:
+                    setattr(wo, key, (int(fields[key])
+                                      if fields[key] not in ("", None)
+                                      else None))
+                except (TypeError, ValueError):
+                    pass
+        if "service_date" in fields:
+            wo.service_date = (str(fields["service_date"]).strip()[:10]
+                               or None)
+
+        if "status" in fields and fields["status"] in STATUSES:
+            target = fields["status"]
+            total = round(sum(ln.qty * ln.unit_cost for ln in wo.lines), 2)
+            if _ORDER[target] > _ORDER[wo.status]:      # avance: gates
+                err = gate_error(target, wo.mechanic, total)
+                if err:
+                    session.rollback()
+                    raise ValueError(err)
+            wo.status = target
+            now = datetime.now()
+            # Sellos según hasta dónde llegó el pipeline (retroceder
+            # los deshace).
+            if _ORDER[target] >= _ORDER["completed"]:
+                wo.closed_at = wo.closed_at or now
+            else:
+                wo.closed_at = None
+            if _ORDER[target] >= _ORDER["invoiced"]:
+                wo.invoiced_at = wo.invoiced_at or now
+            else:
+                wo.invoiced_at = None
 
         wo.updated_at = datetime.now()
         session.commit()
 
-        # Hook PM: WO de PM completado con millaje -> el PM tracker
-        # registra el servicio sin pasar por el CSV de Fullbay.
-        if wo.status == "completed" and wo.is_pm and wo.pm_miles:
+        # Hook PM: WO de PM que llegó a completed (o más) con millaje ->
+        # el PM tracker registra el servicio sin pasar por el CSV.
+        if (_ORDER[wo.status] >= _ORDER["completed"]
+                and wo.is_pm and wo.pm_miles):
             pm.set_override(wo.unit, "last_pm_miles", wo.pm_miles)
+
+        # Hook campañas (H3b, estilo Fullbay): al FACTURAR una orden con
+        # campaña, se registra el servicio en Components & PMs del
+        # perfil. Idempotente: una orden solo registra UNA vez aunque se
+        # des-facture y re-facture (se busca su "WO #id:" en las notas).
+        if (wo.campaign and not was_invoiced
+                and wo.invoiced_at is not None):
+            from datetime import date as _date
+            from ..db import MaintRecord
+            already = session.scalar(
+                select(MaintRecord).where(
+                    MaintRecord.unit == wo.unit,
+                    MaintRecord.kind == wo.campaign,
+                    MaintRecord.notes.like(f"WO #{wo.id}:%")))
+            if already is None:
+                maint.add_record(
+                    wo.unit, wo.campaign,
+                    wo.service_date or _date.today().isoformat(),
+                    wo.mileage or wo.pm_miles,
+                    notes=f"WO #{wo.id}: {wo.title}"[:300])
 
         return _wo_dict(wo, with_lines=True)
 
@@ -149,10 +236,10 @@ def update_wo(wo_id: int, fields: dict) -> dict | None:
 def add_line(wo_id: int, kind: str, description: str,
              qty: float, unit_cost: float) -> dict | None:
     if kind not in LINE_KINDS:
-        raise ValueError(f"kind inválido: {kind}")
+        raise ValueError(f"invalid kind: {kind}")
     description = description.strip()
     if not description:
-        raise ValueError("description es obligatoria")
+        raise ValueError("description is required")
     with SessionLocal() as session:
         wo = session.get(WorkOrder, wo_id)
         if wo is None:
@@ -178,6 +265,18 @@ def delete_line(wo_id: int, line_id: int) -> dict | None:
         return _wo_dict(wo, with_lines=True)
 
 
+def delete_wo(wo_id: int) -> bool:
+    """Elimina la work order y sus líneas (cascade). H3: pedido del
+    usuario para corregir órdenes creadas por error."""
+    with SessionLocal() as session:
+        wo = session.get(WorkOrder, wo_id)
+        if wo is None:
+            return False
+        session.delete(wo)
+        session.commit()
+        return True
+
+
 def mechanics() -> list[str]:
     """Mecánicos usados antes (para autocompletar)."""
     with SessionLocal() as session:
@@ -192,16 +291,23 @@ def stats() -> dict:
         by_status = dict(session.execute(
             select(WorkOrder.status, func.count())
             .group_by(WorkOrder.status)).all())
+        waiting = session.scalar(
+            select(func.count()).select_from(WorkOrder).where(
+                WorkOrder.waiting_parts.is_(True),
+                WorkOrder.status != "invoiced")) or 0
         done_30 = session.scalars(
             select(WorkOrder).where(
-                WorkOrder.status == "completed",
+                WorkOrder.status.in_(("completed", "invoiced")),
                 WorkOrder.closed_at >= month_ago)).all()
         cost_30 = round(sum(
             ln.qty * ln.unit_cost for w in done_30 for ln in w.lines), 2)
         return {
             "open": by_status.get("open", 0),
+            "assigned": by_status.get("assigned", 0),
             "in_progress": by_status.get("in_progress", 0),
-            "waiting_parts": by_status.get("waiting_parts", 0),
+            "completed": by_status.get("completed", 0),
+            "invoiced": by_status.get("invoiced", 0),
+            "waiting_parts": waiting,
             "completed_30d": len(done_30),
             "cost_30d": cost_30,
         }

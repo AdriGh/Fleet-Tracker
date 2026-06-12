@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 interface Props {
   title: string
@@ -16,7 +17,10 @@ export default function Modal({ title, onClose, children, width }: Props) {
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  return (
+  // Portal a <body>: si un ancestro tiene transform/filter (p. ej. la
+  // animación de entrada de .page), capturaría el position:fixed del
+  // backdrop y el modal saldría cortado. Desde body es inmune.
+  return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal"
@@ -34,6 +38,7 @@ export default function Modal({ title, onClose, children, width }: Props) {
         </div>
         <div className="modal-body">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

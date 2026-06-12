@@ -80,7 +80,7 @@ def load_pretrip(source) -> dict[str, dict]:
         df = pd.read_csv(source, dtype=str, keep_default_na=False)
     except Exception as exc:  # noqa: BLE001
         raise ReportError(
-            f"No se pudo leer el CSV de Pre/Post-trip: {exc}") from exc
+            f"Could not read the Pre/Post-trip CSV: {exc}") from exc
     cols = {c.strip().lower(): c.strip() for c in df.columns}
     df.columns = [c.strip() for c in df.columns]
 
@@ -91,7 +91,7 @@ def load_pretrip(source) -> dict[str, dict]:
     status_col = _find_col(cols, "hos", "status", "duty")
     if not (driver_col and remark_col and start_col and end_col):
         raise ReportError(
-            "El CSV de Pre/Post-trip no tiene las columnas esperadas "
+            "The Pre/Post-trip CSV is missing expected columns "
             "(Driver Name, Remark, Start Time, End Time).")
 
     out: dict[str, dict] = {}

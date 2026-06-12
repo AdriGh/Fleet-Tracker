@@ -70,7 +70,7 @@ function ReeferChart({ points }: { points: ReeferPoint[] }) {
     [p.setpoint_f, p.return_f, p.supply_f].filter(
       (v): v is number => v != null))
   if (!vals.length) {
-    return <p className="ud-muted">Sin datos de temperatura en la ventana.</p>
+    return <p className="ud-muted">No temperature data in this window.</p>
   }
   const min = Math.floor(Math.min(...vals) - 2)
   const max = Math.ceil(Math.max(...vals) + 2)
@@ -92,7 +92,7 @@ function ReeferChart({ points }: { points: ReeferPoint[] }) {
   return (
     <div className="reefer-chart">
       <svg viewBox={`0 0 ${W} ${H}`} role="img"
-        aria-label="Temperatura del reefer, últimas 24 horas">
+        aria-label="Reefer temperature, last 24 hours">
         {[min, (min + max) / 2, max].map((v) => (
           <g key={v}>
             <line x1={ML} x2={W - 8} y1={y(v)} y2={y(v)}
@@ -126,7 +126,7 @@ function HistoryRow({ unitId }: { unitId: string }) {
   })
   if (q.isPending) return <Skeleton h={150} />
   if (q.error || !q.data) {
-    return <p className="ud-muted">No se pudo cargar la historia.</p>
+    return <p className="ud-muted">Could not load history.</p>
   }
   return <ReeferChart points={q.data.points} />
 }
@@ -201,8 +201,8 @@ export default function ReeferPage() {
         </div>
         <div className="head-actions">
           {data?.demo && (
-            <span className="nf-pill is-real" title={'Samsara no reporta '
-              + 'reefers todavía: datos simulados para evaluar el dashboard'}>
+            <span className="nf-pill is-real" title={'Samsara is not reporting '
+              + 'reefers yet: simulated data to evaluate the dashboard'}>
               DEMO DATA
             </span>
           )}

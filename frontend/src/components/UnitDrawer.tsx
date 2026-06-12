@@ -59,9 +59,9 @@ export default function UnitDrawer(
       const saved = await saveUnitSettings(unit.unit, form)
       qc.setQueryData(['unit-settings', unit.unit], saved)
       qc.invalidateQueries({ queryKey: ['unit-settings-all'] })
-      notifyOk('Perfil guardado', unit.unit)
+      notifyOk('Profile saved', unit.unit)
     } catch (e) {
-      notifyErr('No se pudo guardar el perfil', e)
+      notifyErr('Could not save the profile', e)
     } finally {
       setSavingForm(false)
     }
@@ -82,9 +82,9 @@ export default function UnitDrawer(
         source: 'defect',
       })
       qc.invalidateQueries({ queryKey: ['workorders'] })
-      notifyOk('Work order creada', `#${wo.id} · ${unit.unit} — ábrela en Work Orders`)
+      notifyOk('Work order created', `#${wo.id} · ${unit.unit} · open it in Work Orders`)
     } catch (e) {
-      notifyErr('No se pudo crear la WO', e)
+      notifyErr('Could not create the work order', e)
     } finally {
       setCreatingWo(null)
     }
@@ -98,10 +98,10 @@ export default function UnitDrawer(
       await qc.invalidateQueries({ queryKey: ['fleet'] })
       qc.invalidateQueries({ queryKey: ['open-defects'] })
       qc.invalidateQueries({ queryKey: ['defect-stats'] })
-      notifyOk('Unidad archivada', `${unit.unit} — excluida de defectos`)
+      notifyOk('Unit archived', `${unit.unit} · excluded from defects`)
       onClose()
     } catch (e) {
-      notifyErr('No se pudo archivar', e)
+      notifyErr('Could not archive the unit', e)
     } finally {
       setArchiving(false)
     }
@@ -145,12 +145,12 @@ export default function UnitDrawer(
                     <span className="ud-chip">{unit.company}</span>
                     {unit.archived && (
                       <span className="ud-chip danger">
-                        archivada{unit.archive_reason ? ` · ${unit.archive_reason}` : ''}
+                        archived{unit.archive_reason ? ` · ${unit.archive_reason}` : ''}
                       </span>
                     )}
                   </span>
                 </div>
-                <button className="icon-btn" onClick={onClose} aria-label="Cerrar">
+                <button className="icon-btn" onClick={onClose} aria-label="Close">
                   <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
                     stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                     <path d="M6 6l12 12M18 6L6 18" />
@@ -158,31 +158,31 @@ export default function UnitDrawer(
                 </button>
               </div>
               <Drawer.Description className="sr-only">
-                Detalle de la unidad {unit.unit}
+                Details for unit {unit.unit}
               </Drawer.Description>
 
               <div className="ud-body">
                 {/* Ficha del asset */}
                 <section className="ud-sec">
-                  <h3>Detalle</h3>
-                  <Row label="Marca / Modelo"
+                  <h3>Details</h3>
+                  <Row label="Make / Model"
                     value={[unit.make, unit.model].filter(Boolean).join(' ') || '—'} />
-                  <Row label="Año" value={unit.year || '—'} />
+                  <Row label="Year" value={unit.year || '—'} />
                   <Row label="VIN" value={<span className="mono">{unit.vin || '—'}</span>} />
-                  <Row label="Placa" value={unit.plate || '—'} />
-                  <Row label="Último DVIR" value={date(unit.last_dvir)} />
+                  <Row label="Plate" value={unit.plate || '—'} />
+                  <Row label="Last DVIR" value={date(unit.last_dvir)} />
                 </section>
 
                 {/* Defectos abiertos */}
                 <section className="ud-sec">
                   <h3>
-                    Defectos abiertos
+                    Open defects
                     <span className="ud-count">{defects.length}</span>
                   </h3>
                   {defectsQ.isPending ? (
-                    <p className="ud-muted">Cargando…</p>
+                    <p className="ud-muted">Loading…</p>
                   ) : defects.length === 0 ? (
-                    <p className="ud-muted">Sin defectos abiertos 🎉</p>
+                    <p className="ud-muted">No open defects</p>
                   ) : (
                     <ul className="ud-defects">
                       {defects.map((d, i) => (
@@ -198,11 +198,11 @@ export default function UnitDrawer(
                               <span className="ud-type">{d.dvir_type}</span>
                             )}
                             <button className="btn btn-ghost btn-xs ud-towo"
-                              title="Crear work order desde este defecto"
+                              title="Create a work order from this defect"
                               disabled={creatingWo === i}
                               onClick={() =>
                                 defectToWo(i, d.detail, d.dvir_type)}>
-                              {creatingWo === i ? 'Creando…' : '→ WO'}
+                              {creatingWo === i ? 'Creating…' : '→ WO'}
                             </button>
                           </div>
                           <p className="ud-def-text">{d.detail || '—'}</p>
@@ -217,13 +217,13 @@ export default function UnitDrawer(
                 <section className="ud-sec">
                   <h3>Device settings</h3>
                   {settingsQ.isPending || !form ? (
-                    <p className="ud-muted">Cargando…</p>
+                    <p className="ud-muted">Loading…</p>
                   ) : (
                     <div className="ud-form">
                       <label className="ud-field">
                         <span>Nickname</span>
                         <input className="cell-input" value={form.nickname}
-                          placeholder="e.g. La Bestia"
+                          placeholder="e.g. The Beast"
                           onChange={(e) => setForm(
                             { ...form, nickname: e.target.value })} />
                       </label>
@@ -267,26 +267,26 @@ export default function UnitDrawer(
                 {/* PM (solo camiones) */}
                 {isTruck && (
                   <section className="ud-sec">
-                    <h3>Mantenimiento (PM)</h3>
+                    <h3>Maintenance (PM)</h3>
                     {pmQ.isPending ? (
-                      <p className="ud-muted">Cargando…</p>
+                      <p className="ud-muted">Loading…</p>
                     ) : !pm ? (
-                      <p className="ud-muted">Sin datos de PM.</p>
+                      <p className="ud-muted">No PM data.</p>
                     ) : (
                       <>
-                        <Row label="Último PM"
+                        <Row label="Last PM"
                           value={`${date(pm.last_pm_date)} · ${miles(pm.last_pm_miles)}`} />
-                        <Row label="Millaje actual"
+                        <Row label="Current mileage"
                           value={<>{miles(pm.current_miles)}
                             {pm.current_source && (
                               <span className="ud-src"> ({pm.current_source})</span>
                             )}</>} />
-                        <Row label="Próximo PM" value={miles(pm.next_due_miles)} />
-                        <Row label="Restante" value={
+                        <Row label="Next PM" value={miles(pm.next_due_miles)} />
+                        <Row label="Remaining" value={
                           <span className={`ud-rem ${pmTone}`}>
                             {remaining == null ? '—'
                               : remaining < 0
-                                ? `vencido ${miles(Math.abs(remaining))}`
+                                ? `overdue by ${miles(Math.abs(remaining))}`
                                 : miles(remaining)}
                           </span>
                         } />
@@ -306,7 +306,7 @@ export default function UnitDrawer(
                       <rect x="3" y="4" width="18" height="4" rx="1" />
                       <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
                     </svg>
-                    {archiving ? 'Archivando…' : 'Archivar / excluir unidad'}
+                    {archiving ? 'Archiving…' : 'Archive / exclude unit'}
                   </button>
                 </div>
               )}

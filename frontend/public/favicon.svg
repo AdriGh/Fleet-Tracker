@@ -1,22 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <defs>
-    <linearGradient id="ft" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#6366f1"/>
-      <stop offset="0.5" stop-color="#8b5cf6"/>
-      <stop offset="1" stop-color="#22d3ee"/>
+    <linearGradient id="ftBadge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff4d3d"/>
+      <stop offset="0.55" stop-color="#e11900"/>
+      <stop offset="1" stop-color="#b71400"/>
     </linearGradient>
   </defs>
-  <rect x="0" y="0" width="256" height="256" rx="58" fill="url(#ft)"/>
-  <!-- ruta de rastreo -->
-  <path d="M46 182 C98 104 148 196 192 108" fill="none" stroke="#fff"
-    stroke-width="22" stroke-linecap="round"/>
-  <!-- nodo de inicio -->
-  <circle cx="46" cy="182" r="16" fill="#fff"/>
-  <circle cx="46" cy="182" r="7" fill="#6366f1"/>
-  <!-- radar ping -->
-  <circle cx="194" cy="76" r="43.5" fill="none" stroke="#fff"
-    stroke-width="3" opacity="0.45"/>
-  <!-- pin de ubicación -->
-  <path d="M194 124 L169 90 A29 29 0 1 1 219 90 Z" fill="#fff"/>
-  <circle cx="194" cy="76" r="12" fill="#22d3ee"/>
+  <!-- badge squircle -->
+  <rect x="12" y="12" width="232" height="232" rx="72" fill="url(#ftBadge)"/>
+  <rect x="12" y="12" width="232" height="232" rx="72" fill="none"
+    stroke="rgba(255,255,255,0.18)" stroke-width="4.8"/>
+  <!-- flecha de navegación (heading) -->
+  <path fill="#fff"
+    d="M128 60 L180 184 a5.6 5.6 0 0 1 -8 6.8 L128 164 L84 190.8 a5.6 5.6 0 0 1 -8 -6.8 Z"/>
+  <!-- nodo de ruta -->
+  <circle cx="128" cy="202" r="9.6" fill="rgba(255,255,255,0.55)"/>
 </svg>

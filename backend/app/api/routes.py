@@ -1,5 +1,6 @@
 """Endpoints de la API del generador de informes DVIR."""
 
+import base64
 import io
 import re
 import uuid
@@ -14,10 +15,11 @@ from pydantic import BaseModel
 from fastapi import Header
 
 from ..core import (
-    alerts, app_config, auth, batch, driver_contacts, engine, excel,
-    integrations_admin, local_config, mailer, media_host, notify_service,
-    open_defects, org_config, pm, pois, pretrip, reefer, samsara,
-    sms_service, tms, tracking, unit_settings, workorders,
+    alerts, app_config, auth, batch, docscan, driver_contacts, engine,
+    excel, integrations_admin, local_config, mailer, maint, media_host,
+    notify_service, open_defects, org_config, pm, pois, pretrip, reefer,
+    samsara, sms_service, telegram_notify, tms, tracking, unit_settings,
+    unitdocs, workorders,
 )
 from ..core.contacts import name_key
 from ..schemas import (
@@ -60,7 +62,7 @@ def download_report(report_id: str):
     """Descarga el Excel generado."""
     job = _jobs.get(report_id)
     if not job or not job["path"].exists():
-        raise HTTPException(404, "Informe no encontrado o expirado.")
+        raise HTTPException(404, "Report not found or expired.")
     return FileResponse(
         job["path"],
         filename=job["filename"],
@@ -83,7 +85,7 @@ def _date_key(date_label: str) -> tuple[int, int]:
 async def batch_analyze(files: list[UploadFile] = File(...)):
     """Recibe varios CSV, los clasifica y propone el emparejado."""
     if not files:
-        raise HTTPException(422, "No se subio ningun archivo.")
+        raise HTTPException(422, "No file was uploaded.")
 
     batch_id = uuid.uuid4().hex
     store: dict[str, tuple[str, bytes]] = {}
@@ -105,9 +107,9 @@ def batch_generate(req: BatchGenerateRequest):
     """Genera el workbook, lo guarda y persiste cada bloque en la BD."""
     store = _batches.get(req.batch_id)
     if store is None:
-        raise HTTPException(404, "Lote no encontrado o expirado.")
+        raise HTTPException(404, "Batch not found or expired.")
     if not req.blocks:
-        raise HTTPException(422, "No hay bloques que generar.")
+        raise HTTPException(422, "No blocks to generate.")
 
     roster = engine.load_roster(
         config.DEFAULT_ROSTER if config.DEFAULT_ROSTER.exists() else None)
@@ -119,8 +121,8 @@ def batch_generate(req: BatchGenerateRequest):
         activity = store.get(block.activity_file_id)
         if dvir is None or activity is None:
             raise HTTPException(
-                422, f"Bloque {block.company} {block.date_label}: "
-                     "falta el CSV de DVIR o de actividad.")
+                422, f"Block {block.company} {block.date_label}: "
+                     "missing the DVIR or activity CSV.")
         # El report de Pre/Post-trip es opcional: si falta, las filas quedan
         # como NO PRE-TRIP.
         pt_file = store.get(block.pretrip_file_id) if block.pretrip_file_id \
@@ -135,7 +137,7 @@ def batch_generate(req: BatchGenerateRequest):
                 block.company, pretrip_data)
         except engine.ReportError as exc:
             raise HTTPException(
-                422, f"Bloque {block.company} {block.date_label}: "
+                422, f"Block {block.company} {block.date_label}: "
                      f"{exc}") from exc
 
         by_company.setdefault(block.company, []).append(
@@ -144,10 +146,10 @@ def batch_generate(req: BatchGenerateRequest):
         metrics = engine.block_metrics(dvir_df, groups)
         if engine.dvir_looks_incomplete(groups):
             warnings.append(
-                f"Bloque {block.company} {block.date_label}: "
-                f"{metrics['n_no_dvir']} filas NO DVIR frente a "
-                f"{len(groups) - metrics['n_no_dvir']} con DVIR "
-                "— revisa que el CSV de DVIR este completo.")
+                f"Block {block.company} {block.date_label}: "
+                f"{metrics['n_no_dvir']} NO DVIR rows vs "
+                f"{len(groups) - metrics['n_no_dvir']} with DVIR; "
+                "check that the DVIR CSV is complete.")
 
         month, day = _date_key(block.date_label)
         try:
@@ -250,7 +252,7 @@ async def dvir_open_defects(refresh: bool = False):
             return {
                 "available": open_defects.is_available(),
                 "source": "csv",
-                "error": f"Samsara no respondió ({exc}); usando CSV local.",
+                "error": f"Samsara did not respond ({exc}); using local CSV.",
                 "defects": csv_rows,
             }
     return {
@@ -291,7 +293,7 @@ async def dvir_defect_stats(days: int = 7, refresh: bool = False):
                 "available": open_defects.is_available(),
                 "source": "csv",
                 "days": days,
-                "error": f"Samsara no respondió ({exc}); usando CSV local.",
+                "error": f"Samsara did not respond ({exc}); using local CSV.",
                 "defects": [{**d, "status": "Unsafe"} for d in open_defects.load()],
             }
     return {
@@ -415,7 +417,7 @@ def tms_load_create(body: LoadIn):
 def tms_load_get(load_id: int):
     ld = tms.get_load(load_id)
     if ld is None:
-        raise HTTPException(status_code=404, detail="Load no encontrada")
+        raise HTTPException(status_code=404, detail="Load not found")
     return ld
 
 
@@ -425,7 +427,7 @@ def tms_load_patch(load_id: int, body: LoadPatch):
         load_id, {k: v for k, v in body.model_dump().items()
                   if v is not None})
     if ld is None:
-        raise HTTPException(status_code=404, detail="Load no encontrada")
+        raise HTTPException(status_code=404, detail="Load not found")
     return ld
 
 
@@ -434,7 +436,7 @@ def tms_load_add_stop(load_id: int, body: LoadStopIn):
     ld = tms.add_stop(load_id, body.kind, body.name, body.city,
                       body.state, body.appt)
     if ld is None:
-        raise HTTPException(status_code=404, detail="Load no encontrada")
+        raise HTTPException(status_code=404, detail="Load not found")
     return ld
 
 
@@ -442,7 +444,7 @@ def tms_load_add_stop(load_id: int, body: LoadStopIn):
 def tms_load_del_stop(load_id: int, stop_id: int):
     ld = tms.delete_stop(load_id, stop_id)
     if ld is None:
-        raise HTTPException(status_code=404, detail="Load no encontrada")
+        raise HTTPException(status_code=404, detail="Load not found")
     return ld
 
 
@@ -455,6 +457,9 @@ class WorkOrderIn(BaseModel):
     priority: str = "normal"
     is_pm: bool = False
     source: str = "manual"
+    mileage: int | None = None
+    service_date: str = ""
+    campaign: str = ""
 
 
 class WorkOrderPatch(BaseModel):
@@ -466,6 +471,10 @@ class WorkOrderPatch(BaseModel):
     notes: str | None = None
     is_pm: bool | None = None
     pm_miles: int | None = None
+    mileage: int | None = None
+    service_date: str | None = None
+    waiting_parts: bool | None = None
+    campaign: str | None = None
 
 
 class WoLineIn(BaseModel):
@@ -487,7 +496,24 @@ def wo_create(body: WorkOrderIn):
     try:
         return workorders.create_wo(
             body.unit, body.title, body.complaint, body.company,
-            body.mechanic, body.priority, body.is_pm, body.source)
+            body.mechanic, body.priority, body.is_pm, body.source,
+            body.mileage, body.service_date, body.campaign)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/workorders/scan")
+async def wo_scan(file: UploadFile = File(...)):
+    """Escanea un invoice/estimate (PDF o foto) y devuelve los campos
+    extraídos para autollenar la work order (fase H2.5)."""
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(raw) > docscan.MAX_BYTES:
+        raise HTTPException(status_code=400,
+                            detail="File too large (max 20 MB)")
+    try:
+        return await docscan.scan(raw, file.content_type or "")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -496,17 +522,37 @@ def wo_create(body: WorkOrderIn):
 def wo_get(wo_id: int):
     wo = workorders.get_wo(wo_id)
     if wo is None:
-        raise HTTPException(status_code=404, detail="WO no encontrado")
+        raise HTTPException(status_code=404, detail="WO not found")
     return wo
 
 
+@router.delete("/workorders/{wo_id}")
+def wo_delete(wo_id: int):
+    """Elimina del todo una work order (fase H3, pedido del usuario)."""
+    if not workorders.delete_wo(wo_id):
+        raise HTTPException(status_code=404, detail="WO not found")
+    return {"ok": True}
+
+
 @router.patch("/workorders/{wo_id}")
-def wo_patch(wo_id: int, body: WorkOrderPatch):
-    wo = workorders.update_wo(
-        wo_id, {k: v for k, v in body.model_dump().items()
-                if v is not None})
+async def wo_patch(wo_id: int, body: WorkOrderPatch):
+    before = workorders.get_wo(wo_id)
+    if before is None:
+        raise HTTPException(status_code=404, detail="WO not found")
+    try:
+        wo = workorders.update_wo(
+            wo_id, {k: v for k, v in body.model_dump().items()
+                    if v is not None})
+    except ValueError as exc:
+        # Gate del pipeline: el mensaje se muestra tal cual en la UI.
+        raise HTTPException(status_code=400, detail=str(exc))
     if wo is None:
-        raise HTTPException(status_code=404, detail="WO no encontrado")
+        raise HTTPException(status_code=404, detail="WO not found")
+    # Telegram al group chat del taller en los estados configurados
+    # (default: assigned). dry_run simula; nunca rompe el PATCH.
+    tg = await telegram_notify.notify_wo(wo, before["status"])
+    if tg is not None:
+        wo["telegram"] = tg
     return wo
 
 
@@ -518,7 +564,7 @@ def wo_add_line(wo_id: int, body: WoLineIn):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if wo is None:
-        raise HTTPException(status_code=404, detail="WO no encontrado")
+        raise HTTPException(status_code=404, detail="WO not found")
     return wo
 
 
@@ -526,7 +572,7 @@ def wo_add_line(wo_id: int, body: WoLineIn):
 def wo_del_line(wo_id: int, line_id: int):
     wo = workorders.delete_line(wo_id, line_id)
     if wo is None:
-        raise HTTPException(status_code=404, detail="WO no encontrado")
+        raise HTTPException(status_code=404, detail="WO not found")
     return wo
 
 
@@ -643,7 +689,7 @@ def add_poi(body: PoiIn):
 @router.delete("/pois/{poi_id}")
 def delete_poi(poi_id: str):
     if not pois.delete_poi(poi_id):
-        raise HTTPException(status_code=404, detail="POI no encontrado")
+        raise HTTPException(status_code=404, detail="POI not found")
     return {"ok": True}
 
 
@@ -653,7 +699,7 @@ async def poi_google_search(body: PoiSearchIn):
     los ToS de Google prohíben pintar Places sobre mapas no-Google)."""
     q = body.query.strip()
     if not q:
-        raise HTTPException(status_code=400, detail="query vacío")
+        raise HTTPException(status_code=400, detail="query is empty")
     return await pois.google_search(q, body.lat, body.lng)
 
 
@@ -687,10 +733,10 @@ class UserPatch(BaseModel):
 def _require_admin(authorization: str | None) -> dict:
     user = auth.user_from_header(authorization)
     if user is None:
-        raise HTTPException(status_code=401, detail="No autenticado")
+        raise HTTPException(status_code=401, detail="Not authenticated")
     if user["role"] != "admin":
         raise HTTPException(status_code=403,
-                            detail="Requiere rol de administrador")
+                            detail="Admin role required")
     return user
 
 
@@ -722,7 +768,7 @@ def auth_login(body: AuthLoginIn):
     result = auth.login(body.username, body.password)
     if result is None:
         raise HTTPException(status_code=401,
-                            detail="Usuario o contraseña incorrectos")
+                            detail="Incorrect username or password")
     return result
 
 
@@ -755,7 +801,7 @@ def auth_users_patch(user_id: int, body: UserPatch,
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if user is None:
-        raise HTTPException(status_code=404, detail="Usuario no existe")
+        raise HTTPException(status_code=404, detail="User does not exist")
     return user
 
 
@@ -811,9 +857,9 @@ def integrations_config(body: IntegrationConfigIn):
 
 # Qué proveedores soportan test/configure desde la UI.
 _TESTABLE = {"samsara", "motive", "twilio", "cloudinary", "gmail",
-             "gplaces", "gsheets", "fullbay"}
+             "gplaces", "gsheets", "fullbay", "telegram", "docscan"}
 _CONFIGURABLE = {"samsara", "motive", "twilio", "cloudinary",
-                 "gplaces", "gmail"}
+                 "gplaces", "gmail", "telegram", "docscan"}
 
 
 @router.get("/integrations")
@@ -917,6 +963,20 @@ def integrations_status():
                                    or "No credentials configured"),
                         "items": [],
                     },
+                    {
+                        "id": "telegram", "name": "Telegram · shop bot",
+                        "kind": "Work order notifications",
+                        "status": ("not_configured"
+                                   if not telegram_notify.configured()
+                                   else "dry_run"
+                                   if telegram_notify.load_settings()[
+                                       "dry_run"]
+                                   else "live"),
+                        "detail": ("Notifies the shop group on Assigned"
+                                   if telegram_notify.configured()
+                                   else "Configure bot token + chat id"),
+                        "items": [],
+                    },
                 ],
             },
             {
@@ -950,6 +1010,13 @@ def integrations_status():
                         "detail": ("Text Search API"
                                    if pois.google_configured()
                                    else "Configure a Places API key"),
+                        "items": [],
+                    },
+                    {
+                        "id": "docscan", "name": "AI document scan",
+                        "kind": "Invoice and estimate autofill",
+                        "status": docscan.status()[0],
+                        "detail": docscan.status()[1],
                         "items": [],
                     },
                 ],
@@ -1113,6 +1180,119 @@ async def pm_tracker(refresh: bool = False):
             "excluded": sorted(excluded, key=lambda e: e["unit"])}
 
 
+# ----- Tableros gemelos PM / DOT (fase H1) -------------------------------
+
+@router.get("/maint/{kind}")
+async def maint_board(kind: str, refresh: bool = False):
+    """Tablero editable de PM o DOT Inspections (misma forma para ambos)."""
+    try:
+        return await maint.board(kind, refresh=refresh)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+class MaintRecordIn(BaseModel):
+    kind: str            # pm | dot
+    unit: str
+    date: str            # YYYY-MM-DD
+    mileage: int | None = None
+    notes: str = ""
+
+
+@router.post("/maint/record")
+def maint_add_record(body: MaintRecordIn):
+    try:
+        rec = maint.add_record(body.unit, body.kind, body.date,
+                               body.mileage, body.notes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "record": rec}
+
+
+class OpsStatusIn(BaseModel):
+    unit: str
+    status: str          # '' | out_of_service | in_shop
+
+
+@router.post("/maint/ops-status")
+def maint_ops_status(body: OpsStatusIn):
+    try:
+        maint.set_ops_status(body.unit, body.status)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True}
+
+
+@router.get("/maint/odometer/{unit}")
+async def maint_odometer(unit: str):
+    """Odómetro actual de una unidad (botón del modal Add PM/DOT)."""
+    return await maint.unit_odometer(unit)
+
+
+# ----- Perfil de unidad (fase H3, estilo Fullbay) -------------------------
+
+@router.get("/units/{unit}/campaigns")
+async def unit_campaigns(unit: str, model: str = ""):
+    """Pestaña Components & PMs: campañas con último servicio y due."""
+    return await maint.unit_campaigns(unit, model)
+
+
+class CampaignIn(BaseModel):
+    key: str
+    enabled: bool
+
+
+@router.post("/units/{unit}/campaigns")
+def unit_campaign_toggle(unit: str, body: CampaignIn):
+    if body.key not in maint.CAMPAIGNS or maint.CAMPAIGNS[body.key]["default"]:
+        raise HTTPException(status_code=400, detail="invalid campaign")
+    try:
+        unit_settings.set_campaign(unit, body.key, body.enabled)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True}
+
+
+@router.get("/units/{unit}/docs")
+def unit_docs_list(unit: str):
+    return {"docs": unitdocs.list_docs(unit),
+            "kinds": [{"key": k, "label": unitdocs.KIND_LABEL[k]}
+                      for k in unitdocs.KINDS]}
+
+
+@router.post("/units/{unit}/docs")
+async def unit_docs_upload(unit: str, kind: str = "",
+                           files: list[UploadFile] = File(...)):
+    """Sube UNO O VARIOS documentos de la unidad de un solo saque."""
+    saved, errors = [], []
+    for f in files:
+        raw = await f.read()
+        try:
+            saved.append(unitdocs.save_doc(
+                unit, kind, f.filename or "document", raw))
+        except ValueError as exc:
+            errors.append(str(exc))
+    if not saved and errors:
+        raise HTTPException(status_code=400, detail="; ".join(errors[:3]))
+    return {"saved": saved, "errors": errors}
+
+
+@router.get("/units/docs/{doc_id}/download")
+def unit_doc_download(doc_id: int):
+    found = unitdocs.doc_path(doc_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    path, filename = found
+    return FileResponse(path, filename=filename)
+
+
+@router.delete("/units/docs/{doc_id}")
+def unit_doc_delete(doc_id: int):
+    if not unitdocs.delete_doc(doc_id):
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"ok": True}
+
+
 class PMOverrideIn(BaseModel):
     unit: str
     field: str           # current_miles | last_pm_miles
@@ -1156,7 +1336,7 @@ def dvir_block(block_id: int):
     """Datos de un bloque guardado, para la vista previa."""
     block = db.get_block(block_id)
     if block is None:
-        raise HTTPException(404, "Bloque no encontrado.")
+        raise HTTPException(404, "Block not found.")
     block["columns"] = engine.COLUMNS
     return block
 
@@ -1166,7 +1346,7 @@ def dvir_block_download(block_id: int):
     """Genera y descarga el Excel de un bloque guardado."""
     block = db.get_block(block_id)
     if block is None:
-        raise HTTPException(404, "Bloque no encontrado.")
+        raise HTTPException(404, "Block not found.")
     report_id = uuid.uuid4().hex
     filename = (f"DVIR {block['company']} "
                 f"{_safe_label(block['date_label'])}.xlsx")
@@ -1203,7 +1383,7 @@ def notify_scan(sheet: str, date: str):
 def notify_send(req: NotifySendRequest):
     """Envia (o simula) los avisos de los conductores seleccionados."""
     if not req.drivers:
-        raise HTTPException(422, "No se seleccionó ningún conductor.")
+        raise HTTPException(422, "No driver selected.")
     media = None
     if req.media_type and req.media_url:
         media = {"type": req.media_type, "url": req.media_url}

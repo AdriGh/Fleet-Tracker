@@ -78,7 +78,7 @@ async def list_drivers() -> list[dict]:
 def save_driver(name: str, fields: dict) -> dict:
     name = name.strip()
     if not name:
-        raise ValueError("name es obligatorio")
+        raise ValueError("name is required")
     with SessionLocal() as session:
         p = session.get(TmsDriver, name)
         if p is None:
@@ -169,7 +169,7 @@ def create_load(broker: str, ref: str = "", driver: str = "",
                 stops: list[dict] | None = None) -> dict:
     broker = broker.strip()
     if not broker:
-        raise ValueError("broker (Bill To) es obligatorio")
+        raise ValueError("broker (Bill To) is required")
     now = datetime.now()
     ld = Load(
         created_at=now, updated_at=now, status="upcoming",

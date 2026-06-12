@@ -245,7 +245,7 @@ function NewLoadModal({ onClose, onCreated }: {
 
   async function submit() {
     if (!broker.trim()) {
-      notifyErr('Falta el broker', 'Bill To es obligatorio')
+      notifyErr('Missing broker', 'Bill To is required')
       return
     }
     setSaving(true)
@@ -257,10 +257,10 @@ function NewLoadModal({ onClose, onCreated }: {
         pay_pct: pct, miles: milesN || null,
         stops: stops.filter((s) => s.city.trim() || s.name.trim()),
       })
-      notifyOk('Load creada', `#${ld.id} · ${ld.broker}`)
+      notifyOk('Load created', `#${ld.id} · ${ld.broker}`)
       onCreated(ld.id)
     } catch (e) {
-      notifyErr('No se pudo crear la load', e)
+      notifyErr('Could not create load', e)
     } finally {
       setSaving(false)
     }
@@ -308,7 +308,7 @@ function NewLoadModal({ onClose, onCreated }: {
                 type="datetime-local" value={s.appt}
                 onChange={(e) => setStop(i, { appt: e.target.value })} />
               {stops.length > 2 && (
-                <button className="icon-x" title="Quitar stop"
+                <button className="icon-x" title="Remove stop"
                   onClick={() => setStops(
                     (prev) => prev.filter((_, j) => j !== i))}>✕</button>
               )}
@@ -346,7 +346,7 @@ function NewLoadModal({ onClose, onCreated }: {
           <span>Assign driver</span>
           <select className="cell-input" value={driver}
             onChange={(e) => setDriver(e.target.value)}>
-            <option value="">— unassigned —</option>
+            <option value="">(unassigned)</option>
             {drivers.map((d) => (
               <option key={d.name} value={d.name}>
                 {d.name}
@@ -414,7 +414,7 @@ function LoadDrawer({ loadId, onClose }: {
     try {
       refreshLoad(await patchLoad(ld.id, p))
     } catch (e) {
-      notifyErr('No se pudo actualizar', e)
+      notifyErr('Could not update', e)
     } finally {
       setBusy(false)
     }
@@ -455,7 +455,7 @@ function LoadDrawer({ loadId, onClose }: {
                   </span>
                 </div>
                 <button className="icon-btn" onClick={onClose}
-                  aria-label="Cerrar">
+                  aria-label="Close">
                   <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
                     stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                     <path d="M6 6l12 12M18 6L6 18" />
@@ -463,7 +463,7 @@ function LoadDrawer({ loadId, onClose }: {
                 </button>
               </div>
               <Drawer.Description className="sr-only">
-                Detalle de la carga {ld.id}
+                Load {ld.id} details
               </Drawer.Description>
 
               <div className="ud-body">

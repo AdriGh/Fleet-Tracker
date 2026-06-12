@@ -98,12 +98,12 @@ def load_dvir(source) -> pd.DataFrame:
     try:
         df = pd.read_csv(source, dtype=str, keep_default_na=False)
     except Exception as exc:  # noqa: BLE001
-        raise ReportError(f"No se pudo leer el CSV de DVIR: {exc}") from exc
+        raise ReportError(f"Could not read the DVIR CSV: {exc}") from exc
     df.columns = [c.strip() for c in df.columns]
     missing = DVIR_REQUIRED - set(df.columns)
     if missing:
         raise ReportError(
-            "El CSV de DVIR no tiene las columnas esperadas. Faltan: "
+            "The DVIR CSV is missing expected columns: "
             + ", ".join(sorted(missing))
         )
     return df
@@ -115,7 +115,7 @@ def load_activity(source) -> dict:
         df = pd.read_csv(source, dtype=str, keep_default_na=False)
     except Exception as exc:  # noqa: BLE001
         raise ReportError(
-            f"No se pudo leer el CSV de actividad: {exc}") from exc
+            f"Could not read the activity CSV: {exc}") from exc
     df.columns = [c.strip() for c in df.columns]
     name_col = next(
         (c for c in df.columns if c.lower().startswith("vehicle")), None)
@@ -123,8 +123,8 @@ def load_activity(source) -> dict:
         (c for c in df.columns if c.lower().startswith("distance")), None)
     if not name_col or not dist_col:
         raise ReportError(
-            "El CSV de actividad no tiene columnas 'Vehicle Name' / "
-            "'Distance'.")
+            "The activity CSV has no 'Vehicle Name' / "
+            "'Distance' columns.")
     activity = {}
     for _, r in df.iterrows():
         unit = str(r[name_col]).strip()

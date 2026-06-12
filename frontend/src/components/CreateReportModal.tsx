@@ -278,7 +278,7 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
                               update(i, { dvir_file_id: e.target.value })
                             }
                           >
-                            <option value="">— unassigned —</option>
+                            <option value="">(unassigned)</option>
                             {dvirFiles.map((f) => (
                               <option key={f.file_id} value={f.file_id}>
                                 {f.name}
@@ -295,7 +295,7 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
                               })
                             }
                           >
-                            <option value="">— unassigned —</option>
+                            <option value="">(unassigned)</option>
                             {activityFiles.map((f) => (
                               <option key={f.file_id} value={f.file_id}>
                                 {f.name}
@@ -312,7 +312,7 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
                               })
                             }
                           >
-                            <option value="">— none (NO PRE-TRIP) —</option>
+                            <option value="">(none · NO PRE-TRIP)</option>
                             {pretripFiles.map((f) => (
                               <option key={f.file_id} value={f.file_id}>
                                 {f.name}

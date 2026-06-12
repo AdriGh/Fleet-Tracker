@@ -97,9 +97,9 @@ export default function DvirPage() {
       await copyBlock(selected.columns, selected.groups, selected.date_label)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-      notifyOk('Día copiado al portapapeles')
+      notifyOk('Day copied to clipboard')
     } catch (e) {
-      notifyErr('No se pudo copiar', e)
+      notifyErr('Could not copy', e)
     }
   }
 
@@ -113,9 +113,7 @@ export default function DvirPage() {
         pct: summary.fleet_safe_pct,
         title: 'Fleet SAFE this month',
         caption: summary.month
-          ? `Average of ${summary.n_blocks} ${
-              summary.n_blocks === 1 ? 'day' : 'days'
-            } this month`
+          ? `${summary.n_blocks}-day average`
           : '',
       }
 

@@ -76,7 +76,7 @@ def send_test(settings: EmailSettings, to: str | None = None) -> dict:
     App Password. Por defecto se lo manda al propio remitente."""
     if not settings.configured:
         return {"ok": False, "simulated": False,
-                "error": ("Faltan 'gmail_sender' o 'gmail_app_password' en "
+                "error": ("Missing 'gmail_sender' or 'gmail_app_password' in "
                           "avisos.local.json")}
     forced = EmailSettings({
         "gmail_sender": settings.sender,
@@ -85,6 +85,6 @@ def send_test(settings: EmailSettings, to: str | None = None) -> dict:
     })
     return send_email(
         forced, to or settings.sender, [],
-        "DVIR Mailer — prueba de configuración",
-        "Si recibís este correo, el envío por Gmail quedó configurado "
-        "correctamente. ✅\n\n— DVIR Report Generator")
+        "Fleet Tracker · mail configuration test",
+        "If you received this email, Gmail sending is configured "
+        "correctly.\n\nFleet Tracker")

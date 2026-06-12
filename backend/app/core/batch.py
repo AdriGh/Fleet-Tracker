@@ -121,7 +121,7 @@ class AnalyzedFile:
                              nrows=200, keep_default_na=False)
             df.columns = [c.strip() for c in df.columns]
         except Exception as exc:  # noqa: BLE001
-            self.error = f"No se pudo leer el CSV: {exc}"
+            self.error = f"Could not read the CSV: {exc}"
             return
 
         self.kind = classify_csv(df)
@@ -180,15 +180,15 @@ def pair_blocks(files: list[AnalyzedFile]) -> dict:
         act = activity_index.get((dv.company, d)) if d else None
         pt = pretrip_index.get((dv.company, d)) if d else None
         if not dv.company:
-            warnings.append(f"No se detecto la empresa de '{dv.name}'.")
+            warnings.append(f"Could not detect the company for '{dv.name}'.")
         if d and not act:
             warnings.append(
-                f"Sin CSV de actividad para {dv.company or '?'} "
-                f"del {date_label(d)}.")
+                f"No activity CSV for {dv.company or '?'} "
+                f"on {date_label(d)}.")
         if d and not pt:
             warnings.append(
-                f"Sin report de Pre/Post-trip para {dv.company or '?'} "
-                f"del {date_label(d)} — esas filas quedaran como NO PRE-TRIP.")
+                f"No Pre/Post-trip report for {dv.company or '?'} "
+                f"on {date_label(d)}; those rows will show as NO PRE-TRIP.")
         blocks.append({
             "company": dv.company or "",
             "date_label": date_label(d) if d else "",
@@ -199,13 +199,13 @@ def pair_blocks(files: list[AnalyzedFile]) -> dict:
             "activity_name": act.name if act else "",
             "pretrip_file_id": pt.file_id if pt else "",
             "pretrip_name": pt.name if pt else "",
-            "status": "ok" if (dv.company and act) else "incompleto",
+            "status": "ok" if (dv.company and act) else "incomplete",
         })
 
     for f in files:
         if f.kind == "unknown" and not f.error:
-            warnings.append(f"'{f.name}' no parece un CSV de DVIR ni de "
-                            f"actividad; se ignora.")
+            warnings.append(f"'{f.name}' does not look like a DVIR or "
+                            f"activity CSV; ignoring it.")
 
     file_summaries = [{
         "file_id": f.file_id,

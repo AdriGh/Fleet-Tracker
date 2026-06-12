@@ -5,7 +5,7 @@ import {
   getIntegrationSpecs, getIntegrations, getOrg, getSettings, listAppUsers,
   listFleet, patchAppUser, saveAlertsSettings, saveIntegrationConfig,
   saveOrg, saveSettings, testIntegration,
-  type AlertsSettings, type AppUser, type FleetUnit,
+  type AlertsSettings, type FleetUnit,
   type IntegrationProvider, type IntegrationSpec, type IntegrationStatus,
   type OrgConfig,
 } from '../api'
@@ -127,10 +127,10 @@ export default function SettingsPage(
       qc.invalidateQueries({ queryKey: ['fleet'] })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-      notifyOk('Configuración guardada')
+      notifyOk('Settings saved')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error')
-      notifyErr('No se pudo guardar', e)
+      notifyErr('Couldn\'t save changes', e)
     } finally {
       setSaving(false)
     }
@@ -334,7 +334,7 @@ export default function SettingsPage(
                       onChange={(e) => setDays(Number(e.target.value))} />
                   </label>
                   <span className="settings-note">
-                    Based on Samsara DVIR history — a DVIR covers the truck and
+                    Based on Samsara DVIR history: a DVIR covers the truck and
                     its attached trailer, so this applies to both.
                   </span>
                 </div>
@@ -458,7 +458,7 @@ export default function SettingsPage(
           <div className="set-rows">
             <div className="set-row">
               <span className="set-row-label">App</span>
-              <span className="set-row-value">Fleet Tracker — compliance suite</span>
+              <span className="set-row-value">Fleet Tracker · compliance suite</span>
             </div>
             <div className="set-row">
               <span className="set-row-label">Version</span>
@@ -533,10 +533,10 @@ function CompanyCard() {
       qc.setQueryData(['org'], saved)
       qc.invalidateQueries({ queryKey: ['auth-status'] })
       qc.invalidateQueries({ queryKey: ['pm'] })
-      notifyOk('Empresa guardada',
-        'Branding y umbrales aplicados')
+      notifyOk('Company saved',
+        'Branding and thresholds applied')
     } catch (e) {
-      notifyErr('No se pudo guardar', e)
+      notifyErr('Couldn\'t save changes', e)
     } finally {
       setSaving(false)
     }
@@ -599,13 +599,13 @@ function CompanyCard() {
               <div className="wiz-accents">
                 {ORG_ACCENTS.map((a) => (
                   <button key={a || 'default'} type="button"
-                    title={a || 'Rojo de fábrica'}
+                    title={a || 'Factory red'}
                     className={`wiz-accent ${form.branding.accent === a ? 'on' : ''}`}
                     style={{ background: a || '#e11900' }}
                     onClick={() => setForm({ ...form,
                       branding: { ...form.branding, accent: a } })} />
                 ))}
-                <label className="wiz-accent-custom" title="Personalizado">
+                <label className="wiz-accent-custom" title="Custom">
                   <input type="color"
                     value={form.branding.accent || '#e11900'}
                     onChange={(e) => setForm({ ...form,
@@ -698,8 +698,8 @@ function UsersCard() {
 
   async function addUser() {
     if (!nName.trim() || !nUser.trim() || nPass.length < 8) {
-      notifyErr('Faltan datos',
-        'Nombre, usuario y contraseña de 8+ caracteres')
+      notifyErr('Missing fields',
+        'Name, username and a password of 8+ characters')
       return
     }
     setBusy(true)
@@ -708,9 +708,9 @@ function UsersCard() {
         password: nPass, role: nRole })
       qc.invalidateQueries({ queryKey: ['app-users'] })
       setNName(''); setNUser(''); setNPass('')
-      notifyOk('Usuario creado', nUser.trim())
+      notifyOk('User created', nUser.trim())
     } catch (e) {
-      notifyErr('No se pudo crear', e)
+      notifyErr('Couldn\'t create user', e)
     } finally {
       setBusy(false)
     }
@@ -723,7 +723,7 @@ function UsersCard() {
       qc.invalidateQueries({ queryKey: ['app-users'] })
       notifyOk(okMsg)
     } catch (e) {
-      notifyErr('No se pudo actualizar', e)
+      notifyErr('Couldn\'t update', e)
     }
   }
 
@@ -773,7 +773,7 @@ function UsersCard() {
                           value={u.role}
                           onChange={(e) => patch(u.id,
                             { role: e.target.value },
-                            `Rol de @${u.username}: ${e.target.value}`)}>
+                            `Role for @${u.username}: ${e.target.value}`)}>
                           {USER_ROLES.map((r) => (
                             <option key={r} value={r}>{r}</option>
                           ))}
@@ -784,20 +784,20 @@ function UsersCard() {
                           onChange={(e) => patch(u.id,
                             { active: e.target.checked },
                             e.target.checked
-                              ? `@${u.username} activado`
-                              : `@${u.username} desactivado`)} />
+                              ? `@${u.username} enabled`
+                              : `@${u.username} disabled`)} />
                       </td>
                       <td>
                         {resetFor === u.id ? (
                           <span className="users-reset">
                             <input className="cell-input" type="password"
-                              placeholder="Nueva (8+)" value={resetPw}
+                              placeholder="New (8+)" value={resetPw}
                               onChange={(e) => setResetPw(e.target.value)} />
                             <button className="btn btn-ghost btn-xs"
                               disabled={resetPw.length < 8}
                               onClick={async () => {
                                 await patch(u.id, { password: resetPw },
-                                  `Contraseña de @${u.username} cambiada`)
+                                  `Password for @${u.username} changed`)
                                 setResetFor(null); setResetPw('')
                               }}>OK</button>
                             <button className="icon-x"
@@ -820,14 +820,14 @@ function UsersCard() {
               <hr className="settings-divider" />
               <h3 className="settings-sub-h">Add user</h3>
               <div className="users-add">
-                <input className="cell-input" placeholder="Nombre"
+                <input className="cell-input" placeholder="Name"
                   value={nName} onChange={(e) => setNName(e.target.value)} />
-                <input className="cell-input" placeholder="usuario"
+                <input className="cell-input" placeholder="username"
                   value={nUser}
                   onChange={(e) => setNUser(
                     e.target.value.toLowerCase().replace(/\s/g, ''))} />
                 <input className="cell-input" type="password"
-                  placeholder="Contraseña (8+)" value={nPass}
+                  placeholder="Password (8+)" value={nPass}
                   onChange={(e) => setNPass(e.target.value)} />
                 <select className="cell-input users-role" value={nRole}
                   onChange={(e) => setNRole(e.target.value)}>
@@ -837,7 +837,7 @@ function UsersCard() {
                 </select>
                 <button className="btn btn-primary btn-xs" onClick={addUser}
                   disabled={busy}>
-                  {busy ? 'Creando…' : 'Add'}
+                  {busy ? 'Creating…' : 'Add'}
                 </button>
               </div>
             </>
@@ -893,9 +893,9 @@ function AlertsCard() {
     try {
       const saved = await saveAlertsSettings(form)
       qc.setQueryData(['alerts-settings'], saved)
-      notifyOk('Reglas de alerta guardadas')
+      notifyOk('Alert rules saved')
     } catch (e) {
-      notifyErr('No se pudo guardar', e)
+      notifyErr('Couldn\'t save changes', e)
     } finally {
       setSaving(false)
     }
@@ -1008,7 +1008,7 @@ function AlertsCard() {
                   <span>Alert emails (comma separated)</span>
                   <input className="cell-input"
                     value={form.recipients.emails.join(', ')}
-                    placeholder="safety@empresa.com, ops@empresa.com"
+                    placeholder="safety@company.com, ops@company.com"
                     onChange={(e) => setForm({ ...form,
                       recipients: { ...form.recipients,
                         emails: e.target.value.split(',')
@@ -1109,8 +1109,8 @@ function IntegrationCard({ provider, onConfigure }: {
     setTesting(true)
     try {
       const r = await testIntegration(provider.id)
-      if (r.ok) notifyOk(`${provider.name}: conexión OK`, r.detail)
-      else notifyErr(`${provider.name}: falló el test`, r.detail)
+      if (r.ok) notifyOk(`${provider.name}: connection OK`, r.detail)
+      else notifyErr(`${provider.name}: test failed`, r.detail)
     } catch (e) {
       notifyErr(`${provider.name}: error`, e)
     } finally {
@@ -1192,11 +1192,11 @@ function IntegrationConfigModal({ provider, onClose, onSaved }: {
       } else {
         await saveIntegrationConfig(provider, values)
       }
-      notifyOk('Credenciales guardadas',
-        'Reinicia la app si el cambio no se refleja')
+      notifyOk('Credentials saved',
+        'Restart the app if the change does not show')
       onSaved()
     } catch (e) {
-      notifyErr('No se pudo guardar', e)
+      notifyErr('Couldn\'t save changes', e)
     } finally {
       setSaving(false)
     }
@@ -1215,9 +1215,9 @@ function IntegrationConfigModal({ provider, onClose, onSaved }: {
           {provider === 'samsara' && spec.orgs ? (
             spec.orgs.map((o) => (
               <label className="ud-field" key={o.company}>
-                <span>{o.company} · token actual {o.token_tail}</span>
+                <span>{o.company} · current token {o.token_tail}</span>
                 <input className="cell-input" type="password"
-                  placeholder="Pegar token nuevo (vacío = conservar)"
+                  placeholder="Paste new token (empty = keep)"
                   value={orgTokens[o.company] ?? ''}
                   onChange={(e) => setOrgTokens(
                     { ...orgTokens, [o.company]: e.target.value })} />
@@ -1237,11 +1237,11 @@ function IntegrationConfigModal({ provider, onClose, onSaved }: {
                 <label className="ud-field" key={f.key}>
                   <span>
                     {f.label}
-                    {f.tail ? ` · actual ${f.tail}` : ''}
+                    {f.tail ? ` · current ${f.tail}` : ''}
                   </span>
                   <input className="cell-input" type={f.kind}
                     placeholder={f.tail
-                      ? 'Vacío = conservar el actual' : ''}
+                      ? 'Empty = keep current' : ''}
                     value={String(values[f.key] ?? '')}
                     onChange={(e) => setValues(
                       { ...values, [f.key]: e.target.value })} />

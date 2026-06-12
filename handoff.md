@@ -1,0 +1,262 @@
+# HANDOFF — Fleet Tracker
+
+Documento de traspaso: objetivo, estado, investigación y siguiente paso.
+Actualizado: 2026-06-12.
+
+## Objetivo
+
+Convertir Fleet Tracker (app local FastAPI + React de cumplimiento de
+flota para Chaser/MCC) en un **producto white-label comercializable**
+para carriers de 10-150 trucks: reemplazar Fullbay (taller), TrackFleet
+(temperaturas) y complementar al ELD (Samsara/Motive) sirviéndonos de su
+información. Diferenciales: sin contrato, precio plano, bilingüe
+EN/ES de back-office, y UX muy superior (cinemática, personalizable).
+
+## Repos y archivos
+
+- Repo: `AdriGh/DVIR-Report-Generator` (GitHub, privado) en
+  `C:\Users\adrii\DVIR-Report-Generator\`.
+- Backend FastAPI: `backend/app/` (API en `api/routes.py`, dominio en
+  `core/*.py`, modelos SQLite en `db.py`, auth HMAC en `core/auth.py`,
+  server 127.0.0.1:8765). Frontend React 19 + Vite: `frontend/src/`
+  (vistas en `views/`, API client `api.ts`, estilos `index.css`).
+- Datos sensibles NO versionados (gitignored): `*.local.json`,
+  `*.local.csv`, `service_account.json`, `dvir.db`. JAMÁS commitearlos.
+- Docs vivos: `docs/ROADMAP-G.md` (rework anterior, completado),
+  `docs/ROADMAP-H.md` (rework actual), `docs/STRATEGY-data.md`
+  (investigación de mercado/datos completa), `docs/map-debug-plan.md`
+  (postmortem del bug del mapa), `PRODUCT.md` (registro de producto
+  impeccable: personalidad Confiable · Potente · Premium).
+
+## Estado actual (qué hay construido)
+
+v1.1.0 publicada (tag en main, jun-12; incluye Rework H fases 1-3b y la
+sesión jun-11): app completa con auth real (roles
+admin/dispatcher/mechanic/viewer), onboarding wizard, branding
+white-label (org.local.json), Dashboard, Live Map (MapLibre +
+OpenFreeMap + POIs propios + copy-coords estilo Panda), DVIR diario,
+Defects, Notices (email real + SMS Twilio opt-in), Fleet, PM Tracker,
+Cold Chain (demo si no hay reefers en Samsara), Work Orders v1, TMS-lite
+(Drivers/Loads con payout), Settings (Company, Users, Alerts,
+Connectivity multi-ELD con test de credenciales, Roster con PII
+enmascarada). Tracking en vivo desde los tokens Samsara de Chaser y MCC
+(100 vehículos, HoS clocks, fuel/DEF).
+
+### Qué cambió (jun-11/12, publicado en v1.1.0)
+
+- **Live Map arreglado** (causa raíz: grid sin `grid-template-rows`, el
+  canvas heredaba 10,540px → borroso + "Groenlandia"; fix 4 líneas CSS,
+  verificado con Playwright headless; harness en `~/map-test/`).
+- **Logo**: favicon.svg + fleet-tracker.ico redibujados a la marca
+  actual (badge rojo + flecha); make_icon.py actualizado.
+- **Toda la UI al inglés** (~310 strings, 5 agentes; comentarios de
+  código quedan en español; valores comparados/almacenados intactos).
+- Password del admin `adri` restablecida a temporal (usuario debe
+  cambiarla en Settings → Users).
+- **H3b COMPLETA Y VERIFICADA — WO↔campañas + modal nuevo**: (1) campo
+  `campaign` en work_order (migración: is_pm=1 → campaign='pm'); select
+  de campaña (nombres Fullbay) en crear y en el drawer; HOOK al
+  facturar: crea el maint_record de la campaña (fecha=service_date,
+  millas=mileage|pm_miles, notes="WO #id: title") y el perfil
+  Components & PMs se actualiza solo — IDEMPOTENTE (busca "WO #id:" en
+  notas; verificado que des-facturar/re-facturar no duplica). (2) Modal
+  New work order a DOS COLUMNAS (width 1120, responsive <1000px):
+  preview del documento AL LADO del form (img u <iframe> para PDF vía
+  objectURL, sticky), dropzone arriba del preview. (3) Cantidades del
+  escaneo ARREGLADAS: WoLineExtract ganó `total`, prompt reforzado
+  (columna QTY/EA, math qty×unit=total) y _normalize reconcilia
+  qty=total/unitario si no cuadra (caso Loves 39×$3.51=$136.88
+  verificado offline y E2E: el scan real devolvió qty 2/2/1/3.5
+  correctas); Textract pasa PRICE como total al mismo reconciliador.
+  (4) Líneas del modal EDITABLES (kind/desc/qty/costo por fila, quitar,
+  "+ Add line" manual); typo record unit '2255' borrado a pedido.
+- **H3a COMPLETA Y VERIFICADA — perfil de unidad estilo Fullbay**:
+  `views/UnitProfilePage.tsx` (se abre clicando una fila de Fleet; App
+  state profileUnit) con 4 pestañas: (1) **Components & PMs** =
+  campañas por unidad — catálogo en maint.CAMPAIGNS: pm (label por
+  make: "DD13/DD15" Freightliner / "ISX" International, vence por
+  millas) y dot (365d) DEFAULT; kingpins (365d), dpf y clutch (solo
+  registro) agregables/quitables por unidad (unit_settings
+  'campaigns'); cada campaña con last done/next due/status pill +
+  "Record done" (modal → maint_record, kinds ampliados) + historial;
+  (2) **Active Services** = WOs no facturadas agrupadas por status
+  estilo Fullbay; (3) **Service History** = WOs invoiced con Edit
+  (drawer) y Delete; (4) **Attachments** = documentos de la unidad
+  (pm_copy/dot_copy/cab_card/registration/other) con MULTI-UPLOAD
+  (varios archivos de un saque, drag&drop), download autenticado por
+  blob y delete; tabla `unit_doc` + archivos en backend/uploads/
+  (gitignored). Header con 3 stat cards (costo 12m de WOs invoiced,
+  servicios activos, odómetro vivo + PM remaining). PIPELINE: estado
+  **closed ELIMINADO** (migración closed→invoiced en db._migrate;
+  invoiced es terminal); WOs ahora se pueden EDITAR inline (title/
+  complaint en el drawer) y ELIMINAR (DELETE /workorders/{id} +
+  botón con confirm). WoDrawer/STATUS_META/PIPELINE exportados de
+  WorkOrdersPage y reusados. Smoke E2E verde con la unidad real
+  CF2255 (campañas con el PM record real del usuario, multi-upload
+  2 archivos, 0 pageerrors; datos de prueba limpiados). NOTA: existe
+  un maint_record con unit "2255" (typo del usuario, sin prefijo CF)
+  — ofrecido borrarlo.
+- **H2.5b**: cuarto motor en docscan: **AWS Textract AnalyzeExpense**
+  ($0.008/página, el grado comercial elegido para el lanzamiento).
+  boto3 (requirements), `_scan_textract` (PDF→PNG por página vía
+  pypdfium2, fotos directas con recompresión si >9.5MB; merge multi-
+  página), `_map_expense` (SummaryFields→vendor/fecha/invoice#,
+  LineItemGroups→líneas con UNIT_PRICE o PRICE/qty derivado) + overlay
+  heurístico para campos de flota (unit/odometer/complaint/is_pm)
+  sobre los Blocks de texto. Ping = STS GetCallerIdentity (gratis).
+  Resolución "auto": textract si hay creds AWS > anthropic si hay key
+  > ollama local. Mapper unit-testeado offline con respuesta sintética
+  (deriva 332.50/3.5=95/hr correcto); errores ClientError mapeados a
+  mensajes limpios (creds inválidas, falta permiso
+  textract:AnalyzeExpense, doc ilegible, throttling). PENDIENTE DEL
+  USUARIO: crear cuenta AWS + IAM user con textract:AnalyzeExpense +
+  pegar access key en Settings → Connectivity (mientras tanto sigue
+  en Ollama local gratis, verificado post-cambio).
+- **H2.5 COMPLETA**: escáner AI de documentos en Work Orders + drawer
+  a 760px. `core/docscan.py` con proveedores elegibles en
+  `backend/docscan.local.json` (gitignored; provider auto|ollama|
+  anthropic, default auto = anthropic si hay api_key, si no OLLAMA
+  LOCAL GRATIS — decisión del usuario: no quiere pagar API):
+  (a) **Ollama local** (default): POST /api/chat a 127.0.0.1:11434 con
+  `format=WoExtract.model_json_schema()` (salida estructurada nativa de
+  Ollama), modelo `qwen2.5vl:7b` (~6 GB, corre en la RTX 2060 SUPER),
+  instalado vía winget Ollama.Ollama; ping = GET /api/tags (verifica
+  modelo pulled). (b) **Anthropic** (opcional, pago): messages.parse()
+  + Pydantic, modelo claude-opus-4-8; ping = models.retrieve (no
+  factura). Schema compartido WoExtract (unit, service_date, mileage,
+  title, complaint, mechanic, vendor, invoice_number, is_pm, lines
+  part|labor qty/unit_cost). PDFs: capa de texto vía pypdf primero
+  (digitales) → si es escaneado, render a PNG con pypdfium2 (licencia
+  permisiva, NO PyMuPDF/AGPL) → visión. Deps nuevas: anthropic, pypdf,
+  pypdfium2 (requirements + launch.bat). Endpoint POST
+  /api/workorders/scan (multipart, máx 20 MB). Provider id "docscan"
+  en Settings → Connectivity (Configure: provider/ollama_model/
+  api_key/model + Test). Frontend: dropzone en New work order que
+  autollena el form, previsualiza líneas removibles y las agrega al
+  crear (source='scan'); el toast muestra el motor usado. TERCER
+  nivel: `_scan_heuristic` (regex sobre capa de texto, sin AI, cero
+  instalación) como fallback automático cuando el proveedor AI no está
+  disponible y el PDF es digital — extrajo TODO correcto del invoice
+  de prueba. VERIFICADO E2E EN LA MÁQUINA DEL USUARIO: Ollama 0.30.6
+  instalado vía winget + qwen2.5vl:7b (6.0 GB) pulled; scan del
+  invoice PNG por visión local = extracción correcta (unit CF2250,
+  fecha, 451,963 mi, 4 líneas part/labor con qty/costos exactos;
+  vendor/invoice# los pierde la visión 7B pero los caza el heurístico
+  en PDFs). Tiempos en la RTX 2060 SUPER: primera corrida ~2m50s
+  (carga del modelo a VRAM), corridas calientes ~10s. Contexto
+  industria (verificado): Textract AnalyzeExpense $0.008/pág, Azure
+  Document Intelligence $10/1k págs con F0 gratis 500 págs/mes — los
+  SaaS pagan por página y lo esconden en la suscripción; nuestro
+  pitch: "invoice scan incluido, sin costo por documento".
+- **H2 COMPLETA Y VERIFICADA**: Work Orders con pipeline secuencial
+  open → assigned → in_progress → completed → invoiced → closed.
+  Backend: columnas nuevas en `work_order` (mileage, service_date,
+  invoiced_at, waiting_parts como FLAG; migración aditiva `_migrate()`
+  en db.py, los `waiting_parts` viejos pasan a in_progress+flag); gates
+  en `workorders.update_wo` (assigned exige mecánico, invoiced exige
+  total>0, retroceder deshace sellos; ValueError → 400 con el motivo
+  textual); hook PM ahora dispara en completed O posterior.
+  `core/telegram_notify.py`: bot de Telegram al group chat del taller
+  (telegram.local.json, dry_run DEFAULT true, notify_statuses default
+  ["assigned"], test getMe sin enviar; en Settings → Connectivity con
+  Configure+Test; guía backend/TELEGRAM_SETUP.md + telegram.example.json).
+  El PATCH /workorders devuelve `telegram` cuando notificó. Frontend:
+  StageBar estilo UNIQ (chevrones clip-path, hover previsualiza el
+  camino, clic multi-salto), form del jefe (unit/date/mileage con botón
+  Current/issue), toggle "Waiting for parts", chip de fecha de invoice,
+  6 KPIs, toasts de gate y de Telegram. Smoke Playwright
+  `~/map-test/smoke-h2.js` verde, WOs de prueba borrados (net-zero).
+- **H1 COMPLETA Y VERIFICADA**: sección DOT Inspections + PM Tracker
+  rediseñado, ambos sobre el tablero compartido
+  `views/MaintBoardPage.tsx` (el PMPage viejo se eliminó). Backend:
+  tabla `maint_record` (kind pm|dot; cada edición es un evento, el más
+  reciente por fecha manda), `core/maint.py` (board unificado; PM
+  fusiona CSV Fullbay + overrides + records; DOT vence +365 días,
+  upcoming ≤30), `ops_status` manual (out_of_service|in_shop) en
+  units.local.json, endpoints `/api/maint/{kind}`, `/maint/record`,
+  `/maint/ops-status`, `/maint/odometer/{unit}`. Frontend: tarjetas de
+  status filtrables con % y barra, donut compacto, tabla editable
+  inline, modal Add PM/DOT con botón "Current" (odómetro Samsara en un
+  clic), animación cascada verde "PM/DOT updated" (`ft-cell-sweep`,
+  CSS `mnt-*` al final de index.css). Smoke Playwright verde
+  (`~/map-test/smoke-h1*.js`), datos de prueba net-zero. El endpoint
+  viejo `/api/pm` sigue vivo (lo consume el Dashboard).
+
+### Qué intentamos y qué aprendimos
+
+- **Modales cortados en pantallas anchas (resuelto)**: la animación de
+  entrada `.page { animation: ft-page-in ... both }` dejaba el
+  transform como matriz identidad PARA SIEMPRE (Chrome con fill-mode
+  both/forwards mantiene la animación aplicada y computa
+  `matrix(1,0,0,1,0,0)`, no `none`) → `.page` se volvía containing
+  block de los `position:fixed` → el backdrop del modal medía la caja
+  de la página (1662×504) en vez del viewport (2000×840). Doble fix:
+  `fill-mode: backwards` en ft-page-in (página y wizard) y
+  `createPortal(document.body)` en components/Modal.tsx (inmuniza TODOS
+  los modales: Add PM/DOT, New work order, credenciales de Settings).
+  Verificado con Playwright a 2000×840: backdrop 0,0,2000×840 y
+  pageTransform "none".
+
+- Chrome `--app` + caché NO era la causa del mapa (index.html ya iba
+  `no-cache`); tampoco WebGL ni OpenFreeMap. Lección: con canvas WebGL
+  dentro de grid/flex, acotar TODA la cadena de alturas.
+- Claude Preview no funciona desde esta sesión (cwd `C:\Program Files\Git`
+  sin permisos para `.claude/launch.json`) → usar el harness Playwright
+  de `~/map-test/` (`run.js`, `sidebar.js`, `smoke.js`; Chrome instalado,
+  headless; token con `auth.issue_token`).
+- Tests de backend SIEMPRE con limpieza (no dejar usuarios/WOs/datos
+  reales). El mailer está en ENVÍO REAL: nunca disparar sends en tests.
+- Reiniciar backend en Windows: PowerShell `Get-NetTCPConnection
+  -LocalPort 8765` → `Stop-Process` (pkill de Git Bash no lo mata).
+- Push a main SOLO con autorización explícita del usuario nombrando
+  main. Staging explícito de archivos (nunca `git add -A`).
+
+## Investigación (resumen ejecutivo; detalle en docs/STRATEGY-data.md)
+
+- **Carriers compran por**: huir de contratos de 3 años (Samsara: ETF =
+  saldo completo, quejas BBB), compliance automático, descuento de
+  seguro (5-20% de prima), precio plano, soporte humano y español de
+  verdad. 97.3% de los carriers de EE.UU. tiene <20 trucks.
+- **Samsara 2026**: $27-60/veh/mes, contratos 36-60m, API gated por
+  tiers desde 2025 (riesgo → adapter multi-ELD G6 es la póliza). Gaps:
+  <25 trucks, taller (sin parts/PO/invoicing), TMS, owner-op UX.
+- **Cómo consiguen datos las apps sin hardware**: integraciones ELD
+  autorizadas por la flota (Fullbay refresca DIARIO; compró Pitstop
+  mar-2026 para fault codes), fuel cards (WEX/Comdata: odómetro tecleado
+  en la bomba), app del driver con OCR de odómetro (Whip Around), y
+  gratis: NHTSA vPIC (VIN→spec, sin registro) + FMCSA QCMobile
+  (DOT#→authority/insurance).
+- **Escalera de datos recomendada**: (1) vPIC + OCR de odómetro ya;
+  (2) Motive (única otra API self-serve gratis) sobre el provider de G6;
+  (3) fuel cards; (4) agregador Terminal/TruckerCloud (este último es el
+  ÚNICO que lista Panda ELD; Panda no tiene API); (5) hardware propio.
+- **Reefer temps**: TrackFleet = hardware Jimi/Concox commodity
+  ($30-80) + plataforma rentada (~$99/mes GPSWOX-style). Reemplazo:
+  Queclink GV600MA (~$99-130, IP67, sonda 1-Wire + BLE WTH300 $29.99) o
+  Teltonika FMC130 (~€70) + sonda DS18B20 → **Traccar** (open source)
+  → nuestro FastAPI; $2-6/trailer/mes todo incluido. Control remoto
+  SOLO vía OEM APIs (Thermo King TracKing: solicitar a
+  tracking@thermoking.com; Carrier Lynx Fleet: requiere suscripción
+  del cliente) o hardware cableado (ORBCOMM, Samsara AG52). No hay DIY
+  de control y no debe intentarse.
+- Probar SIEMPRE temperaturas bajo cero si usamos Traccar+Teltonika
+  (bug histórico de decodificación).
+
+## Qué sigue: REWORK H (8 fases, detalle en docs/ROADMAP-H.md)
+
+Pulir y profundizar como producto: dashboards rediseñados (cinemáticos,
+interactivos, personalizables). H1 (DOT + PM gemelos) HECHA. H2 (Work
+Orders pipeline UNIQ + gates QuickManage + Telegram) HECHA. Siguiente:
+profundidad Fullbay-killer (H3: parts/vendors, labor rates, estimate →
+invoice imprimible), RBAC con permisos por rol (H4), piloto reefer con
+hardware propio (H5), migración a PostgreSQL y exterminio del hardcodeo
+(H6), rediseño cinemático transversal (H7), dominio + email propio +
+hosting (H8). Pendiente del usuario para activar Telegram: crear el bot
+con @BotFather y pegar token + chat id en Settings → Connectivity
+(guía en backend/TELEGRAM_SETUP.md).
+
+Referencias visuales del usuario: su spreadsheet TRUCKS (PM + DOT por
+unidad con status ON TRACK/OVERDUE/UPCOMING/NEVER PERFORMED/OUT OF
+SERVICE/IN SHOP + tabla resumen con % + pie chart) y UNIQ TMS (barra de
+etapas secuencial arrastrable en el perfil de cada orden:
+Upcoming → Dispatched → In Transit → Delivered → Invoiced → Closed).
