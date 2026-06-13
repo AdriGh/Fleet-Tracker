@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 interface Props {
@@ -6,9 +6,13 @@ interface Props {
   onClose: () => void
   children: ReactNode
   width?: number
+  // Ocupa (casi) todo el alto de la página, con el cuerpo scrolleable.
+  fullHeight?: boolean
 }
 
-export default function Modal({ title, onClose, children, width }: Props) {
+export default function Modal(
+  { title, onClose, children, width, fullHeight }: Props,
+) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
@@ -17,14 +21,18 @@ export default function Modal({ title, onClose, children, width }: Props) {
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  // El ancho viaja como variable CSS para que el estilo lo limite por
+  // viewport (min(px, 94vw)) — así es fluido, no una caja fija en px.
+  const style = { '--modal-max': `${width ?? 720}px` } as CSSProperties
+
   // Portal a <body>: si un ancestro tiene transform/filter (p. ej. la
   // animación de entrada de .page), capturaría el position:fixed del
   // backdrop y el modal saldría cortado. Desde body es inmune.
   return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
       <div
-        className="modal"
-        style={{ maxWidth: width ?? 720 }}
+        className={`modal${fullHeight ? ' is-tall' : ''}`}
+        style={style}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-head">

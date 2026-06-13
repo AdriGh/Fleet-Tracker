@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  createAppUser, fleetArchive, getAlertsSettings, getHealth,
+  assignTerminal, createAppUser, deleteTerminal, fleetArchive,
+  getAlertsSettings, getHealth,
   getIntegrationSpecs, getIntegrations, getOrg, getSettings, listAppUsers,
   listFleet, patchAppUser, saveAlertsSettings, saveIntegrationConfig,
-  saveOrg, saveSettings, testIntegration,
+  saveOrg, saveSettings, saveTerminal, testIntegration,
   type AlertsSettings, type FleetUnit,
   type IntegrationProvider, type IntegrationSpec, type IntegrationStatus,
-  type OrgConfig,
+  type OrgConfig, type TerminalDef, type TerminalsConfig,
 } from '../api'
+import { useTerminals } from '../terminal'
 import { notifyOk, notifyErr } from '../toast'
 import Skeleton from '../components/Skeleton'
 import Modal from '../components/Modal'
@@ -240,6 +242,7 @@ export default function SettingsPage(
 
       {/* ----- Empresa y usuarios (G7, solo admin) ----- */}
       {isAdmin && <CompanyCard />}
+      {isAdmin && <TerminalsCard activeUnits={activeUnits} />}
       {isAdmin && <UsersCard />}
 
       {/* ----- Alertas de flota (G3) ----- */}
@@ -633,6 +636,17 @@ function CompanyCard() {
                     </span>
                   </label>
                 ))}
+                <label className="org-threshold"
+                  title="Default hourly labor rate for new work order labor lines (0 = none)">
+                  <span className="org-th-label">Labor rate</span>
+                  <span className="alert-rule-threshold">
+                    <input type="number" min={0} step="0.5"
+                      value={form.labor_rate}
+                      onChange={(e) => setForm({ ...form,
+                        labor_rate: Number(e.target.value) })} />
+                    <em>$/hr</em>
+                  </span>
+                </label>
               </div>
 
               <hr className="settings-divider" />
@@ -1325,6 +1339,328 @@ function ArchivePicker(
           disabled={picked.size === 0 || busy}
           onClick={() => onArchive([...picked])}>
           {busy ? 'Archiving…' : `Archive ${picked.size}`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ----- Terminales dinámicas: regiones + flota asignada (solo admin) --------
+function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const { cfg, terminals, terminalOf, labelOf } = useTerminals()
+  const [assigning, setAssigning] = useState<TerminalDef | null>(null)
+  const [editKey, setEditKey] = useState<string | null>(null)
+  const [eLabel, setELabel] = useState('')
+  const [ePrefixes, setEPrefixes] = useState('')
+  const [nLabel, setNLabel] = useState('')
+  const [nPrefixes, setNPrefixes] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  // Unidades efectivas por terminal (asignación o prefijo) y pinneadas.
+  const counts = useMemo(() => {
+    const eff: Record<string, number> = {}
+    for (const u of activeUnits) {
+      const k = terminalOf(u.unit, u.company)
+      eff[k] = (eff[k] ?? 0) + 1
+    }
+    const pinned: Record<string, number> = {}
+    for (const t of Object.values(cfg.assignments)) {
+      pinned[t] = (pinned[t] ?? 0) + 1
+    }
+    return { eff, pinned }
+  }, [activeUnits, terminalOf, cfg])
+
+  const parsePrefixes = (raw: string) =>
+    raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean)
+
+  async function persist(
+    run: () => Promise<TerminalsConfig>, ok: string,
+  ): Promise<boolean> {
+    setBusy(true)
+    try {
+      qc.setQueryData(['terminals'], await run())
+      notifyOk(ok)
+      return true
+    } catch (e) {
+      notifyErr("Couldn't save terminals", e)
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function addTerminal() {
+    if (!nLabel.trim()) {
+      notifyErr('Missing name', 'Give the terminal a name')
+      return
+    }
+    if (await persist(
+      () => saveTerminal({ label: nLabel.trim(),
+        prefixes: parsePrefixes(nPrefixes) }),
+      `Terminal ${nLabel.trim()} created`,
+    )) {
+      setNLabel(''); setNPrefixes('')
+    }
+  }
+
+  async function saveEdit(t: TerminalDef) {
+    if (await persist(
+      () => saveTerminal({ key: t.key, label: eLabel.trim() || t.label,
+        prefixes: parsePrefixes(ePrefixes) }),
+      `Terminal ${eLabel.trim() || t.label} saved`,
+    )) setEditKey(null)
+  }
+
+  async function remove(t: TerminalDef) {
+    const pinned = counts.pinned[t.key] ?? 0
+    if (!window.confirm(
+      `Delete terminal ${t.label}?` +
+      (pinned ? ` ${pinned} pinned unit${pinned === 1 ? '' : 's'} will`
+        + ' go back to prefix rules.' : ''))) return
+    await persist(() => deleteTerminal(t.key), `Terminal ${t.label} deleted`)
+  }
+
+  return (
+    <section className="card settings-card">
+      <button className="collapse-head" onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}>
+        <svg className={`collapse-chevron ${open ? 'open' : ''}`}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+        <div>
+          <h2>Terminals</h2>
+          <span className="sub">
+            Regions and their assigned fleet · {terminals.length}
+          </span>
+        </div>
+      </button>
+
+      {open && (
+        <div className="card-body">
+          <p className="settings-help">
+            Terminals group the fleet by yard or region, and drive the
+            terminal filters in PM Tracker, DOT Inspections, Work Orders,
+            Fleet and Defects. A unit lands in a terminal by its pinned
+            assignment first, then by unit-number prefix (e.g.
+            <code>MEM</code> matches <code>MEM-123</code>).
+          </p>
+
+          <table className="defects-table users-table">
+            <thead>
+              <tr>
+                <th>Terminal</th>
+                <th>Prefixes</th>
+                <th>Units</th>
+                <th aria-label="Actions" />
+              </tr>
+            </thead>
+            <tbody>
+              {terminals.map((t) => (
+                <tr key={t.key}>
+                  {editKey === t.key ? (
+                    <>
+                      <td>
+                        <input className="cell-input" value={eLabel}
+                          autoFocus placeholder={t.label}
+                          onChange={(e) => setELabel(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveEdit(t)
+                            if (e.key === 'Escape') setEditKey(null)
+                          }} />
+                      </td>
+                      <td>
+                        <input className="cell-input" value={ePrefixes}
+                          placeholder="MEM, ATL…"
+                          onChange={(e) => setEPrefixes(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveEdit(t)
+                            if (e.key === 'Escape') setEditKey(null)
+                          }} />
+                      </td>
+                      <td colSpan={2}>
+                        <span className="users-reset">
+                          <button className="btn btn-primary btn-xs"
+                            disabled={busy} onClick={() => saveEdit(t)}>
+                            Save
+                          </button>
+                          <button className="btn btn-ghost btn-xs"
+                            onClick={() => setEditKey(null)}>
+                            Cancel
+                          </button>
+                        </span>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td>
+                        <span className="nf-driver-text">
+                          <strong>{t.label}</strong>
+                          <span className="nf-units">{t.key}</span>
+                        </span>
+                      </td>
+                      <td>
+                        {t.prefixes.length
+                          ? t.prefixes.join(', ')
+                          : <span className="muted">—</span>}
+                      </td>
+                      <td>
+                        {counts.eff[t.key] ?? 0}
+                        {(counts.pinned[t.key] ?? 0) > 0 && (
+                          <span className="muted">
+                            {' '}· {counts.pinned[t.key]} pinned
+                          </span>
+                        )}
+                      </td>
+                      <td className="num">
+                        <span className="users-reset">
+                          <button className="btn btn-ghost btn-xs"
+                            onClick={() => setAssigning(t)}>
+                            Assign fleet
+                          </button>
+                          <button className="btn btn-ghost btn-xs"
+                            onClick={() => {
+                              setEditKey(t.key)
+                              setELabel(t.label)
+                              setEPrefixes(t.prefixes.join(', '))
+                            }}>
+                            Edit
+                          </button>
+                          <button className="icon-x" title="Delete terminal"
+                            onClick={() => remove(t)}>✕</button>
+                        </span>
+                      </td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <hr className="settings-divider" />
+          <h3 className="settings-sub-h">Add terminal</h3>
+          <div className="users-add">
+            <input className="cell-input" placeholder="Name (e.g. Dallas)"
+              value={nLabel} onChange={(e) => setNLabel(e.target.value)} />
+            <input className="cell-input"
+              placeholder="Prefixes, comma separated (e.g. DAL)"
+              value={nPrefixes}
+              onChange={(e) => setNPrefixes(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') addTerminal() }} />
+            <button className="btn btn-primary btn-xs" onClick={addTerminal}
+              disabled={busy}>
+              {busy ? 'Saving…' : 'Add'}
+            </button>
+          </div>
+          <p className="settings-help">
+            Prefixes are optional: you can also pin any unit with
+            “Assign fleet”. Pinned units win over prefixes.
+          </p>
+        </div>
+      )}
+
+      {assigning && (
+        <Modal title={`Assign fleet — ${assigning.label}`} width={560}
+          onClose={() => setAssigning(null)}>
+          <TerminalPicker units={activeUnits} terminal={assigning}
+            cfg={cfg} terminalOf={terminalOf} labelOf={labelOf} busy={busy}
+            onSave={async (us) => {
+              if (await persist(
+                () => assignTerminal(assigning.key, us),
+                `${assigning.label}: ${us.length} unit${us.length === 1 ? '' : 's'} pinned`,
+              )) setAssigning(null)
+            }} />
+        </Modal>
+      )}
+    </section>
+  )
+}
+
+// Picker de flota para una terminal: marcar = pinnear la unidad a esa
+// terminal; desmarcar = vuelve a resolución por prefijo/empresa.
+function TerminalPicker({ units, terminal, cfg, terminalOf, labelOf, busy, onSave }: {
+  units: FleetUnit[]
+  terminal: TerminalDef
+  cfg: TerminalsConfig
+  terminalOf: (unit: string, company?: string) => string
+  labelOf: (key: string) => string
+  busy: boolean
+  onSave: (units: string[]) => void
+}) {
+  const [q, setQ] = useState('')
+  // Preseleccionar TODOS los pins de esta terminal desde la config, no
+  // solo los de la flota activa: assign() reemplaza el set entero, así
+  // que un pin de una unidad archivada (invisible aquí) debe viajar en
+  // `picked` para no borrarse silenciosamente al guardar.
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(
+    Object.entries(cfg.assignments)
+      .filter(([, key]) => key === terminal.key)
+      .map(([unit]) => unit)))
+  const shown = useMemo(() => {
+    const s = q.trim().toLowerCase()
+    return s
+      ? units.filter((u) => u.unit.toLowerCase().includes(s)
+          || u.company.toLowerCase().includes(s))
+      : units
+  }, [units, q])
+  const allOn = shown.length > 0 && shown.every((u) => picked.has(u.unit))
+
+  function toggle(unit: string) {
+    setPicked((prev) => {
+      const n = new Set(prev)
+      if (n.has(unit)) n.delete(unit); else n.add(unit)
+      return n
+    })
+  }
+  function toggleAll() {
+    setPicked((prev) => {
+      const n = new Set(prev)
+      if (allOn) shown.forEach((u) => n.delete(u.unit))
+      else shown.forEach((u) => n.add(u.unit))
+      return n
+    })
+  }
+
+  return (
+    <div className="export-picker">
+      <input className="cell-input" placeholder="Search units…"
+        value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="ep-head">
+        <label className="ep-all">
+          <input type="checkbox" checked={allOn} onChange={toggleAll} />
+          <span>{allOn ? 'Deselect all' : 'Select all'}</span>
+        </label>
+        <span className="ep-count">
+          {picked.size} pinned to {terminal.label}
+        </span>
+      </div>
+      <ul className="ep-list">
+        {shown.map((u) => (
+          <li key={u.id}>
+            <label className="ep-item">
+              <input type="checkbox" checked={picked.has(u.unit)}
+                onChange={() => toggle(u.unit)} />
+              <span className="ep-unit">{u.unit}</span>
+              <span className="ep-kind">{u.unit_type}</span>
+              <span className="ep-co">
+                {picked.has(u.unit)
+                  ? 'pinned'
+                  : labelOf(terminalOf(u.unit, u.company))}
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="ep-foot">
+        <span className="settings-sub">
+          Unchecked units follow prefix and company rules.
+        </span>
+        <button className="btn btn-primary" disabled={busy}
+          onClick={() => onSave([...picked])}>
+          {busy ? 'Saving…' : `Save (${picked.size} pinned)`}
         </button>
       </div>
     </div>

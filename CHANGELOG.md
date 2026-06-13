@@ -7,6 +7,83 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.2.0] - 2026-06-12
+
+Terminales dinámicas, profundidad Fullbay-killer (H3: catálogo de partes +
+vendors y tarifa de labor) y un lote grande de UX de mantenimiento:
+agrupado del sidebar, fix de navegación, modal de work order fluido y de
+alto completo, y escaneo de invoices **multi-complaint** con extracción
+sin IA reescrita.
+
+### Añadido
+- **Terminales dinámicas** (Settings → Terminals, solo admin):
+  `core/terminals.py` (store `terminals.local.json`, gitignored) con CRUD
+  y asignación de flota por terminal. Cada terminal define `prefixes` y se
+  le puede **pinnear** unidades a mano. Resolución: pin manual → prefijo
+  más largo (el carácter siguiente no puede ser letra) → empresa MCC →
+  primera terminal. Endpoints `GET/POST/DELETE /api/terminals` +
+  `POST /api/terminals/assign`. `frontend/src/terminal.ts` reescrito como
+  hook `useTerminals()` (TanStack Query, fallback de fábrica). Los filtros
+  de terminal en **Fleet, Defects, PM Tracker, DOT Inspections y Work
+  Orders** ahora salen de esta config (chips solo si hay más de una).
+- **Catálogo de Partes + Vendors (H3-A)** estilo Fullbay: tablas `vendor`
+  y `part` (costo **interno**, sin markup), `core/parts.py` con CRUD +
+  guards (dedup de part#, borrar vendor desvincula sus partes), rutas
+  `/api/vendors` y `/api/parts`. Nueva sección **Parts & Vendors**
+  (`views/PartsPage.tsx`) con pestañas Parts/Vendors, KPIs, búsqueda y
+  alta/edición por modal. Las **líneas de Work Order** autocompletan
+  descripción + costo eligiendo un part# del catálogo (chip + conteo de
+  uso); `part_number` se guarda en la línea.
+- **Tarifa de labor del taller (H3-B)**: `org_config.labor_rate` ($/hr,
+  editable en Settings → Company); las líneas de labor de un WO se
+  costean solas con esa tarifa.
+- **Grupo de sidebar "Maintenance & Compliance"** (Fleet, PM Tracker, DOT
+  Inspections, Work Orders, Parts & Vendors).
+- **Escaneo de invoices multi-complaint**: un invoice puede generar
+  **varios complaints** (p. ej. un PM al tractor + una llanta al
+  trailer), cada uno con su unidad/millaje; el que no corresponde a la
+  unidad del WO se marca **"different unit"** y se borra con un clic
+  (confirmación al crear si quedan mezclados). El texto del complaint usa
+  el formato del usuario (descripción / SHOP, CITY, STATE / blank /
+  ` Shop Invoice # NUM | DATE` / `UNIT - MILEAGE`).
+- Generador del **formulario imprimible de Work Order** para la yarda
+  (`backend/scripts/make_wo_form.py`, PDF a mano, dev-only).
+
+### Cambiado
+- **Modal de New Work Order** ahora es **fluido** (`min(width, 100vw-32px)`
+  vía variable CSS, en vez de un ancho fijo en px) y de **alto completo**
+  (`Modal` con prop `fullHeight` → `.modal.is-tall`, cuerpo scrolleable).
+- **Escáner de documentos reescrito** (`core/docscan.py`): `WoExtract`
+  devuelve `complaints[]` (unit/mileage/detail ≤4 líneas/is_pm) +
+  vendor/ciudad/estado/invoice#/fecha compartidos. El **parser heurístico
+  sin IA** se reescribió para el layout real de los invoices de taller
+  (encabezados de unidad en una fila y datos abajo, múltiples unidades,
+  textos `Complaint #N`/`Correction`, ciudad/estado, invoice# en layout
+  invertido). Los proveedores de IA (Ollama/Claude/Textract) siguen como
+  motor principal; el heurístico es el fallback sin red.
+- **New Work Order**: se quitó el campo *Issue title*; el título se deriva
+  de la primera línea del complaint.
+- **Contraste del perfil de unidad y de los tableros PM/DOT**: las stat
+  cards y las pills de status pasan a colores theme-aware (`color-mix`
+  con `--text` y tokens `--ui-*`), legibles (AA) en claro y oscuro.
+
+### Arreglado
+- **Navegación desde el perfil de unidad**: al estar abierto el perfil,
+  clic en otra sección del sidebar no hacía nada (solo el botón Fleet lo
+  cerraba). Ahora un helper `navigate()` cierra el perfil al cambiar de
+  sección, cableado en todos los puntos de navegación.
+- **Work Orders**: filtro de terminal que quedaba pegado e invisible al
+  cambiar de status (clamp + `keepPreviousData`).
+- **Terminales**: rechazo de prefijo ya usado por otra terminal (400);
+  veto a borrar la última terminal; el picker de flota ya no des-pinea en
+  silencio unidades archivadas.
+- **Heurístico de docscan** (hallazgos del review adversarial): año de 4
+  dígitos capturado como unidad; millaje que tomaba el eco del propio
+  número de unidad; ruteo de complaints que robaba el match de otra
+  unidad; fecha inválida (13/45) que pasaba sin validar.
+- **Formato del complaint**: línea en blanco espuria cuando no hay shop
+  ni invoice.
+
 ## [1.1.0] - 2026-06-12
 
 Rework H fases 1-3b: mantenimiento DOT+PM unificado, pipeline de Work

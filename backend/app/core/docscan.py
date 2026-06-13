@@ -94,28 +94,43 @@ _OLLAMA_TIMEOUT = 300                 # un 7B local puede tardar 1-2 min
 
 _PROMPT = """\
 This document is a truck repair shop invoice, estimate, or repair order
-for a trucking fleet. Extract the work order fields.
+for a trucking fleet. One invoice can cover MORE THAN ONE job, sometimes
+on different units (e.g. a PM on a tractor AND a tire on its trailer).
+Extract the shared invoice fields and ONE complaint per distinct job.
 
-Rules:
-- unit: the truck/trailer unit number (e.g. CF2246, CI2038, MEM-1042).
-  Prefer the fleet's unit code over VIN or plate. Null if absent.
-- service_date: the service/invoice date as YYYY-MM-DD. Null if absent.
-- mileage: odometer reading as an integer (no commas). Null if absent.
-- title: a short issue summary (max 10 words), e.g. "Brake chamber
-  replacement" or "PM service + oil leak".
-- complaint: the reported complaint/cause/correction text, condensed.
-- lines: every billed item. kind "part" for parts/materials, "labor"
-  for labor/diagnostic time. READ THE QUANTITY COLUMN CAREFULLY: many
-  invoices print qty (often under QTY or EA) before the unit price, and
-  it can be large (e.g. 39 quarts of oil) or fractional (3.5 hours).
-  qty = the billed quantity (hours for labor). unit_cost = price per
-  single unit/hour. total = the line total if printed. The math must
-  hold: qty x unit_cost = total. Never default qty to 1 when the
-  document shows a quantity. Skip taxes, shop supplies percentages,
-  fees and totals rows.
-- is_pm: true only if this is clearly a preventive maintenance service
-  (full service, oil change service, PM A/B).
-- Use null when a field is not in the document. Do not invent data.
+Shared fields:
+- vendor: the repair shop / vendor name (e.g. "Love's Truck Care",
+  "Sounders Truck Repair"). Not the fleet's own name.
+- vendor_city, vendor_state: the shop location (city and 2-letter state).
+- service_date: the service / invoice / work order date as YYYY-MM-DD.
+- invoice_number: the invoice number, or the work order number if that
+  is the only number printed.
+
+complaints: a list, ONE entry per distinct job/repair. If the invoice
+shows one tractor job and one trailer job, return TWO complaints.
+Each complaint:
+- unit: the truck/trailer unit number that THIS job was done on
+  (e.g. CF2246, 743451, MEM-1042). Prefer the fleet unit code over the
+  VIN or plate. Tractor/Truck # and Trailer # are usually separate units.
+- mileage: that unit's odometer / hubometer for this job, integer, no
+  commas. Null if absent.
+- detail: a SHORT, CLEAR description of the issue and work done, at most
+  4 short lines. Plain prose, no part numbers or prices. E.g.
+  "PM service - oil change with 10W30 and OEM filters (DD13)" or
+  "LFO tire blown - replaced 295/75R22.5, aired to 100 psi".
+- is_pm: true only if this job is a preventive maintenance service
+  (full/wet service, oil change service, PM A/B).
+
+lines: every billed item across the whole invoice. kind "part" for
+parts/materials, "labor" for labor/diagnostic time. READ THE QUANTITY
+COLUMN CAREFULLY: many invoices print qty (often under QTY or EA) before
+the unit price, and it can be large (39 quarts of oil) or fractional
+(3.5 hours). qty = billed quantity (hours for labor). unit_cost = price
+per single unit/hour. total = the line total if printed. The math must
+hold: qty x unit_cost = total. Never default qty to 1 when the document
+shows a quantity. Skip taxes, shop supplies percentages, fees and totals.
+
+Use null when a field is not in the document. Do not invent data.
 """
 
 
@@ -129,16 +144,23 @@ class WoLineExtract(BaseModel):
         description="line total if printed on the document")
 
 
-class WoExtract(BaseModel):
+class WoComplaint(BaseModel):
+    """Un job del invoice (puede haber varios, en distintas unidades)."""
     unit: str | None = None
-    service_date: str | None = None
     mileage: int | None = None
-    title: str | None = None
-    complaint: str | None = None
-    mechanic: str | None = None
-    vendor: str | None = None
-    invoice_number: str | None = None
+    detail: str = Field(default="",
+                        description="short issue description, max 4 lines")
     is_pm: bool = False
+
+
+class WoExtract(BaseModel):
+    service_date: str | None = None
+    vendor: str | None = None
+    vendor_city: str | None = None
+    vendor_state: str | None = None
+    invoice_number: str | None = None
+    mechanic: str | None = None
+    complaints: list[WoComplaint] = []
     lines: list[WoLineExtract] = []
 
 
@@ -359,17 +381,33 @@ async def scan(raw: bytes, media_type: str) -> dict:
 
 # ----- Parser heurístico (sin AI, sin instalar nada) ------------------------
 
-_RE_UNIT = re.compile(
+_RE_UNIT_INLINE = re.compile(
     r"\bunit\s*[:#]?\s*([A-Z]{1,4}[- ]?\d{3,7}[A-Z]?)", re.IGNORECASE)
-_RE_ODO = re.compile(
-    r"\b(?:odometer|mileage|miles)\s*[:#]?\s*([\d][\d,]{2,9})",
+# Fila de encabezado de unidad (TRACTOR/TRUCK/TRAILER/UNIT #) seguida de la
+# fila de datos cuya primera columna es el código de unidad.
+_RE_UNIT_HEADER = re.compile(r"\b(TRACTOR|TRUCK|TRAILER|UNIT)\s*#",
+                             re.IGNORECASE)
+_RE_UNIT_CODE = re.compile(
+    r"^[\W]*([A-Z]{1,4}[- ]?\d{3,7}[A-Z]?|\d{4,7})\b")
+_RE_DATE = re.compile(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b")
+_RE_INVNO = re.compile(
+    r"\b(?:invoice|work\s*order|repair\s*order|\bwo\b|\bro\b)\s*#?\s*[:.]?\s*"
+    r"(\d[\w-]{3,15}|[A-Z]{2,4}-?\d{2,12})", re.IGNORECASE)
+# Layout invertido: el número va ANTES del rótulo (Love's: "4009978541
+# WORK ORDER # :").
+_RE_INVNO_REV = re.compile(
+    r"\b(\d{6,12})\s*(?:work\s*order|invoice|repair\s*order)\s*#",
     re.IGNORECASE)
-_RE_INV = re.compile(r"\binvoice\s*#?\s*[:#]?\s*(\w[\w-]{2,15})",
-                     re.IGNORECASE)
-_RE_DATE = re.compile(
-    r"\bdate\s*[:#]?\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})", re.IGNORECASE)
+_RE_CITYST = re.compile(r"([A-Za-z][A-Za-z .'&-]{2,30}?)\s*,\s*([A-Z]{2})\b")
+# Sufijos de calle: para quedarnos solo con la ciudad ("482 Tree Farm Rd.
+# New Florence" -> "New Florence").
+_RE_STREET = re.compile(
+    r"^.*\b(?:rd|st|ave|blvd|dr|ln|hwy|pkwy|way|pointe|pike|ct|cir)\.?\s+",
+    re.IGNORECASE)
 _RE_COMPLAINT = re.compile(
-    r"\b(?:complaint|concern|reason)\s*[:#]?\s*(.+)", re.IGNORECASE)
+    r"\bcomplaint\s*#?\d*\s*[:\-]?\s*(.+)", re.IGNORECASE)
+_RE_CORRECTION = re.compile(
+    r"\b(?:correction|service comments?)\s*[:\-]?\s*(.+)", re.IGNORECASE)
 # Línea facturable: qty + descripción + precio unitario + total.
 _RE_LINE = re.compile(
     r"^\s*(\d+(?:\.\d+)?)\s+(.{3,70}?)\s+\$?([\d,]+\.\d{2})"
@@ -379,27 +417,173 @@ _SKIP_LINE = re.compile(
     re.IGNORECASE)
 _LABORISH = re.compile(r"labor|labour|diag|inspect|service call|shop time",
                        re.IGNORECASE)
+_PM_RE = re.compile(r"\bPM\b|full (?:wet )?service|oil change|pm service",
+                    re.IGNORECASE)
+_TIRE_RE = re.compile(
+    r"\btires?\b|\bL[FR][OI]?\b|\bR[FR][OI]?\b|\bwheel\b|\brim\b|"
+    r"\btread\b|\bblow|\bmount\b", re.IGNORECASE)
+_KNOWN_SHOPS = re.compile(
+    r"love'?s|speedco|\bta\b|petro|pilot|sounders|fleetpride|truck\s*care|"
+    r"truck\s*repair|tire", re.IGNORECASE)
+
+
+def _clean_detail(s: str) -> str:
+    """Limpia un texto de complaint: saca metadatos [Nombre - fecha],
+    emails, teléfonos y prefijos de categoría; condensa a ~4 líneas."""
+    s = re.sub(r"\[[^\]]*\]", "", s)                       # [Keith - fecha]
+    s = re.sub(r"\S+@\S+", "", s)                          # emails
+    s = re.sub(r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b", "", s)  # teléfonos
+    # Prefijos de categoría encadenados ("Tractor/Other- PMs- ").
+    s = re.sub(
+        r"^(?:(?:tractor|trailer|truck|other|pms?|misc|cause|general)"
+        r"\s*[/:\-]+\s*)+", "", s, flags=re.IGNORECASE)
+    s = " ".join(s.split())
+    return s[:240].strip(" ,.-")
+
+
+def _clean_city(raw: str) -> str:
+    """Saca un prefijo de calle ('482 Tree Farm Rd. New Florence')."""
+    city = _RE_STREET.sub("", raw).strip()
+    return (city or raw).strip()[:60]
+
+
+def _find_units(text: str) -> list[tuple[str, int | None, str]]:
+    """(unit, mileage, kind) por filas encabezado→datos. kind: tractor|
+    trailer|unit."""
+    lines = text.splitlines()
+    out: list[tuple[str, int | None, str]] = []
+    seen: set[str] = set()
+    for i, ln in enumerate(lines):
+        mh = _RE_UNIT_HEADER.search(ln)
+        if not mh:
+            continue
+        kind = mh.group(1).lower()
+        kind = "trailer" if kind == "trailer" else (
+            "unit" if kind == "unit" else "tractor")
+        for j in range(i + 1, min(i + 3, len(lines))):
+            data = lines[j].strip()
+            if not data:
+                continue
+            mc = _RE_UNIT_CODE.match(data)
+            if not mc:
+                break
+            unit = mc.group(1).replace(" ", "").upper()
+            # Un token puramente numérico de 4 dígitos en rango de año es
+            # el AÑO del vehículo, no la unidad (la fila arrancó sin código).
+            if unit.isdigit() and len(unit) == 4 and 1990 <= int(unit) <= 2099:
+                break
+            if unit in seen:
+                break
+            miles = None
+            rest = data[mc.end():]               # tras el código de unidad
+            unit_digits = re.sub(r"\D", "", unit)
+            for num in re.findall(r"\b(\d{4,7})\b", rest):
+                v = int(num)
+                # Excluir años y el ECO del propio número de unidad (un
+                # layout que repite el código no debe volverse millaje).
+                if num == unit_digits or 1990 <= v <= 2099:
+                    continue
+                if 1000 <= v <= 2_000_000:
+                    miles = max(miles or 0, v)
+            seen.add(unit)
+            out.append((unit, miles, kind))
+            break
+    if not out:                                  # respaldo: "unit: CODE"
+        for m in _RE_UNIT_INLINE.finditer(text):
+            u = m.group(1).replace(" ", "").upper()
+            if u not in seen:
+                seen.add(u)
+                out.append((u, None, "unit"))
+    return out
+
+
+def _build_complaints(text: str,
+                      units: list[tuple[str, int | None, str]]
+                      ) -> list[WoComplaint]:
+    """Arma una complaint por unidad, ruteando los textos de detalle por
+    palabra clave (llanta→trailer, PM→tractor)."""
+    details: list[str] = []
+    for rx in (_RE_COMPLAINT, _RE_CORRECTION):
+        for m in rx.finditer(text):
+            d = _clean_detail(m.group(1))
+            if d and d not in details:
+                details.append(d)
+    if not units:
+        joined = " · ".join(details)[:240] or "Service per invoice"
+        return [WoComplaint(unit=None, detail=joined,
+                            is_pm=bool(_PM_RE.search(text)))]
+
+    # Dos pasadas GLOBALES para no robar el match de otra unidad: primero
+    # se asignan todos los type-match (llanta→trailer, resto→tractor/unit),
+    # recién después se reparten los detalles sobrantes.
+    used: set[int] = set()
+    assigned: dict[int, str] = {}
+    for ui, (_unit, _miles, kind) in enumerate(units):
+        for k, d in enumerate(details):
+            if k in used:
+                continue
+            if (kind == "trailer") == bool(_TIRE_RE.search(d)):
+                assigned[ui] = d
+                used.add(k)
+                break
+    for ui in range(len(units)):
+        if ui in assigned:
+            continue
+        for k, d in enumerate(details):
+            if k not in used:
+                assigned[ui] = d
+                used.add(k)
+                break
+    complaints: list[WoComplaint] = []
+    for ui, (unit, miles, _kind) in enumerate(units):
+        pick = assigned.get(ui, "")
+        complaints.append(WoComplaint(
+            unit=unit, mileage=miles,
+            detail=pick or "Service per invoice",
+            is_pm=bool(_PM_RE.search(pick or ""))))
+    return complaints
 
 
 def _scan_heuristic(text: str) -> dict:
-    """Extracción básica por patrones, estilo software clásico. Solo para
-    PDFs con capa de texto; cubre los campos típicos de un invoice de
-    taller en EE.UU. El usuario revisa el form antes de crear igual."""
+    """Extracción por patrones (sin AI). Maneja el layout real de los
+    invoices de taller: encabezados de unidad en una fila y datos abajo,
+    múltiples unidades por invoice, textos de Complaint #N / Correction.
+    El usuario revisa el form antes de crear igual."""
     x = WoExtract()
-    if m := _RE_UNIT.search(text):
-        x.unit = m.group(1).replace(" ", "").upper()
-    if m := _RE_ODO.search(text):
-        x.mileage = int(m.group(1).replace(",", ""))
-    if m := _RE_INV.search(text):
-        x.invoice_number = m.group(1)
+    # Fecha (cualquier MM/DD/YYYY del documento). Validar de verdad con
+    # datetime: una falsa coincidencia tipo 13/45/2026 debe descartarse.
+    from datetime import datetime as _dt
     if m := _RE_DATE.search(text):
         mo, da, yr = (int(g) for g in m.groups())
         if yr < 100:
             yr += 2000
-        x.service_date = f"{yr:04d}-{mo:02d}-{da:02d}"
-    if m := _RE_COMPLAINT.search(text):
-        x.complaint = m.group(1).strip()[:300]
-        x.title = " ".join(x.complaint.split()[:8])
+        try:
+            x.service_date = _dt(yr, mo, da).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    # Invoice / work order # (rótulo→número o, en Love's, número→rótulo).
+    if m := _RE_INVNO.search(text):
+        x.invoice_number = m.group(1)[:30]
+    elif m := _RE_INVNO_REV.search(text):
+        x.invoice_number = m.group(1)[:30]
+    # Shop name + ciudad/estado.
+    for ln in text.splitlines():
+        if _KNOWN_SHOPS.search(ln) and not _RE_CITYST.search(ln):
+            x.vendor = " ".join(ln.split())[:80]
+            break
+    if not x.vendor:
+        for ln in text.splitlines():
+            t = ln.strip()
+            if t and not re.search(r"\d{3,}", t):
+                x.vendor = t[:80]
+                break
+    if m := _RE_CITYST.search(text):
+        x.vendor_city = _clean_city(m.group(1))
+        x.vendor_state = m.group(2)
+    # Unidades + complaints.
+    units = _find_units(text)
+    x.complaints = _build_complaints(text, units)
+    # Líneas facturables (best-effort para invoices simples).
     lines: list[WoLineExtract] = []
     for ln in text.splitlines():
         if _SKIP_LINE.search(ln):
@@ -413,15 +597,6 @@ def _scan_heuristic(text: str) -> dict:
                 unit_cost=float(unit_cost.replace(",", "")),
             ))
     x.lines = lines
-    # La primera línea no vacía suele ser el nombre del taller.
-    for ln in text.splitlines():
-        if ln.strip() and not _RE_INV.search(ln):
-            x.vendor = ln.strip()[:80]
-            break
-    if not x.title:
-        x.title = "Imported invoice"
-    x.is_pm = bool(re.search(r"\bPM\b|full (?:wet )?service|oil change",
-                             text, re.IGNORECASE))
     return _normalize(x, "basic text parser (no AI)")
 
 
@@ -617,20 +792,14 @@ def _map_expense(resp: dict) -> WoExtract:
                     unit_cost=unit_cost,
                     total=total,    # _normalize reconcilia qty si no cuadra
                 ))
-    # Overlay de campos de flota sobre el texto detectado.
+    # Overlay de campos de flota sobre el texto detectado: Textract da
+    # vendor/fecha/invoice# nativos; unidades + complaints + ciudad/estado
+    # se derivan con los mismos helpers del parser heurístico.
     full = "\n".join(texts)
-    if m := _RE_UNIT.search(full):
-        x.unit = m.group(1).replace(" ", "").upper()
-    if m := _RE_ODO.search(full):
-        x.mileage = int(m.group(1).replace(",", ""))
-    if m := _RE_COMPLAINT.search(full):
-        x.complaint = m.group(1).strip()[:300]
-        x.title = " ".join(x.complaint.split()[:8])
-    if not x.title:
-        x.title = (f"Invoice {x.invoice_number}" if x.invoice_number
-                   else "Imported invoice")
-    x.is_pm = bool(re.search(r"\bPM\b|full (?:wet )?service|oil change",
-                             full, re.IGNORECASE))
+    if not x.vendor_city and (m := _RE_CITYST.search(full)):
+        x.vendor_city = _clean_city(m.group(1))
+        x.vendor_state = m.group(2)
+    x.complaints = _build_complaints(full, _find_units(full))
     return x
 
 

@@ -33,6 +33,10 @@ DEFAULTS: dict = {
         "pm_upcoming_miles": 5500,
         "defect_lookback_days": 270,
     },
+    # H3: tarifa de labor del taller ($/hora). 0 = sin tarifa por defecto
+    # (las líneas de labor no se autollenan). Decisión del usuario: una
+    # tarifa única de taller (no por mecánico).
+    "labor_rate": 0.0,
     # CC routing de Avisos: lista por terminal + lista que SIEMPRE va.
     # Vacío = usar el REGION_CC hardcodeado histórico de cc_routing.py.
     "cc": {},
@@ -64,6 +68,10 @@ def get() -> dict:
     if isinstance(data.get("always_cc"), list):
         out["always_cc"] = [str(e).strip() for e in data["always_cc"]
                             if str(e).strip()]
+    try:
+        out["labor_rate"] = max(0.0, float(data.get("labor_rate", 0)))
+    except (TypeError, ValueError):
+        out["labor_rate"] = 0.0
     return out
 
 
@@ -89,6 +97,11 @@ def save(new: dict) -> dict:
     if isinstance(new.get("always_cc"), list):
         cur["always_cc"] = [str(e).strip()[:80] for e in new["always_cc"]
                             if str(e).strip()][:10]
+    if "labor_rate" in new:
+        try:
+            cur["labor_rate"] = max(0.0, float(new["labor_rate"] or 0))
+        except (TypeError, ValueError):
+            pass
     CONFIG_PATH.write_text(
         json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
     return cur
@@ -103,6 +116,11 @@ def branding() -> dict:
 def threshold(key: str) -> int:
     return int(get()["thresholds"].get(
         key, DEFAULTS["thresholds"].get(key, 0)))
+
+
+def labor_rate() -> float:
+    """Tarifa de labor del taller ($/hora). 0 = sin default."""
+    return float(get().get("labor_rate", 0.0))
 
 
 def cc_override() -> tuple[dict[str, list[str]], list[str]]:

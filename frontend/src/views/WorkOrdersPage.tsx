@@ -1,13 +1,17 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Drawer } from 'vaul'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData, useQuery, useQueryClient,
+} from '@tanstack/react-query'
 import {
   addWoLine, createWorkOrder, deleteWoLine, deleteWorkOrder,
-  getUnitOdometer, getWorkOrder, listFleet, listWorkOrders,
-  patchWorkOrder, scanWoDocument,
-  type WorkOrder, type WoPriority, type WoScanLine, type WoStatus,
+  getOrg, getUnitOdometer, getWorkOrder, listFleet, listParts,
+  listWorkOrders, patchWorkOrder, scanWoDocument,
+  type Part, type WorkOrder, type WoPriority, type WoScanLine,
+  type WoStatus,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
+import { useTerminals } from '../terminal'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
@@ -33,6 +37,23 @@ const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 const dateOf = (iso: string | null) => (iso ? iso.slice(0, 10) : '—')
 
+// Catálogo de partes (H3): busca una parte por número exacto.
+function findPart(parts: Part[], pn: string): Part | undefined {
+  const k = (pn || '').trim().toLowerCase()
+  return k ? parts.find((p) => p.part_number.toLowerCase() === k) : undefined
+}
+
+// Datalist compartido de part numbers (el option muestra la descripción).
+function PartOptions({ id, parts }: { id: string; parts: Part[] }) {
+  return (
+    <datalist id={id}>
+      {parts.map((p) => (
+        <option key={p.id} value={p.part_number}>{p.description}</option>
+      ))}
+    </datalist>
+  )
+}
+
 // Campañas de mantenimiento (H3b): nombres estilo Fullbay. Una orden
 // con campaña actualiza Components & PMs del perfil al facturarse.
 export const CAMPAIGN_OPTS: { key: string; label: string }[] = [
@@ -46,7 +67,9 @@ export const CAMPAIGN_OPTS: { key: string; label: string }[] = [
 
 export default function WorkOrdersPage() {
   const qc = useQueryClient()
+  const { terminalOf, labelOf, present } = useTerminals()
   const [statusFilter, setStatusFilter] = useState('')
+  const [terminal, setTerminal] = useState('')
   const [q, setQ] = useState('')
   const [openWo, setOpenWo] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
@@ -54,20 +77,38 @@ export default function WorkOrdersPage() {
   const listQ = useQuery({
     queryKey: ['workorders', statusFilter],
     queryFn: () => listWorkOrders(statusFilter),
+    // Conserva la tabla previa al cambiar de status: sin esto `wos`
+    // queda [] durante el refetch y los chips parpadean (se desmontan).
+    placeholderData: keepPreviousData,
   })
   const wos = listQ.data?.workorders ?? []
   const stats = listQ.data?.stats
   const mechanics = listQ.data?.mechanics ?? []
 
+  // Chips de terminal (Settings → Terminals); solo si hay más de una.
+  // Pasar company para que las unidades MCC sin prefijo caigan en 'MCC'
+  // (sin chip) y no bajo Chaser.
+  const woTerminals = useMemo(
+    () => present(wos.map((w) => ({ unit: w.unit, company: w.company }))),
+    [wos, present])
+
+  // Si el terminal elegido ya no está presente (p.ej. al cambiar de
+  // status sus WOs son de otra terminal), los chips colapsan y el filtro
+  // quedaría aplicado e invisible -> limpiarlo para no esconder filas.
+  useEffect(() => {
+    if (terminal && !woTerminals.includes(terminal)) setTerminal('')
+  }, [terminal, woTerminals])
+
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
-    if (!s) return wos
     return wos.filter((w) =>
-      w.unit.toLowerCase().includes(s) ||
-      w.title.toLowerCase().includes(s) ||
-      w.mechanic.toLowerCase().includes(s) ||
-      String(w.id) === s)
-  }, [wos, q])
+      (!terminal || terminalOf(w.unit, w.company) === terminal) &&
+      (!s ||
+        w.unit.toLowerCase().includes(s) ||
+        w.title.toLowerCase().includes(s) ||
+        w.mechanic.toLowerCase().includes(s) ||
+        String(w.id) === s))
+  }, [wos, q, terminal, terminalOf])
 
   function refresh() {
     qc.invalidateQueries({ queryKey: ['workorders'] })
@@ -129,6 +170,21 @@ export default function WorkOrdersPage() {
               </button>
             ))}
           </div>
+          {woTerminals.length > 1 && (
+            <div className="company-tabs" role="tablist"
+              aria-label="Terminal">
+              <button
+                className={`tab-btn ${terminal === '' ? 'active' : ''}`}
+                onClick={() => setTerminal('')}>All terminals</button>
+              {woTerminals.map((t) => (
+                <button key={t}
+                  className={`tab-btn ${terminal === t ? 'active' : ''}`}
+                  onClick={() => setTerminal(terminal === t ? '' : t)}>
+                  {labelOf(t)}
+                </button>
+              ))}
+            </div>
+          )}
           <span className="head-spacer" />
           <input className="cell-input" placeholder="Unit, title, mechanic, WO#…"
             value={q} onChange={(e) => setQ(e.target.value)} />
@@ -222,24 +278,82 @@ function todayISO(): string {
   return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`
 }
 
+// Un complaint en edición: un invoice puede traer varios (un PM al camión
+// y una llanta al trailer), cada uno con su unidad y millaje.
+type ComplaintDraft = {
+  unit: string; mileage: string; detail: string; is_pm: boolean
+}
+const emptyComplaint = (): ComplaintDraft =>
+  ({ unit: '', mileage: '', detail: '', is_pm: false })
+
+type SharedInvoice = {
+  vendor: string; city: string; state: string; invoice: string; date: string
+}
+
+// Formato del complaint pedido por el usuario:
+//   ISSUE DESCRIPTION (≤4 líneas)
+//   SHOP NAME, CITY, STATE
+//   <blank>
+//    Shop Invoice # NUM | DATE
+//   UNIT # - MILEAGE
+function formatComplaint(c: ComplaintDraft, s: SharedInvoice): string {
+  // Cabecera: descripción + shop. Pie: invoice + unidad/millaje.
+  const head: string[] = []
+  if (c.detail.trim()) head.push(c.detail.trim())
+  const loc = [s.vendor, s.city, s.state]
+    .map((x) => x.trim()).filter(Boolean).join(', ')
+  if (loc) head.push(loc)
+  const foot: string[] = []
+  const inv = [
+    s.invoice.trim() ? `Shop Invoice # ${s.invoice.trim()}` : '',
+    s.date.trim(),
+  ].filter(Boolean).join(' | ')
+  if (inv) foot.push(' ' + inv)
+  const um = [c.unit.trim(), c.mileage.trim()].filter(Boolean).join(' - ')
+  if (um) foot.push(um)
+  // Línea en blanco SOLO si hay cabecera y pie (sin ella si falta uno).
+  const parts = [...head]
+  if (head.length && foot.length) parts.push('')
+  parts.push(...foot)
+  return parts.join('\n')
+}
+
 function CreateWoModal({ mechanics, onClose, onCreated }: {
   mechanics: string[]
   onClose: () => void
   onCreated: (id: number) => void
 }) {
   const fleetQ = useQuery({ queryKey: ['fleet'], queryFn: listFleet })
+  const partsQ = useQuery({ queryKey: ['parts'], queryFn: listParts })
+  const orgQ = useQuery({ queryKey: ['org'], queryFn: getOrg })
+  const laborRate = orgQ.data?.labor_rate ?? 0
+  const catalog = partsQ.data?.parts ?? []
   const units = useMemo(
     () => (fleetQ.data ?? []).filter((u) => !u.archived)
       .map((u) => u.unit).sort(),
     [fleetQ.data])
   const [unit, setUnit] = useState('')
-  const [title, setTitle] = useState('')
-  const [complaint, setComplaint] = useState('')
+  const [complaints, setComplaints] = useState<ComplaintDraft[]>(
+    () => [emptyComplaint()])
+  const [vendor, setVendor] = useState('')
+  const [vendorCity, setVendorCity] = useState('')
+  const [vendorState, setVendorState] = useState('')
+  const [invoiceNum, setInvoiceNum] = useState('')
   const [mechanic, setMechanic] = useState('')
   const [priority, setPriority] = useState<WoPriority>('normal')
   const [campaign, setCampaign] = useState('')
   const [mileage, setMileage] = useState('')
   const [date, setDate] = useState(todayISO())
+
+  function setComplaint(i: number, patch: Partial<ComplaintDraft>) {
+    setComplaints((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)))
+  }
+  function addComplaint() {
+    setComplaints((cs) => [...cs, emptyComplaint()])
+  }
+  function removeComplaint(i: number) {
+    setComplaints((cs) => cs.filter((_, j) => j !== i))
+  }
   const [saving, setSaving] = useState(false)
   const [fetchingMi, setFetchingMi] = useState(false)
   // Escáner de documentos (H2.5): el PDF/foto autollena el form y las
@@ -256,6 +370,26 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
     setScanLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)))
   }
 
+  // Cambiar a labor con costo en 0 -> prefijar con la tarifa del taller.
+  function setLineKind(i: number, kind: 'part' | 'labor') {
+    setScanLines((ls) => ls.map((l, j) => (j === i ? {
+      ...l, kind,
+      unit_cost: (kind === 'labor' && !l.unit_cost && laborRate)
+        ? laborRate : l.unit_cost,
+      part_number: kind === 'labor' ? '' : l.part_number,
+    } : l)))
+  }
+
+  // Al escribir/elegir un part# del catálogo, autollenar desc + costo.
+  function setLinePart(i: number, pn: string) {
+    const hit = findPart(catalog, pn)
+    setScanLines((ls) => ls.map((l, j) => (j === i ? {
+      ...l, part_number: pn,
+      ...(hit ? { description: l.description || hit.description,
+                  unit_cost: hit.cost } : {}),
+    } : l)))
+  }
+
   async function handleFile(f: File | undefined | null) {
     if (!f || scanning) return
     setPreview((old) => {
@@ -268,20 +402,29 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
     try {
       const r = await scanWoDocument(f)
       const x = r.extract
-      if (x.unit) setUnit(x.unit)
+      const cs = (x.complaints ?? []).map((c) => ({
+        unit: c.unit ?? '',
+        mileage: c.mileage != null ? String(c.mileage) : '',
+        detail: c.detail ?? '',
+        is_pm: !!c.is_pm,
+      }))
+      if (cs.length) {
+        setComplaints(cs)
+        const first = cs[0]
+        if (first.unit) setUnit(first.unit)
+        if (first.mileage) setMileage(first.mileage)
+        if (cs.some((c) => c.is_pm)) setCampaign('pm')
+      }
       if (x.service_date) setDate(x.service_date)
-      if (x.mileage != null) setMileage(String(x.mileage))
-      if (x.title) setTitle(x.title)
+      if (x.vendor) setVendor(x.vendor)
+      if (x.vendor_city) setVendorCity(x.vendor_city)
+      if (x.vendor_state) setVendorState(x.vendor_state)
+      if (x.invoice_number) setInvoiceNum(x.invoice_number)
       if (x.mechanic) setMechanic(x.mechanic)
-      if (x.is_pm) setCampaign('pm')
-      const extra = [
-        x.vendor ? `Vendor: ${x.vendor}` : '',
-        x.invoice_number ? `Invoice #${x.invoice_number}` : '',
-      ].filter(Boolean).join(' · ')
-      setComplaint([x.complaint || '', extra].filter(Boolean).join('\n'))
       setScanLines(x.lines)
       notifyOk('Document scanned',
-        `${x.lines.length} line${x.lines.length === 1 ? '' : 's'} found · ${r.model}`)
+        `${cs.length} complaint${cs.length === 1 ? '' : 's'}, ` +
+        `${x.lines.length} line${x.lines.length === 1 ? '' : 's'} · ${r.model}`)
     } catch (e) {
       setScanName('')
       notifyErr("Couldn't scan the document", e)
@@ -306,15 +449,41 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
   }
 
   async function submit() {
-    if (!unit.trim() || !title.trim()) {
-      notifyErr('Missing fields', 'Unit and issue are required')
+    if (!unit.trim()) {
+      notifyErr('Missing unit', 'Pick the unit for this work order')
+      return
+    }
+    const kept = complaints.filter((c) => c.detail.trim())
+    if (!kept.length) {
+      notifyErr('Missing complaint', 'Add at least one issue detail')
+      return
+    }
+    // Aviso si quedan complaints de OTRA unidad (la advertencia visual es
+    // solo informativa; acá confirmamos antes de mezclarlas en el WO).
+    const wu = unit.trim().toUpperCase()
+    const mism = kept.filter(
+      (c) => c.unit.trim() && c.unit.trim().toUpperCase() !== wu)
+    if (mism.length && !window.confirm(
+      `${mism.length} complaint(s) are for a different unit than ${wu}. `
+      + 'Create the work order anyway?')) {
       return
     }
     setSaving(true)
     try {
+      const shared: SharedInvoice = {
+        vendor, city: vendorCity, state: vendorState,
+        invoice: invoiceNum, date,
+      }
+      const complaintText = kept
+        .map((c) => formatComplaint(c, shared)).join('\n\n')
+      // El title (que el backend exige) se deriva de la 1ª línea del
+      // primer complaint — el usuario ya no lo escribe a mano. Cap corto
+      // para que la columna Title de la tabla no se desborde.
+      const title = (kept[0].detail.trim().split('\n')[0] || 'Work order')
+        .slice(0, 80)
       const lines = scanLines.filter((l) => l.description.trim())
       const wo = await createWorkOrder({
-        unit: unit.trim(), title: title.trim(), complaint,
+        unit: unit.trim(), title, complaint: complaintText,
         mechanic, priority, campaign,
         mileage: mileage ? Number(mileage) : null,
         service_date: date,
@@ -325,6 +494,7 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
         await addWoLine(wo.id, {
           kind: ln.kind, description: ln.description.trim(),
           qty: Number(ln.qty) || 1, unit_cost: Number(ln.unit_cost) || 0,
+          part_number: ln.part_number ?? '',
         })
       }
       notifyOk('Work order created',
@@ -342,7 +512,7 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
     (s, l) => s + l.qty * l.unit_cost, 0)
 
   return (
-    <Modal title="New work order" width={1120} onClose={onClose}>
+    <Modal title="New work order" width={1360} fullHeight onClose={onClose}>
       <div className="wo-modal-grid">
       {/* Columna izquierda: escáner + preview del documento (H3b) */}
       <div className="wo-preview-pane">
@@ -434,18 +604,82 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
             </span>
           </label>
         </div>
-        <label className="ud-field">
-          <span>Issue</span>
-          <input className="cell-input" value={title}
-            placeholder="Brake light out"
-            onChange={(e) => setTitle(e.target.value)} />
-        </label>
-        <label className="ud-field">
-          <span>Complaint / detail</span>
-          <textarea className="cell-input ud-notes" rows={3} value={complaint}
-            placeholder="What was reported, by whom…"
-            onChange={(e) => setComplaint(e.target.value)} />
-        </label>
+        {/* Invoice compartido: alimenta el formato de cada complaint */}
+        <div className="wo-form-row wo-shop-row">
+          <label className="ud-field">
+            <span>Shop</span>
+            <input className="cell-input" value={vendor}
+              placeholder="Love's Truck Care"
+              onChange={(e) => setVendor(e.target.value)} />
+          </label>
+          <label className="ud-field wo-city-field">
+            <span>City</span>
+            <input className="cell-input" value={vendorCity}
+              onChange={(e) => setVendorCity(e.target.value)} />
+          </label>
+          <label className="ud-field wo-state-field">
+            <span>St</span>
+            <input className="cell-input" value={vendorState} maxLength={2}
+              onChange={(e) =>
+                setVendorState(e.target.value.toUpperCase())} />
+          </label>
+          <label className="ud-field">
+            <span>Invoice #</span>
+            <input className="cell-input" value={invoiceNum}
+              onChange={(e) => setInvoiceNum(e.target.value)} />
+          </label>
+        </div>
+
+        {/* Complaints: uno por job. El que no corresponde a la unidad
+            seleccionada se marca y se puede borrar. */}
+        <div className="wo-complaints">
+          <div className="wo-lines-edit-head">
+            <span>Complaints</span>
+            <button className="btn btn-ghost btn-xs" onClick={addComplaint}>
+              + Add complaint
+            </button>
+          </div>
+          {complaints.map((c, i) => {
+            const mismatch = !!unit.trim() && !!c.unit.trim() &&
+              c.unit.trim().toUpperCase() !== unit.trim().toUpperCase()
+            return (
+              <div key={i}
+                className={`wo-complaint ${mismatch ? 'is-mismatch' : ''}`}>
+                <div className="wo-complaint-head">
+                  <input className="cell-input wo-complaint-unit"
+                    value={c.unit} placeholder="Unit #"
+                    onChange={(e) =>
+                      setComplaint(i, { unit: e.target.value })} />
+                  <input className="cell-input wo-complaint-mi" type="number"
+                    value={c.mileage} placeholder="mi"
+                    onChange={(e) =>
+                      setComplaint(i, { mileage: e.target.value })} />
+                  {mismatch && (
+                    <span className="wo-complaint-warn"
+                      title="This complaint is for a different unit than the work order">
+                      different unit
+                    </span>
+                  )}
+                  <span className="head-spacer" />
+                  {complaints.length > 1 && (
+                    <button className="mnt-icon" title="Remove complaint"
+                      onClick={() => removeComplaint(i)}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        strokeWidth="1.8" strokeLinecap="round">
+                        <path d="M6 6l12 12M18 6L6 18" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+                <textarea className="cell-input ud-notes" rows={3}
+                  value={c.detail}
+                  placeholder="Issue description, short and clear (max 4 lines)"
+                  onChange={(e) =>
+                    setComplaint(i, { detail: e.target.value })} />
+              </div>
+            )
+          })}
+        </div>
         <div className="wo-form-row">
           <label className="ud-field">
             <span>Mechanic</span>
@@ -491,13 +725,19 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
             </button>
           </div>
           {scanLines.map((ln, i) => (
-            <div key={i} className="wo-line-row">
+            <div key={i} className="wo-line-row wo-line-row-cat">
               <select className="cell-input" value={ln.kind}
-                onChange={(e) => setLine(i, {
-                  kind: e.target.value as 'part' | 'labor' })}>
+                onChange={(e) => setLineKind(i,
+                  e.target.value as 'part' | 'labor')}>
                 <option value="part">Part</option>
                 <option value="labor">Labor</option>
               </select>
+              <input className="cell-input" list="wo-catalog-parts"
+                title="Part number (catalog)"
+                placeholder={ln.kind === 'part' ? 'Part #' : '—'}
+                disabled={ln.kind === 'labor'}
+                value={ln.part_number ?? ''}
+                onChange={(e) => setLinePart(i, e.target.value)} />
               <input className="cell-input" value={ln.description}
                 placeholder="Description"
                 onChange={(e) => setLine(i, { description: e.target.value })} />
@@ -520,6 +760,7 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
               </button>
             </div>
           ))}
+          <PartOptions id="wo-catalog-parts" parts={catalog} />
           {scanLines.length > 0 && (
             <span className="wo-scan-total">
               Will be added on create · {money(scanTotal)}
@@ -555,12 +796,36 @@ export function WoDrawer({ woId, mechanics, onClose }: {
   })
   const wo = woQ.data ?? null
 
+  const partsQ = useQuery({ queryKey: ['parts'], queryFn: listParts })
+  const orgQ = useQuery({ queryKey: ['org'], queryFn: getOrg })
+  const laborRate = orgQ.data?.labor_rate ?? 0
+  const catalog = partsQ.data?.parts ?? []
   const [lineKind, setLineKind] = useState<'part' | 'labor'>('part')
+  const [linePart, setLinePart] = useState('')
   const [lineDesc, setLineDesc] = useState('')
   const [lineQty, setLineQty] = useState('1')
   const [lineCost, setLineCost] = useState('')
   const [pmMiles, setPmMiles] = useState('')
   const [busy, setBusy] = useState(false)
+
+  // Elegir un part# del catálogo autollena descripción + costo.
+  function pickPart(pn: string) {
+    setLinePart(pn)
+    const hit = findPart(catalog, pn)
+    if (hit) {
+      if (!lineDesc.trim()) setLineDesc(hit.description)
+      setLineCost(String(hit.cost))
+    }
+  }
+
+  // Cambiar el tipo de línea; al pasar a labor sin costo, traer la tarifa.
+  function changeKind(kind: 'part' | 'labor') {
+    setLineKind(kind)
+    if (kind === 'labor') {
+      setLinePart('')
+      if (!lineCost.trim() && laborRate) setLineCost(String(laborRate))
+    }
+  }
 
   function refreshWo(updated: WorkOrder) {
     qc.setQueryData(['workorder', updated.id], updated)
@@ -610,9 +875,10 @@ export function WoDrawer({ woId, mechanics, onClose }: {
       const updated = await addWoLine(wo.id, {
         kind: lineKind, description: lineDesc.trim(),
         qty: Number(lineQty) || 1, unit_cost: Number(lineCost) || 0,
+        part_number: lineKind === 'part' ? linePart.trim() : '',
       })
       refreshWo(updated)
-      setLineDesc(''); setLineQty('1'); setLineCost('')
+      setLinePart(''); setLineDesc(''); setLineQty('1'); setLineCost('')
     } catch (e) {
       notifyErr('Could not add line', e)
     } finally {
@@ -785,7 +1051,12 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                                 {ln.kind === 'part' ? 'Part' : 'Labor'}
                               </span>
                             </td>
-                            <td className="wo-line-desc">{ln.description}</td>
+                            <td className="wo-line-desc">
+                              {ln.part_number && (
+                                <span className="wo-line-pn">{ln.part_number}</span>
+                              )}
+                              {ln.description}
+                            </td>
                             <td className="num mono">
                               {ln.qty} × {money(ln.unit_cost)}
                             </td>
@@ -801,11 +1072,17 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                   )}
                   <div className="wo-line-add">
                     <select className="cell-input" value={lineKind}
-                      onChange={(e) => setLineKind(
+                      onChange={(e) => changeKind(
                         e.target.value as 'part' | 'labor')}>
                       <option value="part">Part</option>
                       <option value="labor">Labor</option>
                     </select>
+                    {lineKind === 'part' && (
+                      <input className="cell-input wo-line-add-pn"
+                        list="wo-drawer-parts" title="Part number (catalog)"
+                        placeholder="Part #" value={linePart}
+                        onChange={(e) => pickPart(e.target.value)} />
+                    )}
                     <input className="cell-input wo-line-add-desc"
                       placeholder={lineKind === 'part'
                         ? 'LED brake lamp' : 'Replace + test'}
@@ -827,6 +1104,7 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                       disabled={busy || !lineDesc.trim()}>
                       Add
                     </button>
+                    <PartOptions id="wo-drawer-parts" parts={catalog} />
                   </div>
                   <div className="wo-total">
                     <span>Total</span>

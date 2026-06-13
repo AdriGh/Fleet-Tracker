@@ -5,7 +5,7 @@ import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 import UnitDrawer from '../components/UnitDrawer'
 import IconButton from '../components/IconButton'
-import { terminalOf, terminalsPresent, TERMINAL_LABEL } from '../terminal'
+import { useTerminals } from '../terminal'
 
 type SortKey = 'unit' | 'open'
 type Cell = string | number
@@ -42,6 +42,7 @@ export default function FleetPage({ onOpenUnit }: {
   const [selected, setSelected] = useState<FleetUnit | null>(null)
 
   const fleetQuery = useQuery({ queryKey: ['fleet'], queryFn: listFleet })
+  const { terminalOf, labelOf, present } = useTerminals()
   const units = fleetQuery.data ?? []
   const loading = fleetQuery.isPending
   const fetching = fleetQuery.isFetching
@@ -73,9 +74,8 @@ export default function FleetPage({ onOpenUnit }: {
 
   // Terminales presentes en la empresa seleccionada (para los chips de filtro).
   const terminals = useMemo(
-    () => terminalsPresent(
-      active.filter((u) => !company || u.company === company)),
-    [active, company])
+    () => present(active.filter((u) => !company || u.company === company)),
+    [active, company, present])
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
@@ -88,7 +88,7 @@ export default function FleetPage({ onOpenUnit }: {
         u.vin.toLowerCase().includes(s) ||
         u.plate.toLowerCase().includes(s) ||
         `${u.make} ${u.model}`.toLowerCase().includes(s)))
-  }, [active, company, type, terminal, q])
+  }, [active, company, type, terminal, q, terminalOf])
 
   const sorted = useMemo(() => {
     const dir = sortDir === 'asc' ? 1 : -1
@@ -114,11 +114,11 @@ export default function FleetPage({ onOpenUnit }: {
     const header = ['Unit', 'Type', 'Terminal', 'Company', 'Make', 'Model',
       'Year', 'VIN', 'Plate', 'Open defects']
     const rows = sorted.map((u) => [
-      u.unit, u.unit_type, TERMINAL_LABEL[terminalOf(u.unit, u.company)],
+      u.unit, u.unit_type, labelOf(terminalOf(u.unit, u.company)),
       u.company, u.make, u.model, u.year, u.vin, u.plate, u.open_defects,
     ])
     return [header, ...rows]
-  }, [sorted])
+  }, [sorted, terminalOf, labelOf])
 
   const hasFilter = company || type || terminal || q
 
@@ -190,7 +190,7 @@ export default function FleetPage({ onOpenUnit }: {
               {terminals.map((t) => (
                 <button key={t}
                   className={`tab-btn ${terminal === t ? 'active' : ''}`}
-                  onClick={() => setTerminal(t)}>{TERMINAL_LABEL[t]}</button>
+                  onClick={() => setTerminal(t)}>{labelOf(t)}</button>
               ))}
             </div>
           )}
@@ -265,7 +265,7 @@ export default function FleetPage({ onOpenUnit }: {
                             {TYPE_LABEL[u.unit_type] ?? u.unit_type}
                           </span>
                         </td>
-                        <td>{TERMINAL_LABEL[terminalOf(u.unit, u.company)]}</td>
+                        <td>{labelOf(terminalOf(u.unit, u.company))}</td>
                         <td>{vehicle || <span className="muted">—</span>}</td>
                         <td className="num">
                           {u.open_defects > 0 ? (

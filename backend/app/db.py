@@ -154,6 +154,9 @@ class WorkOrderLine(Base):
     description: Mapped[str] = mapped_column(String(160))
     qty: Mapped[float] = mapped_column(Float, default=1.0)
     unit_cost: Mapped[float] = mapped_column(Float, default=0.0)
+    # H3: referencia opcional al catálogo (Part.part_number) cuando la
+    # línea se cargó eligiendo una parte; vacío para líneas a mano.
+    part_number: Mapped[str] = mapped_column(String(60), default="")
 
     wo: Mapped[WorkOrder] = relationship(back_populates="lines")
 
@@ -298,6 +301,43 @@ class MaintRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class Vendor(Base):
+    """Proveedor de partes/servicios (fase H3, pestaña Vendors estilo
+    Fullbay). El taller le compra partes; se referencia desde Part y, a
+    futuro, desde las órdenes de compra."""
+    __tablename__ = "vendor"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), index=True)
+    contact: Mapped[str] = mapped_column(String(120), default="")
+    phone: Mapped[str] = mapped_column(String(40), default="")
+    email: Mapped[str] = mapped_column(String(120), default="")
+    address: Mapped[str] = mapped_column(String(200), default="")
+    account: Mapped[str] = mapped_column(String(60), default="")  # nº cuenta
+    notes: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class Part(Base):
+    """Parte del catálogo (fase H3, pestaña Parts estilo Fullbay). Costo
+    INTERNO (lo que paga el taller; sin markup — decisión del usuario).
+    `on_hand` es un conteo manual de inventario (sin auto-decremento aún).
+    Se reusa al cargar líneas de una work order."""
+    __tablename__ = "part"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    part_number: Mapped[str] = mapped_column(String(60), index=True)
+    description: Mapped[str] = mapped_column(String(160), default="")
+    category: Mapped[str] = mapped_column(String(40), default="")
+    cost: Mapped[float] = mapped_column(Float, default=0.0)
+    vendor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("vendor.id"), nullable=True)
+    on_hand: Mapped[float] = mapped_column(Float, default=0.0)
+    notes: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 Base.metadata.create_all(_engine)
 
 
@@ -331,6 +371,14 @@ def _migrate() -> None:
         conn.exec_driver_sql(
             "UPDATE work_order SET campaign='pm' "
             "WHERE is_pm=1 AND (campaign IS NULL OR campaign='')")
+        # H3 (catálogo): la línea de WO puede referenciar una parte del
+        # catálogo por su número (para reportes de gasto por parte/vendor).
+        line_cols = {r[1] for r in conn.exec_driver_sql(
+            "PRAGMA table_info(work_order_line)").fetchall()}
+        if "part_number" not in line_cols:
+            conn.exec_driver_sql(
+                "ALTER TABLE work_order_line "
+                "ADD COLUMN part_number VARCHAR(60) DEFAULT ''")
         conn.commit()
 
 
