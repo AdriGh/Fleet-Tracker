@@ -16,7 +16,7 @@ import SummaryReport from '../components/SummaryReport'
 import Modal from '../components/Modal'
 import { type Kind } from '../truckZones'
 import { analyzeUnit, items, categoryOf, bodyOf } from '../defectGroups'
-import { terminalOf, terminalsPresent, TERMINAL_LABEL } from '../terminal'
+import { useTerminals } from '../terminal'
 
 // Color de chip por categoría de defecto (las comunes; el resto, neutro).
 const CAT_TONE: Record<string, string> = {
@@ -195,6 +195,7 @@ const RANGES = [
 ]
 
 export default function DefectsPage() {
+  const { terminalOf, labelOf, present } = useTerminals()
   const [rangeDays, setRangeDays] = useState(7)
   const [company, setCompany] = useState('')
   const [status, setStatus] = useState('')
@@ -320,15 +321,15 @@ export default function DefectsPage() {
   // CSV de empresas fuera del org). Independiente del rango del dashboard.
   const board = openDefs
   const boardTerminals = useMemo(
-    () => terminalsPresent(board.filter((d) => !company || d.company === company)),
-    [board, company])
+    () => present(board.filter((d) => !company || d.company === company)),
+    [board, company, present])
   const boardFiltered = useMemo(() => {
     const uq = unit.trim().toLowerCase()
     return board.filter((d) =>
       (!company || d.company === company) &&
       (!terminal || terminalOf(d.unit, d.company) === terminal) &&
       (!uq || d.unit.toLowerCase().includes(uq)))
-  }, [board, company, terminal, unit])
+  }, [board, company, terminal, unit, terminalOf])
   const unitRows = useMemo(() => consolidate(boardFiltered), [boardFiltered])
 
   const sortedRows = useMemo(() => {
@@ -531,7 +532,7 @@ export default function DefectsPage() {
               {boardTerminals.map((t) => (
                 <button key={t}
                   className={`tab-btn ${terminal === t ? 'active' : ''}`}
-                  onClick={() => setTerminal(t)}>{TERMINAL_LABEL[t]}</button>
+                  onClick={() => setTerminal(t)}>{labelOf(t)}</button>
               ))}
             </div>
           )}

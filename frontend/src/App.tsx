@@ -19,6 +19,7 @@ import MaintBoardPage from './views/MaintBoardPage'
 import UnitProfilePage from './views/UnitProfilePage'
 import ReeferPage from './views/ReeferPage'
 import WorkOrdersPage from './views/WorkOrdersPage'
+import PartsPage from './views/PartsPage'
 import DriversPage from './views/DriversPage'
 import LoadsPage from './views/LoadsPage'
 import SettingsPage from './views/SettingsPage'
@@ -46,11 +47,17 @@ const NAV_SECTIONS: NavSection[] = [
       { id: 'dvir', label: 'DVIR' },
       { id: 'defectos', label: 'Defects' },
       { id: 'avisos', label: 'Notices' },
+      { id: 'coldchain', label: 'Cold Chain' },
+    ],
+  },
+  {
+    title: 'Maintenance & Compliance',
+    items: [
       { id: 'flota', label: 'Fleet' },
       { id: 'pm', label: 'PM Tracker' },
       { id: 'dot', label: 'DOT Inspections' },
-      { id: 'coldchain', label: 'Cold Chain' },
       { id: 'workorders', label: 'Work Orders' },
+      { id: 'parts', label: 'Parts & Vendors' },
     ],
   },
   {
@@ -100,6 +107,13 @@ const ICONS: Record<string, ReactElement> = {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
       strokeLinecap="round" strokeLinejoin="round">
       <path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L4 16.8 7.2 20l5.3-5.3a4 4 0 0 0 5.2-5.4l-2.5 2.5-2.3-.5-.5-2.3z" />
+    </svg>
+  ),
+  parts: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" />
     </svg>
   ),
   dvir: (
@@ -191,6 +205,9 @@ export default function App() {
   const [section, setSection] = useState('dashboard')
   // H3: perfil completo de unidad (se superpone a la sección actual).
   const [profileUnit, setProfileUnit] = useState<string | null>(null)
+  // Navegar a una sección SIEMPRE cierra el perfil de unidad abierto
+  // (si no, el perfil se superpone y el clic en el sidebar "no hace nada").
+  const navigate = (id: string) => { setProfileUnit(null); setSection(id) }
   // Sesión real (fase G7): el token vive en localStorage ('ft-token');
   // /api/auth/status decide entre wizard, login o app.
   const [sessionUser, setSessionUser] = useState<AuthUser | null>(null)
@@ -363,7 +380,7 @@ export default function App() {
                   className={`nav-item ${section === item.id ? 'active' : ''}`}
                   disabled={item.soon}
                   title={navCollapsed ? item.label : undefined}
-                  onClick={() => !item.soon && setSection(item.id)}
+                  onClick={() => !item.soon && navigate(item.id)}
                 >
                   <span className="nav-ico">{ICONS[item.id]}</span>
                   <span className="nav-text">{item.label}</span>
@@ -380,7 +397,7 @@ export default function App() {
                 key={item.id}
                 className={`nav-item ${section === item.id ? 'active' : ''}`}
                 title={navCollapsed ? item.label : undefined}
-                onClick={() => setSection(item.id)}
+                onClick={() => navigate(item.id)}
               >
                 <span className="nav-ico">{ICONS[item.id]}</span>
                 <span className="nav-text">{item.label}</span>
@@ -458,7 +475,7 @@ export default function App() {
               onClose={() => setProfileUnit(null)} />
           )}
           {!profileUnit && <>
-          {section === 'dashboard' && <Dashboard onNavigate={setSection} />}
+          {section === 'dashboard' && <Dashboard onNavigate={navigate} />}
           {section === 'map' && (
             <Suspense fallback={<div className="loadbar" aria-hidden="true" />}>
               <MapPage theme={theme} />
@@ -472,13 +489,14 @@ export default function App() {
           {section === 'dot' && <MaintBoardPage kind="dot" />}
           {section === 'coldchain' && <ReeferPage />}
           {section === 'workorders' && <WorkOrdersPage />}
+          {section === 'parts' && <PartsPage />}
           {section === 'drivers' && <DriversPage />}
           {section === 'loads' && <LoadsPage />}
           {section === 'settings' && (
             <SettingsPage
               theme={theme}
               onTheme={setTheme}
-              onNavigate={setSection}
+              onNavigate={navigate}
               isAdmin={sessionUser?.role === 'admin'}
             />
           )}

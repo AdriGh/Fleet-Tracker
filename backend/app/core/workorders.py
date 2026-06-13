@@ -47,6 +47,7 @@ def _line_dict(ln: WorkOrderLine) -> dict:
         "id": ln.id,
         "kind": ln.kind,
         "description": ln.description,
+        "part_number": ln.part_number or "",
         "qty": ln.qty,
         "unit_cost": ln.unit_cost,
         "total": round(ln.qty * ln.unit_cost, 2),
@@ -234,7 +235,8 @@ def update_wo(wo_id: int, fields: dict) -> dict | None:
 
 
 def add_line(wo_id: int, kind: str, description: str,
-             qty: float, unit_cost: float) -> dict | None:
+             qty: float, unit_cost: float,
+             part_number: str = "") -> dict | None:
     if kind not in LINE_KINDS:
         raise ValueError(f"invalid kind: {kind}")
     description = description.strip()
@@ -246,6 +248,7 @@ def add_line(wo_id: int, kind: str, description: str,
             return None
         wo.lines.append(WorkOrderLine(
             kind=kind, description=description[:160],
+            part_number=(part_number or "").strip()[:60],
             qty=max(0.0, float(qty or 0)),
             unit_cost=max(0.0, float(unit_cost or 0)),
         ))

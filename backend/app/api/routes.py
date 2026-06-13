@@ -17,9 +17,9 @@ from fastapi import Header
 from ..core import (
     alerts, app_config, auth, batch, docscan, driver_contacts, engine,
     excel, integrations_admin, local_config, mailer, maint, media_host,
-    notify_service, open_defects, org_config, pm, pois, pretrip, reefer,
-    samsara, sms_service, telegram_notify, tms, tracking, unit_settings,
-    unitdocs, workorders,
+    notify_service, open_defects, org_config, parts, pm, pois, pretrip,
+    reefer, samsara, sms_service, telegram_notify, terminals, tms, tracking,
+    unit_settings, unitdocs, workorders,
 )
 from ..core.contacts import name_key
 from ..schemas import (
@@ -482,6 +482,7 @@ class WoLineIn(BaseModel):
     description: str
     qty: float = 1
     unit_cost: float = 0
+    part_number: str = ""
 
 
 @router.get("/workorders")
@@ -560,12 +561,78 @@ async def wo_patch(wo_id: int, body: WorkOrderPatch):
 def wo_add_line(wo_id: int, body: WoLineIn):
     try:
         wo = workorders.add_line(wo_id, body.kind, body.description,
-                                 body.qty, body.unit_cost)
+                                 body.qty, body.unit_cost, body.part_number)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if wo is None:
         raise HTTPException(status_code=404, detail="WO not found")
     return wo
+
+
+# ----- Catálogo de Partes + Vendors (fase H3, estilo Fullbay) --------------
+
+@router.get("/vendors")
+def vendors_list():
+    return {"vendors": parts.list_vendors()}
+
+
+@router.post("/vendors")
+def vendors_create(body: dict):
+    try:
+        return parts.create_vendor(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.patch("/vendors/{vendor_id}")
+def vendors_update(vendor_id: int, body: dict):
+    try:
+        v = parts.update_vendor(vendor_id, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if v is None:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    return v
+
+
+@router.delete("/vendors/{vendor_id}")
+def vendors_delete(vendor_id: int):
+    if not parts.delete_vendor(vendor_id):
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    return {"ok": True}
+
+
+@router.get("/parts")
+def parts_list():
+    return {"parts": parts.list_parts(),
+            "categories": parts.categories(),
+            "usage": parts.part_usage()}
+
+
+@router.post("/parts")
+def parts_create(body: dict):
+    try:
+        return parts.create_part(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.patch("/parts/{part_id}")
+def parts_update(part_id: int, body: dict):
+    try:
+        p = parts.update_part(part_id, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if p is None:
+        raise HTTPException(status_code=404, detail="Part not found")
+    return p
+
+
+@router.delete("/parts/{part_id}")
+def parts_delete(part_id: int):
+    if not parts.delete_part(part_id):
+        raise HTTPException(status_code=404, detail="Part not found")
+    return {"ok": True}
 
 
 @router.delete("/workorders/{wo_id}/lines/{line_id}")
@@ -823,6 +890,56 @@ def org_save(body: dict,
              authorization: str | None = Header(default=None)):
     _require_admin(authorization)
     return org_config.save(body)
+
+
+# ----- Terminales dinámicas (Settings → Terminals) -------------------------
+
+class TerminalIn(BaseModel):
+    key: str = ""            # vacío = crear; existente = editar
+    label: str
+    prefixes: list[str] = []
+
+
+class TerminalAssignIn(BaseModel):
+    terminal: str
+    units: list[str] = []
+
+
+@router.get("/terminals")
+def terminals_get():
+    """Terminales configuradas + asignaciones manuales unidad→terminal."""
+    return terminals.get_all()
+
+
+@router.post("/terminals")
+def terminals_save(body: TerminalIn,
+                   authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    try:
+        return terminals.save_terminal(body.key, body.label, body.prefixes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/terminals/{key}")
+def terminals_delete(key: str,
+                     authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    try:
+        return terminals.delete_terminal(key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/terminals/assign")
+def terminals_assign(body: TerminalAssignIn,
+                     authorization: str | None = Header(default=None)):
+    """Reemplaza la flota pinneada de la terminal por la lista enviada."""
+    _require_admin(authorization)
+    try:
+        return terminals.assign(body.terminal, body.units)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 class IntegrationTestIn(BaseModel):

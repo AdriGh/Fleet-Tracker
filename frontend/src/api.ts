@@ -316,6 +316,57 @@ export async function saveSettings(s: AppSettings): Promise<AppSettings> {
   return (await res.json()) as AppSettings
 }
 
+// --- Terminales dinámicas (Settings → Terminals) -----------------------
+export interface TerminalDef {
+  key: string
+  label: string
+  prefixes: string[]
+}
+
+export interface TerminalsConfig {
+  terminals: TerminalDef[]
+  assignments: Record<string, string>   // unidad → key de terminal
+}
+
+export async function listTerminals(): Promise<TerminalsConfig> {
+  const res = await fetch('/api/terminals')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as TerminalsConfig
+}
+
+export async function saveTerminal(t: {
+  key?: string; label: string; prefixes: string[]
+}): Promise<TerminalsConfig> {
+  const res = await fetch('/api/terminals', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: t.key ?? '', label: t.label,
+      prefixes: t.prefixes }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as TerminalsConfig
+}
+
+export async function deleteTerminal(key: string): Promise<TerminalsConfig> {
+  const res = await fetch(`/api/terminals/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as TerminalsConfig
+}
+
+export async function assignTerminal(
+  terminal: string, units: string[],
+): Promise<TerminalsConfig> {
+  const res = await fetch('/api/terminals/assign', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ terminal, units }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as TerminalsConfig
+}
+
 // --- Live Map (tracking en vivo, fase G1) -------------------------------
 export interface TrackVehicle {
   id: string
@@ -485,6 +536,7 @@ export interface OrgConfig {
     pm_upcoming_miles: number
     defect_lookback_days: number
   }
+  labor_rate: number
   cc: Record<string, string[]>
   always_cc: string[]
 }
@@ -650,6 +702,7 @@ export interface WoLine {
   id: number
   kind: 'part' | 'labor'
   description: string
+  part_number?: string
   qty: number
   unit_cost: number
   total: number
@@ -815,18 +868,24 @@ export interface WoScanLine {
   description: string
   qty: number
   unit_cost: number
+  part_number?: string
+}
+
+export interface WoScanComplaint {
+  unit: string | null
+  mileage: number | null
+  detail: string
+  is_pm: boolean
 }
 
 export interface WoScanExtract {
-  unit: string | null
   service_date: string | null
-  mileage: number | null
-  title: string | null
-  complaint: string | null
-  mechanic: string | null
   vendor: string | null
+  vendor_city: string | null
+  vendor_state: string | null
   invoice_number: string | null
-  is_pm: boolean
+  mechanic: string | null
+  complaints: WoScanComplaint[]
   lines: WoScanLine[]
 }
 
@@ -880,7 +939,7 @@ export async function patchWorkOrder(
 export async function addWoLine(
   id: number,
   line: { kind: 'part' | 'labor'; description: string; qty: number
-          unit_cost: number },
+          unit_cost: number; part_number?: string },
 ): Promise<WorkOrder> {
   const res = await fetch(`/api/workorders/${id}/lines`, {
     method: 'POST',
@@ -1480,4 +1539,89 @@ export async function uploadNotifyMedia(
   const res = await fetch('/api/notify/media', { method: 'POST', body: fd })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
+}
+
+// --- Catálogo de Partes + Vendors (fase H3, estilo Fullbay) -------------
+
+export interface Vendor {
+  id: number
+  name: string
+  contact: string
+  phone: string
+  email: string
+  address: string
+  account: string
+  notes: string
+  parts_count: number
+}
+
+export interface Part {
+  id: number
+  part_number: string
+  description: string
+  category: string
+  cost: number
+  vendor_id: number | null
+  vendor_name: string
+  on_hand: number
+  notes: string
+}
+
+export type VendorInput = Partial<Omit<Vendor, 'id' | 'parts_count'>>
+export type PartInput = Partial<Omit<Part, 'id' | 'vendor_name'>>
+
+export async function listVendors(): Promise<Vendor[]> {
+  const res = await fetch('/api/vendors')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()).vendors as Vendor[]
+}
+
+export async function saveVendor(
+  v: VendorInput & { id?: number },
+): Promise<Vendor> {
+  const res = await fetch(
+    v.id ? `/api/vendors/${v.id}` : '/api/vendors',
+    {
+      method: v.id ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(v),
+    })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function deleteVendor(id: number): Promise<void> {
+  const res = await fetch(`/api/vendors/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+export interface PartsResponse {
+  parts: Part[]
+  categories: string[]
+  usage: Record<string, number>   // part_number → nº de líneas de WO
+}
+
+export async function listParts(): Promise<PartsResponse> {
+  const res = await fetch('/api/parts')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function savePart(
+  p: PartInput & { id?: number },
+): Promise<Part> {
+  const res = await fetch(
+    p.id ? `/api/parts/${p.id}` : '/api/parts',
+    {
+      method: p.id ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(p),
+    })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function deletePart(id: number): Promise<void> {
+  const res = await fetch(`/api/parts/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
 }

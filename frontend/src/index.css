@@ -1583,7 +1583,7 @@ td.cell-bad {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 48px 18px;
+  padding: 28px 18px;
   z-index: 100;
   overflow-y: auto;
 }
@@ -1594,7 +1594,15 @@ td.cell-bad {
   border-radius: var(--radius);
   box-shadow: var(--shadow-md);
   width: 100%;
+  /* Fluido: limitado por el ancho pedido (px) Y por el viewport. */
+  max-width: min(var(--modal-max, 720px), calc(100vw - 32px));
+  /* Nunca más alto que la pantalla; el cuerpo scrollea. */
+  max-height: calc(100vh - 56px);
+  display: flex;
+  flex-direction: column;
 }
+/* Variante de alto completo (p. ej. New work order). */
+.modal.is-tall { height: calc(100vh - 56px); }
 
 .modal-head {
   display: flex;
@@ -1631,6 +1639,9 @@ td.cell-bad {
 
 .modal-body {
   padding: 20px;
+  overflow-y: auto;        /* el contenido alto scrollea dentro del modal */
+  flex: 1;
+  min-height: 0;
 }
 
 .modal-note {
@@ -3468,7 +3479,7 @@ td.dur-high {
 
 /* Botones de empresa (Chaser / MCCI / All) en el Resumen por unidad */
 .company-tabs {
-  display: inline-flex; gap: 3px;
+  display: inline-flex; flex-wrap: wrap; gap: 3px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 11px;
@@ -4972,8 +4983,48 @@ table.defects-table td {
   align-items: center;
 }
 .wo-line-add select { width: 84px; height: 36px; flex: none; }
+.wo-line-add-pn { width: 96px; flex: none; }
 .wo-line-add-desc { flex: 1; min-width: 0; }
 .wo-line-add-n { width: 70px; flex: none; text-align: right; }
+/* H3: fila de shop/ciudad/estado/invoice y lista de complaints */
+.wo-shop-row .wo-city-field { flex: 0 0 130px; }
+.wo-shop-row .wo-state-field { flex: 0 0 58px; }
+.wo-complaints { margin-top: 2px; }
+.wo-complaint {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 8px;
+  background: var(--surface-2);
+}
+.wo-complaint.is-mismatch {
+  border-color: var(--ui-warn);
+  background: var(--ui-warn-bg);
+}
+.wo-complaint-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 7px;
+}
+.wo-complaint-unit { width: 110px; flex: none; font-weight: 600; }
+.wo-complaint-mi { width: 78px; flex: none; }
+.wo-complaint-warn {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ui-warn);
+  background: var(--ui-warn-bg);
+  border: 1px solid var(--ui-warn);
+  border-radius: 5px;
+  padding: 1px 7px;
+}
+.wo-line-pn {
+  display: inline-block;
+  font: 600 0.72rem var(--font-mono, monospace);
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 5px; padding: 1px 5px; margin-right: 6px;
+}
 .wo-total {
   display: flex;
   align-items: center;
@@ -5897,10 +5948,18 @@ button.tms-docdot { cursor: pointer; font-family: inherit; }
   transition: filter 0.15s ease;
 }
 .mnt-status:hover { filter: brightness(0.96); }
-.mnt-status.s-on_track { background: rgba(34, 197, 94, 0.14); color: #16a34a; }
-.mnt-status.s-upcoming { background: rgba(245, 158, 11, 0.16); color: #d97706; }
-.mnt-status.s-overdue { background: rgba(239, 68, 68, 0.14); color: #dc2626; }
-.mnt-status.s-in_shop { background: rgba(59, 130, 246, 0.14); color: #2563eb; }
+.mnt-status.s-on_track {
+  background: var(--ui-success-bg); color: var(--ui-success);
+}
+.mnt-status.s-upcoming {
+  background: var(--ui-warn-bg); color: var(--ui-warn);
+}
+.mnt-status.s-overdue {
+  background: var(--ui-danger-bg); color: var(--ui-danger);
+}
+.mnt-status.s-in_shop {
+  background: var(--ui-info-bg); color: var(--ui-info);
+}
 .mnt-status.s-out_of_service {
   background: var(--surface-2);
   color: var(--text);
@@ -6228,10 +6287,17 @@ button.tms-docdot { cursor: pointer; font-family: inherit; }
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-.up-card span { font-size: 0.74rem; opacity: 0.85; }
-.up-card-blue { background: rgba(37, 99, 235, 0.12); color: #1d4ed8; }
-.up-card-green { background: rgba(34, 197, 94, 0.12); color: #15803d; }
-.up-card-sky { background: rgba(14, 165, 233, 0.10); color: #0369a1; }
+/* Contraste: el número usa un color tintado pero mezclado con --text,
+   así queda legible (AA) tanto en claro como en oscuro; el label va en
+   --text-muted (sin opacity, que bajaba el contraste). Los fondos se
+   mezclan sobre --surface para adaptarse al tema. */
+.up-card span { font-size: 0.74rem; color: var(--text-muted); }
+.up-card-blue { background: color-mix(in srgb, #2563eb 12%, var(--surface)); }
+.up-card-blue strong { color: color-mix(in srgb, #2563eb 60%, var(--text)); }
+.up-card-green { background: color-mix(in srgb, #16a34a 13%, var(--surface)); }
+.up-card-green strong { color: color-mix(in srgb, #16a34a 58%, var(--text)); }
+.up-card-sky { background: color-mix(in srgb, #0284c7 12%, var(--surface)); }
+.up-card-sky strong { color: color-mix(in srgb, #0284c7 60%, var(--text)); }
 
 .up-tabs {
   display: flex;
@@ -6293,9 +6359,15 @@ button.tms-docdot { cursor: pointer; font-family: inherit; }
   background: var(--surface-2);
   color: var(--text-muted);
 }
-.mnt-status-pill.s-on_track { background: rgba(34,197,94,.14); color: #16a34a; }
-.mnt-status-pill.s-upcoming { background: rgba(245,158,11,.16); color: #d97706; }
-.mnt-status-pill.s-overdue { background: rgba(239,68,68,.14); color: #dc2626; }
+.mnt-status-pill.s-on_track {
+  background: var(--ui-success-bg); color: var(--ui-success);
+}
+.mnt-status-pill.s-upcoming {
+  background: var(--ui-warn-bg); color: var(--ui-warn);
+}
+.mnt-status-pill.s-overdue {
+  background: var(--ui-danger-bg); color: var(--ui-danger);
+}
 .mnt-status-pill.s-never { background: var(--surface-2); color: var(--text-muted); }
 
 .up-camp-grid {
@@ -6448,6 +6520,14 @@ iframe.wo-preview { border: 1px solid var(--border); }
   font-size: 0.82rem;
   border-style: dashed;
 }
+/* Modal de alto completo: la grilla y el preview llenan la altura. */
+.modal.is-tall .wo-modal-grid { min-height: 100%; }
+.modal.is-tall .wo-preview-pane { height: 100%; }
+.modal.is-tall .wo-preview {
+  flex: 1;
+  height: auto;
+  min-height: 260px;
+}
 
 /* Editor de líneas en el modal */
 .wo-lines-edit {
@@ -6477,6 +6557,11 @@ iframe.wo-preview { border: 1px solid var(--border); }
 }
 .wo-line-row .cell-input { padding: 6px 8px; font-size: 0.82rem; }
 .wo-line-row .mnt-icon { opacity: 1; }
+/* H3: fila con columna extra de part# (catálogo) */
+.wo-line-row-cat {
+  grid-template-columns: 78px 92px 1fr 58px 76px 26px;
+}
+.wo-line-row-cat .cell-input:disabled { opacity: 0.45; }
 
 @media (max-width: 1000px) {
   .wo-modal-grid { grid-template-columns: 1fr; }

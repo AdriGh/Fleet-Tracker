@@ -13,6 +13,7 @@ import {
   type MaintKind, type MaintRow, type OpsStatus,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
+import { useTerminals } from '../terminal'
 import Modal from '../components/Modal'
 import PieChart from '../components/PieChart'
 import Skeleton from '../components/Skeleton'
@@ -79,7 +80,9 @@ export default function MaintBoardPage({ kind }: Props) {
   })
   const data = query.data
 
+  const { terminalOf, labelOf, present } = useTerminals()
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
+  const [terminal, setTerminal] = useState('')
   const [q, setQ] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
@@ -105,7 +108,20 @@ export default function MaintBoardPage({ kind }: Props) {
     })
   }
 
-  const units = useMemo(() => data?.units ?? [], [data])
+  const allUnits = useMemo(() => data?.units ?? [], [data])
+  // Chips de terminal (solo si el tablero cruza más de una).
+  const boardTerminals = useMemo(
+    () => present(allUnits), [allUnits, present])
+
+  // Si la terminal filtrada deja de existir (p.ej. se borró en Settings),
+  // limpiar el filtro para no esconder filas tras un chip ausente.
+  useEffect(() => {
+    if (terminal && !boardTerminals.includes(terminal)) setTerminal('')
+  }, [terminal, boardTerminals])
+  const units = useMemo(
+    () => allUnits.filter(
+      (u) => !terminal || terminalOf(u.unit) === terminal),
+    [allUnits, terminal, terminalOf])
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {}
@@ -228,7 +244,7 @@ export default function MaintBoardPage({ kind }: Props) {
             <Skeleton key={i} h={34} />
           ))}
         </div></div>
-      ) : !data?.available || total === 0 ? (
+      ) : !data?.available || allUnits.length === 0 ? (
         <div className="card"><div className="card-body mnt-empty">
           <h2>No units yet</h2>
           <p>
@@ -242,6 +258,26 @@ export default function MaintBoardPage({ kind }: Props) {
         </div></div>
       ) : (
         <>
+          {/* ----- Filtro por terminal (Settings → Terminals) ----- */}
+          {boardTerminals.length > 1 && (
+            <div className="card">
+              <div className="card-body filters-row">
+                <div className="company-tabs" role="tablist">
+                  <button
+                    className={`tab-btn ${terminal === '' ? 'active' : ''}`}
+                    onClick={() => setTerminal('')}>All terminals</button>
+                  {boardTerminals.map((t) => (
+                    <button key={t}
+                      className={`tab-btn ${terminal === t ? 'active' : ''}`}
+                      onClick={() => setTerminal(terminal === t ? '' : t)}>
+                      {labelOf(t)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ----- Resumen: tarjetas por status + donut ----- */}
           <div className="mnt-overview">
             <div className="mnt-cards">
@@ -499,7 +535,7 @@ export default function MaintBoardPage({ kind }: Props) {
       {addOpen && (
         <AddModal
           kind={kind}
-          units={units}
+          units={allUnits}
           onClose={() => setAddOpen(false)}
           onSaved={(unit) => {
             setAddOpen(false)
