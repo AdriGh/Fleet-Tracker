@@ -908,6 +908,101 @@ body::after {
 .sidebar.collapsed .version { display: none; }
 .sidebar.collapsed .foot-user { padding-bottom: 0; }
 
+/* ----- Riel colapsado: un icono por grupo + flyout al hover (Samsara) - */
+.sidebar.collapsed .sidebar-scroll {
+  overflow: visible;            /* que el flyout no quede recortado */
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-rail-group {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+.nav-rail-bottom {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.nav-flyout {
+  position: absolute;
+  top: -6px;
+  left: 100%;
+  padding-left: 9px;            /* puente transparente sobre el gap */
+  z-index: 60;
+  opacity: 0;
+  transform: translateX(-4px);
+  pointer-events: none;
+  transition: opacity 0.14s ease,
+              transform 0.14s var(--ease-out-soft, ease);
+}
+.nav-rail-group:hover > .nav-flyout,
+.nav-rail-group:focus-within > .nav-flyout {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.nav-flyout-panel {
+  min-width: 208px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  box-shadow: var(--shadow-md);
+  padding: 7px;
+}
+.nav-flyout-title {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 5px 10px 7px;
+}
+.nav-flyout-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 8px 11px;
+  border: none;
+  background: none;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.13s ease, color 0.13s ease;
+}
+.nav-flyout-item:hover:not(:disabled) { background: var(--surface-2); }
+.nav-flyout-item.active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--accent);
+}
+.nav-flyout-item:disabled { color: var(--text-muted); cursor: default; }
+.nav-flyout-item .nav-ico {
+  width: 19px; height: 19px; flex: none; opacity: 0.85;
+}
+.nav-flyout-item .nav-ico svg { width: 19px; height: 19px; }
+.nav-flyout-item.active .nav-ico { opacity: 1; }
+/* El badge "soon" SÍ se ve dentro del flyout (la regla colapsada lo oculta) */
+.nav-flyout-item .soon {
+  display: inline;
+  margin-left: auto;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-flyout { transition: opacity 0.01s; transform: none; }
+}
+
 /* Pie del sidebar: siempre pegado al fondo.
    Fila 1: [tema + logout] | Connected · Fila 2: versión. */
 .sidebar-foot {
