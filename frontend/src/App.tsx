@@ -75,6 +75,47 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ]
 
+// Icono representativo de cada grupo para el riel colapsado (estilo
+// Samsara: un icono por grupo, hover despliega el flyout con sus ítems).
+const GROUP_ICONS: Record<string, ReactElement> = {
+  'Overview': (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="8" height="8" rx="1.5" />
+      <rect x="13" y="3" width="8" height="5" rx="1.5" />
+      <rect x="13" y="10" width="8" height="11" rx="1.5" />
+      <rect x="3" y="13" width="8" height="8" rx="1.5" />
+    </svg>
+  ),
+  'Operations': (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l8 3v5c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z" />
+      <path d="m9 12 2 2 4-4" />
+    </svg>
+  ),
+  'Maintenance & Compliance': (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L4 16.8 7.2 20l5.3-5.3a4 4 0 0 0 5.2-5.4l-2.5 2.5-2.3-.5-.5-2.3z" />
+    </svg>
+  ),
+  'Dispatch': (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="2.4" />
+      <path d="M12 3v6.6M5.2 8l4.7 4.7M18.8 8l-4.7 4.7" />
+    </svg>
+  ),
+  'Coming soon': (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+    </svg>
+  ),
+}
+
 // Sección de administración (al fondo del sidebar). El Roster vive DENTRO
 // de Settings (Driver roster & privacy) — fuera del layout frontal.
 const ADMIN_ITEMS: NavItem[] = [
@@ -371,39 +412,94 @@ export default function App() {
 
         {/* Zona scrolleable: el nav nunca desborda la pantalla */}
         <div className="sidebar-scroll">
-          {NAV_SECTIONS.map((group) => (
-            <nav className="nav" key={group.title}>
-              <span className="nav-group-label">{group.title}</span>
-              {group.items.map((item) => (
-                <button
-                  key={item.id}
-                  className={`nav-item ${section === item.id ? 'active' : ''}`}
-                  disabled={item.soon}
-                  title={navCollapsed ? item.label : undefined}
-                  onClick={() => !item.soon && navigate(item.id)}
-                >
-                  <span className="nav-ico">{ICONS[item.id]}</span>
-                  <span className="nav-text">{item.label}</span>
-                  {item.soon && <span className="soon">soon</span>}
-                </button>
+          {navCollapsed ? (
+            <>
+              {/* Riel colapsado: un icono por grupo; hover -> flyout con
+                  los ítems (estilo Samsara, no por click). */}
+              {NAV_SECTIONS.map((group) => {
+                const groupActive = group.items.some((i) => i.id === section)
+                const enabled = group.items.filter((i) => !i.soon)
+                return (
+                  <div className="nav-rail-group" key={group.title}>
+                    <button
+                      className={`nav-item nav-rail-btn ${groupActive ? 'active' : ''}`}
+                      title={group.title}
+                      onClick={() => {
+                        if (enabled.length === 1) navigate(enabled[0].id)
+                      }}
+                    >
+                      <span className="nav-ico">
+                        {GROUP_ICONS[group.title] ?? ICONS[group.items[0].id]}
+                      </span>
+                    </button>
+                    <div className="nav-flyout">
+                      <div className="nav-flyout-panel">
+                        <span className="nav-flyout-title">{group.title}</span>
+                        {group.items.map((item) => (
+                          <button
+                            key={item.id}
+                            className={`nav-flyout-item ${section === item.id ? 'active' : ''}`}
+                            disabled={item.soon}
+                            onClick={() => !item.soon && navigate(item.id)}
+                          >
+                            <span className="nav-ico">{ICONS[item.id]}</span>
+                            <span>{item.label}</span>
+                            {item.soon && <span className="soon">soon</span>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+              <div className="nav-bottom nav-rail-bottom">
+                {ADMIN_ITEMS.map((item) => (
+                  <button
+                    key={item.id}
+                    className={`nav-item nav-rail-btn ${section === item.id ? 'active' : ''}`}
+                    title={item.label}
+                    onClick={() => navigate(item.id)}
+                  >
+                    <span className="nav-ico">{ICONS[item.id]}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              {NAV_SECTIONS.map((group) => (
+                <nav className="nav" key={group.title}>
+                  <span className="nav-group-label">{group.title}</span>
+                  {group.items.map((item) => (
+                    <button
+                      key={item.id}
+                      className={`nav-item ${section === item.id ? 'active' : ''}`}
+                      disabled={item.soon}
+                      onClick={() => !item.soon && navigate(item.id)}
+                    >
+                      <span className="nav-ico">{ICONS[item.id]}</span>
+                      <span className="nav-text">{item.label}</span>
+                      {item.soon && <span className="soon">soon</span>}
+                    </button>
+                  ))}
+                </nav>
               ))}
-            </nav>
-          ))}
 
-          <nav className="nav nav-bottom">
-            <span className="nav-group-label">Admin</span>
-            {ADMIN_ITEMS.map((item) => (
-              <button
-                key={item.id}
-                className={`nav-item ${section === item.id ? 'active' : ''}`}
-                title={navCollapsed ? item.label : undefined}
-                onClick={() => navigate(item.id)}
-              >
-                <span className="nav-ico">{ICONS[item.id]}</span>
-                <span className="nav-text">{item.label}</span>
-              </button>
-            ))}
-          </nav>
+              <nav className="nav nav-bottom">
+                <span className="nav-group-label">Admin</span>
+                {ADMIN_ITEMS.map((item) => (
+                  <button
+                    key={item.id}
+                    className={`nav-item ${section === item.id ? 'active' : ''}`}
+                    onClick={() => navigate(item.id)}
+                  >
+                    <span className="nav-ico">{ICONS[item.id]}</span>
+                    <span className="nav-text">{item.label}</span>
+                  </button>
+                ))}
+              </nav>
+            </>
+          )}
         </div>
 
         <div className="sidebar-foot">

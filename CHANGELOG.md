@@ -7,6 +7,18 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.2.1] - 2026-06-12
+
+### Añadido
+- **Riel colapsado con flyouts por grupo** (estilo Samsara): al colapsar
+  el sidebar, cada grupo se muestra como un icono y al hacer **hover**
+  (no click) se despliega un flyout con sus ítems navegables (con icono
+  y estado activo). Iconos de grupo nuevos (Overview/Operations/
+  Maintenance & Compliance/Dispatch/Coming soon); el modo expandido (lista
+  completa con labels) se conserva como toggle. El flyout escapa del
+  scroll (`overflow: visible` en colapsado) y usa un puente transparente
+  para no cerrarse al cruzar el gap; respeta `prefers-reduced-motion`.
+
 ## [1.2.0] - 2026-06-12
 
 Terminales dinámicas, profundidad Fullbay-killer (H3: catálogo de partes +
