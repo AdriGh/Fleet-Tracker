@@ -1,5 +1,5 @@
 import {
-  lazy, Suspense, type ReactElement, useEffect, useRef, useState,
+  lazy, Suspense, type ReactElement, useEffect, useMemo, useRef, useState,
 } from 'react'
 import { Toaster } from 'sonner'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -7,6 +7,7 @@ import {
   authStatus, clearToken, getHealth, listAlertEvents,
   type AuthUser, type OrgBranding,
 } from './api'
+import { PermsContext, type Perms } from './perms'
 import { notifyWarn } from './toast'
 import OnboardingWizard from './views/OnboardingWizard'
 import Logo from './components/Logo'
@@ -302,6 +303,13 @@ export default function App() {
   }, [branding])
 
   const authed = sessionUser !== null
+  // H4: scopes del rol (del backend) para ocultar/deshabilitar acciones.
+  const scopes = statusQuery.data?.scopes ?? []
+  const perms: Perms = useMemo(() => ({
+    role: sessionUser?.role ?? '',
+    scopes,
+    can: (s: string) => sessionUser?.role === 'admin' || scopes.includes(s),
+  }), [sessionUser?.role, scopes])
   const [navCollapsed, setNavCollapsed] = useState(
     () => localStorage.getItem('ft-sidebar-collapsed') === '1',
   )
@@ -375,12 +383,13 @@ export default function App() {
       <LoginPage
         appName={branding?.app_name || 'Fleet Tracker'}
         tagline={branding?.tagline || 'Fleet compliance'}
-        onLogin={(user) => setSessionUser(user)}
+        onLogin={(user) => { setSessionUser(user); statusQuery.refetch() }}
       />
     )
   }
 
   return (
+    <PermsContext.Provider value={perms}>
     <div className="app">
       <Toaster
         theme={theme}
@@ -600,5 +609,6 @@ export default function App() {
         </main>
       </div>
     </div>
+    </PermsContext.Provider>
   )
 }

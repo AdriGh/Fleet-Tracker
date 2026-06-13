@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import __version__, config
 from .api.routes import router
-from .core import alerts, auth
+from .core import alerts, auth, permissions
 
 
 @asynccontextmanager
@@ -45,9 +45,47 @@ _AUTH_ALLOWLIST = {
     "/api/auth/setup",
     "/api/org/branding",
 }
-# Rutas que además exigen rol admin (la verificación fina vive en la
-# propia ruta; esto es la barrera de entrada).
-_ADMIN_PREFIXES = ("/api/auth/users", "/api/integrations/config")
+def _scope_for(method: str, path: str) -> str | None:
+    """Scope requerido para (method, path), o None si basta estar autenticado.
+    La LECTURA (GET) nunca exige scope. Centraliza el RBAC fino (H4).
+
+    El PATCH de una WO que pasa a 'invoiced' exige `wo.invoice` además del
+    `maint.edit` de acá; ese refinamiento (depende del body) vive en la ruta
+    `wo_patch`."""
+    if method == "GET":
+        return None
+    # Administración (Company, usuarios, integraciones, terminales, settings).
+    if path.startswith(("/api/auth/users", "/api/integrations/config",
+                        "/api/org", "/api/terminals")):
+        return "settings.manage"
+    # Work orders (POST/PATCH/DELETE). /send => facturar.
+    if path.startswith("/api/workorders"):
+        return "wo.invoice" if path.endswith("/send") else "maint.edit"
+    # Avisos: envío real por email/SMS.
+    if path.startswith("/api/notify/"):
+        return "notices.send"
+    # Mantenimiento: PM/DOT, parts, vendors, campañas/docs de unidad.
+    if path.startswith(("/api/parts", "/api/vendors", "/api/maint/",
+                        "/api/pm/")):
+        return "maint.edit"
+    if path.startswith("/api/units/"):
+        # /units/settings = device settings (flota); el resto (campaigns,
+        # docs) es mantenimiento de la unidad.
+        return ("fleet.edit" if path.startswith("/api/units/settings")
+                else "maint.edit")
+    # Dispatch / TMS.
+    if path.startswith("/api/tms/"):
+        return "tms.edit"
+    # Flota: archivar, app settings.
+    if path.startswith(("/api/fleet", "/api/settings")):
+        return "fleet.edit"
+    # Alertas de flota.
+    if path.startswith("/api/alerts"):
+        return "alerts.manage"
+    # PII de conductores (editar email, sync de contactos).
+    if path.startswith("/api/drivers"):
+        return "pii.view"
+    return None
 
 
 @app.middleware("http")
@@ -62,11 +100,12 @@ async def _require_auth(request: Request, call_next):
             if auth.users_exist():
                 return JSONResponse(
                     {"detail": "Not authenticated"}, status_code=401)
-        elif (any(path.startswith(p) for p in _ADMIN_PREFIXES)
-              and user["role"] != "admin"):
-            return JSONResponse(
-                {"detail": "Admin role required"},
-                status_code=403)
+        else:
+            scope = _scope_for(request.method, path)
+            if scope and not permissions.has_scope(user["role"], scope):
+                return JSONResponse(
+                    {"detail": f"Your role ({user['role']}) can't do this"},
+                    status_code=403)
     return await call_next(request)
 
 

@@ -846,7 +846,16 @@ function CompanyCard() {
 }
 
 // ----- Usuarios (G7, solo admin) -------------------------------------------
-const USER_ROLES = ['admin', 'dispatcher', 'mechanic', 'viewer']
+// H4: 5 roles. 'safety' = cumplimiento (DVIR/PM/DOT, avisos, PII).
+const USER_ROLES = ['admin', 'dispatcher', 'safety', 'mechanic', 'viewer']
+// Resumen legible de lo que puede cada rol (se muestra bajo el selector).
+const ROLE_HINTS: Record<string, string> = {
+  admin: 'Full access, including company settings and users.',
+  dispatcher: 'Work orders, invoicing, dispatch, notices, PII.',
+  safety: 'Compliance: DVIR/PM/DOT, notices, driver PII. No invoicing/dispatch.',
+  mechanic: 'Work orders, PM/DOT and fleet. No invoicing, notices or PII.',
+  viewer: 'Read-only across the app.',
+}
 
 function UsersCard() {
   const qc = useQueryClient()
@@ -1007,6 +1016,7 @@ function UsersCard() {
                   {busy ? 'Creating…' : 'Add'}
                 </button>
               </div>
+              <p className="settings-help">{ROLE_HINTS[nRole]}</p>
             </>
           )}
         </div>

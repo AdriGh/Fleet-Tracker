@@ -12,6 +12,7 @@ import {
   type NotifySendResponse,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
+import { usePerms } from '../perms'
 
 type Media = { type: string; url: string; filename: string }
 const ALL_CHANNELS: NotifyChannel[] = ['email', 'sms']
@@ -90,6 +91,8 @@ export default function NotifyPage() {
     }
   }, [channels, previewTab])
 
+  const { can } = usePerms()
+  const canSend = can('notices.send')   // H4: enviar avisos
   const blocksQuery = useQuery({
     queryKey: ['notify-blocks'], queryFn: notifyBlocks })
   const status: NotifyBlocksResponse | null = blocksQuery.data ?? null
@@ -451,14 +454,18 @@ export default function NotifyPage() {
                 <button
                   className={`btn ${channelSim ? 'btn-primary' : 'btn-success'} nf-send`}
                   onClick={runSend}
-                  disabled={sending || selected.size === 0}
+                  disabled={sending || selected.size === 0 || !canSend}
+                  title={canSend ? undefined
+                    : 'Your role cannot send notices'}
                 >
                   <i className="nf-btn-ico">{IcoSend}</i>
                   {sending
                     ? 'Sending…'
-                    : channelSim
-                      ? `Simulate ${selected.size}`
-                      : `Send ${selected.size}`}
+                    : !canSend
+                      ? 'No permission'
+                      : channelSim
+                        ? `Simulate ${selected.size}`
+                        : `Send ${selected.size}`}
                 </button>
               </div>
             </div>

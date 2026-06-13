@@ -30,6 +30,13 @@ EN/ES de back-office, y UX muy superior (cinemática, personalizable).
 
 ## Estado actual (qué hay construido)
 
+**v1.4.0 EN RAMA (jun-13, no publicada): H4 — RBAC real, commiteada en
+`feature/v1.4.0-rbac` (rama hija de v1.3.0). 5 roles (+`safety`), scopes
+finos con enforcement en el middleware (`_scope_for`), PII enmascarada
+server-side y gating en la UI (`usePerms`/`can`). Verificado con E2E
+aislado. NO mergeada/tag/push. Diferido a H4.2: sidebar por rol, gating
+por botón, billing por asiento. PRÓXIMO: H5 (reefer hardware).**
+
 **v1.3.0 EN RAMA (jun-13, no publicada): commiteada en
 `feature/v1.3.0-printable-invoice` como checkpoint — NO mergeada a main,
 NO tag, NO push (pendiente autorización del usuario).** Incluye H3-C
