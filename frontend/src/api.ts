@@ -457,6 +457,7 @@ export interface AuthStatus {
   setup_needed: boolean
   authenticated: boolean
   user: AuthUser | null
+  scopes: string[]          // H4: scopes del rol del usuario
   branding: OrgBranding
 }
 

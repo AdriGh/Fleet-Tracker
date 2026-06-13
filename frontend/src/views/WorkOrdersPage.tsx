@@ -12,6 +12,7 @@ import {
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 import { useTerminals } from '../terminal'
+import { usePerms } from '../perms'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
@@ -68,6 +69,7 @@ export const CAMPAIGN_OPTS: { key: string; label: string }[] = [
 
 export default function WorkOrdersPage() {
   const qc = useQueryClient()
+  const { can } = usePerms()
   const { terminalOf, labelOf, present } = useTerminals()
   const [statusFilter, setStatusFilter] = useState('')
   const [terminal, setTerminal] = useState('')
@@ -126,13 +128,16 @@ export default function WorkOrdersPage() {
           </p>
         </div>
         <div className="head-actions">
-          <button className="btn btn-primary" onClick={() => setCreating(true)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" width="17" height="17" strokeLinecap="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            New work order
-          </button>
+          {can('maint.edit') && (
+            <button className="btn btn-primary"
+              onClick={() => setCreating(true)}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" width="17" height="17" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              New work order
+            </button>
+          )}
         </div>
       </div>
 
@@ -827,6 +832,7 @@ export function WoDrawer({ woId, mechanics, onClose }: {
   onClose: () => void
 }) {
   const qc = useQueryClient()
+  const { can } = usePerms()
   const open = woId != null
   const woQ = useQuery({
     queryKey: ['workorder', woId],
@@ -1048,7 +1054,8 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                     previsualiza hasta dónde llega el clic; un clic puede
                     saltar varias etapas y los gates del backend avisan
                     qué falta. */}
-                <StageBar wo={wo} busy={busy} onGo={setStatus} />
+                <StageBar wo={wo} busy={busy} onGo={setStatus}
+                  canInvoice={can('wo.invoice')} />
 
                 <div className="wo-flags">
                   <button
@@ -1077,11 +1084,13 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                     </svg>
                     Print {wo.status === 'invoiced' ? 'invoice' : 'estimate'}
                   </button>
-                  <button
-                    className={`btn btn-ghost btn-xs ${sendOpen ? 'is-on' : ''}`}
-                    onClick={() => setSendOpen((o) => !o)}>
-                    Email / SMS
-                  </button>
+                  {can('wo.invoice') && (
+                    <button
+                      className={`btn btn-ghost btn-xs ${sendOpen ? 'is-on' : ''}`}
+                      onClick={() => setSendOpen((o) => !o)}>
+                      Email / SMS
+                    </button>
+                  )}
                 </div>
                 {sendOpen && (
                   <div className="wo-send-panel">
@@ -1367,10 +1376,11 @@ export function WoDrawer({ woId, mechanics, onClose }: {
 // ----- Barra de etapas secuencial (estilo UNIQ TMS) -----------------------
 // Hover sobre una etapa futura previsualiza el camino completo (tinte en
 // las intermedias); el clic salta directo y el backend valida los gates.
-function StageBar({ wo, busy, onGo }: {
+function StageBar({ wo, busy, onGo, canInvoice }: {
   wo: WorkOrder
   busy: boolean
   onGo: (s: WoStatus) => void
+  canInvoice: boolean
 }) {
   const [hover, setHover] = useState<number | null>(null)
   const idx = PIPELINE.indexOf(wo.status)
@@ -1385,7 +1395,8 @@ function StageBar({ wo, busy, onGo }: {
           <button
             key={s}
             className={`wo-stage ${state} ${preview ? 'preview' : ''}`}
-            disabled={busy || i === idx}
+            disabled={busy || i === idx
+              || (s === 'invoiced' && !canInvoice)}
             onMouseEnter={() => setHover(i)}
             onFocus={() => setHover(i)}
             onClick={() => onGo(s)}

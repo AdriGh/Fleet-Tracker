@@ -7,6 +7,37 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.4.0] - 2026-06-13
+
+H4 — RBAC real: permisos finos por rol (antes el enforcement era binario
+admin/no-admin).
+
+### Añadido
+- **Rol `safety`** (5 roles: admin · dispatcher · safety · mechanic ·
+  viewer). `safety` cubre cumplimiento (DVIR/PM/DOT, avisos, PII), sin
+  facturar ni dispatch.
+- **`core/permissions.py`**: scopes concretos (`maint.edit`, `wo.invoice`,
+  `notices.send`, `pii.view`, `tms.edit`, `fleet.edit`, `alerts.manage`,
+  `settings.manage`) + matriz rol → scopes (`has_scope`, `scopes_for`).
+- **Enforcement por scope en el middleware** (`_scope_for(method, path)` en
+  main.py): cada escritura exige su scope; la lectura (GET) la ve cualquier
+  autenticado. Facturar una WO exige `wo.invoice` (chequeo extra en la ruta,
+  depende del body). `/api/auth/status` devuelve los `scopes` del usuario.
+- **PII enmascarada server-side**: `/api/drivers` ofusca email/teléfono si el
+  rol no tiene `pii.view` (defense-in-depth, además del masking de F4).
+- **Frontend `usePerms()`/`can(scope)`** (`src/perms.ts` + contexto en
+  App.tsx): se ocultan/deshabilitan acciones según el rol. Gateado: botón
+  **New work order** (maint.edit), etapa **Invoiced** + **Email/SMS**
+  (wo.invoice), **Send** de Avisos (notices.send). Selector de roles en
+  Settings → Users incluye **safety** + un resumen de lo que puede cada rol.
+
+### Notas
+- Verificado: matriz + mapeo de rutas (asserts) + **E2E aislado** (usuarios y
+  tokens reales sobre DB temporal: viewer/mechanic/dispatcher/admin reciben
+  403/200 según corresponde).
+- Diferido a H4.2: ocultar secciones del sidebar por rol, gatear cada botón de
+  edición individual en la UI (hoy el backend 403ea), y billing por asiento.
+
 ## [1.3.0] - 2026-06-13
 
 H3-C (Fullbay-killer slice C): estimate/invoice imprimible de Work Orders,

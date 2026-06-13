@@ -30,7 +30,8 @@ from .. import config
 from ..db import SessionLocal, User
 
 SECRET_PATH = config.BACKEND_DIR / "secret.local.json"
-ROLES = ("admin", "dispatcher", "mechanic", "viewer")
+# H4: 'safety' (cumplimiento: DVIR/PM/DOT, avisos, PII) sumado al set.
+ROLES = ("admin", "dispatcher", "safety", "mechanic", "viewer")
 TOKEN_TTL_S = 30 * 24 * 3600          # 30 días
 _PBKDF2_ITERS = 200_000
 

@@ -17,9 +17,9 @@ from fastapi import Header
 from ..core import (
     alerts, app_config, auth, batch, docscan, driver_contacts, engine,
     excel, integrations_admin, local_config, mailer, maint, media_host,
-    notify_service, open_defects, org_config, parts, pm, pois, pretrip,
-    reefer, samsara, sms_service, telegram_notify, terminals, tms, tracking,
-    unit_settings, unitdocs, wo_invoice, workorders,
+    notify_service, open_defects, org_config, parts, permissions, pm, pois,
+    pretrip, reefer, samsara, sms_service, telegram_notify, terminals, tms,
+    tracking, unit_settings, unitdocs, wo_invoice, workorders,
 )
 from ..core.contacts import name_key
 from ..schemas import (
@@ -55,6 +55,19 @@ def get_roster():
 
 def _safe_label(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "-", text.strip()) or "informe"
+
+
+def _mask_email(e: str) -> str:
+    e = (e or "").strip()
+    if "@" not in e:
+        return "•••" if e else ""
+    name, dom = e.split("@", 1)
+    return (name[:1] + "•••") + "@" + dom
+
+
+def _mask_phone(p: str) -> str:
+    digits = re.sub(r"\D", "", p or "")
+    return ("•••-" + digits[-4:]) if len(digits) >= 4 else ("•••" if p else "")
 
 
 @router.get("/reports/{report_id}/download")
@@ -551,7 +564,11 @@ def wo_delete(wo_id: int):
 
 
 @router.patch("/workorders/{wo_id}")
-async def wo_patch(wo_id: int, body: WorkOrderPatch):
+async def wo_patch(wo_id: int, body: WorkOrderPatch,
+                   authorization: str | None = Header(default=None)):
+    # El middleware ya exigió maint.edit; FACTURAR exige además wo.invoice.
+    if body.status == "invoiced":
+        require_scope("wo.invoice", authorization)
     before = workorders.get_wo(wo_id)
     if before is None:
         raise HTTPException(status_code=404, detail="WO not found")
@@ -833,6 +850,22 @@ def _require_admin(authorization: str | None) -> dict:
     return user
 
 
+def require_scope(scope: str, authorization: str | None) -> dict:
+    """Exige que el usuario tenga `scope` (H4). Bootstrap (sin usuarios aún)
+    queda abierto. Para refinamientos dependientes del body que el middleware
+    no puede ver (p.ej. facturar una WO)."""
+    user = auth.user_from_header(authorization)
+    if user is None:
+        if not auth.users_exist():
+            return {"id": 0, "role": "admin", "username": "", "name": ""}
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if not permissions.has_scope(user["role"], scope):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Your role ({user['role']}) can't do this")
+    return user
+
+
 @router.get("/auth/status")
 def auth_status(authorization: str | None = Header(default=None)):
     """Estado de autenticación. Allowlisted: nunca devuelve 401."""
@@ -841,6 +874,7 @@ def auth_status(authorization: str | None = Header(default=None)):
         "setup_needed": not auth.users_exist(),
         "authenticated": user is not None,
         "user": user,
+        "scopes": permissions.scopes_for(user["role"]) if user else [],
         "branding": org_config.branding(),
     }
 
@@ -1222,10 +1256,11 @@ async def fleet(refresh: bool = False):
 
 
 @router.get("/drivers")
-async def drivers_endpoint(refresh: bool = False):
+async def drivers_endpoint(refresh: bool = False,
+                           authorization: str | None = Header(default=None)):
     """Conductores activos (Samsara) + email del snapshot local de Driver info.
     El email NO se lee en vivo; viene del snapshot (ver /drivers/sync-contacts).
-    """
+    H4: si el rol no tiene pii.view, email/teléfono salen enmascarados."""
     if refresh:
         samsara.clear_cache()
     if not samsara.is_available():
@@ -1242,7 +1277,16 @@ async def drivers_endpoint(refresh: bool = False):
     for d in drivers:
         k = name_key(d["name"])
         d["email"] = overrides.get(k) or (book.get(k) or {}).get("email", "")
-    return {"available": True, "source": "samsara",
+    # H4: enmascarar PII server-side si el rol no la puede ver. user None =
+    # bootstrap (sin usuarios) -> se muestra (el middleware ya filtró el resto).
+    user = auth.user_from_header(authorization)
+    masked = user is not None and not permissions.has_scope(
+        user["role"], "pii.view")
+    if masked:
+        for d in drivers:
+            d["email"] = _mask_email(d.get("email", ""))
+            d["phone"] = _mask_phone(d.get("phone", ""))
+    return {"available": True, "source": "samsara", "pii_masked": masked,
             "contacts": driver_contacts.info(), "drivers": drivers}
 
 
