@@ -498,6 +498,8 @@ export default function SettingsPage(
 // ----- Empresa (G7): branding, umbrales y CC routing -----------------------
 const ORG_ACCENTS = ['', '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0d9488']
 const CC_TERMINALS = ['CHASER', 'MEM', 'MDW', 'MIA', 'ATL', 'SAV']
+// H3-C: empresas dueñas de unidades para el Bill-To del invoice.
+const BILL_TO_COMPANIES = ['CHASER', 'MCC']
 const THRESHOLD_META: {
   key: keyof OrgConfig['thresholds']
   label: string
@@ -552,6 +554,22 @@ function CompanyCard() {
     if (emails.length) cc[terminal] = emails
     else delete cc[terminal]
     setForm({ ...form, cc })
+  }
+
+  // H3-C: helpers para taller, invoice y Bill-To por empresa.
+  function setShop(patch: Partial<OrgConfig['shop']>) {
+    if (!form) return
+    setForm({ ...form, shop: { ...form.shop, ...patch } })
+  }
+  function setInvoice(patch: Partial<OrgConfig['invoice']>) {
+    if (!form) return
+    setForm({ ...form, invoice: { ...form.invoice, ...patch } })
+  }
+  function setBilling(co: string, patch: Partial<OrgConfig['billing'][string]>) {
+    if (!form) return
+    setForm({ ...form, billing: {
+      ...form.billing, [co]: { ...(form.billing[co] ?? {}), ...patch },
+    } })
   }
 
   return (
@@ -677,6 +695,141 @@ function CompanyCard() {
                   </label>
                 ))}
               </div>
+
+              <hr className="settings-divider" />
+
+              <h3 className="settings-sub-h">Shop identity (invoice header)</h3>
+              <p className="settings-help">
+                The "From" on printed and emailed estimates/invoices. Empty
+                name uses the app name.
+              </p>
+              <div className="org-grid">
+                <label className="ud-field">
+                  <span>Shop name</span>
+                  <input className="cell-input" value={form.shop.name}
+                    placeholder={form.branding.app_name}
+                    onChange={(e) => setShop({ name: e.target.value })} />
+                </label>
+                <label className="ud-field">
+                  <span>Phone</span>
+                  <input className="cell-input" value={form.shop.phone}
+                    onChange={(e) => setShop({ phone: e.target.value })} />
+                </label>
+                <label className="ud-field">
+                  <span>Email</span>
+                  <input className="cell-input" value={form.shop.email}
+                    onChange={(e) => setShop({ email: e.target.value })} />
+                </label>
+                <label className="ud-field">
+                  <span>Address</span>
+                  <input className="cell-input" value={form.shop.address}
+                    onChange={(e) => setShop({ address: e.target.value })} />
+                </label>
+                <label className="ud-field">
+                  <span>City</span>
+                  <input className="cell-input" value={form.shop.city}
+                    onChange={(e) => setShop({ city: e.target.value })} />
+                </label>
+                <label className="ud-field">
+                  <span>State</span>
+                  <input className="cell-input" value={form.shop.state}
+                    maxLength={2}
+                    onChange={(e) =>
+                      setShop({ state: e.target.value.toUpperCase() })} />
+                </label>
+                <label className="ud-field">
+                  <span>ZIP</span>
+                  <input className="cell-input" value={form.shop.zip}
+                    onChange={(e) => setShop({ zip: e.target.value })} />
+                </label>
+              </div>
+
+              <hr className="settings-divider" />
+
+              <h3 className="settings-sub-h">Invoice</h3>
+              <div className="org-grid">
+                <label className="ud-field">
+                  <span>Invoice prefix</span>
+                  <input className="cell-input" value={form.invoice.prefix}
+                    placeholder="e.g. INV-"
+                    onChange={(e) => setInvoice({ prefix: e.target.value })} />
+                </label>
+                <label className="ud-field">
+                  <span>Next invoice #</span>
+                  <input className="cell-input" value={form.invoice.next_number}
+                    readOnly title="Auto-increments on each new invoice" />
+                </label>
+                <label className="ud-field">
+                  <span>Default terms</span>
+                  <input className="cell-input" value={form.invoice.terms}
+                    placeholder="e.g. Net 30 / COD"
+                    onChange={(e) => setInvoice({ terms: e.target.value })} />
+                </label>
+              </div>
+              <label className="ud-field" style={{ marginTop: 10 }}>
+                <span>Invoice footer / notes</span>
+                <textarea className="cell-input ud-notes" rows={2}
+                  value={form.invoice.footer}
+                  placeholder="Payment terms, thank-you note, remit-to…"
+                  onChange={(e) => setInvoice({ footer: e.target.value })} />
+              </label>
+
+              <hr className="settings-divider" />
+
+              <h3 className="settings-sub-h">Bill-To addresses</h3>
+              <p className="settings-help">
+                Per company that owns the unit. Empty = just the company
+                name on the document.
+              </p>
+              {BILL_TO_COMPANIES.map((co) => (
+                <div className="org-billing" key={co}>
+                  <span className="org-billing-co">{co}</span>
+                  <div className="org-grid">
+                    <label className="ud-field">
+                      <span>Name</span>
+                      <input className="cell-input" placeholder={co}
+                        value={form.billing[co]?.name ?? ''}
+                        onChange={(e) =>
+                          setBilling(co, { name: e.target.value })} />
+                    </label>
+                    <label className="ud-field">
+                      <span>Address</span>
+                      <input className="cell-input"
+                        value={form.billing[co]?.address ?? ''}
+                        onChange={(e) =>
+                          setBilling(co, { address: e.target.value })} />
+                    </label>
+                    <label className="ud-field">
+                      <span>City</span>
+                      <input className="cell-input"
+                        value={form.billing[co]?.city ?? ''}
+                        onChange={(e) =>
+                          setBilling(co, { city: e.target.value })} />
+                    </label>
+                    <label className="ud-field">
+                      <span>State</span>
+                      <input className="cell-input" maxLength={2}
+                        value={form.billing[co]?.state ?? ''}
+                        onChange={(e) => setBilling(co,
+                          { state: e.target.value.toUpperCase() })} />
+                    </label>
+                    <label className="ud-field">
+                      <span>ZIP</span>
+                      <input className="cell-input"
+                        value={form.billing[co]?.zip ?? ''}
+                        onChange={(e) =>
+                          setBilling(co, { zip: e.target.value })} />
+                    </label>
+                    <label className="ud-field">
+                      <span>Email (for sending)</span>
+                      <input className="cell-input"
+                        value={form.billing[co]?.email ?? ''}
+                        onChange={(e) =>
+                          setBilling(co, { email: e.target.value })} />
+                    </label>
+                  </div>
+                </div>
+              ))}
 
               <div className="settings-actions">
                 <button className="btn btn-primary" onClick={save}

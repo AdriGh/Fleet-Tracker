@@ -6,15 +6,16 @@ import {
 import {
   addWoLine, createWorkOrder, deleteWoLine, deleteWorkOrder,
   getOrg, getUnitOdometer, getWorkOrder, listFleet, listParts,
-  listWorkOrders, patchWorkOrder, scanWoDocument,
-  type Part, type WorkOrder, type WoPriority, type WoScanLine,
-  type WoStatus,
+  listWorkOrders, patchWorkOrder, scanWoDocument, sendWoInvoice,
+  type NotifyChannel, type Part, type WorkOrder, type WoPriority,
+  type WoScanLine, type WoStatus,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 import { useTerminals } from '../terminal'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
+import WorkOrderInvoice from '../components/WorkOrderInvoice'
 
 export const STATUS_META: Record<WoStatus, { label: string; cls: string }> = {
   open: { label: 'Open', cls: 'wo-open' },
@@ -448,6 +449,16 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
     }
   }
 
+  // Title de un WO: si tiene campaña, el NOMBRE de la campaña (p.ej.
+  // "Full Wet Service (PM)"); si no, la 1ª línea del complaint.
+  const labelOfCampaign = (camp: string) =>
+    CAMPAIGN_OPTS.find((c) => c.key === camp)?.label
+  const titleFor = (cs: ComplaintDraft[], camp: string) => {
+    const lbl = camp ? labelOfCampaign(camp) : ''
+    const first = cs[0]?.detail.trim().split('\n')[0] || 'Work order'
+    return (lbl || first).slice(0, 80)
+  }
+
   async function submit() {
     if (!unit.trim()) {
       notifyErr('Missing unit', 'Pick the unit for this work order')
@@ -458,49 +469,77 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
       notifyErr('Missing complaint', 'Add at least one issue detail')
       return
     }
-    // Aviso si quedan complaints de OTRA unidad (la advertencia visual es
-    // solo informativa; acá confirmamos antes de mezclarlas en el WO).
-    const wu = unit.trim().toUpperCase()
-    const mism = kept.filter(
-      (c) => c.unit.trim() && c.unit.trim().toUpperCase() !== wu)
-    if (mism.length && !window.confirm(
-      `${mism.length} complaint(s) are for a different unit than ${wu}. `
-      + 'Create the work order anyway?')) {
+    // Agrupar complaints por unidad: cada unidad distinta genera su PROPIO
+    // work order (un PM al tractor + una llanta al trailer => WO#1 y WO#2).
+    // Los complaints sin unidad caen en la unidad seleccionada (primaria).
+    const primaryU = unit.trim().toUpperCase()
+    const groups = new Map<string, ComplaintDraft[]>()
+    for (const c of kept) {
+      const u = c.unit.trim().toUpperCase() || primaryU
+      groups.set(u, [...(groups.get(u) ?? []), c])
+    }
+    const others = [...groups.keys()].filter((u) => u !== primaryU)
+    if (others.length && !window.confirm(
+      `This invoice covers ${groups.size} units. Create ${groups.size} work `
+      + `orders — ${unit.trim()} + ${others.join(', ')}? The cost lines go on `
+      + `the ${unit.trim()} order; the others are created so each unit has its `
+      + `own service record.`)) {
       return
     }
+
     setSaving(true)
     try {
       const shared: SharedInvoice = {
         vendor, city: vendorCity, state: vendorState,
         invoice: invoiceNum, date,
       }
-      const complaintText = kept
-        .map((c) => formatComplaint(c, shared)).join('\n\n')
-      // El title (que el backend exige) se deriva de la 1ª línea del
-      // primer complaint — el usuario ya no lo escribe a mano. Cap corto
-      // para que la columna Title de la tabla no se desborde.
-      const title = (kept[0].detail.trim().split('\n')[0] || 'Work order')
-        .slice(0, 80)
       const lines = scanLines.filter((l) => l.description.trim())
-      const wo = await createWorkOrder({
-        unit: unit.trim(), title, complaint: complaintText,
-        mechanic, priority, campaign,
-        mileage: mileage ? Number(mileage) : null,
+      const shopInv = invoiceNum.trim()
+
+      // 1) Orden PRIMARIA (la unidad seleccionada): lleva las líneas/costos.
+      const primaryCs = groups.get(primaryU) ?? []
+      const primaryCamp = campaign
+        || (primaryCs.some((c) => c.is_pm) ? 'pm' : '')
+      const primaryWo = await createWorkOrder({
+        unit: unit.trim(),
+        title: titleFor(primaryCs, primaryCamp),
+        complaint: primaryCs.map((c) => formatComplaint(c, shared)).join('\n\n'),
+        mechanic, priority, campaign: primaryCamp, shop_invoice: shopInv,
+        mileage: mileage ? Number(mileage)
+          : (primaryCs[0]?.mileage ? Number(primaryCs[0].mileage) : null),
         service_date: date,
         source: scanName ? 'scan' : 'manual',
       })
-      // Las líneas (escaneadas o agregadas a mano) van en orden.
       for (const ln of lines) {
-        await addWoLine(wo.id, {
+        await addWoLine(primaryWo.id, {
           kind: ln.kind, description: ln.description.trim(),
           qty: Number(ln.qty) || 1, unit_cost: Number(ln.unit_cost) || 0,
           part_number: ln.part_number ?? '',
         })
       }
-      notifyOk('Work order created',
-        `#${wo.id} · ${wo.unit}` +
-        (scanLines.length ? ` · ${scanLines.length} lines` : ''))
-      onCreated(wo.id)
+
+      // 2) Una orden por cada OTRA unidad (stub: complaint sin líneas, para
+      // que aparezca en el perfil de esa unidad y se le carguen costos luego).
+      for (const ou of others) {
+        const cs = groups.get(ou)!
+        const camp = cs.some((c) => c.is_pm) ? 'pm' : ''
+        await createWorkOrder({
+          unit: ou,
+          title: titleFor(cs, camp),
+          complaint: cs.map((c) => formatComplaint(c, shared)).join('\n\n'),
+          mechanic, priority, campaign: camp, shop_invoice: shopInv,
+          mileage: cs[0]?.mileage ? Number(cs[0].mileage) : null,
+          service_date: date,
+          source: scanName ? 'scan' : 'manual',
+        })
+      }
+
+      const n = groups.size
+      notifyOk(n > 1 ? `${n} work orders created` : 'Work order created',
+        `#${primaryWo.id} ${primaryWo.unit}`
+        + (others.length ? ` + ${others.join(', ')}` : '')
+        + (lines.length ? ` · ${lines.length} cost lines` : ''))
+      onCreated(primaryWo.id)
     } catch (e) {
       notifyErr('Could not create', e)
     } finally {
@@ -798,8 +837,15 @@ export function WoDrawer({ woId, mechanics, onClose }: {
 
   const partsQ = useQuery({ queryKey: ['parts'], queryFn: listParts })
   const orgQ = useQuery({ queryKey: ['org'], queryFn: getOrg })
+  const fleetQ = useQuery({ queryKey: ['fleet'], queryFn: listFleet })
   const laborRate = orgQ.data?.labor_rate ?? 0
   const catalog = partsQ.data?.parts ?? []
+  const org = orgQ.data
+  // Datos de la unidad (VIN/año/marca/modelo) para el documento, de la
+  // caché de /fleet (no se le pega a Samsara al imprimir/enviar).
+  const unitInfo = useMemo(
+    () => (fleetQ.data ?? []).find((u) => u.unit === wo?.unit),
+    [fleetQ.data, wo?.unit])
   const [lineKind, setLineKind] = useState<'part' | 'labor'>('part')
   const [linePart, setLinePart] = useState('')
   const [lineDesc, setLineDesc] = useState('')
@@ -807,6 +853,19 @@ export function WoDrawer({ woId, mechanics, onClose }: {
   const [lineCost, setLineCost] = useState('')
   const [pmMiles, setPmMiles] = useState('')
   const [busy, setBusy] = useState(false)
+  // H3-C: documento imprimible + panel de envío.
+  const [showDoc, setShowDoc] = useState(false)
+  const [sendOpen, setSendOpen] = useState(false)
+  const [toEmail, setToEmail] = useState('')
+  const [toPhone, setToPhone] = useState('')
+  const [chEmail, setChEmail] = useState(true)
+  const [chSms, setChSms] = useState(false)
+  const [sending, setSending] = useState(false)
+
+  // Prefill del destinatario con el email de Bill-To de la empresa.
+  useEffect(() => {
+    if (wo && org) setToEmail(org.billing?.[wo.company]?.email ?? '')
+  }, [wo?.id, org])
 
   // Elegir un part# del catálogo autollena descripción + costo.
   function pickPart(pn: string) {
@@ -904,7 +963,49 @@ export function WoDrawer({ woId, mechanics, onClose }: {
     }
   }
 
+  // H3-C: enviar el estimate/invoice por email (real) y/o SMS.
+  async function sendDoc() {
+    if (!wo) return
+    const channels: NotifyChannel[] = []
+    if (chEmail) channels.push('email')
+    if (chSms) channels.push('sms')
+    if (!channels.length) {
+      notifyErr('Pick a channel', 'Email or SMS')
+      return
+    }
+    setSending(true)
+    try {
+      const r = await sendWoInvoice(wo.id, {
+        channels, email: toEmail.trim(), phone: toPhone.trim(),
+        unit_info: unitInfo
+          ? { vin: unitInfo.vin, year: unitInfo.year,
+              make: unitInfo.make, model: unitInfo.model }
+          : {},
+      })
+      const parts: string[] = []
+      const fmt = (c: { ok: boolean; simulated: boolean; to: string;
+                        error: string } | undefined, label: string) => {
+        if (!c) return
+        parts.push(c.ok
+          ? (c.simulated ? `${label} simulated (dry run)`
+                         : `${label} sent to ${c.to}`)
+          : `${label} failed: ${c.error}`)
+      }
+      fmt(r.results.email, 'Email')
+      fmt(r.results.sms, 'SMS')
+      const anyFail = (r.results.email && !r.results.email.ok)
+        || (r.results.sms && !r.results.sms.ok)
+      if (anyFail) notifyErr('Send issue', parts.join(' · '))
+      else { notifyOk('Document sent', parts.join(' · ')); setSendOpen(false) }
+    } catch (e) {
+      notifyErr('Could not send', e)
+    } finally {
+      setSending(false)
+    }
+  }
+
   return (
+    <>
     <Drawer.Root direction="right" open={open}
       onOpenChange={(o) => { if (!o) onClose() }}>
       <Drawer.Portal>
@@ -964,6 +1065,66 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                     </span>
                   )}
                 </div>
+
+                {/* H3-C: documento imprimible + envío */}
+                <div className="wo-doc-actions">
+                  <button className="btn btn-ghost btn-xs" disabled={!org}
+                    onClick={() => setShowDoc(true)}>
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+                      stroke="currentColor" strokeWidth="1.8"
+                      strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M6 14h12v7H6z" />
+                    </svg>
+                    Print {wo.status === 'invoiced' ? 'invoice' : 'estimate'}
+                  </button>
+                  <button
+                    className={`btn btn-ghost btn-xs ${sendOpen ? 'is-on' : ''}`}
+                    onClick={() => setSendOpen((o) => !o)}>
+                    Email / SMS
+                  </button>
+                </div>
+                {sendOpen && (
+                  <div className="wo-send-panel">
+                    <div className="wo-send-channels">
+                      <label className="wo-check">
+                        <input type="checkbox" checked={chEmail}
+                          onChange={(e) => setChEmail(e.target.checked)} />
+                        Email
+                      </label>
+                      <label className="wo-check">
+                        <input type="checkbox" checked={chSms}
+                          onChange={(e) => setChSms(e.target.checked)} />
+                        SMS
+                      </label>
+                    </div>
+                    {chEmail && (
+                      <label className="ud-field">
+                        <span>Recipient email</span>
+                        <input className="cell-input" type="email" value={toEmail}
+                          placeholder="customer@example.com"
+                          onChange={(e) => setToEmail(e.target.value)} />
+                      </label>
+                    )}
+                    {chSms && (
+                      <label className="ud-field">
+                        <span>Recipient phone</span>
+                        <input className="cell-input" type="tel" value={toPhone}
+                          placeholder="+1 901 555 0142"
+                          onChange={(e) => setToPhone(e.target.value)} />
+                      </label>
+                    )}
+                    <div className="settings-actions">
+                      <button className="btn btn-primary btn-xs" onClick={sendDoc}
+                        disabled={sending}>
+                        {sending ? 'Sending…' : 'Send'}
+                      </button>
+                    </div>
+                    <p className="ud-muted wo-send-note">
+                      Email sends the full document; SMS sends a short summary.
+                      Live or dry run status shows after sending.
+                    </p>
+                  </div>
+                )}
 
                 {wo.is_pm &&
                   PIPELINE.indexOf(wo.status) <
@@ -1033,6 +1194,46 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                       </select>
                     </label>
                   </div>
+                  {/* H3-C: datos del invoice (van al documento imprimible) */}
+                  <div className="wo-meta-row">
+                    <label className="ud-field">
+                      <span>Shop invoice #</span>
+                      <input className="cell-input" defaultValue={wo.shop_invoice}
+                        placeholder="external shop"
+                        onBlur={(e) => {
+                          if (e.target.value !== wo.shop_invoice) {
+                            saveField({ shop_invoice: e.target.value })
+                          }
+                        }} />
+                    </label>
+                    <label className="ud-field">
+                      <span>Customer PO #</span>
+                      <input className="cell-input" defaultValue={wo.po_number}
+                        placeholder="optional"
+                        onBlur={(e) => {
+                          if (e.target.value !== wo.po_number) {
+                            saveField({ po_number: e.target.value })
+                          }
+                        }} />
+                    </label>
+                    <label className="ud-field">
+                      <span>Authorizer</span>
+                      <input className="cell-input" defaultValue={wo.authorizer}
+                        placeholder="optional"
+                        onBlur={(e) => {
+                          if (e.target.value !== wo.authorizer) {
+                            saveField({ authorizer: e.target.value })
+                          }
+                        }} />
+                    </label>
+                  </div>
+                  {wo.invoice_number && (
+                    <p className="ud-muted wo-invnum">
+                      Fleet Tracker invoice&nbsp;#:{' '}
+                      <strong>{wo.invoice_number}</strong> · format in
+                      Settings, Company
+                    </p>
+                  )}
                 </section>
 
                 {/* Líneas: partes + labor */}
@@ -1155,6 +1356,11 @@ export function WoDrawer({ woId, mechanics, onClose }: {
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>
+    {showDoc && wo && org && (
+      <WorkOrderInvoice wo={wo} org={org} unit={unitInfo}
+        onClose={() => setShowDoc(false)} />
+    )}
+    </>
   )
 }
 

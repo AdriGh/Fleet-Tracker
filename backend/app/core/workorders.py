@@ -78,6 +78,10 @@ def _wo_dict(wo: WorkOrder, with_lines: bool = False) -> dict:
         "service_date": wo.service_date,
         "waiting_parts": wo.waiting_parts,
         "source": wo.source,
+        "invoice_number": wo.invoice_number or "",
+        "po_number": wo.po_number or "",
+        "authorizer": wo.authorizer or "",
+        "shop_invoice": wo.shop_invoice or "",
         "total": total,
         "n_lines": len(wo.lines),
     }
@@ -106,7 +110,8 @@ def create_wo(unit: str, title: str, complaint: str = "",
               company: str = "", mechanic: str = "",
               priority: str = "normal", is_pm: bool = False,
               source: str = "manual", mileage: int | None = None,
-              service_date: str = "", campaign: str = "") -> dict:
+              service_date: str = "", campaign: str = "",
+              shop_invoice: str = "") -> dict:
     from . import maint                  # import diferido (orden de carga)
     unit = unit.strip()
     title = title.strip()
@@ -130,6 +135,7 @@ def create_wo(unit: str, title: str, complaint: str = "",
         source=source[:20] or "manual",
         mileage=(int(mileage) if mileage not in (None, "") else None),
         service_date=(service_date.strip()[:10] or None),
+        shop_invoice=shop_invoice.strip()[:60],
     )
     with SessionLocal() as session:
         session.add(wo)
@@ -153,8 +159,11 @@ def update_wo(wo_id: int, fields: dict) -> dict | None:
         # en el mismo request (el gate ve el mecánico nuevo).
         if "priority" in fields and fields["priority"] in PRIORITIES:
             wo.priority = fields["priority"]
+        # invoice_number (el propio de Fleet Tracker) NO es editable por WO:
+        # se asigna solo al facturar y su formato se configura en Settings.
         for key, cap in (("title", 140), ("mechanic", 80),
-                         ("company", 64)):
+                         ("company", 64), ("po_number", 60),
+                         ("authorizer", 80), ("shop_invoice", 60)):
             if key in fields:
                 setattr(wo, key, str(fields[key]).strip()[:cap])
         for key in ("complaint", "notes"):
@@ -198,7 +207,13 @@ def update_wo(wo_id: int, fields: dict) -> dict | None:
             else:
                 wo.closed_at = None
             if _ORDER[target] >= _ORDER["invoiced"]:
-                wo.invoiced_at = wo.invoiced_at or now
+                if wo.invoiced_at is None:           # primera vez que factura
+                    wo.invoiced_at = now
+                    # H3-C: número de invoice del contador de org_config
+                    # (a menos que ya se haya fijado uno a mano).
+                    if not (wo.invoice_number or "").strip():
+                        from . import org_config
+                        wo.invoice_number = org_config.next_invoice_number()
             else:
                 wo.invoiced_at = None
 

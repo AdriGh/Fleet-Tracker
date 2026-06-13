@@ -879,30 +879,46 @@ body::after {
 
 .nav-collapse { margin-left: auto; flex: none; }
 .nav-collapse svg { transition: transform 0.24s ease; }
-.sidebar.collapsed { width: 72px; padding: 14px 9px; }
+.sidebar.collapsed { width: 80px; padding: 16px 10px; }
 .sidebar.collapsed .brand {
   flex-direction: column;
-  gap: 7px;
-  padding: 2px 0 10px;
+  gap: 8px;
+  padding: 2px 0 12px;
 }
-.sidebar.collapsed .brand-logo { width: 36px; height: 36px; }
+.sidebar.collapsed .brand-logo { width: 40px; height: 40px; }
 .sidebar.collapsed .brand-text { display: none; }
-.sidebar.collapsed .nav-collapse { margin: 0; width: 30px; height: 30px; }
-.sidebar.collapsed .nav + .nav { margin-top: 4px; }
-.sidebar.collapsed .nav { gap: 1px; }
+.sidebar.collapsed .nav-collapse { margin: 0; width: 34px; height: 34px; }
+.sidebar.collapsed .nav + .nav { margin-top: 7px; }
+.sidebar.collapsed .nav { gap: 5px; }
 .sidebar.collapsed .nav-group-label {
   font-size: 0;
   padding: 0 6px;
   border-top: 1px solid var(--border);
-  margin: 2px 8px 5px;
+  margin: 5px 10px 8px;
 }
 .sidebar.collapsed .nav:first-of-type .nav-group-label { border-top: none; margin-top: 0; }
-.sidebar.collapsed .nav-item { justify-content: center; padding: 8px 0; }
+/* Iconos del riel: cajas cuadradas más grandes y con aire (no apretadas). */
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  width: 48px;
+  height: 44px;
+  padding: 0;
+  margin: 0 auto;
+  border-radius: 13px;
+}
+.sidebar.collapsed .nav-ico,
+.sidebar.collapsed .nav-ico svg { width: 22px; height: 22px; }
+/* En el riel el activo se marca con el fondo (accent-soft); la barrita
+   lateral izquierda queda descentrada en una caja cuadrada -> se oculta. */
+.sidebar.collapsed .nav-item::before { display: none; }
 .sidebar.collapsed .nav-text,
 .sidebar.collapsed .soon { display: none; }
-.sidebar.collapsed .sidebar-foot { padding: 8px 2px 0; align-items: center; gap: 5px; }
-.sidebar.collapsed .sidebar-foot-row { flex-direction: column; gap: 5px; }
-.sidebar.collapsed .foot-btns { flex-direction: column; gap: 5px; }
+.sidebar.collapsed .sidebar-foot { padding: 12px 0 4px; align-items: center; gap: 9px; }
+.sidebar.collapsed .sidebar-foot-row { flex-direction: column; gap: 8px; }
+.sidebar.collapsed .foot-btns { flex-direction: column; gap: 8px; }
+/* Botones del pie (settings/tema/logout): cuadrados acordes al riel. */
+.sidebar.collapsed .icon-btn { width: 42px; height: 42px; border-radius: 12px; }
+.sidebar.collapsed .icon-btn svg { width: 20px; height: 20px; }
 /* Solo el punto de salud: el texto se oculta sin perder el nodo */
 .sidebar.collapsed .health { font-size: 0; gap: 0; }
 .sidebar.collapsed .version { display: none; }
@@ -913,7 +929,7 @@ body::after {
   overflow: visible;            /* que el flyout no quede recortado */
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 5px;
 }
 .nav-rail-group {
   position: relative;
@@ -925,7 +941,7 @@ body::after {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 5px;
 }
 .nav-flyout {
   position: absolute;
@@ -3867,8 +3883,87 @@ td.dur-high {
   font-size: 8px; color: #9aa3b2; text-align: center;
 }
 
+/* ===== Estimate / Invoice imprimible (H3-C) ===== */
+.wo-invoice {
+  --inv-accent: #e11900;
+  width: 184mm; margin: 0 auto; background: #fff; color: #1a2233;
+  font-family: 'Inter', system-ui, sans-serif; font-size: 12px; line-height: 1.5;
+}
+.inv-accentbar { height: 6px; background: var(--inv-accent); border-radius: 3px; }
+.inv-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  margin-top: 16px; gap: 20px;
+}
+.inv-from div { font-size: 12px; color: #374151; }
+.inv-shopname { font-weight: 800; font-size: 16px; color: #111827; margin-bottom: 2px; }
+.inv-doc { text-align: right; white-space: nowrap; }
+.inv-kind {
+  font-size: 26px; font-weight: 800; letter-spacing: .05em;
+  color: var(--inv-accent);
+}
+.inv-num { font-size: 14px; font-weight: 700; color: #111827; margin-top: 2px; }
+.inv-parties {
+  display: grid; grid-template-columns: 1.4fr 1fr; gap: 24px; margin-top: 20px;
+}
+.inv-block-t {
+  display: block; font-size: 10px; text-transform: uppercase;
+  letter-spacing: .06em; color: #9aa3b2; margin-bottom: 4px;
+}
+.inv-block-b { font-size: 12.5px; line-height: 1.5; color: #1f2937; }
+.inv-block-b > div:first-child { font-weight: 700; color: #111827; }
+.inv-muted { color: #9aa3b2; }
+.inv-meta {
+  display: flex; flex-wrap: wrap; gap: 22px; margin-top: 18px;
+  padding: 10px 0; border-top: 1px solid #eef0f4; border-bottom: 1px solid #eef0f4;
+}
+.inv-meta-chip { display: flex; flex-direction: column; }
+.inv-meta-k {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em;
+  color: #9aa3b2;
+}
+.inv-meta-v { font-size: 12.5px; font-weight: 600; color: #111827; }
+.inv-complaint {
+  margin: 16px 0; padding: 11px 13px; background: #f9fafb; border-radius: 8px;
+  font-size: 12px; line-height: 1.5; white-space: pre-wrap;
+}
+.inv-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+.inv-table thead th {
+  text-align: left; font-size: 10px; text-transform: uppercase;
+  letter-spacing: .04em; color: #9aa3b2; padding: 6px 8px;
+  border-bottom: 1.5px solid #e3e7ee;
+}
+.inv-table th.num, .inv-table td.num { text-align: right; white-space: nowrap; }
+.inv-table tbody td {
+  padding: 7px 8px; border-bottom: 1px solid #eef0f4; vertical-align: top;
+}
+.inv-table .inv-kindcell { font-size: 10.5px; color: #6b7280; }
+.inv-pn { color: #6b7280; margin-right: 6px; }
+.inv-totals-wrap { display: flex; justify-content: flex-end; margin-top: 12px; }
+.inv-totals { width: 250px; font-size: 12.5px; }
+.inv-totals td { padding: 3px 8px; }
+.inv-totals td.num { text-align: right; }
+.inv-totals td:first-child { color: #6b7280; }
+.inv-total-row td {
+  font-weight: 800; color: #111827; border-top: 2px solid #111827;
+  padding-top: 8px;
+}
+.inv-footer-note {
+  margin-top: 16px; font-size: 11.5px; color: #6b7280; white-space: pre-wrap;
+}
+.inv-sign { display: flex; gap: 40px; margin-top: 38px; }
+.inv-sign-line { flex: 1; border-top: 1px solid #111827; padding-top: 4px; }
+.inv-sign-line span { font-size: 10px; color: #9aa3b2; }
+.inv-foot {
+  margin-top: 22px; padding-top: 8px; border-top: 1px solid #e3e7ee;
+  font-size: 9px; color: #9aa3b2; text-align: center;
+}
+
 @media print {
-  #root { display: none !important; }
+  /* Solo el documento imprimible es visible. Se ocultan #root, el toaster
+     de sonner y los PORTALES de vaul (drawers) y de Modal.tsx, que cuelgan
+     de <body> como hermanos de .print-root (un drawer abierto al imprimir
+     un invoice se colaría si solo ocultáramos #root). */
+  body > *:not(.print-root) { display: none !important; }
   /* El reporte vuelve al flujo normal para imprimirse. */
   .print-root { position: static !important; left: auto !important;
     top: auto !important; width: auto !important; }
@@ -5104,6 +5199,9 @@ table.defects-table td {
 }
 .wo-complaint-unit { width: 110px; flex: none; font-weight: 600; }
 .wo-complaint-mi { width: 78px; flex: none; }
+/* El botón de borrar complaint NO está en una fila de tabla, así que el
+   default opacity:0 de .mnt-icon lo dejaba invisible. Mostrarlo siempre. */
+.wo-complaint-head .mnt-icon { opacity: 1; }
 .wo-complaint-warn {
   font-size: 0.72rem;
   font-weight: 600;
@@ -5606,6 +5704,13 @@ button.tms-docdot { cursor: pointer; font-family: inherit; }
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 10px;
+}
+/* H3-C: bloque de Bill-To por empresa */
+.org-billing { margin-bottom: 12px; }
+.org-billing-co {
+  display: inline-block; margin-bottom: 6px;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--text-muted);
 }
 
 /* Settings: Users */
@@ -6230,6 +6335,28 @@ button.tms-docdot { cursor: pointer; font-family: inherit; }
 }
 .wo-wait-toggle.on .nf-dot { background: #d97706; }
 
+/* H3-C: acciones de documento (Print / Email-SMS) + panel de envío */
+.wo-doc-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+.wo-doc-actions .btn svg { margin-right: 5px; }
+.wo-doc-actions .btn.is-on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft, rgba(225, 25, 0, 0.08));
+}
+.wo-send-panel {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 12px 14px; margin-bottom: 14px;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface);
+}
+.wo-send-channels { display: flex; gap: 16px; }
+.wo-check {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.8rem; font-weight: 600; color: var(--text);
+  cursor: pointer;
+}
+.wo-send-note { font-size: 0.72rem; margin: 0; }
+
 .wo-wait-tag {
   display: inline-block;
   margin-left: 6px;
@@ -6575,6 +6702,17 @@ button.tms-docdot { cursor: pointer; font-family: inherit; }
 .wo-complaint-edit { margin-top: 6px; }
 .wo-delete { margin-top: 10px; color: var(--text-muted); }
 .wo-delete:hover { color: var(--ui-danger); }
+
+/* Textareas de complaint que se ACOMODAN al texto (field-sizing: content,
+   soportado en el Chrome de la app) — así siempre se ve todo el contenido.
+   min/max acotan el rango; arriba del max aparece scroll. */
+.wo-complaint textarea, .wo-complaint-edit {
+  field-sizing: content;
+  min-height: 4.6em;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.wo-invnum { margin-top: 8px; }
 
 @media (max-width: 900px) {
   .up-cards { grid-template-columns: 1fr; }

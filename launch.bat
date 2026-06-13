@@ -21,6 +21,13 @@ if not exist "node_modules" call npm install
 call npm run build
 popd
 
+REM --- Liberar el puerto 8765 si quedó un server viejo corriendo ---
+REM (sin esto, un uvicorn previo en memoria sigue sirviendo CODIGO VIEJO:
+REM  el nuevo no puede tomar el puerto y muere callado, y al reabrir la app
+REM  "no se ven los cambios" / el badge muestra una version vieja.)
+echo Liberando el puerto 8765 (si habia un server viejo)...
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" 1>nul 2>nul
+
 REM --- Arrancar el servidor en segundo plano ---
 start "Fleet Tracker - servidor" /min cmd /c ^
   "cd /d "%~dp0backend" && py -m uvicorn app.main:app --host 127.0.0.1 --port 8765"

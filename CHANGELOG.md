@@ -7,6 +7,72 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.3.0] - 2026-06-13
+
+H3-C (Fullbay-killer slice C): estimate/invoice imprimible de Work Orders,
+más una tanda de mejoras al escáner de invoices y de UX a partir del review
+del usuario.
+
+### Añadido
+- **Estimate / Invoice imprimible (H3-C)**: documento por Work Order que se
+  imprime a PDF desde el navegador (patrón print-to-PDF, sin deps, como
+  `UnitReport`) — `components/WorkOrderInvoice.tsx`. Modo **ESTIMATE** si la
+  orden no está facturada e **INVOICE** cuando pasa a `invoiced`. Botones
+  **Print** y **Email / SMS** en el drawer de la orden.
+- **Identidad del taller + Bill-To + numeración** en `org_config`
+  (Settings → Company): bloque `shop` (el "From" del documento), `billing`
+  (dirección de Bill-To por empresa CHASER/MCC) e `invoice` (prefijo, terms,
+  footer + contador `next_number` autoincremental). `next_invoice_number()`
+  asigna el número al facturar por primera vez; el formato se configura una
+  vez en Settings y **no es editable por orden**.
+- **Envío del documento** (`core/wo_invoice.py`): email HTML con estilos
+  inline (vía mailer, real) + texto + resumen SMS (Twilio); todos los campos
+  del usuario van escapados (anti-inyección). Endpoint
+  `POST /api/workorders/{id}/send`.
+- **Campos nuevos de Work Order**: `invoice_number` (propio, auto),
+  `po_number`, `authorizer`, `shop_invoice` (nº de invoice del taller
+  externo, del escaneo) — visibles/editables en el drawer y en el documento.
+- **Un Work Order por unidad**: si un invoice cubre varias unidades (PM al
+  tractor + llanta al trailer), al crear se genera **una orden por cada
+  unidad distinta** (WO#1 CF2246 + WO#2 743451). Las líneas de costo van en
+  la orden primaria (su total cuadra con el invoice); las otras quedan como
+  registro por unidad.
+- **Rol nuevo (preparación H4)**: pendiente — esta versión deja el terreno
+  listo para RBAC fino.
+
+### Cambiado
+- **Escáner de invoices — marcas de cadena**: reconoce Love's, Speedco, TA,
+  Petro, Boss Shop, Pilot/Flying J, FleetPride y Sapp Bros leyendo el
+  encabezado (no el pie de garantía), y normaliza el vendor a la marca real
+  (antes tomaba el header genérico "TOTAL TRUCK CARE").
+- **Escáner — total que cuadra**: las líneas se toman del **bloque resumen**
+  del fondo del invoice (Parts/Labor/Tires/Fees/Tax), anclado a la línea del
+  Total, de modo que la suma **siempre coincide con el monto final** impreso
+  (la suma de ítems sueltos no cuadraba). Fallback a parser columnar
+  (Love's/Speedco) y luego al simple.
+- **Title = campaña**: si la orden tiene una campaña (p.ej. PM), el título
+  es el nombre de la campaña ("Full Wet Service (PM)") en vez de la 1ª línea
+  del complaint.
+- **Textareas de complaint** que se acomodan al texto (`field-sizing:
+  content`) para que siempre se vea todo el contenido.
+- **Sidebar colapsado**: iconos más grandes (cajas 48×44, icono 22px),
+  más padding y separación, botones del pie acordes; el riel se ve más
+  prolijo (antes los recuadros quedaban apretados).
+- **`launch.bat`**: libera el puerto 8765 antes de arrancar (un uvicorn
+  viejo en memoria seguía sirviendo código viejo y "no se veían los
+  cambios"; el nuevo no podía tomar el puerto y moría callado).
+
+### Arreglado
+- El botón de **borrar complaint** en el modal de New work order estaba
+  invisible (`.mnt-icon { opacity: 0 }`, solo se mostraba en filas de
+  tabla): ahora se ve siempre.
+- **Redondeo del documento**: los subtotales Parts/Labor ahora suman
+  exactamente el total mostrado (se redondea por subtotal antes de sumar);
+  antes podían descuadrar 1¢ en una minoría de documentos.
+- En impresión, sólo el documento es visible: se ocultan `#root`, el toaster
+  y los portales de drawers (vaul) — antes un drawer abierto podía colarse
+  en el PDF.
+
 ## [1.2.1] - 2026-06-12
 
 ### Añadido
