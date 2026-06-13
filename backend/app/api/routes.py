@@ -19,7 +19,7 @@ from ..core import (
     excel, integrations_admin, local_config, mailer, maint, media_host,
     notify_service, open_defects, org_config, parts, pm, pois, pretrip,
     reefer, samsara, sms_service, telegram_notify, terminals, tms, tracking,
-    unit_settings, unitdocs, workorders,
+    unit_settings, unitdocs, wo_invoice, workorders,
 )
 from ..core.contacts import name_key
 from ..schemas import (
@@ -460,6 +460,7 @@ class WorkOrderIn(BaseModel):
     mileage: int | None = None
     service_date: str = ""
     campaign: str = ""
+    shop_invoice: str = ""
 
 
 class WorkOrderPatch(BaseModel):
@@ -475,6 +476,10 @@ class WorkOrderPatch(BaseModel):
     service_date: str | None = None
     waiting_parts: bool | None = None
     campaign: str | None = None
+    # invoice_number (el propio) NO es editable por WO (#4): se omite aquí.
+    po_number: str | None = None
+    authorizer: str | None = None
+    shop_invoice: str | None = None
 
 
 class WoLineIn(BaseModel):
@@ -483,6 +488,15 @@ class WoLineIn(BaseModel):
     qty: float = 1
     unit_cost: float = 0
     part_number: str = ""
+
+
+class WorkOrderSendIn(BaseModel):
+    channels: list[str] = ["email"]      # email | sms
+    email: str = ""
+    phone: str = ""
+    # Datos de la unidad (VIN/año/marca/modelo) desde la caché de /fleet del
+    # frontend; evita un fetch lento a Samsara al enviar.
+    unit_info: dict = {}
 
 
 @router.get("/workorders")
@@ -498,7 +512,8 @@ def wo_create(body: WorkOrderIn):
         return workorders.create_wo(
             body.unit, body.title, body.complaint, body.company,
             body.mechanic, body.priority, body.is_pm, body.source,
-            body.mileage, body.service_date, body.campaign)
+            body.mileage, body.service_date, body.campaign,
+            body.shop_invoice)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -567,6 +582,17 @@ def wo_add_line(wo_id: int, body: WoLineIn):
     if wo is None:
         raise HTTPException(status_code=404, detail="WO not found")
     return wo
+
+
+@router.post("/workorders/{wo_id}/send")
+def wo_send(wo_id: int, body: WorkOrderSendIn):
+    """Envía el estimate/invoice de la orden por email (real) y/o SMS
+    (fase H3-C). El email lleva el documento HTML; el SMS un resumen."""
+    wo = workorders.get_wo(wo_id)
+    if wo is None:
+        raise HTTPException(status_code=404, detail="WO not found")
+    return wo_invoice.send(wo, body.channels, body.email, body.phone,
+                           body.unit_info)
 
 
 # ----- Catálogo de Partes + Vendors (fase H3, estilo Fullbay) --------------

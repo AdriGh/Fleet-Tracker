@@ -1,7 +1,7 @@
 # HANDOFF — Fleet Tracker
 
 Documento de traspaso: objetivo, estado, investigación y siguiente paso.
-Actualizado: 2026-06-12.
+Actualizado: 2026-06-13.
 
 ## Objetivo
 
@@ -30,17 +30,82 @@ EN/ES de back-office, y UX muy superior (cinemática, personalizable).
 
 ## Estado actual (qué hay construido)
 
-v1.1.0 publicada (tag en main, jun-12; incluye Rework H fases 1-3b y la
-sesión jun-11): app completa con auth real (roles
+**v1.3.0 EN RAMA (jun-13, no publicada): commiteada en
+`feature/v1.3.0-printable-invoice` como checkpoint — NO mergeada a main,
+NO tag, NO push (pendiente autorización del usuario).** Incluye H3-C
+(estimate/invoice imprimible de Work Orders: print-to-PDF + email/SMS,
+identidad de taller + Bill-To + numeración en org_config, campos
+invoice_number/po_number/authorizer/shop_invoice, un WO por unidad en
+invoices multi-unidad), mejoras del escáner (marcas de cadena
+Love's/Speedco/TA/…, total que cuadra con el invoice vía bloque resumen,
+parser columnar), title=campaña, textareas autosize, sidebar colapsado
+más prolijo, y fix de `launch.bat` (libera el puerto 8765 antes de
+arrancar — un server viejo en memoria seguía sirviendo código viejo).
+**Próximo: REWORK H4 (RBAC real, 5 roles con `safety`).**
+
+v1.2.1 publicada (tag en main, jun-12; `main` sincronizado con
+`origin/main`): app completa con auth real (roles
 admin/dispatcher/mechanic/viewer), onboarding wizard, branding
 white-label (org.local.json), Dashboard, Live Map (MapLibre +
 OpenFreeMap + POIs propios + copy-coords estilo Panda), DVIR diario,
 Defects, Notices (email real + SMS Twilio opt-in), Fleet, PM Tracker,
-Cold Chain (demo si no hay reefers en Samsara), Work Orders v1, TMS-lite
-(Drivers/Loads con payout), Settings (Company, Users, Alerts,
-Connectivity multi-ELD con test de credenciales, Roster con PII
-enmascarada). Tracking en vivo desde los tokens Samsara de Chaser y MCC
-(100 vehículos, HoS clocks, fuel/DEF).
+DOT Inspections, Cold Chain (demo si no hay reefers en Samsara), Work
+Orders (pipeline UNIQ + escáner AI de invoices multi-complaint + perfil
+de unidad estilo Fullbay), Parts & Vendors (catálogo + tarifa de labor),
+TMS-lite (Drivers/Loads con payout), Terminales dinámicas, Settings
+(Company, Users, Alerts, Connectivity multi-ELD con test de
+credenciales, Roster con PII enmascarada). Sidebar agrupado con riel
+colapsable y flyouts por grupo (estilo Samsara). Tracking en vivo desde
+los tokens Samsara de Chaser y MCC (100 vehículos, HoS clocks, fuel/DEF).
+
+### Qué cambió (jun-12, publicado en v1.2.0 + v1.2.1)
+
+- **v1.2.1 — Riel colapsado con flyouts** (estilo Samsara): al colapsar
+  el sidebar cada grupo queda como icono y, al hacer **hover** (no
+  click), despliega un flyout con sus ítems navegables (icono + estado
+  activo). El flyout escapa del scroll (`overflow: visible` en
+  colapsado) con un puente transparente para no cerrarse al cruzar el
+  gap; respeta `prefers-reduced-motion`. El modo expandido (lista con
+  labels) se conserva como toggle.
+- **v1.2.0 — Terminales dinámicas** (Settings → Terminals, solo admin):
+  `core/terminals.py` (store `terminals.local.json`, gitignored) con CRUD
+  + asignación de flota por terminal. Resolución: pin manual → prefijo
+  más largo (carácter siguiente no-letra) → empresa MCC → primera
+  terminal; endpoints `GET/POST/DELETE /api/terminals` +
+  `POST /api/terminals/assign`. `frontend/src/terminal.ts` reescrito como
+  hook `useTerminals()` (TanStack Query, fallback de fábrica
+  CHASER/MEM/MDW/MIA/GA). Los filtros de terminal en Fleet, Defects, PM,
+  DOT y Work Orders salen de esta config (chips solo si hay >1).
+- **v1.2.0 — H3-A Catálogo de Partes + Vendors** (estilo Fullbay, costo
+  **interno sin markup**): tablas `vendor`/`part` en db.py, `core/parts.py`
+  (CRUD + guards: dedup de part#, borrar vendor desvincula sus partes),
+  rutas `/api/vendors` y `/api/parts`, `views/PartsPage.tsx` (pestañas
+  Parts/Vendors). Las líneas de Work Order autocompletan desc+costo
+  eligiendo un part# del catálogo (`part_number` en la línea).
+- **v1.2.0 — H3-B Tarifa de labor**: `org_config.labor_rate` ($/hr,
+  editable en Settings → Company); las líneas de labor del WO se costean
+  solas con esa tarifa.
+- **v1.2.0 — Lote UX Fullbay**: sidebar agrupado "Maintenance &
+  Compliance" (Fleet/PM/DOT/WorkOrders/Parts); fix de navegación desde el
+  perfil de unidad (`navigate()` cierra `profileUnit` al cambiar de
+  sección); modal New WO fluido (`min(--modal-max, 100vw-32px)`) +
+  `fullHeight`→`.modal.is-tall` con cuerpo scrolleable; contraste
+  theme-aware (`color-mix`) en stat cards y pills de PM/DOT.
+- **v1.2.0 — Escaneo multi-complaint**: `docscan.py` reescrito —
+  `WoExtract.complaints[]` {unit, mileage, detail, is_pm} + vendor/ciudad/
+  estado/invoice#/fecha compartidos; heurístico sin IA reescrito para el
+  layout real de invoices (headers de unidad arriba, datos abajo:
+  `_find_units`, multi-unidad, `_build_complaints` rutea por keyword
+  tire→trailer / PM→tractor). En el modal, el complaint que no matchea la
+  unidad del WO se marca "different unit" y se borra (confirm si quedan
+  mezclados); se quitó el campo Issue title (se deriva de la 1ª línea).
+  Generador del PDF imprimible del WO para la yarda MDW en
+  `backend/scripts/make_wo_form.py` (dev-only PyMuPDF).
+- **Review adversarial** (workflow ~24 agentes): 10 bugs confirmados → 8
+  arreglados (año-como-unidad, millaje=eco del nº de unidad, ruteo de
+  complaints, fecha inválida 13/45, línea en blanco espuria, confirm
+  mismatch, borrar última terminal/prefijo duplicado, picker des-pinea
+  archivadas, filtro WO pegado); 2 minor no-arreglados a propósito.
 
 ### Qué cambió (jun-11/12, publicado en v1.1.0)
 
@@ -245,15 +310,25 @@ enmascarada). Tracking en vivo desde los tokens Samsara de Chaser y MCC
 ## Qué sigue: REWORK H (8 fases, detalle en docs/ROADMAP-H.md)
 
 Pulir y profundizar como producto: dashboards rediseñados (cinemáticos,
-interactivos, personalizables). H1 (DOT + PM gemelos) HECHA. H2 (Work
-Orders pipeline UNIQ + gates QuickManage + Telegram) HECHA. Siguiente:
-profundidad Fullbay-killer (H3: parts/vendors, labor rates, estimate →
-invoice imprimible), RBAC con permisos por rol (H4), piloto reefer con
-hardware propio (H5), migración a PostgreSQL y exterminio del hardcodeo
-(H6), rediseño cinemático transversal (H7), dominio + email propio +
-hosting (H8). Pendiente del usuario para activar Telegram: crear el bot
-con @BotFather y pegar token + chat id en Settings → Connectivity
-(guía en backend/TELEGRAM_SETUP.md).
+interactivos, personalizables). HECHAS: H1 (DOT + PM gemelos), H2 (Work
+Orders pipeline UNIQ + gates QuickManage + Telegram), H2.5/H2.5b
+(escáner AI de invoices: Ollama/Anthropic/Textract/heurístico), H3a
+(perfil de unidad estilo Fullbay), **H3-A** (catálogo de partes +
+vendors) y **H3-B** (tarifa de labor) — publicadas en v1.2.0.
+
+**Siguiente: H4 (RBAC real** con permisos por rol y billing). Luego:
+H3-C (estimate → invoice imprimible del WO, **DIFERIDO** a tu pedido),
+H5 (piloto reefer con hardware propio), H6 (PostgreSQL + exterminio del
+hardcodeo), H7 (rediseño cinemático transversal), H8 (dominio + email
+propio + hosting).
+
+Pendientes externos del usuario: (1) **rotar los tokens Samsara**
+(Chaser+MCC) que se pegaron en chat; (2) crear cuenta AWS + IAM user con
+`textract:AnalyzeExpense` y pegar las keys en Settings → Connectivity
+(mientras tanto el scan corre en Ollama local gratis); (3) activar
+Telegram: crear el bot con @BotFather y pegar token + chat id en Settings
+→ Connectivity (guía en backend/TELEGRAM_SETUP.md); (4) cambiar la
+contraseña temporal del admin `adri` en Settings → Users.
 
 Referencias visuales del usuario: su spreadsheet TRUCKS (PM + DOT por
 unidad con status ON TRACK/OVERDUE/UPCOMING/NEVER PERFORMED/OUT OF

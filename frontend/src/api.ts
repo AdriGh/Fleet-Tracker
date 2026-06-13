@@ -528,6 +528,20 @@ export async function patchAppUser(
 }
 
 // --- Configuración de empresa (fase G7) -----------------------------------
+export interface ShopIdentity {
+  name: string; address: string; city: string; state: string
+  zip: string; phone: string; email: string
+}
+
+export interface BillingAddress {
+  name?: string; address?: string; city?: string; state?: string
+  zip?: string; phone?: string; email?: string
+}
+
+export interface InvoiceConfig {
+  next_number: number; prefix: string; terms: string; footer: string
+}
+
 export interface OrgConfig {
   branding: OrgBranding
   thresholds: {
@@ -539,6 +553,10 @@ export interface OrgConfig {
   labor_rate: number
   cc: Record<string, string[]>
   always_cc: string[]
+  // H3-C: identidad del taller (From) + Bill-To por empresa + invoice.
+  shop: ShopIdentity
+  billing: Record<string, BillingAddress>
+  invoice: InvoiceConfig
 }
 
 export async function getOrg(): Promise<OrgConfig> {
@@ -729,6 +747,11 @@ export interface WorkOrder {
   waiting_parts: boolean
   invoiced_at: string | null
   source: string
+  // H3-C: datos del estimate/invoice imprimible.
+  invoice_number: string
+  po_number: string
+  authorizer: string
+  shop_invoice: string        // nº de invoice del TALLER externo (del escaneo)
   total: number
   n_lines: number
   lines?: WoLine[]
@@ -908,6 +931,7 @@ export async function createWorkOrder(body: {
   unit: string; title: string; complaint?: string; company?: string
   mechanic?: string; priority?: WoPriority; is_pm?: boolean; source?: string
   mileage?: number | null; service_date?: string; campaign?: string
+  shop_invoice?: string
 }): Promise<WorkOrder> {
   const res = await fetch('/api/workorders', {
     method: 'POST',
@@ -955,6 +979,40 @@ export async function deleteWoLine(
 ): Promise<WorkOrder> {
   const res = await fetch(`/api/workorders/${id}/lines/${lineId}`, {
     method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// H3-C: enviar el estimate/invoice por email (real) y/o SMS. `unit_info`
+// (VIN/año/marca/modelo) sale de la caché de /fleet para no pegarle a Samsara.
+export interface WoSendResult {
+  to: string
+  ok: boolean
+  simulated: boolean
+  error: string
+}
+
+export interface WoSendResponse {
+  channels: string[]
+  email_dry_run: boolean
+  sms_dry_run: boolean
+  results: { email?: WoSendResult; sms?: WoSendResult }
+}
+
+export async function sendWoInvoice(
+  id: number,
+  body: {
+    channels: NotifyChannel[]
+    email?: string
+    phone?: string
+    unit_info?: Record<string, unknown>
+  },
+): Promise<WoSendResponse> {
+  const res = await fetch(`/api/workorders/${id}/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()

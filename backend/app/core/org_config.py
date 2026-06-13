@@ -41,7 +41,26 @@ DEFAULTS: dict = {
     # Vacío = usar el REGION_CC hardcodeado histórico de cc_routing.py.
     "cc": {},
     "always_cc": [],
+    # H3-C: identidad del taller (el "From" del estimate/invoice). Un solo
+    # taller (decisión del usuario). `name` vacío = usar branding.app_name.
+    "shop": {
+        "name": "", "address": "", "city": "", "state": "", "zip": "",
+        "phone": "", "email": "",
+    },
+    # Bill-To por empresa dueña de la unidad (CHASER/MCC). Vacío = solo el
+    # nombre de la empresa, sin dirección. No es una entidad Customer: es
+    # un mapa empresa -> dirección de facturación.
+    "billing": {},   # { "CHASER": {name,address,city,state,zip,phone,email}, ... }
+    # Numeración y textos por defecto del invoice. `next_number` lo gestiona
+    # next_invoice_number() (se autoincrementa al facturar); save() NO lo
+    # toca para no pisarlo con un valor viejo del formulario.
+    "invoice": {
+        "next_number": 1001, "prefix": "", "terms": "", "footer": "",
+    },
 }
+
+# Campos de texto de una dirección de Bill-To (se sanean al guardar).
+_ADDR_FIELDS = ("name", "address", "city", "state", "zip", "phone", "email")
 
 
 def _read() -> dict:
@@ -72,6 +91,23 @@ def get() -> dict:
         out["labor_rate"] = max(0.0, float(data.get("labor_rate", 0)))
     except (TypeError, ValueError):
         out["labor_rate"] = 0.0
+    # H3-C: taller (strings), invoice (contador + textos), Bill-To por empresa.
+    for k, v in (data.get("shop") or {}).items():
+        if k in out["shop"]:
+            out["shop"][k] = str(v)
+    inv = data.get("invoice") or {}
+    try:
+        out["invoice"]["next_number"] = max(1, int(inv.get("next_number", 1001)))
+    except (TypeError, ValueError):
+        pass
+    for k in ("prefix", "terms", "footer"):
+        if k in inv:
+            out["invoice"][k] = str(inv[k])
+    if isinstance(data.get("billing"), dict):
+        out["billing"] = {
+            str(co): {f: str(addr.get(f, "")) for f in _ADDR_FIELDS}
+            for co, addr in data["billing"].items() if isinstance(addr, dict)
+        }
     return out
 
 
@@ -102,6 +138,24 @@ def save(new: dict) -> dict:
             cur["labor_rate"] = max(0.0, float(new["labor_rate"] or 0))
         except (TypeError, ValueError):
             pass
+    # H3-C: taller + textos del invoice + Bill-To. OJO: NO se persiste
+    # `invoice.next_number` desde el formulario (lo gestiona en exclusiva
+    # next_invoice_number); así un form viejo no retrocede el contador.
+    if isinstance(new.get("shop"), dict):
+        for k, v in new["shop"].items():
+            if k in cur["shop"]:
+                cur["shop"][k] = str(v).strip()[:120]
+    if isinstance(new.get("invoice"), dict):
+        for k in ("prefix", "terms", "footer"):
+            if k in new["invoice"]:
+                cap = 12 if k == "prefix" else 400
+                cur["invoice"][k] = str(new["invoice"][k]).strip()[:cap]
+    if isinstance(new.get("billing"), dict):
+        cur["billing"] = {
+            str(co)[:64]: {f: str(addr.get(f, "")).strip()[:120]
+                           for f in _ADDR_FIELDS}
+            for co, addr in new["billing"].items() if isinstance(addr, dict)
+        }
     CONFIG_PATH.write_text(
         json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
     return cur
@@ -121,6 +175,34 @@ def threshold(key: str) -> int:
 def labor_rate() -> float:
     """Tarifa de labor del taller ($/hora). 0 = sin default."""
     return float(get().get("labor_rate", 0.0))
+
+
+def shop() -> dict:
+    """Identidad del taller (el "From" del estimate/invoice)."""
+    return get()["shop"]
+
+
+def billing() -> dict:
+    """Mapa empresa -> dirección de Bill-To."""
+    return get()["billing"]
+
+
+def invoice_cfg() -> dict:
+    """Config del invoice (next_number, prefix, terms, footer)."""
+    return get()["invoice"]
+
+
+def next_invoice_number() -> str:
+    """Toma el próximo número de invoice y AVANZA el contador (persistido).
+    Devuelve el número con prefijo (p.ej. 'INV-1042'). App local mono-
+    usuario: lectura-incremento-escritura simple sobre el JSON."""
+    cur = get()
+    n = int(cur["invoice"].get("next_number", 1001) or 1001)
+    prefix = str(cur["invoice"].get("prefix", "") or "")
+    cur["invoice"]["next_number"] = n + 1
+    CONFIG_PATH.write_text(
+        json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
+    return f"{prefix}{n}"
 
 
 def cc_override() -> tuple[dict[str, list[str]], list[str]]:

@@ -139,6 +139,14 @@ class WorkOrder(Base):
     # (maint_record) y el perfil de la unidad se actualiza solo.
     campaign: Mapped[str] = mapped_column(String(12), default="")
     source: Mapped[str] = mapped_column(String(20), default="manual")
+    # H3-C: datos del invoice imprimible (estimate -> invoice). El número
+    # se asigna del contador de org_config al facturar por primera vez.
+    invoice_number: Mapped[str] = mapped_column(String(40), default="")
+    po_number: Mapped[str] = mapped_column(String(60), default="")   # PO del cliente
+    authorizer: Mapped[str] = mapped_column(String(80), default="")
+    # Nº de invoice del TALLER externo (Love's, etc.), del escaneo del doc.
+    # Distinto del invoice_number propio de Fleet Tracker (auto, formateable).
+    shop_invoice: Mapped[str] = mapped_column(String(60), default="")
 
     lines: Mapped[list["WorkOrderLine"]] = relationship(
         back_populates="wo", cascade="all, delete-orphan")
@@ -353,6 +361,10 @@ def _migrate() -> None:
             "service_date": "VARCHAR(10)",
             "waiting_parts": "BOOLEAN DEFAULT 0",
             "campaign": "VARCHAR(12) DEFAULT ''",
+            "invoice_number": "VARCHAR(40) DEFAULT ''",
+            "po_number": "VARCHAR(60) DEFAULT ''",
+            "authorizer": "VARCHAR(80) DEFAULT ''",
+            "shop_invoice": "VARCHAR(60) DEFAULT ''",
         }
         for col, ddl in adds.items():
             if col not in cols:

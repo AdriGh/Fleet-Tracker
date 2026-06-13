@@ -426,6 +426,71 @@ _KNOWN_SHOPS = re.compile(
     r"love'?s|speedco|\bta\b|petro|pilot|sounders|fleetpride|truck\s*care|"
     r"truck\s*repair|tire", re.IGNORECASE)
 
+# Cadenas grandes de talleres: el header impreso suele ser genérico
+# ("TOTAL TRUCK CARE") y la marca real vive en el logo (imagen) o en otra
+# línea. Se detecta la marca por nombre en el ENCABEZADO (no en el pie de
+# garantía, que nombra afiliadas: un invoice de Love's cita a Speedco abajo y
+# uno de Speedco cita a Love's). El orden importa: Speedco antes que Love's.
+_CHAINS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"speedco", re.I), "Speedco"),
+    (re.compile(r"love'?s|\bloves\b", re.I), "Love's Truck Care"),
+    (re.compile(r"travelcenters|ta\s*truck|ta\s*petro", re.I),
+     "TA Truck Service"),
+    (re.compile(r"\bpetro\b", re.I), "Petro"),
+    (re.compile(r"boss\s*(?:truck\s*)?shop", re.I), "Boss Shop"),
+    (re.compile(r"pilot|flying\s*j", re.I), "Pilot / Flying J"),
+    (re.compile(r"fleetpride", re.I), "FleetPride"),
+    (re.compile(r"sapp\s*bros", re.I), "Sapp Bros"),
+]
+
+
+def _brand(text: str) -> str:
+    """Marca de cadena reconocida en el ENCABEZADO del documento, o ''."""
+    header = "\n".join(text.splitlines()[:16])
+    for rx, name in _CHAINS:
+        if rx.search(header):
+            return name
+    return ""
+
+
+def _apply_brand(x: "WoExtract", text: str) -> None:
+    """Si el doc es de una cadena conocida, normaliza el vendor a la marca
+    (vence al header genérico tipo 'TOTAL TRUCK CARE')."""
+    b = _brand(text)
+    if b:
+        x.vendor = b
+
+
+# Formato columnar de cadenas (Love's/Speedco): una fila de ítem facturable es
+#   [descripción]  UOM  qty  list_price  product  labor  extension
+# La descripción suele venir en las 1-2 líneas de ARRIBA cuando la fila
+# numérica arranca directo con el UOM. product>0 => parte; labor>0 => labor.
+_RE_COL_ROW = re.compile(
+    r"^(?P<desc>.*?)\b(?P<uom>EA|HRS?|GAL|QTS?|LBS?|FT|PT|KIT|SET|UNIT)\s+"
+    r"(?P<qty>\d+(?:\.\d+)?)\s+(?P<list>\d+(?:\.\d+)?)\s+"
+    r"(?P<product>\d+(?:\.\d+)?)\s+(?P<labor>\d+(?:\.\d+)?)\s+"
+    r"(?P<ext>\d+(?:\.\d+)?)\s*$", re.IGNORECASE)
+_RE_COL_HEADER = re.compile(
+    r"description.*\buom\b.*(?:quantity|qty).*extension", re.I)
+
+# Bloque RESUMEN del fondo del invoice (Parts/Labor/Tires/Fees/Tax/...). Es
+# la fuente de verdad del monto: la suma de estas categorías SIEMPRE cuadra
+# con el Total impreso (la suma de los ítems sueltos no, porque se pierden
+# fees/impuestos/categorización). Se ignoran descuentos, subtotales y Total.
+_SUM_LABELS = (r"parts|labou?r|tires?|shop\s*supplies|fees?|tax(?:es)?|"
+               r"sublet|misc|freight|hazmat|environmental|supplies")
+# Layout invertido (Love's: "380.00Parts") y normal ("Parts 380.00"). OJO:
+# solo whitespace HORIZONTAL ([ \t]); con \s* el regex cruzaba saltos de
+# línea y agarraba el rótulo/monto de la fila vecina.
+_RE_SUM_INV = re.compile(r"([\d,]+\.\d{2})[ \t]*(" + _SUM_LABELS + r")\b", re.I)
+_RE_SUM_NORM = re.compile(
+    r"\b(" + _SUM_LABELS + r")\b[ \t]*[:#]?[ \t]*\$?([\d,]+\.\d{2})", re.I)
+# Sin frontera inicial: en el layout invertido "1,019.04Total" no hay
+# boundary antes de 'Total' (dígito pegado a letra). 'subtotal' se excluye aparte.
+_RE_TOTAL_LINE = re.compile(r"total\b", re.I)
+_RE_SUBTOTAL = re.compile(r"sub\s*total", re.I)
+_RE_DISCOUNTISH = re.compile(r"discount|sub\s*total|balance|payment", re.I)
+
 
 def _clean_detail(s: str) -> str:
     """Limpia un texto de complaint: saca metadatos [Nombre - fecha],
@@ -544,6 +609,86 @@ def _build_complaints(text: str,
     return complaints
 
 
+def _extract_lines_columnar(text: str) -> list[WoLineExtract]:
+    """Líneas de invoices columnares de cadena (Love's/Speedco): UOM + qty +
+    4 columnas de dinero, con la descripción en las 1-2 líneas de arriba
+    cuando la fila numérica arranca con el UOM. product>0 => parte; labor>0
+    => labor; la extensión es el total de la línea."""
+    out: list[WoLineExtract] = []
+    buf: list[str] = []                      # descripción pendiente (rolling)
+    for ln in text.splitlines():
+        if _RE_COL_HEADER.search(ln):
+            buf = []
+            continue
+        m = _RE_COL_ROW.match(ln.strip())
+        if not m:
+            t = ln.strip()
+            if not t:
+                buf = []                     # corte de bloque
+            elif not _SKIP_LINE.search(t):
+                buf = (buf + [t])[-3:]
+            continue
+        ext = float(m["ext"])
+        if ext <= 0:                         # filas cabecera de servicio (0)
+            buf = []
+            continue
+        lead = (m["desc"] or "").strip(" .-:")
+        desc = " ".join((lead or " ".join(buf[-2:])).split())[:160] or "Item"
+        buf = []
+        qty = float(m["qty"]) or 1.0
+        list_price = float(m["list"])
+        product = float(m["product"])
+        labor = float(m["labor"])
+        kind = "labor" if (labor > 0 and product <= 0) else "part"
+        unit_cost = list_price if list_price else round(ext / qty, 2)
+        out.append(WoLineExtract(kind=kind, description=desc, qty=qty,
+                                 unit_cost=unit_cost, total=ext))
+    return out
+
+
+def _summary_lines(text: str) -> list[WoLineExtract]:
+    """Líneas a partir del BLOQUE RESUMEN del fondo (Parts/Labor/Tires/Fees/
+    Tax/...). Su suma cuadra con el Total impreso del invoice.
+
+    Se ANCLA en la línea del Total final y se escanea hacia arriba el bloque
+    CONTIGUO (frenando al salir de las categorías), para no confundir un
+    'Shop Supplies' de detalle con el del resumen ni sumar dos veces."""
+    lines = text.splitlines()
+    total_idx = -1                           # último 'Total' real con monto
+    for i, ln in enumerate(lines):
+        if (_RE_TOTAL_LINE.search(ln) and not _RE_SUBTOTAL.search(ln)
+                and re.search(r"\d\.\d{2}", ln)):
+            total_idx = i
+    if total_idx < 0:
+        return []
+    found: dict[str, float] = {}
+    for i in range(total_idx - 1, -1, -1):
+        ln = lines[i].strip()
+        if not ln:
+            continue
+        mi = _RE_SUM_INV.search(ln)
+        mn = _RE_SUM_NORM.search(ln)
+        if mi:
+            found.setdefault(" ".join(mi.group(2).split()).title(),
+                             float(mi.group(1).replace(",", "")))
+        elif mn:
+            found.setdefault(" ".join(mn.group(1).split()).title(),
+                             float(mn.group(2).replace(",", "")))
+        elif _RE_DISCOUNTISH.search(ln):
+            continue                         # descuento/subtotal: sigue el bloque
+        else:
+            break                            # fin del bloque resumen
+    out: list[WoLineExtract] = []
+    for cat, amt in found.items():
+        if amt <= 0:
+            continue
+        kind = "labor" if cat.lower().startswith("lab") else "part"
+        out.append(WoLineExtract(kind=kind, description=cat, qty=1.0,
+                                 unit_cost=round(amt, 2), total=round(amt, 2)))
+    out.reverse()                            # orden natural (Parts..Tax)
+    return out
+
+
 def _scan_heuristic(text: str) -> dict:
     """Extracción por patrones (sin AI). Maneja el layout real de los
     invoices de taller: encabezados de unidad en una fila y datos abajo,
@@ -566,11 +711,15 @@ def _scan_heuristic(text: str) -> dict:
         x.invoice_number = m.group(1)[:30]
     elif m := _RE_INVNO_REV.search(text):
         x.invoice_number = m.group(1)[:30]
-    # Shop name + ciudad/estado.
-    for ln in text.splitlines():
-        if _KNOWN_SHOPS.search(ln) and not _RE_CITYST.search(ln):
-            x.vendor = " ".join(ln.split())[:80]
-            break
+    # Shop name: marca de cadena reconocida (vence al header genérico tipo
+    # "TOTAL TRUCK CARE"); si no, la primera línea con pinta de taller; si
+    # no, la primera línea con texto.
+    x.vendor = _brand(text)
+    if not x.vendor:
+        for ln in text.splitlines():
+            if _KNOWN_SHOPS.search(ln) and not _RE_CITYST.search(ln):
+                x.vendor = " ".join(ln.split())[:80]
+                break
     if not x.vendor:
         for ln in text.splitlines():
             t = ln.strip()
@@ -583,19 +732,25 @@ def _scan_heuristic(text: str) -> dict:
     # Unidades + complaints.
     units = _find_units(text)
     x.complaints = _build_complaints(text, units)
-    # Líneas facturables (best-effort para invoices simples).
-    lines: list[WoLineExtract] = []
-    for ln in text.splitlines():
-        if _SKIP_LINE.search(ln):
-            continue
-        if m := _RE_LINE.match(ln):
-            qty, desc, unit_cost = m.group(1), m.group(2).strip(), m.group(3)
-            lines.append(WoLineExtract(
-                kind="labor" if _LABORISH.search(desc) else "part",
-                description=desc[:160],
-                qty=float(qty),
-                unit_cost=float(unit_cost.replace(",", "")),
-            ))
+    # Líneas facturables: el BLOQUE RESUMEN del fondo manda (su suma cuadra
+    # con el Total impreso). Si no hay resumen, el formato columnar de cadena
+    # y, si tampoco, el formato simple "qty desc precio total".
+    lines = _summary_lines(text)
+    if not lines:
+        lines = _extract_lines_columnar(text)
+    if not lines:
+        for ln in text.splitlines():
+            if _SKIP_LINE.search(ln):
+                continue
+            if m := _RE_LINE.match(ln):
+                qty, desc, unit_cost = (m.group(1), m.group(2).strip(),
+                                        m.group(3))
+                lines.append(WoLineExtract(
+                    kind="labor" if _LABORISH.search(desc) else "part",
+                    description=desc[:160],
+                    qty=float(qty),
+                    unit_cost=float(unit_cost.replace(",", "")),
+                ))
     x.lines = lines
     return _normalize(x, "basic text parser (no AI)")
 
@@ -652,6 +807,10 @@ async def _scan_ollama(s: dict, raw: bytes, media_type: str,
     except ValidationError:
         raise ValueError("The local model returned an unreadable result. "
                          "Try a clearer photo or the original PDF.")
+    # Si el PDF traía texto, normaliza la marca de cadena (el modelo 7B
+    # suele leer el header genérico y perder el logo).
+    if len(pdf_text) >= _MIN_TEXT:
+        _apply_brand(extract, pdf_text)
     usage = r.json()
     return _normalize(extract, s["ollama_model"], {
         "input": usage.get("prompt_eval_count", 0),
@@ -800,6 +959,7 @@ def _map_expense(resp: dict) -> WoExtract:
         x.vendor_city = _clean_city(m.group(1))
         x.vendor_state = m.group(2)
     x.complaints = _build_complaints(full, _find_units(full))
+    _apply_brand(x, full)          # normaliza marcas de cadena conocidas
     return x
 
 
