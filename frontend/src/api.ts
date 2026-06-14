@@ -1042,7 +1042,8 @@ export interface ReeferUnit {
   alarms: ReeferAlarm[]
   updated: string
   demo: boolean
-  can_control?: boolean      // Lynx OEM con tier >= Monitor and Control
+  source?: string            // lynx | thermoking | traccar | demo
+  can_control?: boolean      // OEM con tier que habilita two-way
 }
 
 export interface ReeferResponse {
@@ -1051,7 +1052,7 @@ export interface ReeferResponse {
   live_empty: boolean
   missing_scopes: string[]
   units: ReeferUnit[]
-  source?: string          // lynx | traccar | demo (H5/H6)
+  source?: string          // lynx | thermoking | traccar | demo (H5/H6)
   error?: string
 }
 

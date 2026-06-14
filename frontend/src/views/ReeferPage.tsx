@@ -158,11 +158,12 @@ function ReeferControl({ unit }: { unit: ReeferUnit }) {
   const spNum = Number(sp)
   const spInvalid = sp === '' || Number.isNaN(spNum)
     || spNum < -30 || spNum > 90
+  const oem = unit.source === 'thermoking' ? 'THERMO KING' : 'LYNX'
 
   return (
     <div className="reefer-control" onClick={(e) => e.stopPropagation()}>
       <div className="rctl-head">
-        <span className="rctl-badge">REMOTE CONTROL · LYNX</span>
+        <span className="rctl-badge">REMOTE CONTROL · {oem}</span>
         <span className="rctl-sub">
           Two-way OEM commands change the real reefer, not just an alert.
         </span>
@@ -277,6 +278,12 @@ export default function ReeferPage() {
               LIVE · LYNX
             </span>
           )}
+          {data?.source === 'thermoking' && (
+            <span className="nf-pill"
+              title="Live OEM reefer telemetry + control via Thermo King TracKing">
+              LIVE · THERMO KING
+            </span>
+          )}
           {data?.source === 'traccar' && (
             <span className="nf-pill"
               title="Live reefer telemetry from your Traccar server">
@@ -299,14 +306,15 @@ export default function ReeferPage() {
           <span>
             <strong>Demo data.</strong> No live reefer source is
             connected yet. Go direct with your OWN integration — never
-            through Samsara: via your Carrier dealer, the{' '}
-            <strong>Carrier Lynx</strong> OEM cloud (real remote setpoint
-            control on X4/Vector), or aftermarket hardware (a tracker +
-            temp probe like Teltonika FMC130 + DS18B20) reporting to a
-            self-hosted <strong>Traccar</strong>. Set it in{' '}
+            through Samsara: the OEM cloud for real remote setpoint
+            control (<strong>Carrier Lynx</strong> or{' '}
+            <strong>Thermo King TracKing</strong>, via your dealer), or
+            aftermarket hardware (a tracker + temp probe like Teltonika
+            FMC130 + DS18B20) reporting to a self-hosted{' '}
+            <strong>Traccar</strong>. Set it in{' '}
             <strong>Settings → Connectivity → Cold chain</strong> (guides:
-            backend/LYNX_SETUP.md, REEFER_SETUP.md). The dashboard, alerts
-            and exports are already wired.
+            backend/LYNX_SETUP.md, THERMOKING_SETUP.md, REEFER_SETUP.md).
+            The dashboard, alerts and exports are already wired.
           </span>
         </div>
       )}

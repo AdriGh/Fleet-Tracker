@@ -3,11 +3,12 @@
 
 Principio de SOBERANÍA DEL DATO (ver docs/STRATEGY-data.md): el reefer es
 NUESTRO y directo. Fuentes, por prioridad:
-  1. **Lynx (OEM directo)** — Carrier Lynx API: lee Y controla (setpoint,
-     modo…) los X4/Vector que ya traen el módulo de fábrica. `core/lynx.py`.
-  2. **Traccar (aftermarket)** — Teltonika/Queclink + sonda -> Traccar
+  1. **Lynx (OEM directo)** — Carrier Lynx API: lee Y controla. `core/lynx.py`.
+  2. **Thermo King (OEM directo)** — TracKing/ConnectedSuite API: lee Y
+     controla. `core/thermoking.py`.
+  3. **Traccar (aftermarket)** — Teltonika/Queclink + sonda -> Traccar
      self-host. Solo lectura + umbral de alerta. `core/traccar.py`.
-  3. **Demo** — set determinista etiquetado (`demo: true`) cuando no hay
+  4. **Demo** — set determinista etiquetado (`demo: true`) cuando no hay
      ninguna fuente configurada, para poder ver/demostrar el dashboard.
 
 Samsara NO es fuente de reefer (a propósito): evita depender de un tercero
@@ -17,7 +18,8 @@ no para el cold chain.
 Todas las fuentes emiten la MISMA forma ReeferUnit (unit, setpoint_f,
 return_f, supply_f, ambient_f, run_mode, state, fuel_pct, door, alarms[],
 updated, source, …) para que el frontend sea agnóstico. Las alertas JAMÁS
-se evalúan sobre datos demo.
+se evalúan sobre datos demo. El control remoto (two-way) se despacha al
+módulo OEM según el prefijo del id (lynx- / tk-).
 """
 
 from __future__ import annotations
@@ -25,10 +27,13 @@ from __future__ import annotations
 import math
 from datetime import datetime, timedelta, timezone
 
-from . import lynx, traccar
+from . import lynx, thermoking, traccar
 
 # Fuentes reales en orden de prioridad (módulo, etiqueta de `source`).
-_SOURCES = ((lynx, "lynx"), (traccar, "traccar"))
+_SOURCES = ((lynx, "lynx"), (thermoking, "thermoking"), (traccar, "traccar"))
+
+# Control remoto: prefijo del id -> módulo OEM que lo ejecuta (two-way).
+_CONTROL_MODS = (("lynx-", lynx), ("tk-", thermoking))
 
 
 # ----- Demo determinista (etiquetado; nunca alimenta alertas) -----------
@@ -127,8 +132,48 @@ async def history(unit_id: str, hours: int = 24) -> dict:
     if unit_id.startswith("demo-"):
         return {"unit_id": unit_id, "demo": True,
                 "points": demo_history(unit_id, hours)}
-    if unit_id.startswith("lynx-"):                 # OEM directo
+    if unit_id.startswith("lynx-"):                 # OEM directo (Carrier)
         return await lynx.history(unit_id, hours)
+    if unit_id.startswith("tk-"):                   # OEM directo (Thermo King)
+        return await thermoking.history(unit_id, hours)
     if unit_id.startswith("trc-"):                  # aftermarket (Traccar)
         return await traccar.history(unit_id, hours)
     return {"unit_id": unit_id, "demo": False, "points": []}
+
+
+# ----- Control remoto (despacho por prefijo a la fuente OEM) -------------
+
+def _control_mod(unit_id: str):
+    for pfx, mod in _CONTROL_MODS:
+        if unit_id.startswith(pfx):
+            return mod
+    return None
+
+
+_NO_OEM = {"ok": False,
+           "detail": "Remote control is only available on OEM "
+                     "(Carrier Lynx / Thermo King) units"}
+
+
+async def set_setpoint(unit_id: str, setpoint_f: float) -> dict:
+    """Cambia el setpoint REAL del reefer vía su API OEM (two-way)."""
+    mod = _control_mod(unit_id)
+    if mod is None:
+        return dict(_NO_OEM)
+    return await mod.set_setpoint(unit_id, setpoint_f)
+
+
+async def command(unit_id: str, cmd: str, mode: str | None = None,
+                 on: bool | None = None) -> dict:
+    """Comandos OEM extra (two-way): mode / defrost / power."""
+    mod = _control_mod(unit_id)
+    if mod is None:
+        return dict(_NO_OEM)
+    cmd = (cmd or "").lower()
+    if cmd == "mode" and mode is not None:
+        return await mod.set_mode(unit_id, mode)
+    if cmd == "defrost":
+        return await mod.initiate_defrost(unit_id)
+    if cmd == "power" and on is not None:
+        return await mod.set_power(unit_id, on)
+    return {"ok": False, "detail": "Unknown reefer command"}

@@ -89,11 +89,28 @@ OEM. **CAMBIO en lo construido:** la prioridad runtime de Cold Chain pasa
 de `Traccar → Samsara → demo` a **`Lynx (OEM directo) → Traccar
 (aftermarket) → demo`** (Samsara sale como fuente de reefer). Bajado a
 `docs/STRATEGY-data.md` (principio + tiering + Jugada revisada).
-**PENDIENTES:** (1) cotización del dealer de los 3 tiers + confirmar en qué
-tier el API expone control — preguntas listas en
-`docs/reefer-dealer-questions.md`; (2) bocetar el adapter `core/lynx.py`
-(espejo de `core/traccar.py`: OAuth client-credentials, ingesta + control
-gateado por tier).
+**ENTREGADO jun-14 (boceto completo, verificado: py_compile + smoke; front
+tsc/vite/eslint verdes):** adapters OEM **`core/lynx.py`** (Carrier) y
+**`core/thermoking.py`** (Thermo King TracKing/ConnectedSuite) — espejos de
+`core/traccar.py`: OAuth2 client-credentials, ingesta a la forma ReeferUnit
+(setpoint/supply/ambient/modo/alarmas REALES) y **control two-way gateado
+por tier** (`set_setpoint`/`set_mode`/`defrost`/`power`; `monitor` =
+read-only → error claro sin pegarle al API). `reefer.py` reordenado a
+**Lynx → Thermo King → Traccar → demo** (Samsara fuera) y con **despacho de
+control por prefijo** (`lynx-`/`tk-`). Endpoints `POST
+/api/reefer/{id}/setpoint` y `/command` (RBAC `fleet.edit`, no abiertos a
+viewer). Cards en Connectivity (test+configure) para ambos OEM. **UI de
+control** en `ReeferPage` (panel setpoint + modo + defrost, gateado por
+`can_control` + `fleet.edit`, badge OEM-aware, chip CTRL, toasts; power
+on/off omitido a propósito por seguridad). Guías `backend/LYNX_SETUP.md` y
+`backend/THERMOKING_SETUP.md` + `*.example.json`. **PENDIENTES (solo del
+usuario, para activarlo de verdad):** (1) cotización + credenciales del
+dealer/proveedor (Carrier dealer · `tracking@thermoking.com`) y confirmar
+en qué tier el API expone control — preguntas en
+`docs/reefer-dealer-questions.md`; (2) confirmar contra el portal los
+**paths/campos exactos del JSON** (centralizados en `lynx.py`/
+`thermoking.py` como defaults overrideables + `_pick()`) y la auth de TK
+(se asume OAuth2; puede ser API key sola).
 
 **v1.4.0 — H4 RBAC real:** 5 roles (+`safety`), scopes finos con enforcement
 en el middleware (`_scope_for`), PII enmascarada server-side, gating en la UI

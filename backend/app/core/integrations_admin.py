@@ -26,7 +26,7 @@ import httpx
 from .. import config
 from . import (
     docscan, local_config, lynx, mailer, media_host, pm, pois, samsara,
-    sms_service, telegram_notify, traccar,
+    sms_service, telegram_notify, thermoking, traccar,
 )
 from .providers import registry
 
@@ -66,8 +66,29 @@ def config_specs() -> dict[str, dict]:
     claude = docscan.load_settings()
     trc = traccar.load_settings()
     lyn = lynx.load_settings()
+    tk = thermoking.load_settings()
 
     return {
+        "thermoking": {
+            "title": "Thermo King TracKing (OEM reefer)",
+            "help": ("Direct two-way Thermo King TracKing / ConnectedSuite "
+                     "API: real setpoint/mode control on TK reefers. Request "
+                     "API credentials from tracking@thermoking.com. Tier must "
+                     "be a ConnectedSuite level with two-way commands. See "
+                     "backend/THERMOKING_SETUP.md."),
+            "fields": [
+                {"key": "base_url", "label": "API base URL (https://…)",
+                 "kind": "text", "tail": tk["base_url"]},
+                {"key": "client_id", "label": "Client ID", "kind": "password",
+                 "tail": _tail(tk["client_id"])},
+                {"key": "client_secret", "label": "Client secret",
+                 "kind": "password", "tail": _tail(tk["client_secret"])},
+                {"key": "api_key", "label": "API key", "kind": "password",
+                 "tail": _tail(tk["api_key"])},
+                {"key": "tier", "label": "Tier (monitor | control | enhanced)",
+                 "kind": "text", "tail": tk["tier"]},
+            ],
+        },
         "lynx": {
             "title": "Carrier Lynx Fleet (OEM reefer)",
             "help": ("Direct two-way Carrier Lynx API: real setpoint/mode "
@@ -266,6 +287,11 @@ def save_config(provider: str, values: dict) -> dict:
               ["base_url", "token_url", "client_id", "client_secret",
                "api_key", "company", "tier", "temp_unit",
                "path_assets", "path_command", "path_history"])
+    elif provider == "thermoking":
+        merge(thermoking.SETTINGS_PATH,
+              ["base_url", "token_url", "client_id", "client_secret",
+               "api_key", "company", "tier", "temp_unit",
+               "path_assets", "path_command", "path_history"])
     elif provider == "traccar":
         merge(traccar.SETTINGS_PATH,
               ["url", "token", "temp_attr", "temp_unit", "door_attr",
@@ -378,6 +404,9 @@ async def test(provider: str) -> dict:
 
     if provider == "lynx":
         return await lynx.ping()
+
+    if provider == "thermoking":
+        return await thermoking.ping()
 
     if provider == "traccar":
         return await traccar.ping()

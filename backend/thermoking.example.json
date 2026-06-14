@@ -1,0 +1,12 @@
+{
+  "base_url": "https://api.tracking.thermoking.com",
+  "token_url": "",
+  "client_id": "YOUR_TRACKING_CLIENT_ID",
+  "client_secret": "YOUR_TRACKING_CLIENT_SECRET",
+  "api_key": "YOUR_TRACKING_API_KEY",
+  "company": "",
+  "tier": "monitor",
+  "temp_unit": "F",
+  "deviation_f": 8,
+  "stale_minutes": 20
+}

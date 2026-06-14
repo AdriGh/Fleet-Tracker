@@ -18,8 +18,9 @@ from ..core import (
     alerts, app_config, auth, batch, docscan, driver_contacts, engine,
     excel, integrations_admin, local_config, lynx, mailer, maint, media_host,
     notify_service, open_defects, org_config, parts, permissions, pm, pois,
-    pretrip, reefer, samsara, sms_service, telegram_notify, terminals, tms,
-    traccar, tracking, unit_settings, unitdocs, wo_invoice, workorders,
+    pretrip, reefer, samsara, sms_service, telegram_notify, terminals,
+    thermoking, tms, traccar, tracking, unit_settings, unitdocs, wo_invoice,
+    workorders,
 )
 from ..core.contacts import name_key
 from ..schemas import (
@@ -711,11 +712,12 @@ class ReeferCommandIn(BaseModel):
 
 @router.post("/reefer/{unit_id}/setpoint")
 async def reefer_setpoint(unit_id: str, body: ReeferSetpointIn):
-    """Cambia el setpoint REAL del reefer vía Carrier Lynx (two-way OEM).
+    """Cambia el setpoint REAL del reefer vía su API OEM (two-way).
 
-    Solo unidades 'lynx-' con suscripción >= Monitor and Control; el módulo
-    Lynx devuelve {ok: false, detail} si falta config o tier (-> 400)."""
-    r = await lynx.set_setpoint(unit_id, body.setpoint_f)
+    Se despacha por prefijo al módulo OEM (Carrier Lynx 'lynx-' / Thermo
+    King 'tk-'). El módulo devuelve {ok: false, detail} si falta config o
+    el tier no habilita control (-> 400)."""
+    r = await reefer.set_setpoint(unit_id, body.setpoint_f)
     if not r.get("ok"):
         raise HTTPException(status_code=400, detail=r.get("detail", "Failed"))
     return r
@@ -723,16 +725,8 @@ async def reefer_setpoint(unit_id: str, body: ReeferSetpointIn):
 
 @router.post("/reefer/{unit_id}/command")
 async def reefer_command(unit_id: str, body: ReeferCommandIn):
-    """Comandos OEM extra (Lynx, two-way): mode / defrost / power."""
-    cmd = body.command.lower()
-    if cmd == "mode" and body.mode is not None:
-        r = await lynx.set_mode(unit_id, body.mode)
-    elif cmd == "defrost":
-        r = await lynx.initiate_defrost(unit_id)
-    elif cmd == "power" and body.on is not None:
-        r = await lynx.set_power(unit_id, body.on)
-    else:
-        raise HTTPException(status_code=400, detail="Unknown reefer command")
+    """Comandos OEM extra (two-way): mode / defrost / power."""
+    r = await reefer.command(unit_id, body.command, body.mode, body.on)
     if not r.get("ok"):
         raise HTTPException(status_code=400, detail=r.get("detail", "Failed"))
     return r
@@ -1074,10 +1068,10 @@ def integrations_config(body: IntegrationConfigIn):
 # Qué proveedores soportan test/configure desde la UI.
 _TESTABLE = {"samsara", "motive", "twilio", "cloudinary", "gmail",
              "gplaces", "gsheets", "fullbay", "telegram", "docscan",
-             "traccar", "lynx"}
+             "traccar", "lynx", "thermoking"}
 _CONFIGURABLE = {"samsara", "motive", "twilio", "cloudinary",
                  "gplaces", "gmail", "telegram", "docscan", "traccar",
-                 "lynx"}
+                 "lynx", "thermoking"}
 
 
 @router.get("/integrations")
@@ -1259,6 +1253,21 @@ def integrations_status():
                                 else " (read-only — needs Monitor+Control)"))
                             if lynx.is_configured()
                             else "Configure base URL + dealer credentials"),
+                        "items": [],
+                    },
+                    {
+                        "id": "thermoking",
+                        "name": "Thermo King · OEM reefer",
+                        "kind": "Reefer monitor + remote control (OEM)",
+                        "status": ("connected" if thermoking.is_configured()
+                                   else "not_configured"),
+                        "detail": (
+                            (f"{thermoking.load_settings()['base_url']} · "
+                             f"tier {thermoking.load_settings()['tier']}"
+                             + ("" if thermoking.can_control()
+                                else " (read-only — needs two-way tier)"))
+                            if thermoking.is_configured()
+                            else "Configure base URL + TracKing credentials"),
                         "items": [],
                     },
                     {
