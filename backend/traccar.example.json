@@ -1,0 +1,15 @@
+{
+  "url": "https://traccar.your-domain.com",
+  "token": "YOUR_TRACCAR_USER_TOKEN",
+  "temp_attr": "temp1",
+  "temp_unit": "C",
+  "door_attr": "",
+  "battery_attr": "battery",
+  "company": "",
+  "setpoints": {
+    "53206": -10,
+    "53210": 35
+  },
+  "deviation_f": 8,
+  "stale_minutes": 20
+}

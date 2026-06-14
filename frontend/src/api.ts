@@ -1050,6 +1050,8 @@ export interface ReeferResponse {
   live_empty: boolean
   missing_scopes: string[]
   units: ReeferUnit[]
+  source?: string          // traccar | samsara | demo | none (H5)
+  error?: string
 }
 
 export interface ReeferPoint {

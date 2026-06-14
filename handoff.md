@@ -30,16 +30,42 @@ EN/ES de back-office, y UX muy superior (cinemática, personalizable).
 
 ## Estado actual (qué hay construido)
 
-**v1.4.0 EN RAMA (jun-13, no publicada): H4 — RBAC real, commiteada en
-`feature/v1.4.0-rbac` (rama hija de v1.3.0). 5 roles (+`safety`), scopes
-finos con enforcement en el middleware (`_scope_for`), PII enmascarada
-server-side y gating en la UI (`usePerms`/`can`). Verificado con E2E
-aislado. NO mergeada/tag/push. Diferido a H4.2: sidebar por rol, gating
-por botón, billing por asiento. PRÓXIMO: H5 (reefer hardware).**
+**v1.3.0 (H3-C invoice), v1.4.0 (H4 RBAC) y v1.5.0 (H5 reefer/Traccar)
+están MERGEADAS a main, tagueadas y PUSHEADAS a origin (jun-13/14).
+`main` sincronizado con `origin/main`.**
 
-**v1.3.0 EN RAMA (jun-13, no publicada): commiteada en
-`feature/v1.3.0-printable-invoice` como checkpoint — NO mergeada a main,
-NO tag, NO push (pendiente autorización del usuario).** Incluye H3-C
+**v1.5.0 — H5 reefer tracking real (capa de software):** `core/traccar.py`
+ingiere reefers reales de un Traccar self-host; Cold Chain prefiere
+Traccar → Samsara → demo; Traccar en Connectivity; guía
+`backend/REEFER_SETUP.md`. **El piloto físico de hardware queda pendiente
+del usuario.** **HALLAZGOS de research (2 workflows verificados):** la flota
+son **Carrier X4 (2022, trailers CIMC)** con **telemetría Lynx Fleet de
+fábrica**. TrackFleet (white-label de Journey) parece usar **trackers
+commodity de sonda** (la pantalla muestra HW IDs, dos temps, IN1/IN2,
+Power en V/%). **NO existe forma aftermarket self-host de CONTROLAR el
+setpoint de un Carrier X4** (controlador propietario, sin reverse-eng,
+Traccar sin comando de reefer; los devices self-host son solo-lectura). El
+control real = OEM **Carrier Lynx** ("Two-way Monitor & Control", ya de
+fábrica en los X4 2022) o plataformas cerradas pagas (Viachain/ORBCOMM,
+CarrierWeb, Blue Tree R:Com). **Como un tracker de sonda NO PUEDE controlar
+un X4, el "control" de TrackFleet es casi seguro un UMBRAL DE SOFTWARE, no
+control real.** PENDIENTE: respuesta de **"Dario"** (instalador de
+TrackFleet) a 4 preguntas (modelo del device; cableado-al-controlador vs
+sonda; ¿los devices/SIMs son nuestros o de Journey?; control real vs
+umbral) + el test físico (cambiar setpoint en TrackFleet → mirar la pantalla
+del reefer). **DOS CAMINOS:** (A) soltar control, self-host monitoreo más
+rico (Teltonika + cable RS232 de Carrier → Traccar, ~$30-60 una vez + $0/mes
+— confirmar que lee el X4); (B) mantener control activando **Lynx directo**
+(corta el markup de TrackFleet; el hardware Lynx ya está en los X4 2022).
+**Se generó un PDF guía en el Escritorio del usuario** (`Fleet-Tracker-Cold-
+Chain-Guia.pdf`, 13 págs; generador en `%TEMP%\make_reefer_pdf.py`). H4.2
+diferido: sidebar por rol, gating por botón, billing por asiento.
+
+**v1.4.0 — H4 RBAC real:** 5 roles (+`safety`), scopes finos con enforcement
+en el middleware (`_scope_for`), PII enmascarada server-side, gating en la UI
+(`usePerms`/`can`). Verificado con E2E aislado.
+
+**v1.3.0 — H3-C:** invoice/estimate imprimible. Incluye H3-C
 (estimate/invoice imprimible de Work Orders: print-to-PDF + email/SMS,
 identidad de taller + Bill-To + numeración en org_config, campos
 invoice_number/po_number/authorizer/shop_invoice, un WO por unidad en

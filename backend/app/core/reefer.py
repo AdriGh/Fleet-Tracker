@@ -28,6 +28,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from . import traccar
 from .samsara import _TIMEOUT, _orgs, _paged
 
 _TYPES_A = ("reeferSetPointTemperatureMilliCZone1,"
@@ -211,10 +212,23 @@ def demo_history(unit_id: str, hours: int = 24) -> list[dict]:
 # ----- API públicas ------------------------------------------------------
 
 async def load_live() -> dict:
+    # H5: reefers REALES desde Traccar (hardware propio) primero. Si no está
+    # configurado, Samsara; si Samsara reporta 0 reefers, demo etiquetado.
+    traccar_error = ""
+    if traccar.is_configured():
+        t = await traccar.load()
+        if t.get("available"):
+            return {"available": True, "demo": False, "source": "traccar",
+                    "missing_scopes": [], "units": t["units"],
+                    "live_empty": not t["units"]}
+        traccar_error = t.get("error", "")
+
     orgs = _orgs()
     if not orgs:
-        return {"available": False, "demo": False, "missing_scopes": [],
-                "units": [], "live_empty": False}
+        return {"available": bool(traccar_error), "demo": False,
+                "source": "traccar" if traccar_error else "none",
+                "missing_scopes": [], "units": [], "live_empty": False,
+                "error": traccar_error}
 
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         results = await asyncio.gather(
@@ -229,25 +243,28 @@ async def load_live() -> dict:
         units.extend(r["units"])
 
     if not ok_any:
-        return {"available": False, "demo": False,
+        return {"available": False, "demo": False, "source": "none",
                 "missing_scopes": sorted(missing), "units": [],
-                "live_empty": False}
+                "live_empty": False, "error": traccar_error}
 
     if not units:
         # Scope OK pero ningún trailer reporta reefer: servir demo
         # etiquetado para poder ver/demostrar el dashboard.
-        return {"available": True, "demo": True, "missing_scopes": [],
-                "units": demo_units(), "live_empty": True}
+        return {"available": True, "demo": True, "source": "demo",
+                "missing_scopes": [], "units": demo_units(),
+                "live_empty": True}
 
     units.sort(key=lambda u: (len(u["alarms"]) == 0, u["unit"]))
-    return {"available": True, "demo": False, "missing_scopes": [],
-            "units": units, "live_empty": False}
+    return {"available": True, "demo": False, "source": "samsara",
+            "missing_scopes": [], "units": units, "live_empty": False}
 
 
 async def history(unit_id: str, hours: int = 24) -> dict:
     if unit_id.startswith("demo-"):
         return {"unit_id": unit_id, "demo": True,
                 "points": demo_history(unit_id, hours)}
+    if unit_id.startswith("trc-"):                  # H5: historial de Traccar
+        return await traccar.history(unit_id, hours)
 
     end = datetime.now(timezone.utc)
     start = end - timedelta(hours=hours)
