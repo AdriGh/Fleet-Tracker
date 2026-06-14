@@ -1042,6 +1042,7 @@ export interface ReeferUnit {
   alarms: ReeferAlarm[]
   updated: string
   demo: boolean
+  can_control?: boolean      // Lynx OEM con tier >= Monitor and Control
 }
 
 export interface ReeferResponse {
@@ -1050,7 +1051,7 @@ export interface ReeferResponse {
   live_empty: boolean
   missing_scopes: string[]
   units: ReeferUnit[]
-  source?: string          // traccar | samsara | demo | none (H5)
+  source?: string          // lynx | traccar | demo (H5/H6)
   error?: string
 }
 
@@ -1072,6 +1073,36 @@ export async function getReeferHistory(
 ): Promise<{ demo: boolean; points: ReeferPoint[] }> {
   const res = await fetch(
     `/api/reefer/history?id=${encodeURIComponent(id)}&hours=${hours}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// Control remoto OEM (Carrier Lynx, two-way). Solo unidades 'lynx-' con
+// tier >= Monitor and Control; el backend gatea por tier y por scope
+// fleet.edit y devuelve 400 con el motivo si no aplica.
+export async function setReeferSetpoint(
+  unitId: string, setpointF: number,
+): Promise<{ ok: boolean; detail: string }> {
+  const res = await fetch(
+    `/api/reefer/${encodeURIComponent(unitId)}/setpoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ setpoint_f: setpointF }),
+    })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function reeferCommand(
+  unitId: string,
+  body: { command: 'mode' | 'defrost' | 'power'; mode?: string; on?: boolean },
+): Promise<{ ok: boolean; detail: string }> {
+  const res = await fetch(
+    `/api/reefer/${encodeURIComponent(unitId)}/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }

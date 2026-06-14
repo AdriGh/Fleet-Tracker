@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  getReefer, getReeferHistory,
+  getReefer, getReeferHistory, reeferCommand, setReeferSetpoint,
   type ReeferPoint, type ReeferUnit,
 } from '../api'
+import { usePerms } from '../perms'
+import { notifyErr, notifyOk } from '../toast'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 
@@ -131,7 +133,70 @@ function HistoryRow({ unitId }: { unitId: string }) {
   return <ReeferChart points={q.data.points} />
 }
 
+// ----- Control remoto OEM (Carrier Lynx, two-way) ------------------------
+// Solo se renderiza para unidades 'lynx-' con tier >= Monitor and Control
+// (u.can_control) y rol con scope fleet.edit. El backend re-gatea ambos.
+function ReeferControl({ unit }: { unit: ReeferUnit }) {
+  const qc = useQueryClient()
+  const [sp, setSp] = useState(
+    unit.setpoint_f != null ? String(unit.setpoint_f) : '')
+  const refresh = () => qc.invalidateQueries({ queryKey: ['reefer'] })
+
+  const setpointM = useMutation({
+    mutationFn: () => setReeferSetpoint(unit.id, Number(sp)),
+    onSuccess: (r) => { notifyOk('Setpoint sent', r.detail); refresh() },
+    onError: (e) => notifyErr('Could not set setpoint', e),
+  })
+  const cmdM = useMutation({
+    mutationFn: (b: Parameters<typeof reeferCommand>[1]) =>
+      reeferCommand(unit.id, b),
+    onSuccess: (r) => { notifyOk('Command sent', r.detail); refresh() },
+    onError: (e) => notifyErr('Command failed', e),
+  })
+
+  const busy = setpointM.isPending || cmdM.isPending
+  const spNum = Number(sp)
+  const spInvalid = sp === '' || Number.isNaN(spNum)
+    || spNum < -30 || spNum > 90
+
+  return (
+    <div className="reefer-control" onClick={(e) => e.stopPropagation()}>
+      <div className="rctl-head">
+        <span className="rctl-badge">REMOTE CONTROL · LYNX</span>
+        <span className="rctl-sub">
+          Two-way OEM commands change the real reefer, not just an alert.
+        </span>
+      </div>
+      <div className="rctl-row">
+        <label className="rctl-field">
+          <span>Setpoint °F</span>
+          <input type="number" step={1} value={sp} disabled={busy}
+            onChange={(e) => setSp(e.target.value)} />
+        </label>
+        <button className="btn btn-primary rctl-btn"
+          disabled={busy || spInvalid} onClick={() => setpointM.mutate()}>
+          {setpointM.isPending ? 'Sending…' : 'Set setpoint'}
+        </button>
+        <span className="rctl-spacer" />
+        <button className="btn btn-ghost rctl-btn" disabled={busy}
+          onClick={() => cmdM.mutate({ command: 'mode', mode: 'Continuous' })}>
+          Continuous
+        </button>
+        <button className="btn btn-ghost rctl-btn" disabled={busy}
+          onClick={() => cmdM.mutate({ command: 'mode', mode: 'Start-Stop' })}>
+          Start-Stop
+        </button>
+        <button className="btn btn-ghost rctl-btn" disabled={busy}
+          onClick={() => cmdM.mutate({ command: 'defrost' })}>
+          Defrost
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function ReeferPage() {
+  const { can } = usePerms()
   const q = useQuery({
     queryKey: ['reefer'],
     queryFn: getReefer,
@@ -311,6 +376,12 @@ export default function ReeferPage() {
                           <span className="reefer-unit">
                             <span className={`reefer-state st-${u.state.toLowerCase() || 'na'}`} />
                             <strong>{u.unit}</strong>
+                            {u.can_control && (
+                              <span className="reefer-ctrl-tag"
+                                title="Remote control available (Carrier Lynx)">
+                                CTRL
+                              </span>
+                            )}
                           </span>
                         </td>
                         <td className="num mono">{fmtT(u.setpoint_f)}</td>
@@ -348,6 +419,9 @@ export default function ReeferPage() {
                       {expanded === u.id && (
                         <tr key={`${u.id}-chart`} className="reefer-chart-row">
                           <td colSpan={10}>
+                            {u.can_control && can('fleet.edit') && (
+                              <ReeferControl unit={u} />
+                            )}
                             <HistoryRow unitId={u.id} />
                           </td>
                         </tr>

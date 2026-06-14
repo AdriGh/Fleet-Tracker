@@ -5044,6 +5044,70 @@ table.defects-table td {
 .rc-d-supply { background: #3b82f6; }
 .rc-d-set { background: var(--text-muted); }
 
+/* Chip "CTRL" en unidades Lynx controlables. */
+.reefer-ctrl-tag {
+  margin-left: 7px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  vertical-align: middle;
+}
+
+/* Panel de control remoto OEM (Carrier Lynx, two-way). */
+.reefer-control {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  cursor: default;
+}
+.rctl-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.rctl-badge {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+.rctl-sub { font-size: 0.76rem; color: var(--text-muted); }
+.rctl-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rctl-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.rctl-field input {
+  width: 92px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.rctl-btn { padding: 6px 12px; font-size: 0.78rem; }
+.rctl-spacer { flex: 1 1 auto; min-width: 8px; }
+
 /* ==================================================================
    Work Orders (fase G5) — pipeline, líneas parte/labor, drawer
    ================================================================== */
