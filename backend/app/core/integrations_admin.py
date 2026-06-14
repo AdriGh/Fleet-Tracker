@@ -25,7 +25,7 @@ import httpx
 
 from .. import config
 from . import (
-    docscan, local_config, mailer, media_host, pm, pois, samsara,
+    docscan, local_config, lynx, mailer, media_host, pm, pois, samsara,
     sms_service, telegram_notify, traccar,
 )
 from .providers import registry
@@ -65,8 +65,30 @@ def config_specs() -> dict[str, dict]:
     telegram = telegram_notify.load_settings()
     claude = docscan.load_settings()
     trc = traccar.load_settings()
+    lyn = lynx.load_settings()
 
     return {
+        "lynx": {
+            "title": "Carrier Lynx Fleet (OEM reefer)",
+            "help": ("Direct two-way Carrier Lynx API: real setpoint/mode "
+                     "control on X4/Vector TRUs. Your Carrier dealer issues "
+                     "the Client ID / Secret / API Key after activating a "
+                     "Lynx subscription. Tier must be 'control' (Monitor and "
+                     "Control) or 'enhanced' to change temps remotely. See "
+                     "backend/LYNX_SETUP.md."),
+            "fields": [
+                {"key": "base_url", "label": "API base URL (https://…)",
+                 "kind": "text", "tail": lyn["base_url"]},
+                {"key": "client_id", "label": "Client ID", "kind": "password",
+                 "tail": _tail(lyn["client_id"])},
+                {"key": "client_secret", "label": "Client secret",
+                 "kind": "password", "tail": _tail(lyn["client_secret"])},
+                {"key": "api_key", "label": "API key", "kind": "password",
+                 "tail": _tail(lyn["api_key"])},
+                {"key": "tier", "label": "Tier (monitor | control | enhanced)",
+                 "kind": "text", "tail": lyn["tier"]},
+            ],
+        },
         "traccar": {
             "title": "Traccar (reefer hardware)",
             "help": ("Self-hosted Traccar that receives the reefer tracker "
@@ -239,6 +261,11 @@ def save_config(provider: str, values: dict) -> dict:
                "aws_secret_access_key", "aws_region"])
     elif provider == "gplaces":
         merge(pois.GOOGLE_CONF, ["places_api_key"])
+    elif provider == "lynx":
+        merge(lynx.SETTINGS_PATH,
+              ["base_url", "token_url", "client_id", "client_secret",
+               "api_key", "company", "tier", "temp_unit",
+               "path_assets", "path_command", "path_history"])
     elif provider == "traccar":
         merge(traccar.SETTINGS_PATH,
               ["url", "token", "temp_attr", "temp_unit", "door_attr",
@@ -348,6 +375,9 @@ async def test(provider: str) -> dict:
 
     if provider == "telegram":
         return await telegram_notify.ping()
+
+    if provider == "lynx":
+        return await lynx.ping()
 
     if provider == "traccar":
         return await traccar.ping()

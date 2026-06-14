@@ -16,7 +16,7 @@ from fastapi import Header
 
 from ..core import (
     alerts, app_config, auth, batch, docscan, driver_contacts, engine,
-    excel, integrations_admin, local_config, mailer, maint, media_host,
+    excel, integrations_admin, local_config, lynx, mailer, maint, media_host,
     notify_service, open_defects, org_config, parts, permissions, pm, pois,
     pretrip, reefer, samsara, sms_service, telegram_notify, terminals, tms,
     traccar, tracking, unit_settings, unitdocs, wo_invoice, workorders,
@@ -688,8 +688,8 @@ def wo_del_line(wo_id: int, line_id: int):
 
 @router.get("/reefer")
 async def reefer_live():
-    """Snapshot del cold chain (fase G4). Si Samsara no tiene trailers
-    con reefer todavía, sirve el set DEMO etiquetado (demo: true)."""
+    """Snapshot del cold chain. Fuente directa por prioridad Lynx (OEM) ->
+    Traccar (aftermarket) -> demo etiquetado (demo: true)."""
     return await reefer.load_live()
 
 
@@ -697,6 +697,45 @@ async def reefer_live():
 async def reefer_history(id: str, hours: int = 24):
     """Serie de temperaturas de un reefer para el chart (24 h default)."""
     return await reefer.history(id, max(1, min(hours, 72)))
+
+
+class ReeferSetpointIn(BaseModel):
+    setpoint_f: float
+
+
+class ReeferCommandIn(BaseModel):
+    command: str                 # mode | defrost | power
+    mode: str | None = None
+    on: bool | None = None
+
+
+@router.post("/reefer/{unit_id}/setpoint")
+async def reefer_setpoint(unit_id: str, body: ReeferSetpointIn):
+    """Cambia el setpoint REAL del reefer vía Carrier Lynx (two-way OEM).
+
+    Solo unidades 'lynx-' con suscripción >= Monitor and Control; el módulo
+    Lynx devuelve {ok: false, detail} si falta config o tier (-> 400)."""
+    r = await lynx.set_setpoint(unit_id, body.setpoint_f)
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("detail", "Failed"))
+    return r
+
+
+@router.post("/reefer/{unit_id}/command")
+async def reefer_command(unit_id: str, body: ReeferCommandIn):
+    """Comandos OEM extra (Lynx, two-way): mode / defrost / power."""
+    cmd = body.command.lower()
+    if cmd == "mode" and body.mode is not None:
+        r = await lynx.set_mode(unit_id, body.mode)
+    elif cmd == "defrost":
+        r = await lynx.initiate_defrost(unit_id)
+    elif cmd == "power" and body.on is not None:
+        r = await lynx.set_power(unit_id, body.on)
+    else:
+        raise HTTPException(status_code=400, detail="Unknown reefer command")
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("detail", "Failed"))
+    return r
 
 
 @router.get("/track")
@@ -1035,9 +1074,10 @@ def integrations_config(body: IntegrationConfigIn):
 # Qué proveedores soportan test/configure desde la UI.
 _TESTABLE = {"samsara", "motive", "twilio", "cloudinary", "gmail",
              "gplaces", "gsheets", "fullbay", "telegram", "docscan",
-             "traccar"}
+             "traccar", "lynx"}
 _CONFIGURABLE = {"samsara", "motive", "twilio", "cloudinary",
-                 "gplaces", "gmail", "telegram", "docscan", "traccar"}
+                 "gplaces", "gmail", "telegram", "docscan", "traccar",
+                 "lynx"}
 
 
 @router.get("/integrations")
@@ -1202,12 +1242,28 @@ def integrations_status():
             {
                 "id": "coldchain",
                 "label": "Cold chain",
-                "note": "Reefer temperature from your own hardware via Traccar "
-                        "(replaces the demo). See backend/REEFER_SETUP.md.",
+                "note": "Reefer data from your OWN integration — direct, never "
+                        "through Samsara. OEM (Carrier Lynx) for real remote "
+                        "control, or aftermarket hardware via Traccar. See "
+                        "backend/LYNX_SETUP.md / REEFER_SETUP.md.",
                 "providers": [
                     {
+                        "id": "lynx", "name": "Carrier Lynx · OEM reefer",
+                        "kind": "Reefer monitor + remote control (OEM)",
+                        "status": ("connected" if lynx.is_configured()
+                                   else "not_configured"),
+                        "detail": (
+                            (f"{lynx.load_settings()['base_url']} · "
+                             f"tier {lynx.load_settings()['tier']}"
+                             + ("" if lynx.can_control()
+                                else " (read-only — needs Monitor+Control)"))
+                            if lynx.is_configured()
+                            else "Configure base URL + dealer credentials"),
+                        "items": [],
+                    },
+                    {
                         "id": "traccar", "name": "Traccar · reefer trackers",
-                        "kind": "Reefer temperature (hardware)",
+                        "kind": "Reefer temperature (aftermarket hardware)",
                         "status": ("connected" if traccar.is_configured()
                                    else "not_configured"),
                         "detail": (traccar.load_settings()["url"]

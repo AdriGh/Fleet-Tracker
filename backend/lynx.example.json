@@ -1,0 +1,12 @@
+{
+  "base_url": "https://api.lynxfleet.carrier.com",
+  "token_url": "",
+  "client_id": "YOUR_LYNX_CLIENT_ID_FROM_DEALER",
+  "client_secret": "YOUR_LYNX_CLIENT_SECRET_FROM_DEALER",
+  "api_key": "YOUR_LYNX_API_KEY_FROM_DEALER",
+  "company": "",
+  "tier": "monitor",
+  "temp_unit": "F",
+  "deviation_f": 8,
+  "stale_minutes": 20
+}

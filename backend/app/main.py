@@ -85,6 +85,9 @@ def _scope_for(method: str, path: str) -> str | None:
     # PII de conductores (editar email, sync de contactos).
     if path.startswith("/api/drivers"):
         return "pii.view"
+    # Control remoto de reefers (setpoint/modo OEM vía Lynx): acción de flota.
+    if path.startswith("/api/reefer/"):
+        return "fleet.edit"
     return None
 
 

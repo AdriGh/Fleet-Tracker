@@ -201,9 +201,15 @@ export default function ReeferPage() {
         </div>
         <div className="head-actions">
           {data?.demo && (
-            <span className="nf-pill is-real" title={'Samsara is not reporting '
-              + 'reefers yet: simulated data to evaluate the dashboard'}>
+            <span className="nf-pill is-real" title={'No live reefer source '
+              + 'connected yet: simulated data to evaluate the dashboard'}>
               DEMO DATA
+            </span>
+          )}
+          {data?.source === 'lynx' && (
+            <span className="nf-pill"
+              title="Live OEM reefer telemetry + control via Carrier Lynx">
+              LIVE · LYNX
             </span>
           )}
           {data?.source === 'traccar' && (
@@ -226,15 +232,16 @@ export default function ReeferPage() {
       {data?.demo && (
         <div className="banner warn">
           <span>
-            <strong>Demo data.</strong> Your Samsara orgs report no
-            reefer-equipped trailers yet. To go live with your OWN
-            hardware: a tracker + temp probe (Teltonika FMC130 +
-            DS18B20) reporting to a self-hosted Traccar, then set the
-            server URL + token in <strong>Settings → Connectivity →
-            Traccar</strong> (guide: backend/REEFER_SETUP.md). Or, via
-            your dealer, the Thermo King TracKing / Carrier Lynx cloud
-            integration. The dashboard, alerts and exports are already
-            wired.
+            <strong>Demo data.</strong> No live reefer source is
+            connected yet. Go direct with your OWN integration — never
+            through Samsara: via your Carrier dealer, the{' '}
+            <strong>Carrier Lynx</strong> OEM cloud (real remote setpoint
+            control on X4/Vector), or aftermarket hardware (a tracker +
+            temp probe like Teltonika FMC130 + DS18B20) reporting to a
+            self-hosted <strong>Traccar</strong>. Set it in{' '}
+            <strong>Settings → Connectivity → Cold chain</strong> (guides:
+            backend/LYNX_SETUP.md, REEFER_SETUP.md). The dashboard, alerts
+            and exports are already wired.
           </span>
         </div>
       )}
