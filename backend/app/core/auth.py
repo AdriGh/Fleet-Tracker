@@ -27,7 +27,7 @@ from datetime import datetime
 from sqlalchemy import func, select
 
 from .. import config
-from ..db import SessionLocal, User
+from ..db import SessionLocal, User, default_org_id
 
 SECRET_PATH = config.BACKEND_DIR / "secret.local.json"
 # H4: 'safety' (cumplimiento: DVIR/PM/DOT, avisos, PII) sumado al set.
@@ -123,7 +123,7 @@ def users_exist() -> bool:
 
 
 def create_user(name: str, username: str, password: str,
-                role: str = "viewer") -> dict:
+                role: str = "viewer", org_id: int | None = None) -> dict:
     username = username.strip().lower()
     name = name.strip()
     if not username or not password:
@@ -132,17 +132,22 @@ def create_user(name: str, username: str, password: str,
         raise ValueError("password needs at least 8 characters")
     if role not in ROLES:
         role = "viewer"
+    # H6 fase 3: el usuario pertenece a una organizacion (tenant). En el modo
+    # single-tenant actual cae en la org 'default'.
+    if org_id is None:
+        org_id = default_org_id()
     with SessionLocal() as session:
         if session.scalar(select(User).where(
                 User.username == username)):
             raise ValueError(f"user '{username}' already exists")
         u = User(username=username[:40], name=name[:120], role=role,
+                 org_id=org_id,
                  pw_hash=hash_password(password), active=True,
                  created_at=datetime.now())
         session.add(u)
         session.commit()
         return {"id": u.id, "username": u.username, "name": u.name,
-                "role": u.role, "active": u.active}
+                "role": u.role, "active": u.active, "org_id": u.org_id}
 
 
 def setup_admin(name: str, username: str, password: str) -> dict:

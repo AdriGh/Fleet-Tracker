@@ -174,6 +174,22 @@ class WorkOrderLine(Base):
     wo: Mapped[WorkOrder] = relationship(back_populates="lines")
 
 
+class Organization(Base):
+    """Tenant del SaaS (H6 fase 3): el cliente-cuenta que paga por usar la
+    herramienta. Por encima de `company` (los carriers tipo CHASER/MCC viven
+    DENTRO de una organizacion). Toda la data se aisla por org_id.
+
+    Hay una org 'default' sembrada al iniciar; el modo single-tenant actual
+    equivale a una sola organizacion."""
+    __tablename__ = "organization"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    slug: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), default="")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class User(Base):
     """Usuario de la app (fase G7): auth real con roles.
 
@@ -183,6 +199,8 @@ class User(Base):
     __tablename__ = "user"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organization.id"), index=True)
     username: Mapped[str] = mapped_column(String(40), unique=True,
                                           index=True)
     name: Mapped[str] = mapped_column(String(120), default="")
@@ -307,6 +325,30 @@ class Part(Base):
 Base.metadata.create_all(_engine)
 
 
+DEFAULT_ORG_SLUG = "default"
+
+
+def ensure_default_org() -> int:
+    """Garantiza que exista la organizacion 'default' (modo single-tenant) y
+    devuelve su id. Idempotente; corre en ambos motores al iniciar."""
+    with SessionLocal() as session:
+        org = session.scalar(select(Organization).where(
+            Organization.slug == DEFAULT_ORG_SLUG))
+        if org is None:
+            org = Organization(slug=DEFAULT_ORG_SLUG, name="Default",
+                               active=True, created_at=datetime.now())
+            session.add(org)
+            session.commit()
+        return org.id
+
+
+def default_org_id() -> int:
+    """Id de la organizacion 'default'."""
+    with SessionLocal() as session:
+        return session.scalar(select(Organization.id).where(
+            Organization.slug == DEFAULT_ORG_SLUG))
+
+
 def _migrate() -> None:
     """Migraciones aditivas para SQLite (create_all no agrega columnas a
     tablas existentes). Idempotente: solo agrega lo que falte.
@@ -353,9 +395,21 @@ def _migrate() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE work_order_line "
                 "ADD COLUMN part_number VARCHAR(60) DEFAULT ''")
+        # H6 fase 3: cada usuario pertenece a una organizacion (tenant). Las
+        # DBs viejas no tienen la columna: agregarla y backfillear a 'default'.
+        user_cols = {r[1] for r in conn.exec_driver_sql(
+            'PRAGMA table_info("user")').fetchall()}
+        if "org_id" not in user_cols:
+            conn.exec_driver_sql(
+                'ALTER TABLE "user" ADD COLUMN org_id INTEGER '
+                'REFERENCES organization(id)')
+        conn.exec_driver_sql(
+            f'UPDATE "user" SET org_id = {default_org_id()} '
+            'WHERE org_id IS NULL')
         conn.commit()
 
 
+ensure_default_org()
 if config.IS_SQLITE:
     _migrate()
 
