@@ -7,6 +7,36 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.5.0] - 2026-06-14
+
+H5 — Reefer tracking real (capa de software/ingesta): el Cold Chain puede
+consumir telemetría REAL de reefers desde un Traccar self-host, reemplazando
+el modo demo. El piloto físico de hardware queda pendiente del usuario.
+
+### Añadido
+- **`core/traccar.py`**: cliente del REST de Traccar (token) que lee devices +
+  posiciones + historial y los mapea a la forma `ReeferUnit` del Cold Chain
+  (temp de caja, puerta, batería, GPS) con mapeo de atributos configurable,
+  setpoint/umbral por unidad y **alarmas por umbral** propias (desvío de temp,
+  sin-datos/stale, batería baja). Probado con JSON sintético (incl. bajo cero).
+- **Cold Chain en vivo**: `/api/reefer` ahora prefiere **Traccar (real) →
+  Samsara → demo**, con un campo `source`; el historial de un device va a
+  Traccar. `ReeferPage` muestra el origen ("LIVE · TRACCAR") y el banner demo
+  apunta al camino Traccar.
+- **Traccar en Connectivity**: proveedor testeable/configurable (Test = lee
+  `/server` + cuenta devices) en un grupo nuevo "Cold chain".
+- **Guía del piloto**: `backend/REEFER_SETUP.md` (VPS + Teltonika FMC130 +
+  DS18B20, con el recordatorio de probar bajo cero) + `traccar.example.json`.
+
+### Notas
+- Investigación verificada (2 workflows) sobre el control remoto de reefers
+  Carrier X4, documentada en el handoff y la memoria. Conclusión: **NO** hay
+  forma aftermarket self-host de **controlar** el setpoint de un Carrier X4
+  (controlador propietario, sin protocolo reverse-engineered, Traccar sin
+  comando de reefer). El control real es solo vía OEM (Carrier Lynx, ya de
+  fábrica en los X4 2022) o plataformas cerradas pagas; el **monitoreo** sí es
+  self-host (Teltonika + cable RS232 de Carrier → Traccar).
+
 ## [1.4.0] - 2026-06-13
 
 H4 — RBAC real: permisos finos por rol (antes el enforcement era binario

@@ -206,6 +206,12 @@ export default function ReeferPage() {
               DEMO DATA
             </span>
           )}
+          {data?.source === 'traccar' && (
+            <span className="nf-pill"
+              title="Live reefer telemetry from your Traccar server">
+              LIVE · TRACCAR
+            </span>
+          )}
           <button className="btn btn-ghost" onClick={() => q.refetch()}
             disabled={q.isFetching}>
             {q.isFetching ? 'Refreshing…' : 'Refresh'}
@@ -221,11 +227,14 @@ export default function ReeferPage() {
         <div className="banner warn">
           <span>
             <strong>Demo data.</strong> Your Samsara orgs report no
-            reefer-equipped trailers yet. To go live: a powered Asset
-            Gateway with a Thermo King cable on each trailer, or the
-            hardware-free Thermo King TracKing / Carrier Lynx cloud
-            integration (set up through your dealer). The dashboard,
-            alerts and exports are already wired.
+            reefer-equipped trailers yet. To go live with your OWN
+            hardware: a tracker + temp probe (Teltonika FMC130 +
+            DS18B20) reporting to a self-hosted Traccar, then set the
+            server URL + token in <strong>Settings → Connectivity →
+            Traccar</strong> (guide: backend/REEFER_SETUP.md). Or, via
+            your dealer, the Thermo King TracKing / Carrier Lynx cloud
+            integration. The dashboard, alerts and exports are already
+            wired.
           </span>
         </div>
       )}

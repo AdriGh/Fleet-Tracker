@@ -26,7 +26,7 @@ import httpx
 from .. import config
 from . import (
     docscan, local_config, mailer, media_host, pm, pois, samsara,
-    sms_service, telegram_notify,
+    sms_service, telegram_notify, traccar,
 )
 from .providers import registry
 
@@ -64,8 +64,26 @@ def config_specs() -> dict[str, dict]:
     google = _read_json(pois.GOOGLE_CONF)
     telegram = telegram_notify.load_settings()
     claude = docscan.load_settings()
+    trc = traccar.load_settings()
 
     return {
+        "traccar": {
+            "title": "Traccar (reefer hardware)",
+            "help": ("Self-hosted Traccar that receives the reefer tracker "
+                     "(Teltonika FMC130 / Queclink + temp probe). Feeds the "
+                     "Cold Chain with real data. See backend/REEFER_SETUP.md."),
+            "fields": [
+                {"key": "url", "label": "Server URL (https://…)",
+                 "kind": "text", "tail": trc["url"]},
+                {"key": "token", "label": "API token", "kind": "password",
+                 "tail": _tail(trc["token"])},
+                {"key": "temp_attr",
+                 "label": "Temp attribute (DS18B20 = temp1)",
+                 "kind": "text", "tail": trc["temp_attr"]},
+                {"key": "door_attr", "label": "Door input attr (optional)",
+                 "kind": "text", "tail": trc["door_attr"]},
+            ],
+        },
         "samsara": {
             "title": "Samsara API tokens",
             "help": ("Read-only tokens, one per org. Leave the token "
@@ -221,6 +239,10 @@ def save_config(provider: str, values: dict) -> dict:
                "aws_secret_access_key", "aws_region"])
     elif provider == "gplaces":
         merge(pois.GOOGLE_CONF, ["places_api_key"])
+    elif provider == "traccar":
+        merge(traccar.SETTINGS_PATH,
+              ["url", "token", "temp_attr", "temp_unit", "door_attr",
+               "battery_attr", "company"])
     elif provider == "gmail":
         merge(Path(local_config.CONFIG_PATH),
               ["gmail_sender", "gmail_app_password", "dry_run"])
@@ -326,6 +348,9 @@ async def test(provider: str) -> dict:
 
     if provider == "telegram":
         return await telegram_notify.ping()
+
+    if provider == "traccar":
+        return await traccar.ping()
 
     if provider == "docscan":
         return await docscan.ping()

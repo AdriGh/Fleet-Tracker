@@ -19,7 +19,7 @@ from ..core import (
     excel, integrations_admin, local_config, mailer, maint, media_host,
     notify_service, open_defects, org_config, parts, permissions, pm, pois,
     pretrip, reefer, samsara, sms_service, telegram_notify, terminals, tms,
-    tracking, unit_settings, unitdocs, wo_invoice, workorders,
+    traccar, tracking, unit_settings, unitdocs, wo_invoice, workorders,
 )
 from ..core.contacts import name_key
 from ..schemas import (
@@ -1034,9 +1034,10 @@ def integrations_config(body: IntegrationConfigIn):
 
 # Qué proveedores soportan test/configure desde la UI.
 _TESTABLE = {"samsara", "motive", "twilio", "cloudinary", "gmail",
-             "gplaces", "gsheets", "fullbay", "telegram", "docscan"}
+             "gplaces", "gsheets", "fullbay", "telegram", "docscan",
+             "traccar"}
 _CONFIGURABLE = {"samsara", "motive", "twilio", "cloudinary",
-                 "gplaces", "gmail", "telegram", "docscan"}
+                 "gplaces", "gmail", "telegram", "docscan", "traccar"}
 
 
 @router.get("/integrations")
@@ -1194,6 +1195,24 @@ def integrations_status():
                         "kind": "Invoice and estimate autofill",
                         "status": docscan.status()[0],
                         "detail": docscan.status()[1],
+                        "items": [],
+                    },
+                ],
+            },
+            {
+                "id": "coldchain",
+                "label": "Cold chain",
+                "note": "Reefer temperature from your own hardware via Traccar "
+                        "(replaces the demo). See backend/REEFER_SETUP.md.",
+                "providers": [
+                    {
+                        "id": "traccar", "name": "Traccar · reefer trackers",
+                        "kind": "Reefer temperature (hardware)",
+                        "status": ("connected" if traccar.is_configured()
+                                   else "not_configured"),
+                        "detail": (traccar.load_settings()["url"]
+                                   if traccar.is_configured()
+                                   else "Configure server URL + token"),
                         "items": [],
                     },
                 ],
