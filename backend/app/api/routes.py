@@ -359,41 +359,6 @@ class TmsDriverIn(BaseModel):
     notes: str | None = None
 
 
-class LoadStopIn(BaseModel):
-    kind: str = "pickup"
-    name: str = ""
-    city: str = ""
-    state: str = ""
-    appt: str = ""
-
-
-class LoadIn(BaseModel):
-    broker: str
-    ref: str = ""
-    driver: str = ""
-    unit: str = ""
-    hauling_rate: float = 0
-    accessorials: float = 0
-    pay_pct: float = 0
-    miles: float | None = None
-    stops: list[LoadStopIn] = []
-
-
-class LoadPatch(BaseModel):
-    status: str | None = None
-    broker: str | None = None
-    ref: str | None = None
-    driver: str | None = None
-    unit: str | None = None
-    hauling_rate: float | None = None
-    accessorials: float | None = None
-    pay_pct: float | None = None
-    miles: float | None = None
-    tags: list[str] | None = None
-    docs: dict | None = None
-    notes: str | None = None
-
-
 @router.get("/tms/drivers")
 async def tms_drivers():
     """Roster vivo + perfil TMS por conductor."""
@@ -408,58 +373,6 @@ def tms_driver_save(body: TmsDriverIn):
         return tms.save_driver(body.name, fields)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-
-
-@router.get("/tms/loads")
-def tms_loads(status: str = "", driver: str = ""):
-    return {"loads": tms.list_loads(status, driver),
-            "stats": tms.load_stats()}
-
-
-@router.post("/tms/loads")
-def tms_load_create(body: LoadIn):
-    try:
-        return tms.create_load(
-            body.broker, body.ref, body.driver, body.unit,
-            body.hauling_rate, body.accessorials, body.pay_pct,
-            body.miles, [s.model_dump() for s in body.stops])
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@router.get("/tms/loads/{load_id}")
-def tms_load_get(load_id: int):
-    ld = tms.get_load(load_id)
-    if ld is None:
-        raise HTTPException(status_code=404, detail="Load not found")
-    return ld
-
-
-@router.patch("/tms/loads/{load_id}")
-def tms_load_patch(load_id: int, body: LoadPatch):
-    ld = tms.update_load(
-        load_id, {k: v for k, v in body.model_dump().items()
-                  if v is not None})
-    if ld is None:
-        raise HTTPException(status_code=404, detail="Load not found")
-    return ld
-
-
-@router.post("/tms/loads/{load_id}/stops")
-def tms_load_add_stop(load_id: int, body: LoadStopIn):
-    ld = tms.add_stop(load_id, body.kind, body.name, body.city,
-                      body.state, body.appt)
-    if ld is None:
-        raise HTTPException(status_code=404, detail="Load not found")
-    return ld
-
-
-@router.delete("/tms/loads/{load_id}/stops/{stop_id}")
-def tms_load_del_stop(load_id: int, stop_id: int):
-    ld = tms.delete_stop(load_id, stop_id)
-    if ld is None:
-        raise HTTPException(status_code=404, detail="Load not found")
-    return ld
 
 
 class WorkOrderIn(BaseModel):

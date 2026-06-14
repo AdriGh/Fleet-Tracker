@@ -21,7 +21,7 @@ SCOPES: tuple[str, ...] = (
     "maint.edit",        # crear/editar WO, registrar PM/DOT, parts/vendors, docs
     "wo.invoice",        # facturar una WO + enviar invoice/estimate
     "notices.send",      # enviar avisos (email/SMS REAL)
-    "tms.edit",          # crear/editar loads y drivers (dispatch)
+    "tms.edit",          # editar perfil/compliance de conductores (roster)
     "fleet.edit",        # archivar unidades, unit settings, app settings
     "alerts.manage",     # configurar alertas de flota
 )
@@ -33,7 +33,7 @@ SCOPE_LABELS: dict[str, str] = {
     "maint.edit": "Edit work orders, PM/DOT, parts",
     "wo.invoice": "Invoice work orders & send documents",
     "notices.send": "Send driver notices (email/SMS)",
-    "tms.edit": "Dispatch: loads & drivers",
+    "tms.edit": "Driver roster & compliance",
     "fleet.edit": "Fleet: archive, unit & app settings",
     "alerts.manage": "Configure fleet alerts",
 }

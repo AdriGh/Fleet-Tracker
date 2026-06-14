@@ -18,8 +18,12 @@ profundidad, no amplitud. Especializarse en el stack **Taller + Cold Chain**
 no tienen taller). Núcleo a profundizar: WO + parts/PO + escáner AI + perfil
 de unidad + PM/DOT + Cold Chain con control OEM + **puente reefer→work order**
 + bilingüe de piso de taller. Soporte (se mantiene, no protagoniza): DVIR,
-Live Map, notices. **Diferido** (otro producto, se congela, no se borra):
-TMS-lite, loads y dispatch.
+Live Map, notices. **Removido (jun-14):** Loads/dispatch/payout (otro
+mercado) — borrado de UI + rutas + modelos (`Load`/`LoadStop`, `LoadsPage`,
+grupo nav "Dispatch"). El **roster de conductores se conserva como "Driver
+Compliance"** dentro de Maintenance & Compliance (lo usa el tablero de
+mantenimiento para mapear truck→conductor; `TmsDriver` + `core/tms.py`
+quedan solo-drivers).
 
 ## Repos y archivos
 

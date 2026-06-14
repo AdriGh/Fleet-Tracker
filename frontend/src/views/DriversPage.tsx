@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  listLoads, listTmsDrivers, saveTmsDriver,
-  type Load, type TmsDriverRow,
+  listTmsDrivers, saveTmsDriver,
+  type TmsDriverRow,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 import Skeleton from '../components/Skeleton'
@@ -41,9 +41,6 @@ function initials(name: string): string {
   return name.trim().split(/\s+/).slice(0, 2)
     .map((w) => w[0] ?? '').join('').toUpperCase()
 }
-
-const money = (n: number) =>
-  n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
 export default function DriversPage() {
   const [q, setQ] = useState('')
@@ -88,9 +85,9 @@ export default function DriversPage() {
       {driversQ.isFetching && <div className="loadbar" aria-hidden="true" />}
       <div className="page-head">
         <div>
-          <h1>Drivers</h1>
+          <h1>Driver Compliance</h1>
           <p className="page-sub">
-            Contracts, equipment, compliance dates and trip history.
+            Roster, contracts, equipment and compliance dates.
           </p>
         </div>
         <div className="head-actions">
@@ -111,7 +108,7 @@ export default function DriversPage() {
         <div className="kpi-row">
           <StatCard label="Active drivers" value={kpis.total} tone="accent" />
           <StatCard label="Owner operators" value={kpis.oo} tone="info" />
-          <StatCard label="With TMS profile" value={kpis.withProfile}
+          <StatCard label="With profile" value={kpis.withProfile}
             sub={`of ${kpis.total}`} tone="default" />
           <StatCard label="Docs expiring" value={kpis.expiring}
             sub="within 30 days" tone={kpis.expiring ? 'warn' : 'ok'} />
@@ -223,18 +220,10 @@ function DriverProfile({ driver, onBack }: {
   onBack: () => void
 }) {
   const qc = useQueryClient()
-  const [tab, setTab] = useState<'general' | 'trips'>('general')
   const [form, setForm] = useState<TmsDriverRow>({ ...driver })
   const [saving, setSaving] = useState(false)
 
   const dirty = JSON.stringify(form) !== JSON.stringify(driver)
-
-  const loadsQ = useQuery({
-    queryKey: ['tms-loads', 'driver', driver.name],
-    queryFn: () => listLoads('', driver.name),
-    enabled: tab === 'trips',
-  })
-  const trips: Load[] = loadsQ.data?.loads ?? []
 
   async function save() {
     setSaving(true)
@@ -310,226 +299,92 @@ function DriverProfile({ driver, onBack }: {
         })}
       </div>
 
-      <div className="company-tabs" role="tablist">
-        <button className={`tab-btn ${tab === 'general' ? 'active' : ''}`}
-          onClick={() => setTab('general')}>General</button>
-        <button className={`tab-btn ${tab === 'trips' ? 'active' : ''}`}
-          onClick={() => setTab('trips')}>Trips</button>
-      </div>
-
-      {tab === 'general' ? (
-        <div className="tms-cols">
-          <section className="card">
-            <div className="card-head"><h2>Personal</h2></div>
-            <div className="card-body wo-form">
-              <div className="set-rows">
-                <div className="set-row">
-                  <span className="set-row-label">Phone</span>
-                  <span className="set-row-value">{driver.phone || '—'}</span>
-                </div>
-                <div className="set-row">
-                  <span className="set-row-label">Email</span>
-                  <span className="set-row-value mono">
-                    {driver.email || '—'}
-                  </span>
-                </div>
-                <div className="set-row">
-                  <span className="set-row-label">License</span>
-                  <span className="set-row-value mono">
-                    {driver.license_number || '—'}
-                    {driver.license_state ? ` · ${driver.license_state}` : ''}
-                  </span>
-                </div>
+      <div className="tms-cols">
+        <section className="card">
+          <div className="card-head"><h2>Personal</h2></div>
+          <div className="card-body wo-form">
+            <div className="set-rows">
+              <div className="set-row">
+                <span className="set-row-label">Phone</span>
+                <span className="set-row-value">{driver.phone || '—'}</span>
               </div>
-              {field('hired_date', 'Hired date', '', 'date')}
-              {field('emergency_name', 'Emergency contact')}
-              {field('emergency_phone', 'Emergency phone', '305 555 1234')}
+              <div className="set-row">
+                <span className="set-row-label">Email</span>
+                <span className="set-row-value mono">
+                  {driver.email || '—'}
+                </span>
+              </div>
+              <div className="set-row">
+                <span className="set-row-label">License</span>
+                <span className="set-row-value mono">
+                  {driver.license_number || '—'}
+                  {driver.license_state ? ` · ${driver.license_state}` : ''}
+                </span>
+              </div>
             </div>
-          </section>
+            {field('hired_date', 'Hired date', '', 'date')}
+            {field('emergency_name', 'Emergency contact')}
+            {field('emergency_phone', 'Emergency phone', '305 555 1234')}
+          </div>
+        </section>
 
-          <section className="card">
-            <div className="card-head"><h2>Contract</h2></div>
-            <div className="card-body wo-form">
-              {field('driver_company', "Driver's company (LLC)",
-                '011 - FERDAL TRANSPORT INC')}
-              <div className="wo-form-row">
-                <label className="ud-field">
-                  <span>Role</span>
-                  <select className="cell-input" value={form.role}
-                    onChange={(e) => setForm(
-                      { ...form, role: e.target.value })}>
-                    {Object.entries(ROLE_LABEL).map(([k, v]) => (
-                      <option key={k} value={k}>{v}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="ud-field">
-                  <span>Pay type</span>
-                  <select className="cell-input" value={form.pay_type}
-                    onChange={(e) => setForm(
-                      { ...form, pay_type: e.target.value })}>
-                    {Object.entries(PAY_LABEL).map(([k, v]) => (
-                      <option key={k} value={k}>{v}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              {form.pay_type === 'percentage' && (
-                <label className="ud-field">
-                  <span>Percentage (%)</span>
-                  <input className="cell-input" type="number" min={0} max={100}
-                    value={form.pay_pct}
-                    onChange={(e) => setForm(
-                      { ...form, pay_pct: Number(e.target.value) })} />
-                </label>
-              )}
-            </div>
-          </section>
-
-          <section className="card">
-            <div className="card-head"><h2>Equipment &amp; notes</h2></div>
-            <div className="card-body wo-form">
-              <div className="wo-form-row">
-                {field('truck', 'Truck', '011')}
-                {field('trailer', 'Trailer', '53206')}
-              </div>
+        <section className="card">
+          <div className="card-head"><h2>Contract</h2></div>
+          <div className="card-body wo-form">
+            {field('driver_company', "Driver's company (LLC)",
+              '011 - FERDAL TRANSPORT INC')}
+            <div className="wo-form-row">
               <label className="ud-field">
-                <span>Notes</span>
-                <textarea className="cell-input ud-notes" rows={4}
-                  value={form.notes}
-                  placeholder="Special notes…"
+                <span>Role</span>
+                <select className="cell-input" value={form.role}
                   onChange={(e) => setForm(
-                    { ...form, notes: e.target.value })} />
+                    { ...form, role: e.target.value })}>
+                  {Object.entries(ROLE_LABEL).map(([k, v]) => (
+                    <option key={k} value={k}>{v}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="ud-field">
+                <span>Pay type</span>
+                <select className="cell-input" value={form.pay_type}
+                  onChange={(e) => setForm(
+                    { ...form, pay_type: e.target.value })}>
+                  {Object.entries(PAY_LABEL).map(([k, v]) => (
+                    <option key={k} value={k}>{v}</option>
+                  ))}
+                </select>
               </label>
             </div>
-          </section>
-        </div>
-      ) : (
-        <section className="card">
-          <div className="card-head">
-            <h2>Trips</h2>
-            <span className="sub">most recent first</span>
-          </div>
-          <div className="card-body">
-            {loadsQ.isPending ? (
-              <div className="skel-rows">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <Skeleton key={i} h={42} />
-                ))}
-              </div>
-            ) : trips.length === 0 ? (
-              <div className="empty mini">
-                <p>No loads for this driver yet. Create one in Loads.</p>
-              </div>
-            ) : (
-              <div className="table-wrap">
-                <table className="defects-table tms-table">
-                  <thead>
-                    <tr>
-                      <th>Trip #</th>
-                      <th>Bill to</th>
-                      <th>Origin → Destination</th>
-                      <th>Status</th>
-                      <th className="num">Rate</th>
-                      <th className="num">Payout</th>
-                      <th>Docs</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trips.map((l) => (
-                      <tr key={l.id}>
-                        <td className="mono">#{l.id}</td>
-                        <td>
-                          <span className="nf-driver-text">
-                            <strong>{l.broker}</strong>
-                            {l.ref && <span className="nf-units">Ref {l.ref}</span>}
-                          </span>
-                        </td>
-                        <td><RouteCell load={l} /></td>
-                        <td><LoadStatusPill status={l.status} /></td>
-                        <td className="num mono">
-                          {money(l.total)}
-                          {l.rate_per_mile != null && (
-                            <span className="tms-permile">
-                              ${l.rate_per_mile}/mi
-                            </span>
-                          )}
-                        </td>
-                        <td className="num mono">{money(l.payout)}</td>
-                        <td><DocsDots docs={l.docs} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            {form.pay_type === 'percentage' && (
+              <label className="ud-field">
+                <span>Percentage (%)</span>
+                <input className="cell-input" type="number" min={0} max={100}
+                  value={form.pay_pct}
+                  onChange={(e) => setForm(
+                    { ...form, pay_pct: Number(e.target.value) })} />
+              </label>
             )}
           </div>
         </section>
-      )}
+
+        <section className="card">
+          <div className="card-head"><h2>Equipment &amp; notes</h2></div>
+          <div className="card-body wo-form">
+            <div className="wo-form-row">
+              {field('truck', 'Truck', '011')}
+              {field('trailer', 'Trailer', '53206')}
+            </div>
+            <label className="ud-field">
+              <span>Notes</span>
+              <textarea className="cell-input ud-notes" rows={4}
+                value={form.notes}
+                placeholder="Special notes…"
+                onChange={(e) => setForm(
+                  { ...form, notes: e.target.value })} />
+            </label>
+          </div>
+        </section>
+      </div>
     </div>
-  )
-}
-
-// ----- Piezas compartidas (exportadas para LoadsPage) ---------------------
-export const LOAD_STATUS_META: Record<string, { label: string; cls: string }> = {
-  upcoming: { label: 'Upcoming', cls: 'ls-upcoming' },
-  dispatched: { label: 'Dispatched', cls: 'ls-dispatched' },
-  in_transit: { label: 'In Transit', cls: 'ls-transit' },
-  delivered: { label: 'Delivered', cls: 'ls-delivered' },
-  invoiced: { label: 'Invoiced', cls: 'ls-invoiced' },
-  closed: { label: 'Closed', cls: 'ls-closed' },
-}
-
-export function LoadStatusPill({ status }: { status: string }) {
-  const m = LOAD_STATUS_META[status] ?? { label: status, cls: '' }
-  return <span className={`load-status ${m.cls}`}>{m.label}</span>
-}
-
-export function fmtAppt(appt: string): string {
-  if (!appt) return ''
-  const d = new Date(appt.replace(' ', 'T'))
-  if (Number.isNaN(d.getTime())) return appt
-  return d.toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric',
-  }) + ' · ' + d.toLocaleTimeString('en-US', {
-    hour: 'numeric', minute: '2-digit',
-  })
-}
-
-export function RouteCell({ load }: { load: Load }) {
-  const o = load.origin
-  const dst = load.destination
-  if (!o) return <span className="muted">no stops</span>
-  return (
-    <span className="tms-route">
-      <span className="tms-stop">
-        <strong>{o.city}{o.state ? `, ${o.state}` : ''}</strong>
-        <span>{fmtAppt(o.appt)}</span>
-      </span>
-      {dst && (
-        <>
-          <span className="tms-route-arrow">
-            →{load.n_stops > 2 && <em>{load.n_stops} stops</em>}
-          </span>
-          <span className="tms-stop">
-            <strong>{dst.city}{dst.state ? `, ${dst.state}` : ''}</strong>
-            <span>{fmtAppt(dst.appt)}</span>
-          </span>
-        </>
-      )}
-    </span>
-  )
-}
-
-export function DocsDots({ docs }: { docs: Load['docs'] }) {
-  return (
-    <span className="tms-docdots">
-      {(['rc', 'bol', 'pod'] as const).map((k) => (
-        <span key={k} className={`tms-docdot ${docs[k] ? 'on' : ''}`}
-          title={`${k.toUpperCase()}: ${docs[k] ? 'on file' : 'missing'}`}>
-          {k.toUpperCase()}
-        </span>
-      ))}
-    </span>
   )
 }

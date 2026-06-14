@@ -578,7 +578,7 @@ export async function saveOrg(
   return res.json()
 }
 
-// --- TMS: Drivers & Loads (fase G-TMS, referencia QuickManage) -----------
+// --- Driver roster & compliance (ex-TMS) -------------------------------
 export interface TmsDriverRow {
   name: string
   company: string
@@ -616,97 +616,6 @@ export async function saveTmsDriver(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  })
-  if (!res.ok) throw new Error(await readError(res))
-  return res.json()
-}
-
-export type LoadStatus =
-  | 'upcoming' | 'dispatched' | 'in_transit'
-  | 'delivered' | 'invoiced' | 'closed'
-
-export interface LoadStop {
-  id: number
-  seq: number
-  kind: 'pickup' | 'delivery'
-  name: string
-  city: string
-  state: string
-  appt: string
-}
-
-export interface Load {
-  id: number
-  created_at: string
-  updated_at: string
-  status: LoadStatus
-  broker: string
-  ref: string
-  driver: string
-  unit: string
-  hauling_rate: number
-  accessorials: number
-  pay_pct: number
-  miles: number | null
-  rate_per_mile: number | null
-  tags: string[]
-  docs: { rc: boolean; bol: boolean; pod: boolean }
-  notes: string
-  total: number
-  payout: number
-  n_stops: number
-  origin: LoadStop | null
-  destination: LoadStop | null
-  stops?: LoadStop[]
-}
-
-export interface LoadStats {
-  active: number
-  in_transit: number
-  delivered_30d: number
-  revenue_30d: number
-}
-
-export async function listLoads(
-  status = '', driver = '',
-): Promise<{ loads: Load[]; stats: LoadStats }> {
-  const qs = new URLSearchParams()
-  if (status) qs.set('status', status)
-  if (driver) qs.set('driver', driver)
-  const res = await fetch(`/api/tms/loads?${qs}`)
-  if (!res.ok) throw new Error(await readError(res))
-  return res.json()
-}
-
-export async function createLoad(body: {
-  broker: string; ref?: string; driver?: string; unit?: string
-  hauling_rate?: number; accessorials?: number; pay_pct?: number
-  miles?: number | null
-  stops?: { kind: string; name: string; city: string; state: string
-            appt: string }[]
-}): Promise<Load> {
-  const res = await fetch('/api/tms/loads', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) throw new Error(await readError(res))
-  return res.json()
-}
-
-export async function getLoad(id: number): Promise<Load> {
-  const res = await fetch(`/api/tms/loads/${id}`)
-  if (!res.ok) throw new Error(await readError(res))
-  return res.json()
-}
-
-export async function patchLoad(
-  id: number, patch: Record<string, unknown>,
-): Promise<Load> {
-  const res = await fetch(`/api/tms/loads/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch),
   })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()

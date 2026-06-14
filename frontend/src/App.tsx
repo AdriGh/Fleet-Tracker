@@ -22,7 +22,6 @@ import ReeferPage from './views/ReeferPage'
 import WorkOrdersPage from './views/WorkOrdersPage'
 import PartsPage from './views/PartsPage'
 import DriversPage from './views/DriversPage'
-import LoadsPage from './views/LoadsPage'
 import SettingsPage from './views/SettingsPage'
 import LoginPage from './views/LoginPage'
 
@@ -59,13 +58,7 @@ const NAV_SECTIONS: NavSection[] = [
       { id: 'dot', label: 'DOT Inspections' },
       { id: 'workorders', label: 'Work Orders' },
       { id: 'parts', label: 'Parts & Vendors' },
-    ],
-  },
-  {
-    title: 'Dispatch',
-    items: [
-      { id: 'drivers', label: 'Drivers' },
-      { id: 'loads', label: 'Loads' },
+      { id: 'drivers', label: 'Driver Compliance' },
     ],
   },
   {
@@ -99,14 +92,6 @@ const GROUP_ICONS: Record<string, ReactElement> = {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
       strokeLinecap="round" strokeLinejoin="round">
       <path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L4 16.8 7.2 20l5.3-5.3a4 4 0 0 0 5.2-5.4l-2.5 2.5-2.3-.5-.5-2.3z" />
-    </svg>
-  ),
-  'Dispatch': (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="12" r="2.4" />
-      <path d="M12 3v6.6M5.2 8l4.7 4.7M18.8 8l-4.7 4.7" />
     </svg>
   ),
   'Coming soon': (
@@ -214,13 +199,6 @@ const ICONS: Record<string, ReactElement> = {
       <circle cx="12" cy="12" r="9" />
       <circle cx="12" cy="12" r="2.6" />
       <path d="M12 3v6.4M12 14.6V21M4 14.5l6.1-1.6M13.9 11.1 20 9.5" />
-    </svg>
-  ),
-  loads: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 7h13v10H3zM16 10h3l2 2.5V17h-5z" />
-      <path d="M6 10.5h7M6 13.5h4" />
     </svg>
   ),
   settings: (
@@ -596,7 +574,6 @@ export default function App() {
           {section === 'workorders' && <WorkOrdersPage />}
           {section === 'parts' && <PartsPage />}
           {section === 'drivers' && <DriversPage />}
-          {section === 'loads' && <LoadsPage />}
           {section === 'settings' && (
             <SettingsPage
               theme={theme}

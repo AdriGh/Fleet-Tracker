@@ -215,53 +215,6 @@ class TmsDriver(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
 
 
-class Load(Base):
-    """Carga / trip (fase G-TMS, referencia QuickManage).
-
-    Pipeline: upcoming -> dispatched -> in_transit -> delivered ->
-    invoiced -> closed. Payout del driver = hauling × pay_pct% +
-    accessorials (los accesorios van 100% al driver).
-    """
-    __tablename__ = "load"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime)
-    updated_at: Mapped[datetime] = mapped_column(DateTime)
-    status: Mapped[str] = mapped_column(String(16), default="upcoming",
-                                        index=True)
-    broker: Mapped[str] = mapped_column(String(120), default="")
-    ref: Mapped[str] = mapped_column(String(60), default="")
-    driver: Mapped[str] = mapped_column(String(128), default="", index=True)
-    unit: Mapped[str] = mapped_column(String(32), default="")
-    hauling_rate: Mapped[float] = mapped_column(Float, default=0.0)
-    accessorials: Mapped[float] = mapped_column(Float, default=0.0)
-    pay_pct: Mapped[float] = mapped_column(Float, default=0.0)
-    miles: Mapped[float | None] = mapped_column(Float, nullable=True)
-    tags: Mapped[str] = mapped_column(String(160), default="")
-    docs: Mapped[str] = mapped_column(String(60), default="")
-    notes: Mapped[str] = mapped_column(Text, default="")
-
-    stops: Mapped[list["LoadStop"]] = relationship(
-        back_populates="load", cascade="all, delete-orphan",
-        order_by="LoadStop.seq")
-
-
-class LoadStop(Base):
-    """Parada de una carga: pickup o delivery, con cita."""
-    __tablename__ = "load_stop"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    load_id: Mapped[int] = mapped_column(ForeignKey("load.id"))
-    seq: Mapped[int] = mapped_column(Integer, default=1)
-    kind: Mapped[str] = mapped_column(String(10), default="pickup")
-    name: Mapped[str] = mapped_column(String(120), default="")
-    city: Mapped[str] = mapped_column(String(80), default="")
-    state: Mapped[str] = mapped_column(String(4), default="")
-    appt: Mapped[str] = mapped_column(String(24), default="")
-
-    load: Mapped[Load] = relationship(back_populates="stops")
-
-
 class AlertEvent(Base):
     """Evento de alerta de flota (fase G3): velocidad, idle, fuel/DEF
     bajos, GPS sin señal. Los genera el evaluador de core/alerts.py."""

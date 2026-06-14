@@ -18,7 +18,7 @@ Profundidad, no amplitud. El moat es la **intersección Taller × Cold Chain**: 
 
 - **Núcleo (se lidera y profundiza):** Work Orders + Parts/PO + escáner AI de invoices + perfil de unidad + PM/DOT + **Cold Chain con control OEM (Lynx/TK)** + el puente **reefer → work order** + bilingüe de **piso de taller** (work orders, notas de técnico e invoices nativos en español — el shop floor en US es mayoritariamente hispanohablante; cuña más afilada que el "soporte en español" genérico).
 - **Soporte (se mantiene, no protagoniza):** DVIR, Live Map, notices. Sirven al cockpit; no se gasta energía compitiéndole a Samsara en mapas/telemática genérica.
-- **Diferido (otro producto, no liderar):** TMS-lite, loads y dispatch en general. Disperso del foco; se congela, no se borra.
+- **Removido (jun-14):** Loads / dispatch / payout — es otro producto y otro mercado. Se borró del producto (UI + rutas + modelos). El **roster de conductores se conserva como "Driver Compliance"** dentro de Maintenance & Compliance (CDL/med cert/MVR/clearinghouse + asignación truck→conductor que el tablero de mantenimiento usa): eso es compliance, no dispatch.
 
 **Workflow asesino (la prueba de la tesis, buildable sobre lo ya hecho):** un reefer tira un fault code (vía Lynx/TK) → se crea solo un work order con unidad + código + historial → se agenda servicio → al cerrar, el PM del reefer se actualiza. Ni Fullbay ni Samsara pueden hacerlo: cada uno tiene solo la mitad.
 
