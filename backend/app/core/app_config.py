@@ -9,9 +9,13 @@ Primera función configurable: **archivo de unidades**.
   tiene DVIR hace más de N días (se evalúa en vivo contra Samsara).
 """
 
-import json
 from pathlib import Path
 
+from .. import db
+
+# H6 fase 3d: persiste por-tenant en org_setting (clave 'app_config'); el
+# JSON legacy se importa una sola vez a la org 'default'.
+SETTING_KEY = "app_config"
 CONF_PATH = Path(__file__).resolve().parents[2] / "app_config.local.json"
 
 _DEFAULTS: dict = {
@@ -23,17 +27,12 @@ _DEFAULTS: dict = {
 
 
 def _load() -> dict:
-    if CONF_PATH.exists():
-        try:
-            data = json.loads(CONF_PATH.read_text(encoding="utf-8"))
-            return {**_DEFAULTS, **data}
-        except (OSError, ValueError):
-            pass
-    return dict(_DEFAULTS)
+    return {**_DEFAULTS, **(db.get_setting(SETTING_KEY, legacy_file=CONF_PATH)
+                            or {})}
 
 
 def _save(d: dict) -> None:
-    CONF_PATH.write_text(json.dumps(d, indent=2), encoding="utf-8")
+    db.save_setting(SETTING_KEY, d)
 
 
 def get_settings() -> dict:

@@ -9,6 +9,7 @@ Guarda cada bloque diario generado para alimentar el panel DVIR
 
 import json
 from datetime import date, datetime
+from pathlib import Path
 
 from sqlalchemy import (
     Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text,
@@ -209,6 +210,19 @@ class Organization(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class OrgSetting(Base):
+    """Config NO secreta por-tenant (H6 fase 3d): un blob JSON por
+    (organizacion, clave). Reemplaza los *.local.json single-tenant de
+    org_config/app_config/alerts. Los secretos NO viven aca (ver core/
+    secrets.py). Se accede via get_setting()/save_setting()."""
+    __tablename__ = "org_setting"
+
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organization.id"), primary_key=True)
+    key: Mapped[str] = mapped_column(String(40), primary_key=True)
+    value_json: Mapped[str] = mapped_column(Text)
+
+
 class User(Base):
     """Usuario de la app (fase G7): auth real con roles.
 
@@ -406,6 +420,52 @@ def default_org_id() -> int:
     with SessionLocal() as session:
         return session.scalar(select(Organization.id).where(
             Organization.slug == DEFAULT_ORG_SLUG))
+
+
+def _setting_org() -> int:
+    """org del request actual, o la 'default' para paths sin contexto."""
+    return tenant.get_current_org() or default_org_id()
+
+
+def get_setting(key: str, legacy_file: Path | None = None) -> dict | None:
+    """Config (dict) de `key` para el tenant actual, o None si no existe.
+
+    Migracion transparente (H6 fase 3d): si no hay fila y se pasa el archivo
+    *.local.json legacy, se importa UNA vez a la org 'default' (los datos
+    single-tenant existentes le pertenecen) y se devuelve. Para otras orgs
+    sin fila devuelve None (caen a los DEFAULTS del modulo consumidor)."""
+    org = _setting_org()
+    with SessionLocal() as session:
+        row = session.get(OrgSetting, (org, key))
+        blob = row.value_json if row is not None else None
+    if blob is not None:
+        try:
+            return json.loads(blob)
+        except ValueError:
+            return None
+    if (legacy_file is not None and org == default_org_id()
+            and legacy_file.exists()):
+        try:
+            data = json.loads(legacy_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if isinstance(data, dict):
+            save_setting(key, data)
+            return data
+    return None
+
+
+def save_setting(key: str, value: dict) -> None:
+    """Persiste el blob de config de `key` para el tenant actual."""
+    org = _setting_org()
+    blob = json.dumps(value, ensure_ascii=False)
+    with SessionLocal() as session:
+        row = session.get(OrgSetting, (org, key))
+        if row is None:
+            session.add(OrgSetting(org_id=org, key=key, value_json=blob))
+        else:
+            row.value_json = blob
+        session.commit()
 
 
 def _migrate() -> None:

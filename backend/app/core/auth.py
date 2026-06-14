@@ -19,17 +19,15 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import json
 import secrets
 import time
 from datetime import datetime
 
 from sqlalchemy import func, select
 
-from .. import config
 from ..db import SessionLocal, User, default_org_id
+from . import secretstore
 
-SECRET_PATH = config.BACKEND_DIR / "secret.local.json"
 # H4: 'safety' (cumplimiento: DVIR/PM/DOT, avisos, PII) sumado al set.
 ROLES = ("admin", "dispatcher", "safety", "mechanic", "viewer")
 TOKEN_TTL_S = 30 * 24 * 3600          # 30 días
@@ -37,17 +35,18 @@ _PBKDF2_ITERS = 200_000
 
 
 def _secret() -> bytes:
-    if SECRET_PATH.exists():
+    # H6 fase 3d: el secreto de firma vive detras de SecretStore (backend de
+    # archivos por defecto: backend/secret.local.json). H8 puede enchufar un
+    # secrets manager sin tocar esto. Es global (no por-tenant).
+    blob = secretstore.store().get_blob("secret")
+    s = blob.get("auth_secret", "")
+    if s:
         try:
-            data = json.loads(SECRET_PATH.read_text(encoding="utf-8"))
-            s = data.get("auth_secret", "")
-            if s:
-                return bytes.fromhex(s)
-        except (OSError, ValueError):
+            return bytes.fromhex(s)
+        except ValueError:
             pass
     raw = secrets.token_bytes(32)
-    SECRET_PATH.write_text(
-        json.dumps({"auth_secret": raw.hex()}), encoding="utf-8")
+    secretstore.store().set_blob("secret", {"auth_secret": raw.hex()})
     return raw
 
 
