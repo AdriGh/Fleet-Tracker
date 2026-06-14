@@ -196,6 +196,21 @@ Cold Chain pasa a **Lynx (OEM directo) → Traccar (aftermarket) → demo**
 (antes era Traccar → Samsara → demo; Samsara sale). El modelo de datos
 reefer de G4 sirve para ambos caminos nuestros.
 
+**ESTADO (construido jun-14, boceto verificado):** ambos adapters OEM ya
+existen — `core/lynx.py` (Carrier) y `core/thermoking.py` (Thermo King
+TracKing/ConnectedSuite), espejos de `core/traccar.py`: OAuth2
+client-credentials, ingesta a la forma ReeferUnit y **control two-way
+gateado por tier** (`monitor` = read-only). `core/reefer.py` orquesta
+**Lynx → Thermo King → Traccar → demo** con despacho de control por prefijo
+(`lynx-`/`tk-`); endpoints `POST /api/reefer/{id}/setpoint` y `/command`
+(RBAC `fleet.edit`); cards de Connectivity (test+configure) y UI de control
+en `ReeferPage` (setpoint/modo/defrost, gateada por `can_control` +
+`fleet.edit`; power on/off omitido por seguridad). Guías
+`backend/LYNX_SETUP.md` y `backend/THERMOKING_SETUP.md`. **Falta solo lo
+externo**: credenciales/cotización de cada proveedor + confirmar contra los
+portales los paths/campos exactos del JSON (centralizados en cada adapter)
+y la auth de TK. Ver `docs/reefer-dealer-questions.md`.
+
 ## Riesgos anotados
 
 - Samsara monetizando API por tiers desde 2025: el adapter G6 deja de
