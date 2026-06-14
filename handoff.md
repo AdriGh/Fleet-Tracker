@@ -1,7 +1,7 @@
 # HANDOFF — Fleet Tracker
 
 Documento de traspaso: objetivo, estado, investigación y siguiente paso.
-Actualizado: 2026-06-13.
+Actualizado: 2026-06-14.
 
 ## Objetivo
 
@@ -60,6 +60,40 @@ rico (Teltonika + cable RS232 de Carrier → Traccar, ~$30-60 una vez + $0/mes
 **Se generó un PDF guía en el Escritorio del usuario** (`Fleet-Tracker-Cold-
 Chain-Guia.pdf`, 13 págs; generador en `%TEMP%\make_reefer_pdf.py`). H4.2
 diferido: sidebar por rol, gating por botón, billing por asiento.
+
+**ACTUALIZACIÓN jun-14 — research Lynx Fleet + principio de soberanía del
+dato (cambia la conclusión vieja de reefer):** se leyó el brochure oficial
+**Carrier Lynx Fleet (62-12176 Rev. C ©2025)** y la doc de integración
+pública. HALLAZGO que corrige el handoff anterior: el **Lynx API ES
+BIDIRECCIONAL e integrable en sistemas propios** (*"two-way command APIs
+that enable remote control… can be integrated in your own systems"*) — NO
+es solo-lectura. O sea: no hay control *aftermarket*, pero el **API OEM
+directo SÍ controla** (setpoint/modo/IntelliSet/defrost/power) y va **por
+nosotros, no por Samsara**. Credenciales (**Client ID + Client Secret +
+API Key**, estilo OAuth2) las emite el **dealer Carrier** al activar la
+suscripción; portal dev en `dev1.lynx.carrier.com` /
+`api.tta.lynxfleet.carrier.com`. El módulo Lynx **viene de fábrica en los
+X4 2022** (la flota del cliente YA lo tiene). 3 tiers: Monitor (lectura) /
+Monitor+Control (control real) / Monitor+Enhanced Control (+ data
+downloads, IntelliSet upload, OTA). **Precio NO público, cotizado por
+dealer.** **PRINCIPIO DE ARQUITECTURA fijado por el usuario — soberanía
+del dato por dominio:** el **power unit/HoS/fuel** se consume del **ELD que
+el cliente eligió** (Samsara/Motive); el **reefer/cold chain es NUESTRO y
+directo** — vía OEM (Lynx/Carrier o ConnectedSuite/TracKing de Thermo King)
+o aftermarket (Traccar) — **nunca a través de un tercero como Samsara**
+(esquiva el API-gating de Samsara). **TIERING decidido:** *Basic* =
+monitoreo de temps + setpoint como **umbral de alerta** (no control real);
+*add-on premium "Cold Chain Control"* (gateado por la suscripción de dealer
+Carrier o Thermo King) = **cambio remoto real de temperatura** vía el API
+OEM. **CAMBIO en lo construido:** la prioridad runtime de Cold Chain pasa
+de `Traccar → Samsara → demo` a **`Lynx (OEM directo) → Traccar
+(aftermarket) → demo`** (Samsara sale como fuente de reefer). Bajado a
+`docs/STRATEGY-data.md` (principio + tiering + Jugada revisada).
+**PENDIENTES:** (1) cotización del dealer de los 3 tiers + confirmar en qué
+tier el API expone control — preguntas listas en
+`docs/reefer-dealer-questions.md`; (2) bocetar el adapter `core/lynx.py`
+(espejo de `core/traccar.py`: OAuth client-credentials, ingesta + control
+gateado por tier).
 
 **v1.4.0 — H4 RBAC real:** 5 roles (+`safety`), scopes finos con enforcement
 en el middleware (`_scope_for`), PII enmascarada server-side, gating en la UI
