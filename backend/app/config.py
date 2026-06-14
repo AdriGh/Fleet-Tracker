@@ -1,5 +1,6 @@
 """Configuracion y rutas del backend."""
 
+import os
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent          # backend/app
@@ -10,8 +11,15 @@ DEFAULT_ROSTER = REPO_ROOT / "roster.csv"
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 JOBS_DIR = BACKEND_DIR / ".jobs"                   # Excel generados (temp)
 
-HOST = "127.0.0.1"
-PORT = 8765
+HOST = os.environ.get("DVIR_HOST", "127.0.0.1")
+PORT = int(os.environ.get("DVIR_PORT", "8765"))
+
+# Motor de base de datos. En produccion (nube) se setea DATABASE_URL a una
+# Postgres, p.ej.  postgresql+psycopg://user:pass@host:5432/dvir
+# Si no esta seteada, se cae a una SQLite local para desarrollo/tests.
+_DEFAULT_SQLITE_URL = f"sqlite:///{BACKEND_DIR / 'dvir.db'}"
+DATABASE_URL = os.environ.get("DATABASE_URL", _DEFAULT_SQLITE_URL)
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
 
 # Origenes permitidos para CORS (servidor de desarrollo de Vite).
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]

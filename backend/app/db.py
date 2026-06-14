@@ -1,4 +1,7 @@
-"""Capa de persistencia: SQLite + SQLAlchemy.
+"""Capa de persistencia: SQLAlchemy sobre Postgres (produccion) o SQLite (dev).
+
+El motor se elige por la variable de entorno DATABASE_URL (ver config.py);
+si no esta seteada, se usa una SQLite local para desarrollo/tests.
 
 Guarda cada bloque diario generado para alimentar el panel DVIR
 (ultimos informes, top de conductores sin DVIR).
@@ -15,10 +18,12 @@ from sqlalchemy.orm import (
     DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker,
 )
 
-from .config import BACKEND_DIR
+from . import config
 
-DB_PATH = BACKEND_DIR / "dvir.db"
-_engine = create_engine(f"sqlite:///{DB_PATH}")
+# SQLite necesita check_same_thread=False para usarse desde el threadpool de
+# FastAPI; Postgres no acepta ese argumento.
+_connect_args = {"check_same_thread": False} if config.IS_SQLITE else {}
+_engine = create_engine(config.DATABASE_URL, connect_args=_connect_args)
 SessionLocal = sessionmaker(bind=_engine)
 
 
@@ -304,7 +309,11 @@ Base.metadata.create_all(_engine)
 
 def _migrate() -> None:
     """Migraciones aditivas para SQLite (create_all no agrega columnas a
-    tablas existentes). Idempotente: solo agrega lo que falte."""
+    tablas existentes). Idempotente: solo agrega lo que falte.
+
+    Usa PRAGMA/ALTER especificos de SQLite y solo aplica a bases de
+    desarrollo viejas. En Postgres el esquema lo maneja create_all (esquema
+    nuevo) y, mas adelante, Alembic (H6 fase 2)."""
     with _engine.connect() as conn:
         cols = {r[1] for r in conn.exec_driver_sql(
             "PRAGMA table_info(work_order)").fetchall()}
@@ -347,7 +356,8 @@ def _migrate() -> None:
         conn.commit()
 
 
-_migrate()
+if config.IS_SQLITE:
+    _migrate()
 
 
 # ---------------------------------------------------------------------------
