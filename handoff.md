@@ -12,6 +12,15 @@ para carriers de 10-150 trucks: reemplazar Fullbay (taller), TrackFleet
 información. Diferenciales: sin contrato, precio plano, bilingüe
 EN/ES de back-office, y UX muy superior (cinemática, personalizable).
 
+**FOCO DE PRODUCTO (decidido jun-14, detalle en `PRODUCT.md`):**
+profundidad, no amplitud. Especializarse en el stack **Taller + Cold Chain**
+— el moat es su **intersección** (Fullbay no toca reefers; Samsara/TrackFleet
+no tienen taller). Núcleo a profundizar: WO + parts/PO + escáner AI + perfil
+de unidad + PM/DOT + Cold Chain con control OEM + **puente reefer→work order**
++ bilingüe de piso de taller. Soporte (se mantiene, no protagoniza): DVIR,
+Live Map, notices. **Diferido** (otro producto, se congela, no se borra):
+TMS-lite, loads y dispatch.
+
 ## Repos y archivos
 
 - Repo: `AdriGh/DVIR-Report-Generator` (GitHub, privado) en
