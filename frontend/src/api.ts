@@ -1025,6 +1025,7 @@ export interface AlertRule {
   pct?: number
   hours?: number
   deviation_f?: number
+  min_severity?: number
 }
 
 export interface AlertsSettings {
@@ -1035,6 +1036,7 @@ export interface AlertsSettings {
     low_def: AlertRule
     no_gps: AlertRule
     reefer_temp: AlertRule
+    reefer_fault_wo: AlertRule
   }
   channels: { email: boolean; sms: boolean }
   recipients: { emails: string[]; phones: string[] }

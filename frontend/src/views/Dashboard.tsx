@@ -73,6 +73,7 @@ const RULE_TONE: Record<string, string> = {
   low_def: 'is-warn',
   no_gps: 'is-danger',
   reefer_temp: 'is-danger',
+  reefer_fault_wo: 'is-warn',
 }
 
 function alertAgo(iso: string): string {

@@ -1030,7 +1030,7 @@ const RULE_META: {
   key: keyof AlertsSettings['rules']
   label: string
   desc: string
-  field: 'mph' | 'minutes' | 'pct' | 'hours' | 'deviation_f'
+  field: 'mph' | 'minutes' | 'pct' | 'hours' | 'deviation_f' | 'min_severity'
   suffix: string
 }[] = [
   { key: 'speeding', label: 'Speeding', field: 'mph', suffix: 'mph',
@@ -1045,6 +1045,9 @@ const RULE_META: {
     desc: 'No GPS ping for this long' },
   { key: 'reefer_temp', label: 'Reefer temp deviation', field: 'deviation_f',
     suffix: '°F', desc: 'Return air away from setpoint (live data only)' },
+  { key: 'reefer_fault_wo', label: 'Reefer fault → work order',
+    field: 'min_severity', suffix: 'sev',
+    desc: 'Auto-create a work order from reefer fault codes (severity ≥)' },
 ]
 
 function AlertsCard() {
@@ -1099,7 +1102,7 @@ function AlertsCard() {
         <div>
           <h2>Fleet alerts</h2>
           <span className="sub">
-            Speeding, idle, fuel, DEF and GPS rules
+            Speeding, idle, fuel, DEF, GPS and cold-chain rules
             {enabledCount ? ` · ${enabledCount} active` : ' · all off'}
           </span>
         </div>

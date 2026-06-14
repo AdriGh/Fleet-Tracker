@@ -25,6 +25,21 @@ Compliance"** dentro de Maintenance & Compliance (lo usa el tablero de
 mantenimiento para mapear truck→conductor; `TmsDriver` + `core/tms.py`
 quedan solo-drivers).
 
+**PUENTE reefer→WO (CONSTRUIDO jun-14, el "workflow asesino" del foco):**
+`core/reefer_wo.py` `sync(snapshot, min_severity)` crea work orders
+IDEMPOTENTES desde los fault codes de los reefers (Lynx/TK/Traccar), con
+unidad + código + contexto (setpoint/return/modo) en el complaint y un
+marcador `[rf:<code>]` para deduplicar (no duplica mientras haya una WO
+viva para el mismo unit+code). Saltea códigos no-mecánicos (`no_data`,
+`low_battery`) y datos demo. Lo dispara el loop de `core/alerts.py` con la
+regla `reefer_fault_wo` (Settings → Fleet alerts; severidad mínima
+configurable); cada WO nueva genera un AlertEvent en el feed
+(`record_wo_events`). La WO sale con `source='reefer'` → badge "from reefer
+fault" en WorkOrdersPage. Verificado: py_compile + smoke de la lógica
+(elegibilidad/dedup/demo) con `workorders` stubbeado; front tsc/vite verdes.
+Refinamiento posible: saltear unidades muteadas (hoy el bridge ignora el
+mute, que es solo para notificaciones).
+
 ## Repos y archivos
 
 - Repo: `AdriGh/DVIR-Report-Generator` (GitHub, privado) en

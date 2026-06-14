@@ -30,7 +30,9 @@ from sqlalchemy import select, update
 
 from .. import config
 from ..db import AlertEvent, SessionLocal
-from . import mailer, reefer, sms_service, tracking, unit_settings
+from . import (
+    mailer, reefer, reefer_wo, sms_service, tracking, unit_settings,
+)
 
 SETTINGS_PATH = config.BACKEND_DIR / "alerts.local.json"
 
@@ -47,6 +49,9 @@ DEFAULTS: dict = {
         "low_def": {"enabled": False, "pct": 10},
         "no_gps": {"enabled": False, "hours": 24},
         "reefer_temp": {"enabled": False, "deviation_f": 5},
+        # Puente reefer -> work order: crea una WO desde fault codes del
+        # reefer con severidad >= min_severity (1 info · 2 check · 3 urgente).
+        "reefer_fault_wo": {"enabled": False, "min_severity": 2},
     },
     # email/sms apagados por defecto: el email envía EN REAL.
     "channels": {"email": False, "sms": False},
@@ -60,6 +65,7 @@ RULE_LABEL = {
     "low_def": "Low DEF",
     "no_gps": "No GPS signal",
     "reefer_temp": "Reefer temp deviation",
+    "reefer_fault_wo": "Reefer fault → work order",
 }
 
 # (vehicle_id, rule) -> epoch del último disparo (cooldown en memoria).
@@ -279,6 +285,38 @@ def evaluate_reefer(snapshot: dict, cfg: dict | None = None) -> list[dict]:
     return created
 
 
+def record_wo_events(created_wos: list[dict]) -> list[dict]:
+    """Cada WO nueva del puente reefer->WO -> un AlertEvent (feed + dispatch).
+
+    La idempotencia vive en reefer_wo.sync (no duplica WOs), así que cada
+    elemento de `created_wos` es genuinamente nuevo; no hace falta cooldown."""
+    if not created_wos:
+        return []
+    out: list[dict] = []
+    with SessionLocal() as session:
+        for w in created_wos:
+            ev = AlertEvent(
+                ts=datetime.now(),
+                vehicle_id=str(w.get("unit") or ""),
+                unit=w.get("unit") or "",
+                company="",
+                rule="reefer_fault_wo",
+                value=f"WO #{w['wo_id']}",
+                message=(f"Auto work order #{w['wo_id']} created from reefer "
+                         f"fault {w['code']} on {w['unit']}"),
+                acked=False,
+            )
+            session.add(ev)
+            session.flush()
+            out.append({
+                "id": ev.id, "ts": ev.ts.isoformat(), "unit": ev.unit,
+                "company": ev.company, "rule": ev.rule,
+                "value": ev.value, "message": ev.message,
+            })
+        session.commit()
+    return out
+
+
 # ----- Despacho externo (email/SMS, opt-in explícito) -------------------
 
 def _dispatch(created: list[dict], cfg: dict) -> None:
@@ -364,9 +402,17 @@ async def run_loop() -> None:
                 if vehicle_rules:
                     track = await tracking.load_live()
                     created += evaluate(track, cfg)
-                if cfg["rules"]["reefer_temp"].get("enabled"):
+                reefer_temp_on = cfg["rules"]["reefer_temp"].get("enabled")
+                fault_cfg = cfg["rules"].get("reefer_fault_wo") or {}
+                if reefer_temp_on or fault_cfg.get("enabled"):
                     snapshot = await reefer.load_live()
-                    created += evaluate_reefer(snapshot, cfg)
+                    if reefer_temp_on:
+                        created += evaluate_reefer(snapshot, cfg)
+                    if fault_cfg.get("enabled"):
+                        wos = reefer_wo.sync(
+                            snapshot,
+                            int(fault_cfg.get("min_severity") or 2))
+                        created += record_wo_events(wos)
                 if created:
                     _dispatch(created, cfg)
         except Exception:

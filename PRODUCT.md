@@ -20,7 +20,7 @@ Profundidad, no amplitud. El moat es la **intersección Taller × Cold Chain**: 
 - **Soporte (se mantiene, no protagoniza):** DVIR, Live Map, notices. Sirven al cockpit; no se gasta energía compitiéndole a Samsara en mapas/telemática genérica.
 - **Removido (jun-14):** Loads / dispatch / payout — es otro producto y otro mercado. Se borró del producto (UI + rutas + modelos). El **roster de conductores se conserva como "Driver Compliance"** dentro de Maintenance & Compliance (CDL/med cert/MVR/clearinghouse + asignación truck→conductor que el tablero de mantenimiento usa): eso es compliance, no dispatch.
 
-**Workflow asesino (la prueba de la tesis, buildable sobre lo ya hecho):** un reefer tira un fault code (vía Lynx/TK) → se crea solo un work order con unidad + código + historial → se agenda servicio → al cerrar, el PM del reefer se actualiza. Ni Fullbay ni Samsara pueden hacerlo: cada uno tiene solo la mitad.
+**Workflow asesino (CONSTRUIDO jun-14):** un reefer tira un fault code (vía Lynx/TK/Traccar) → se crea solo un work order con unidad + código + contexto → se agenda y cierra como cualquier WO. Ni Fullbay ni Samsara pueden hacerlo: cada uno tiene solo la mitad. Implementación: regla `reefer_fault_wo` en Settings → Fleet alerts (severidad mínima configurable) → `core/reefer_wo.py` (idempotente: no duplica mientras haya una WO viva para el mismo unit+code) disparada por el loop de `alerts.py`; la WO sale con `source='reefer'` (badge "from reefer fault") y cada una genera un evento en el feed.
 
 > Validación pendiente (no es código): mostrar el demo a 2-3 dueños de flotas de reefer y ver si ese workflow les ilumina la cara. La tesis se confirma con clientes design-partner, no con más features.
 

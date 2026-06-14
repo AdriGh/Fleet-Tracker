@@ -1035,6 +1035,9 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                     {wo.source === 'defect' && (
                       <span className="ud-chip">from defect</span>
                     )}
+                    {wo.source === 'reefer' && (
+                      <span className="ud-chip">from reefer fault</span>
+                    )}
                   </span>
                 </div>
                 <button className="icon-btn" onClick={onClose}
