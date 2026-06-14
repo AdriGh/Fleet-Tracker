@@ -105,7 +105,7 @@ def verify_token(token: str) -> dict | None:
         if u is None or not u.active:
             return None
         return {"id": u.id, "username": u.username, "name": u.name,
-                "role": u.role}
+                "role": u.role, "org_id": u.org_id}
 
 
 def user_from_header(authorization: str | None) -> dict | None:
@@ -170,7 +170,8 @@ def login(username: str, password: str) -> dict | None:
             return None
         return {"token": issue_token(u.id),
                 "user": {"id": u.id, "username": u.username,
-                         "name": u.name, "role": u.role}}
+                         "name": u.name, "role": u.role,
+                         "org_id": u.org_id}}
 
 
 def list_users() -> list[dict]:

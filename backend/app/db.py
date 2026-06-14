@@ -31,7 +31,19 @@ class Base(DeclarativeBase):
     pass
 
 
-class ReportBlock(Base):
+class OrgScoped:
+    """Mixin H6 fase 3: agrega org_id (tenant) a las tablas de datos. Toda la
+    data de negocio se aisla por organizacion.
+
+    Nullable por ahora: la fase 3b agrega la columna y backfillea a la org
+    'default'; la fase 3c la hace obligatoria + activa Row-Level Security en
+    Postgres, una vez que toda escritura garantiza completar el org_id."""
+
+    org_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organization.id"), index=True, nullable=True)
+
+
+class ReportBlock(OrgScoped, Base):
     __tablename__ = "report_block"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -51,7 +63,7 @@ class ReportBlock(Base):
         back_populates="block", cascade="all, delete-orphan")
 
 
-class BlockDriver(Base):
+class BlockDriver(OrgScoped, Base):
     __tablename__ = "block_driver"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -62,7 +74,7 @@ class BlockDriver(Base):
     block: Mapped[ReportBlock] = relationship(back_populates="drivers")
 
 
-class Defect(Base):
+class Defect(OrgScoped, Base):
     __tablename__ = "defect"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -83,7 +95,7 @@ class Defect(Base):
         back_populates="defect_items")
 
 
-class Poi(Base):
+class Poi(OrgScoped, Base):
     """Punto de interés del Live Map (talleres, dealers, básculas).
 
     Se siembra desde `backend/data/pois_seed.json` (OSM + DOTs estatales,
@@ -105,7 +117,7 @@ class Poi(Base):
     source: Mapped[str] = mapped_column(String(20), default="manual")
 
 
-class WorkOrder(Base):
+class WorkOrder(OrgScoped, Base):
     """Orden de trabajo (G5, pipeline H2 — reemplazo de Fullbay).
 
     Pipeline: open -> assigned -> in_progress -> completed -> invoiced
@@ -157,7 +169,7 @@ class WorkOrder(Base):
         back_populates="wo", cascade="all, delete-orphan")
 
 
-class WorkOrderLine(Base):
+class WorkOrderLine(OrgScoped, Base):
     """Línea de un WO: parte (qty × costo) o labor (horas × tarifa)."""
     __tablename__ = "work_order_line"
 
@@ -210,7 +222,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
-class TmsDriver(Base):
+class TmsDriver(OrgScoped, Base):
     """Perfil TMS de un conductor (fase G-TMS).
 
     Extiende el roster vivo de Samsara con datos de despacho: contrato
@@ -238,7 +250,7 @@ class TmsDriver(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
 
 
-class AlertEvent(Base):
+class AlertEvent(OrgScoped, Base):
     """Evento de alerta de flota (fase G3): velocidad, idle, fuel/DEF
     bajos, GPS sin señal. Los genera el evaluador de core/alerts.py."""
     __tablename__ = "alert_event"
@@ -254,7 +266,7 @@ class AlertEvent(Base):
     acked: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
-class UnitDoc(Base):
+class UnitDoc(OrgScoped, Base):
     """Documento adjunto de una unidad (fase H3, pestaña Attachments del
     perfil): copia del PM, copia del DOT, CAB card, registration, etc.
     El archivo vive en backend/uploads/units/<unit>/ (gitignored)."""
@@ -270,7 +282,7 @@ class UnitDoc(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime)
 
 
-class MaintRecord(Base):
+class MaintRecord(OrgScoped, Base):
     """Evento de mantenimiento por unidad (fase H1): kind 'pm' (servicio
     preventivo) o 'dot' (inspección anual DOT). Historial editable desde
     los dashboards gemelos PM/DOT; el más reciente por fecha manda."""
@@ -285,7 +297,7 @@ class MaintRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
-class Vendor(Base):
+class Vendor(OrgScoped, Base):
     """Proveedor de partes/servicios (fase H3, pestaña Vendors estilo
     Fullbay). El taller le compra partes; se referencia desde Part y, a
     futuro, desde las órdenes de compra."""
@@ -302,7 +314,7 @@ class Vendor(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
-class Part(Base):
+class Part(OrgScoped, Base):
     """Parte del catálogo (fase H3, pestaña Parts estilo Fullbay). Costo
     INTERNO (lo que paga el taller; sin markup — decisión del usuario).
     `on_hand` es un conteo manual de inventario (sin auto-decremento aún).
@@ -395,17 +407,22 @@ def _migrate() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE work_order_line "
                 "ADD COLUMN part_number VARCHAR(60) DEFAULT ''")
-        # H6 fase 3: cada usuario pertenece a una organizacion (tenant). Las
-        # DBs viejas no tienen la columna: agregarla y backfillear a 'default'.
-        user_cols = {r[1] for r in conn.exec_driver_sql(
-            'PRAGMA table_info("user")').fetchall()}
-        if "org_id" not in user_cols:
+        # H6 fase 3: cada fila pertenece a una organizacion (tenant). El
+        # usuario y las 12 tablas de datos llevan org_id; las DBs viejas no
+        # tienen la columna, asi que se agrega y se backfillea a 'default'.
+        oid = default_org_id()
+        for table in ("user", "report_block", "block_driver", "defect",
+                      "poi", "work_order", "work_order_line", "tms_driver",
+                      "alert_event", "unit_doc", "maint_record", "vendor",
+                      "part"):
+            cols = {r[1] for r in conn.exec_driver_sql(
+                f'PRAGMA table_info("{table}")').fetchall()}
+            if "org_id" not in cols:
+                conn.exec_driver_sql(
+                    f'ALTER TABLE "{table}" ADD COLUMN org_id INTEGER '
+                    'REFERENCES organization(id)')
             conn.exec_driver_sql(
-                'ALTER TABLE "user" ADD COLUMN org_id INTEGER '
-                'REFERENCES organization(id)')
-        conn.exec_driver_sql(
-            f'UPDATE "user" SET org_id = {default_org_id()} '
-            'WHERE org_id IS NULL')
+                f'UPDATE "{table}" SET org_id = {oid} WHERE org_id IS NULL')
         conn.commit()
 
 
