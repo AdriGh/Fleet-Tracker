@@ -29,7 +29,8 @@ from datetime import datetime, timedelta
 from sqlalchemy import select, update
 
 from .. import config
-from ..db import AlertEvent, SessionLocal
+from ..db import AlertEvent, SessionLocal, default_org_id
+from . import tenant
 from . import (
     mailer, reefer, reefer_wo, sms_service, tracking, unit_settings,
 )
@@ -393,6 +394,11 @@ async def run_loop() -> None:
     al ciclo siguiente.
     """
     while True:
+        # H6 fase 3c: el loop corre sin request, asi que fija el tenant a
+        # mano para que los AlertEvent/WorkOrder que inserta queden tagueados
+        # y visibles. Single-tenant -> org 'default'. Multi-tenant (post-3e)
+        # deberia iterar las organizaciones evaluando cada una con su contexto.
+        org_token = tenant.set_current_org(default_org_id())
         try:
             cfg = get_settings()
             if any_rule_enabled(cfg):
@@ -417,4 +423,6 @@ async def run_loop() -> None:
                     _dispatch(created, cfg)
         except Exception:
             pass
+        finally:
+            tenant.reset_current_org(org_token)
         await asyncio.sleep(LOOP_SECONDS)

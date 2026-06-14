@@ -12,13 +12,15 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text,
-    create_engine, func, select,
+    create_engine, event, func, select,
 )
 from sqlalchemy.orm import (
     DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker,
+    with_loader_criteria,
 )
 
 from . import config
+from .core import tenant
 
 # SQLite necesita check_same_thread=False para usarse desde el threadpool de
 # FastAPI; Postgres no acepta ese argumento.
@@ -95,8 +97,13 @@ class Defect(OrgScoped, Base):
         back_populates="defect_items")
 
 
-class Poi(OrgScoped, Base):
+class Poi(Base):
     """Punto de interés del Live Map (talleres, dealers, básculas).
+
+    Datos públicos compartidos (OSM/DOT), NO se aislan por tenant: su PK es
+    el id global de OSM, asi que una copia por organizacion colisionaria. Si
+    a futuro se quieren POIs privados por cliente, hace falta rediseñar la PK
+    (compuesta org_id+id) — fuera del alcance de H6 fase 3.
 
     Se siembra desde `backend/data/pois_seed.json` (OSM + DOTs estatales,
     con atribución ODbL) y se cura a mano desde la app. `kind`:
@@ -334,6 +341,46 @@ class Part(OrgScoped, Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+# ---------------------------------------------------------------------------
+# Aislamiento por tenant (H6 fase 3c): enforcement a nivel ORM
+# ---------------------------------------------------------------------------
+# Estos dos eventos hacen que toda la data de negocio (tablas OrgScoped) se
+# escriba y se lea acotada al tenant del request (tenant.get_current_org()).
+# Cuando NO hay tenant en contexto (trabajos de fondo, scripts, seeding,
+# arranque) no se completa ni se filtra: esos paths son server-side de
+# confianza y deben fijar el contexto explicitamente si quieren acotar (p.ej.
+# el loop de alertas). La red de seguridad a nivel base (RLS de Postgres)
+# llega en la fase 3c-2, que necesita un Postgres vivo para validarse.
+
+@event.listens_for(SessionLocal, "before_flush")
+def _assign_org_on_insert(session, flush_context, instances):
+    """Completa org_id en las filas nuevas OrgScoped desde el tenant del
+    contexto (si hay). No pisa un org_id ya seteado a mano."""
+    org = tenant.get_current_org()
+    if org is None:
+        return
+    for obj in session.new:
+        if isinstance(obj, OrgScoped) and obj.org_id is None:
+            obj.org_id = org
+
+
+@event.listens_for(SessionLocal, "do_orm_execute")
+def _scope_select_to_org(execute_state):
+    """Acota los SELECT de entidades OrgScoped al tenant del contexto. Sigue
+    la receta de SQLAlchemy (with_loader_criteria), excluyendo cargas de
+    columna/relacion para no sorprender en lazy-loads."""
+    org = tenant.get_current_org()
+    if org is None:
+        return
+    if (execute_state.is_select
+            and not execute_state.is_column_load
+            and not execute_state.is_relationship_load):
+        execute_state.statement = execute_state.statement.options(
+            with_loader_criteria(
+                OrgScoped, lambda cls: cls.org_id == org,
+                include_aliases=True))
+
+
 Base.metadata.create_all(_engine)
 
 
@@ -408,11 +455,12 @@ def _migrate() -> None:
                 "ALTER TABLE work_order_line "
                 "ADD COLUMN part_number VARCHAR(60) DEFAULT ''")
         # H6 fase 3: cada fila pertenece a una organizacion (tenant). El
-        # usuario y las 12 tablas de datos llevan org_id; las DBs viejas no
+        # usuario y las 11 tablas de datos llevan org_id; las DBs viejas no
         # tienen la columna, asi que se agrega y se backfillea a 'default'.
+        # (poi queda global: datos publicos compartidos, ver modelo Poi.)
         oid = default_org_id()
         for table in ("user", "report_block", "block_driver", "defect",
-                      "poi", "work_order", "work_order_line", "tms_driver",
+                      "work_order", "work_order_line", "tms_driver",
                       "alert_event", "unit_doc", "maint_record", "vendor",
                       "part"):
             cols = {r[1] for r in conn.exec_driver_sql(
