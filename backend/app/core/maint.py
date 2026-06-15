@@ -140,9 +140,34 @@ async def board(kind: str, refresh: bool = False) -> dict:
         except Exception:  # noqa: BLE001
             odo = {}
 
+    # H-fleet: traer las terminales y sus unidades (camiones) al tracker. Se
+    # suman los CAMIONES del fleet de Samsara al universo, y se arma un mapa
+    # year/make/model (fleet + manuales) para mostrarlo aunque no esten en el
+    # CSV. Las terminales se resuelven en el front por el prefijo del numero.
+    def _ymm(u: dict) -> str:
+        return " ".join(str(x).strip() for x in
+                        (u.get("year"), u.get("make"), u.get("model"))
+                        if str(x or "").strip())
+
+    extra_model: dict[str, str] = {}
+    fleet_trucks: set[str] = set()
+    if samsara.is_available():
+        try:
+            for fu in await samsara.list_fleet():
+                if fu.get("unit_type") == "truck" and fu.get("unit"):
+                    fleet_trucks.add(fu["unit"])
+                    extra_model[fu["unit"]] = _ymm(fu)
+        except Exception:  # noqa: BLE001
+            fleet_trucks = set()
+    for mu in manual_units.list_units():
+        if mu.get("unit"):
+            extra_model.setdefault(mu["unit"], _ymm(mu))
+
     # Universo: camiones del CSV + cualquier unidad con registro del kind +
-    # las unidades agregadas a mano (Fleet -> Add New Unit).
-    units = sorted(set(csv_rows) | set(records) | manual_units.names())
+    # las unidades manuales + los camiones del fleet (terminales y sus
+    # unidades).
+    units = sorted(set(csv_rows) | set(records)
+                   | manual_units.names() | fleet_trucks)
     today = date.today()
     out: list[dict] = []
     excluded: list[dict] = []
@@ -166,7 +191,7 @@ async def board(kind: str, refresh: bool = False) -> dict:
 
         row: dict = {
             "unit": unit,
-            "model": csv_r.get("model", ""),
+            "model": csv_r.get("model") or extra_model.get(unit, ""),
             "driver": drivers.get(unit, ""),
             "current_miles": current,
             "current_source": source,
