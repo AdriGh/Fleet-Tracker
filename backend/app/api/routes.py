@@ -244,6 +244,7 @@ async def reporting_eld_import(body: EldImportIn):
 
     rows = await samsara.report_dvir_rows(company, day)
     activity = await samsara.report_day_distance(company, day)
+    pretrip_data = await samsara.report_pretrip(company, day)
     if not rows and not activity:
         raise HTTPException(
             status_code=422,
@@ -255,7 +256,7 @@ async def reporting_eld_import(body: EldImportIn):
         config.DEFAULT_ROSTER if config.DEFAULT_ROSTER.exists() else None)
     dvir_df = engine.dvir_df_from_rows(rows)
     groups = engine.build_report(
-        dvir_df, activity, roster, engine.MIN_MILES, company, {})
+        dvir_df, activity, roster, engine.MIN_MILES, company, pretrip_data)
     metrics = engine.block_metrics(dvir_df, groups)
     defects = engine.extract_defects(dvir_df)
     date_label = f"{day.month}.{day.day}"
@@ -266,7 +267,7 @@ async def reporting_eld_import(body: EldImportIn):
         "n_reports": metrics["n_reports"],
         "n_no_dvir": metrics["n_no_dvir"],
         "n_unsafe": metrics["n_unsafe"],
-        "pretrip": False,   # 2c
+        "pretrip": bool(pretrip_data),
     }
 
 

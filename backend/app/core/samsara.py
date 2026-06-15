@@ -786,6 +786,91 @@ async def report_day_distance(
     return {u: mi for u, mi in out.items() if _keep_company(u, company)}
 
 
+# --- Pre-trip / Post-trip desde HoS (remark "Pre-Trip Inspection") ----------
+
+def _hos_seconds(start: str, end: str) -> int:
+    """Duracion (end - start) en segundos a partir de timestamps ISO."""
+    def _p(s: str):
+        try:
+            return datetime.datetime.fromisoformat(
+                str(s).strip().replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            return None
+    a, b = _p(start), _p(end)
+    if a is None or b is None:
+        return 0
+    return max(0, int((b - a).total_seconds()))
+
+
+def _hos_field(log: dict, *names):
+    for n in names:
+        if log.get(n) not in (None, ""):
+            return log[n]
+    return ""
+
+
+async def _org_pretrip(
+    client: httpx.AsyncClient, cfg: dict, day: datetime.date,
+) -> tuple[dict[str, dict], list[dict]]:
+    """{name_key(driver): {pre, post}} del org, sumando los segmentos On Duty
+    cuyo remark dice pre/post-trip. Devuelve tambien una muestra cruda."""
+    from .contacts import name_key
+    s, e = _day_window(day)
+    rows = await _paged(
+        client, cfg, f"/fleet/hos/logs?startTime={s}&endTime={e}")
+    out: dict[str, dict] = {}
+    sample: list[dict] = []
+    for entry in rows:
+        driver = ((entry.get("driver") or {}).get("name")
+                  or entry.get("driverName") or "").strip()
+        logs = (entry.get("logs") or entry.get("dutyStatusLogs")
+                or entry.get("hosLogs") or [])
+        if not driver or not logs:
+            continue
+        for log in logs:
+            if len(sample) < 3:
+                sample.append(log)
+            remark = str(_hos_field(log, "remark", "annotation")) \
+                .strip().lower().replace(" ", "-")
+            if "pre-trip" in remark:
+                field = "pre"
+            elif "post-trip" in remark:
+                field = "post"
+            else:
+                continue
+            status = str(_hos_field(
+                log, "htmlDutyStatus", "status", "dutyStatus")).lower()
+            status = status.replace(" ", "").replace("_", "")
+            if status and "onduty" not in status:
+                continue
+            secs = _hos_seconds(
+                _hos_field(log, "logStartTime", "startTime", "start"),
+                _hos_field(log, "logEndTime", "endTime", "end"))
+            rec = out.setdefault(name_key(driver), {"pre": None, "post": None})
+            rec[field] = (rec[field] or 0) + secs
+    return out, sample
+
+
+async def report_pretrip(
+    company: str | None, day: datetime.date,
+) -> dict[str, dict]:
+    """{name_key(driver): {pre, post}} de un dia, de los HoS de Samsara."""
+    orgs = _orgs_for(company)
+    if not orgs:
+        return {}
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        per = await asyncio.gather(
+            *(_org_pretrip(client, cfg, day) for cfg in orgs))
+    out: dict[str, dict] = {}
+    for d, _ in per:
+        for k, v in d.items():
+            rec = out.setdefault(k, {"pre": None, "post": None})
+            for f in ("pre", "post"):
+                if v.get(f) is not None:
+                    rec[f] = (rec[f] or 0) + v[f]
+    return out
+
+
 async def report_eld_diagnostic(
     company: str | None, day: datetime.date,
 ) -> dict:
@@ -799,8 +884,10 @@ async def report_eld_diagnostic(
     errors: list[str] = []
     dvir_rows: list[dict] = []
     distance: dict[str, float] = {}
+    pretrip: dict[str, dict] = {}
     raw_dvir: list[dict] = []
     raw_stats: list[dict] = []
+    raw_hos: list[dict] = []
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         for cfg in orgs:
             tag = cfg.get("company") or "auto"
@@ -816,6 +903,16 @@ async def report_eld_diagnostic(
                 raw_stats += dsample
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"distance ({tag}): {exc}")
+            try:
+                pt, psample = await _org_pretrip(client, cfg, day)
+                for k, v in pt.items():
+                    rec = pretrip.setdefault(k, {"pre": None, "post": None})
+                    for f in ("pre", "post"):
+                        if v.get(f) is not None:
+                            rec[f] = (rec[f] or 0) + v[f]
+                raw_hos += psample
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"pre-trip ({tag}): {exc}")
     # Acotar a la empresa pedida (MCC -> vacio si no esta en Samsara).
     dvir_rows = [r for r in dvir_rows
                  if _keep_company(r["Vehicle Name"], company)]
@@ -829,7 +926,10 @@ async def report_eld_diagnostic(
         "dvir_rows": dvir_rows[:200],
         "distance_count": len(distance),
         "distance": dict(list(distance.items())[:200]),
-        "raw": {"dvir_sample": raw_dvir, "stats_sample": raw_stats},
+        "pretrip_count": sum(1 for v in pretrip.values()
+                             if v.get("pre") is not None),
+        "raw": {"dvir_sample": raw_dvir, "stats_sample": raw_stats,
+                "hos_sample": raw_hos},
         "errors": errors,
     }
 

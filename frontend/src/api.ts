@@ -295,7 +295,8 @@ export interface EldPreview {
   dvir_rows?: Record<string, string>[]
   distance_count?: number
   distance?: Record<string, number>
-  raw?: { dvir_sample: unknown[]; stats_sample: unknown[] }
+  pretrip_count?: number
+  raw?: { dvir_sample: unknown[]; stats_sample: unknown[]; hos_sample?: unknown[] }
   errors?: string[]
 }
 

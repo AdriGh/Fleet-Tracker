@@ -116,6 +116,7 @@ export default function EldPreviewModal(
           }}>
             <b>DVIR: {res.dvir_count}</b>
             <b>Distancia: {res.distance_count} unidades</b>
+            <b>Pre-trip: {res.pretrip_count ?? 0}</b>
             <button className="btn btn-primary"
               style={{ marginLeft: 'auto' }}
               onClick={doImport}
