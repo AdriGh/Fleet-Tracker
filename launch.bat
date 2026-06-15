@@ -6,6 +6,16 @@ echo ============================================
 echo   Fleet Tracker
 echo ============================================
 
+REM --- Auto-actualizar a la ultima version de la rama actual ---
+REM (sin esto el launcher recompila el CODIGO VIEJO del disco: la version no
+REM  sube y "no se ven los cambios". Fast-forward only: si no hay internet o
+REM  la rama divergio, sigue con lo que haya sin romper nada.)
+where git >nul 2>nul
+if not errorlevel 1 (
+  echo Buscando actualizaciones...
+  git pull --ff-only
+)
+
 REM --- Backend: dependencias de Python ---
 py -c "import fastapi, sqlalchemy, googleapiclient, httpx, anthropic" 1>nul 2>nul
 if errorlevel 1 (
