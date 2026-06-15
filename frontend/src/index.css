@@ -3968,31 +3968,54 @@ td.dur-high {
 }
 .maint-report .ur-head { border-bottom-color: var(--accent, #e11900); }
 .mr-overview {
-  display: flex; gap: 18px; align-items: center;
-  justify-content: space-between; margin: 14px 0 18px;
+  display: flex; gap: 22px; align-items: center;
+  margin: 16px 0 6px;
 }
 .mr-cards {
-  flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  flex: 1; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+  align-content: center;
 }
 .mr-card {
-  position: relative; border: 1px solid #e3e7ee; border-radius: 10px;
-  padding: 9px 11px 11px; background: #fff;
+  border: 1px solid #e6e9f0; border-left: 4px solid #cbd5e1;
+  border-radius: 10px; padding: 9px 13px 11px; background: #fff;
 }
-.mr-card-n { font-size: 20px; font-weight: 800; color: #111827; }
-.mr-card-all .mr-card-n { color: var(--accent, #e11900); }
+.mr-card-top {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 8px;
+}
 .mr-card-label {
-  display: block; font-size: 8.5px; text-transform: uppercase;
-  letter-spacing: .05em; color: #6b7280; margin-top: 1px;
+  font-size: 9px; text-transform: uppercase; letter-spacing: .05em;
+  color: #6b7280; font-weight: 600;
 }
-.mr-card-pct {
-  position: absolute; top: 9px; right: 11px; font-size: 10px; color: #6b7280;
+.mr-card-pct { font-size: 11px; color: #6b7280; font-weight: 600; }
+.mr-card-n {
+  display: block; font-size: 25px; font-weight: 800; color: #111827;
+  line-height: 1.05; margin-top: 3px; letter-spacing: -.01em;
 }
 .mr-card-bar {
   display: block; height: 3px; border-radius: 2px; background: #eef0f4;
-  margin-top: 7px; overflow: hidden;
+  margin-top: 9px; overflow: hidden;
 }
 .mr-card-bar i { display: block; height: 100%; }
+.mr-card-all { border-left-color: var(--accent, #e11900); }
+.mr-card-all .mr-card-n { color: var(--accent, #e11900); }
+.mr-card-all .mr-card-bar i { background: var(--accent, #e11900); }
 .mr-donut { flex: 0 0 auto; }
+/* El desglose por estado va en las tarjetas; se oculta la leyenda interna
+   del donut para no repetir la informacion. */
+.maint-report .pie-legend { display: none; }
+.maint-report .piechart { display: block; }
+
+.mr-section {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 800; color: #111827;
+  margin: 12px 0 8px; padding-bottom: 6px;
+  border-bottom: 2px solid #e6e9f0;
+}
+.mr-section-n {
+  font-size: 10px; font-weight: 700; color: #6b7280;
+  background: #f1f3f7; border-radius: 999px; padding: 1px 8px;
+}
 
 .mr-table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
 .mr-table thead { display: table-header-group; }   /* repite el header por pagina */
@@ -4004,9 +4027,12 @@ td.dur-high {
 .mr-table th.num, .mr-table td.num { text-align: right; }
 .mr-table tbody tr { break-inside: avoid; }
 .mr-table tbody td {
-  padding: 6px 8px; border-bottom: 1px solid #eef1f5; vertical-align: top;
+  padding: 7px 9px; border-bottom: 1px solid #eef1f5; vertical-align: top;
 }
-.mr-table tbody tr.is-overdue { background: rgba(220, 38, 38, 0.07); }
+.mr-table tbody tr.is-overdue { background: rgba(220, 38, 38, 0.06); }
+.mr-table tbody tr.is-overdue td:first-child {
+  box-shadow: inset 3px 0 0 #dc2626;
+}
 .mr-table tbody tr.is-overdue strong { color: #b91c1c; }
 .mr-table td.neg { color: #dc2626; font-weight: 700; }
 .mr-model {

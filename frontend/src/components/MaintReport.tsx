@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import PieChart from './PieChart'
 import type { MaintRow } from '../api'
@@ -93,22 +93,29 @@ export default function MaintReport({ kind, title, units, scope, onClose }: {
           </div>
         </header>
 
-        {/* Resumen: tarjetas por estado + donut (igual que el dashboard) */}
+        {/* Resumen: tarjetas por estado (color-coded) + donut. Las tarjetas
+            son la leyenda; la leyenda interna del donut se oculta por CSS. */}
         <section className="mr-overview">
           <div className="mr-cards">
             <div className="mr-card mr-card-all">
+              <div className="mr-card-top">
+                <span className="mr-card-label">All units</span>
+              </div>
               <span className="mr-card-n">{total}</span>
-              <span className="mr-card-label">All units</span>
+              <span className="mr-card-bar"><i style={{ width: '100%' }} /></span>
             </div>
             {STATUS_ORDER.filter((st) => counts[st]).map((st) => {
               const m = STATUS_META[st]
               const n = counts[st]
               const pct = total ? Math.round((n / total) * 1000) / 10 : 0
               return (
-                <div className="mr-card" key={st}>
-                  <span className="mr-card-pct">{pct}%</span>
+                <div className="mr-card" key={st}
+                  style={{ borderLeftColor: m.color } as CSSProperties}>
+                  <div className="mr-card-top">
+                    <span className="mr-card-label">{m.label}</span>
+                    <span className="mr-card-pct">{pct}%</span>
+                  </div>
                   <span className="mr-card-n">{n}</span>
-                  <span className="mr-card-label">{m.label}</span>
                   <span className="mr-card-bar">
                     <i style={{ width: `${pct}%`, background: m.color }} />
                   </span>
@@ -117,9 +124,14 @@ export default function MaintReport({ kind, title, units, scope, onClose }: {
             })}
           </div>
           <div className="mr-donut">
-            <PieChart data={pieData} size={150} centerUnit="trucks" />
+            <PieChart data={pieData} size={172} centerUnit="trucks" />
           </div>
         </section>
+
+        <div className="mr-section">
+          Units
+          <span className="mr-section-n">{total}</span>
+        </div>
 
         {/* Tabla */}
         <table className="mr-table">
