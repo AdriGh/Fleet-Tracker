@@ -70,6 +70,18 @@ function todayISO(): string {
   return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`
 }
 
+// Parsea una fecha en formato estadounidense (M/D/YYYY) a ISO (YYYY-MM-DD).
+// Devuelve null si no es valida. Se usa en vez de <input type="date"> para que
+// la edicion sea siempre US y no dependa del locale del navegador.
+function usToISO(s: string): string | null {
+  const m = s.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (!m) return null
+  const mo = Number(m[1]), da = Number(m[2]), yr = Number(m[3])
+  if (mo < 1 || mo > 12 || da < 1 || da > 31) return null
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${yr}-${p(mo)}-${p(da)}`
+}
+
 export default function MaintBoardPage({ kind }: Props) {
   const meta = KIND_META[kind]
   const qc = useQueryClient()
@@ -148,17 +160,21 @@ export default function MaintBoardPage({ kind }: Props) {
 
   function startEdit(u: MaintRow) {
     setEditing(u.unit)
-    setEDate(u.last_date ?? todayISO())
+    setEDate(fmtDate(u.last_date ?? todayISO()))   // US: M/D/YYYY
     setEMiles(u.last_miles != null ? String(u.last_miles) : '')
   }
 
   async function saveEdit(u: MaintRow) {
     if (savingRow) return
-    if (!eDate) { notifyErr('Missing date', 'Pick the service date'); return }
+    const iso = usToISO(eDate)
+    if (!iso) {
+      notifyErr('Invalid date', 'Use US format: MM/DD/YYYY')
+      return
+    }
     setSavingRow(true)
     try {
       await addMaintRecord({
-        kind, unit: u.unit, date: eDate,
+        kind, unit: u.unit, date: iso,
         mileage: eMiles ? Number(eMiles) : null,
       })
       setEditing(null)
@@ -391,7 +407,9 @@ export default function MaintBoardPage({ kind }: Props) {
                           <>
                             <td className="num">
                               <input
-                                type="date" className="cell-input mnt-input"
+                                type="text" inputMode="numeric"
+                                className="cell-input mnt-input"
+                                placeholder="MM/DD/YYYY"
                                 value={eDate} autoFocus
                                 onChange={(e) => setEDate(e.target.value)}
                                 onKeyDown={(e) => {
@@ -588,7 +606,7 @@ function AddModal({ kind, units, onClose, onSaved }: {
 }) {
   const meta = KIND_META[kind]
   const [unit, setUnit] = useState('')
-  const [date, setDate] = useState(todayISO())
+  const [date, setDate] = useState(fmtDate(todayISO()))   // US: M/D/YYYY
   const [miles, setMiles] = useState('')
   const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState(false)
@@ -614,14 +632,16 @@ function AddModal({ kind, units, onClose, onSaved }: {
 
   async function submit() {
     if (busy) return
-    if (!unit.trim() || !date) {
-      notifyErr('Missing fields', 'Unit and date are required')
+    const iso = usToISO(date)
+    if (!unit.trim() || !iso) {
+      notifyErr('Missing fields',
+        'Unit and a valid date (MM/DD/YYYY) are required')
       return
     }
     setBusy(true)
     try {
       await addMaintRecord({
-        kind, unit: unit.trim(), date,
+        kind, unit: unit.trim(), date: iso,
         mileage: miles ? Number(miles) : null,
         notes: notes.trim(),
       })
@@ -649,7 +669,8 @@ function AddModal({ kind, units, onClose, onSaved }: {
         <label>
           <span>Date</span>
           <input
-            type="date" className="cell-input" value={date}
+            type="text" inputMode="numeric" className="cell-input"
+            placeholder="MM/DD/YYYY" value={date}
             onChange={(e) => setDate(e.target.value)}
           />
         </label>
