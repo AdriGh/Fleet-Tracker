@@ -657,6 +657,15 @@ def _orgs_for(company: str | None) -> list[dict]:
     return auto or orgs
 
 
+def _keep_company(unit: str, company: str | None) -> bool:
+    """True si la unidad pertenece a `company` (por prefijo de nombre). Asi el
+    import por empresa aisla CHASER de MCC aunque un org traiga ambas; MCC, que
+    no esta en Samsara, queda en vacio en vez de mostrar data ajena."""
+    if not company:
+        return True
+    return company_of(unit).upper() == company.strip().upper()
+
+
 def _name_of(ref: dict | None, assets: dict) -> str:
     ref = ref or {}
     name = (ref.get("name") or "").strip()
@@ -758,7 +767,8 @@ async def report_dvir_rows(
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         per = await asyncio.gather(
             *(_org_dvir_rows(client, cfg, day) for cfg in orgs))
-    return [r for rows, _ in per for r in rows]
+    return [r for rows, _ in per for r in rows
+            if _keep_company(r["Vehicle Name"], company)]
 
 
 async def report_day_distance(
@@ -773,7 +783,7 @@ async def report_day_distance(
     out: dict[str, float] = {}
     for d, _ in per:
         out.update(d)
-    return out
+    return {u: mi for u, mi in out.items() if _keep_company(u, company)}
 
 
 async def report_eld_diagnostic(
@@ -806,6 +816,11 @@ async def report_eld_diagnostic(
                 raw_stats += dsample
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"distance ({tag}): {exc}")
+    # Acotar a la empresa pedida (MCC -> vacio si no esta en Samsara).
+    dvir_rows = [r for r in dvir_rows
+                 if _keep_company(r["Vehicle Name"], company)]
+    distance = {u: mi for u, mi in distance.items()
+                if _keep_company(u, company)}
     return {
         "available": True,
         "day": day.isoformat(),

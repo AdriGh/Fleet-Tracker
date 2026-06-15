@@ -304,7 +304,12 @@ export default function DvirPage() {
         />
       )}
 
-      {eldOpen && <EldPreviewModal onClose={() => setEldOpen(false)} />}
+      {eldOpen && (
+        <EldPreviewModal
+          onClose={() => setEldOpen(false)}
+          onImported={handleCreated}
+        />
+      )}
 
       {driverModal && (
         <DriverModal

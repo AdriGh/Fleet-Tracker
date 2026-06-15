@@ -109,6 +109,22 @@ def load_dvir(source) -> pd.DataFrame:
     return df
 
 
+# Columnas canonicas del dvir_df (las 5 obligatorias + las opcionales que usa
+# extract_defects). Sirve para construir el df desde el ELD sin un CSV.
+_DVIR_COLS = [
+    "Vehicle Name", "Trailer", "Author", "Signed At", "Status",
+    "Type", "Vehicle Defect Details", "Trailer Defect Details",
+    "Mechanic Notes",
+]
+
+
+def dvir_df_from_rows(rows: list[dict]) -> pd.DataFrame:
+    """Construye el dvir_df desde filas ya parseadas (p.ej. del import del
+    ELD), con las columnas garantizadas aunque `rows` venga vacio."""
+    df = pd.DataFrame(rows, columns=_DVIR_COLS)
+    return df.fillna("").astype(str)
+
+
 def load_activity(source) -> dict:
     """Devuelve {nombre_unidad: distancia_millas}."""
     try:

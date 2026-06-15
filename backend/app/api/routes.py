@@ -223,6 +223,52 @@ async def reporting_eld_preview(date: str, company: str | None = None):
     return await samsara.report_eld_diagnostic(company, day)
 
 
+class EldImportIn(BaseModel):
+    date: str            # YYYY-MM-DD
+    company: str
+
+
+@router.post("/reporting/eld/import")
+async def reporting_eld_import(body: EldImportIn):
+    """Arma y GUARDA el reporte de un dia leyendo DVIR + distancia del ELD
+    (mismas estructuras que el flujo manual -> reusa engine.build_report).
+    Aparece en Recent DVIRs. Pre-trip pendiente (fase 2c)."""
+    try:
+        day = datetime.strptime(body.date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="date debe ser YYYY-MM-DD")
+    company = (body.company or "").strip().upper()
+    if not company:
+        raise HTTPException(status_code=422, detail="Falta la empresa")
+
+    rows = await samsara.report_dvir_rows(company, day)
+    activity = await samsara.report_day_distance(company, day)
+    if not rows and not activity:
+        raise HTTPException(
+            status_code=422,
+            detail=(f"Samsara no devolvio datos de {company} para {body.date}. "
+                    "Si esa empresa no esta en Samsara (p.ej. MCC), usa "
+                    "'Create DVIR Report' con los archivos."))
+
+    roster = engine.load_roster(
+        config.DEFAULT_ROSTER if config.DEFAULT_ROSTER.exists() else None)
+    dvir_df = engine.dvir_df_from_rows(rows)
+    groups = engine.build_report(
+        dvir_df, activity, roster, engine.MIN_MILES, company, {})
+    metrics = engine.block_metrics(dvir_df, groups)
+    defects = engine.extract_defects(dvir_df)
+    date_label = f"{day.month}.{day.day}"
+    db.save_block(company, date_label, day, groups, metrics, defects)
+    return {
+        "ok": True, "company": company, "date_label": date_label,
+        "block_date": day.isoformat(),
+        "n_reports": metrics["n_reports"],
+        "n_no_dvir": metrics["n_no_dvir"],
+        "n_unsafe": metrics["n_unsafe"],
+        "pretrip": False,   # 2c
+    }
+
+
 # ---------------------------------------------------------------------------
 # Panel DVIR
 # ---------------------------------------------------------------------------

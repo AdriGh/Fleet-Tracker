@@ -1,23 +1,28 @@
 import { useState } from 'react'
 import Modal from './Modal'
-import { eldPreview, type EldPreview } from '../api'
+import { eldImport, eldPreview, type EldPreview } from '../api'
 
-// Herramienta de validacion (fase 2a): trae DVIR + distancia de un dia desde
-// el ELD (Samsara) y muestra lo PARSEADO + el raw, para confirmar/ajustar los
-// mapeos de campos contra la cuenta real antes de armar el reporte encima.
-export default function EldPreviewModal({ onClose }: { onClose: () => void }) {
+// Import desde el ELD (Samsara): trae DVIR + distancia de un dia, muestra lo
+// PARSEADO (preview de validacion) y permite importarlo a Recent DVIRs. El
+// pre-trip llega en 2c; por ahora arma el reporte sin esa columna.
+export default function EldPreviewModal(
+  { onClose, onImported }: { onClose: () => void; onImported?: () => void },
+) {
   const [date, setDate] = useState('')
   const [company, setCompany] = useState('')
   const [busy, setBusy] = useState(false)
   const [res, setRes] = useState<EldPreview | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [showRaw, setShowRaw] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [done, setDone] = useState<string | null>(null)
 
   async function run() {
     if (!date) { setErr('Elegí una fecha'); return }
     setBusy(true)
     setErr(null)
     setRes(null)
+    setDone(null)
     try {
       setRes(await eldPreview(date, company || undefined))
     } catch (e) {
@@ -26,6 +31,25 @@ export default function EldPreviewModal({ onClose }: { onClose: () => void }) {
       setBusy(false)
     }
   }
+
+  async function doImport() {
+    if (!company) { setErr('Elegí una empresa para importar'); return }
+    setImporting(true)
+    setErr(null)
+    try {
+      const r = await eldImport(date, company)
+      setDone(`Importado: ${r.company} ${r.date_label} · `
+        + `${r.n_reports} con DVIR · ${r.n_no_dvir} NO DVIR`)
+      onImported?.()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'No se pudo importar')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const hasData = !!res?.available
+    && ((res.dvir_count ?? 0) > 0 || (res.distance_count ?? 0) > 0)
 
   const rows = res?.dvir_rows ?? []
   const dist = res?.distance ?? {}
@@ -72,11 +96,33 @@ export default function EldPreviewModal({ onClose }: { onClose: () => void }) {
         <div className="banner error"><span>{res.errors.join(' · ')}</span></div>
       )}
 
+      {done && <div className="banner success"><span>{done}</span></div>}
+
+      {res?.available && !hasData && (
+        <div className="banner">
+          <span>
+            Samsara no devolvió datos de {company || 'esa empresa'} para ese
+            día. Si la empresa no está en Samsara (p.ej. <b>MCC</b>), usá{' '}
+            <b>Create DVIR Report</b> con los archivos.
+          </span>
+        </div>
+      )}
+
       {res?.available && (
         <>
-          <div style={{ display: 'flex', gap: 18, margin: '4px 0 10px' }}>
+          <div style={{
+            display: 'flex', gap: 18, margin: '4px 0 10px',
+            alignItems: 'center',
+          }}>
             <b>DVIR: {res.dvir_count}</b>
             <b>Distancia: {res.distance_count} unidades</b>
+            <button className="btn btn-primary"
+              style={{ marginLeft: 'auto' }}
+              onClick={doImport}
+              disabled={importing || !hasData || !company}
+              title={!company ? 'Elegí una empresa para importar' : ''}>
+              {importing ? 'Importando…' : 'Importar a Recent DVIRs'}
+            </button>
           </div>
           <div style={{
             maxHeight: 300, overflow: 'auto',

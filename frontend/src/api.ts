@@ -309,6 +309,27 @@ export async function eldPreview(
   return (await res.json()) as EldPreview
 }
 
+export interface EldImportResult {
+  ok: boolean
+  company: string
+  date_label: string
+  n_reports: number
+  n_no_dvir: number
+  n_unsafe: number
+}
+
+export async function eldImport(
+  date: string, company: string,
+): Promise<EldImportResult> {
+  const res = await fetch('/api/reporting/eld/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ date, company }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as EldImportResult
+}
+
 // --- Alta manual de unidades (Fleet → Add New Unit) ---------------------
 export interface UnitInput {
   unit: string
