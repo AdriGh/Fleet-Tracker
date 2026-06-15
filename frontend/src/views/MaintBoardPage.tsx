@@ -14,6 +14,7 @@ import {
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 import { useTerminals } from '../terminal'
+import MaintReport from '../components/MaintReport'
 import Modal from '../components/Modal'
 import PieChart from '../components/PieChart'
 import Skeleton from '../components/Skeleton'
@@ -97,6 +98,7 @@ export default function MaintBoardPage({ kind }: Props) {
   const [terminal, setTerminal] = useState('')
   const [q, setQ] = useState('')
   const [addOpen, setAddOpen] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const [eDate, setEDate] = useState('')
   const [eMiles, setEMiles] = useState('')
@@ -244,6 +246,13 @@ export default function MaintBoardPage({ kind }: Props) {
               <path d="M20 11a8 8 0 1 0-2.3 6.3M20 5v6h-6" />
             </svg>
             Refresh
+          </button>
+          <button className="btn btn-ghost" disabled={units.length === 0}
+            onClick={() => setReportOpen(true)} title="Download PDF report">
+            <svg viewBox="0 0 24 24" {...STROKE}>
+              <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+            </svg>
+            Export PDF
           </button>
           <button className="btn btn-primary" onClick={() => setAddOpen(true)}>
             <svg viewBox="0 0 24 24" {...STROKE}>
@@ -561,6 +570,16 @@ export default function MaintBoardPage({ kind }: Props) {
             notifyOk(`${meta.noun} recorded`, unit)
             celebrate(unit)
           }}
+        />
+      )}
+
+      {reportOpen && (
+        <MaintReport
+          kind={kind}
+          title={meta.title}
+          units={units}
+          scope={terminal ? labelOf(terminal) : 'All terminals'}
+          onClose={() => setReportOpen(false)}
         />
       )}
     </div>

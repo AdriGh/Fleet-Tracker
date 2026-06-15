@@ -3958,6 +3958,68 @@ td.dur-high {
   font-size: 9px; color: #9aa3b2; text-align: center;
 }
 
+/* ----- Reporte PM / DOT (print -> PDF) ----- */
+.maint-report {
+  width: 184mm; margin: 0 auto;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #1a2233; background: #fff;
+  font-size: 11px; line-height: 1.45;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.maint-report .ur-head { border-bottom-color: var(--accent, #e11900); }
+.mr-overview {
+  display: flex; gap: 18px; align-items: center;
+  justify-content: space-between; margin: 14px 0 18px;
+}
+.mr-cards {
+  flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+}
+.mr-card {
+  position: relative; border: 1px solid #e3e7ee; border-radius: 10px;
+  padding: 9px 11px 11px; background: #fff;
+}
+.mr-card-n { font-size: 20px; font-weight: 800; color: #111827; }
+.mr-card-all .mr-card-n { color: var(--accent, #e11900); }
+.mr-card-label {
+  display: block; font-size: 8.5px; text-transform: uppercase;
+  letter-spacing: .05em; color: #6b7280; margin-top: 1px;
+}
+.mr-card-pct {
+  position: absolute; top: 9px; right: 11px; font-size: 10px; color: #6b7280;
+}
+.mr-card-bar {
+  display: block; height: 3px; border-radius: 2px; background: #eef0f4;
+  margin-top: 7px; overflow: hidden;
+}
+.mr-card-bar i { display: block; height: 100%; }
+.mr-donut { flex: 0 0 auto; }
+
+.mr-table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+.mr-table thead { display: table-header-group; }   /* repite el header por pagina */
+.mr-table thead th {
+  text-align: left; font-size: 8.5px; text-transform: uppercase;
+  letter-spacing: .05em; color: #6b7280; font-weight: 700;
+  border-bottom: 1.5px solid #cfd6e0; padding: 6px 8px;
+}
+.mr-table th.num, .mr-table td.num { text-align: right; }
+.mr-table tbody tr { break-inside: avoid; }
+.mr-table tbody td {
+  padding: 6px 8px; border-bottom: 1px solid #eef1f5; vertical-align: top;
+}
+.mr-table tbody tr.is-overdue { background: rgba(220, 38, 38, 0.07); }
+.mr-table tbody tr.is-overdue strong { color: #b91c1c; }
+.mr-table td.neg { color: #dc2626; font-weight: 700; }
+.mr-model {
+  display: block; font-size: 8.5px; color: #6b7280; text-transform: uppercase;
+}
+.mr-pill {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 9px; font-weight: 700; white-space: nowrap;
+}
+.mr-foot {
+  margin-top: 16px; font-size: 9px; color: #9ca3af; text-align: center;
+}
+
 @media print {
   /* Solo el documento imprimible es visible. Se ocultan #root, el toaster
      de sonner y los PORTALES de vaul (drawers) y de Modal.tsx, que cuelgan
