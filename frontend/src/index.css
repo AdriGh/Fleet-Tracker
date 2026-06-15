@@ -4029,11 +4029,9 @@ td.dur-high {
 .mr-table tbody td {
   padding: 7px 9px; border-bottom: 1px solid #eef1f5; vertical-align: top;
 }
-.mr-table tbody tr.is-overdue { background: rgba(220, 38, 38, 0.06); }
-.mr-table tbody tr.is-overdue td:first-child {
-  box-shadow: inset 3px 0 0 #dc2626;
-}
-.mr-table tbody tr.is-overdue strong { color: #b91c1c; }
+/* Cada fila se colorea por estado (tinte + acento izquierdo + codigo) via
+   estilos inline: overdue rojo, on track verde, never gris, etc. */
+.mr-row strong { font-weight: 700; }
 .mr-table td.neg { color: #dc2626; font-weight: 700; }
 .mr-model {
   display: block; font-size: 8.5px; color: #6b7280; text-transform: uppercase;

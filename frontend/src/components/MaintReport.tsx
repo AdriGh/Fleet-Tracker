@@ -155,10 +155,10 @@ export default function MaintReport({ kind, title, units, scope, onClose }: {
               const sm = STATUS_META[u.status] ?? STATUS_META.never
               const neg = u.to_due != null && u.to_due < 0
               return (
-                <tr key={u.unit}
-                  className={u.status === 'overdue' ? 'is-overdue' : ''}>
-                  <td>
-                    <strong>{u.unit}</strong>
+                <tr key={u.unit} className="mr-row"
+                  style={{ background: hexA(sm.color, 0.06) }}>
+                  <td style={{ boxShadow: `inset 3px 0 0 ${sm.color}` }}>
+                    <strong style={{ color: sm.color }}>{u.unit}</strong>
                     {u.model && <span className="mr-model">{u.model}</span>}
                   </td>
                   <td>{u.driver || '—'}</td>
