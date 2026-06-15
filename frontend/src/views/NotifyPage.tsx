@@ -13,6 +13,7 @@ import {
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 import { usePerms } from '../perms'
+import BroadcastModal from '../components/BroadcastModal'
 
 type Media = { type: string; url: string; filename: string }
 const ALL_CHANNELS: NotifyChannel[] = ['email', 'sms']
@@ -73,6 +74,7 @@ export default function NotifyPage() {
   const [media, setMedia] = useState<Media | null>(null)
   const [uploadingMedia, setUploadingMedia] = useState(false)
   const [previewTab, setPreviewTab] = useState<NotifyChannel>('sms')
+  const [broadcastOpen, setBroadcastOpen] = useState(false)
 
   function toggleChannel(c: NotifyChannel) {
     setChannels((prev) => {
@@ -212,6 +214,12 @@ export default function NotifyPage() {
             NO DVIR and pre-trips under 15 min, notified to the driver with a
             copy to their terminal.
           </p>
+        </div>
+        <div className="head-actions">
+          <button className="btn btn-primary"
+            onClick={() => setBroadcastOpen(true)}>
+            Mensaje / Plantillas
+          </button>
         </div>
         {status && (
           <div className="head-actions nf-status">
@@ -589,6 +597,10 @@ export default function NotifyPage() {
             </div>
           </aside>
         </div>
+      )}
+
+      {broadcastOpen && (
+        <BroadcastModal onClose={() => setBroadcastOpen(false)} />
       )}
     </div>
   )

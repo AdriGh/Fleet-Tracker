@@ -330,6 +330,60 @@ export async function eldImport(
   return (await res.json()) as EldImportResult
 }
 
+// --- Notices: plantillas de mensajes + broadcast ------------------------
+export interface MsgTemplate {
+  id: string; name: string; subject: string; body: string
+}
+export interface Recipient {
+  name: string; company: string; email: string; phone: string
+  has_email: boolean; has_phone: boolean
+}
+export interface BroadcastResult {
+  channels: string[]; sent: number
+  email_dry_run: boolean; sms_dry_run: boolean
+  results: { driver: string }[]
+}
+
+export async function listTemplates(): Promise<MsgTemplate[]> {
+  const res = await fetch('/api/notify/templates')
+  if (!res.ok) throw new Error(await readError(res))
+  return ((await res.json()).templates ?? []) as MsgTemplate[]
+}
+
+export async function saveTemplate(
+  t: Partial<MsgTemplate>,
+): Promise<MsgTemplate> {
+  const res = await fetch('/api/notify/templates', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(t),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as MsgTemplate
+}
+
+export async function deleteTemplate(id: string): Promise<void> {
+  const res = await fetch(`/api/notify/templates/${encodeURIComponent(id)}`,
+    { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+export async function listRecipients(): Promise<Recipient[]> {
+  const res = await fetch('/api/notify/recipients')
+  if (!res.ok) throw new Error(await readError(res))
+  return ((await res.json()).recipients ?? []) as Recipient[]
+}
+
+export async function sendBroadcast(p: {
+  drivers: string[]; channels: string[]; subject: string; body: string
+}): Promise<BroadcastResult> {
+  const res = await fetch('/api/notify/broadcast', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(p),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as BroadcastResult
+}
+
 // --- Alta manual de unidades (Fleet → Add New Unit) ---------------------
 export interface UnitInput {
   unit: string

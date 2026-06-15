@@ -22,6 +22,7 @@ from ..core import (
     telegram_notify, terminals, thermoking, tms, traccar, tracking,
     unit_settings, unitdocs, vin_decode, wo_invoice, workorders,
 )
+from ..core import notice_templates
 from ..core.contacts import name_key
 from ..schemas import (
     BatchAnalyzeResponse,
@@ -1725,3 +1726,52 @@ async def notify_media(file: UploadFile = File(...)):
         "error": host.get("error", ""),
         "filename": file.filename, "size": len(content),
     }
+
+
+# ----- Plantillas de mensajes + broadcast (Notices) ------------------------
+
+class TemplateIn(BaseModel):
+    id: str = ""
+    name: str
+    subject: str = ""
+    body: str = ""
+
+
+class BroadcastIn(BaseModel):
+    drivers: list[str]
+    channels: list[str] = ["email"]
+    subject: str = ""
+    body: str
+
+
+@router.get("/notify/templates")
+def notify_templates_list():
+    """Plantillas de mensajes (del tenant actual)."""
+    return {"templates": notice_templates.list_templates()}
+
+
+@router.post("/notify/templates")
+def notify_templates_save(body: TemplateIn):
+    return notice_templates.upsert(body.model_dump())
+
+
+@router.delete("/notify/templates/{tid}")
+def notify_templates_delete(tid: str):
+    return {"deleted": notice_templates.delete(tid)}
+
+
+@router.get("/notify/recipients")
+def notify_recipients():
+    """Conductores con contacto cargado (para el broadcast)."""
+    return {"recipients": notify_service.recipients()}
+
+
+@router.post("/notify/broadcast")
+def notify_broadcast(req: BroadcastIn):
+    """Envia (o simula) un mensaje de plantilla a los conductores elegidos."""
+    if not req.drivers:
+        raise HTTPException(422, "No driver selected.")
+    if not req.body.strip():
+        raise HTTPException(422, "The message body is empty.")
+    return notify_service.broadcast(
+        req.drivers, req.channels, req.subject, req.body)
