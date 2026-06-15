@@ -355,6 +355,30 @@ class Part(OrgScoped, Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class Unit(OrgScoped, Base):
+    """Unidad agregada a mano (Fleet -> Add New Unit). Complementa el fleet
+    vivo de Samsara para terminales/clientes que no estan en Samsara, y
+    alimenta los trackers PM/DOT. Clave de negocio: `unit` (numero de unidad)
+    unico por organizacion. org-scoped (multi-tenant, H6 fase 3)."""
+    __tablename__ = "unit"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    unit: Mapped[str] = mapped_column(String(64), index=True)   # numero de unidad
+    unit_type: Mapped[str] = mapped_column(String(16), default="truck")  # truck|trailer|chassis
+    subtype: Mapped[str] = mapped_column(String(40), default="")
+    terminal: Mapped[str] = mapped_column(String(40), default="")  # key de terminal (ex-nickname)
+    customer: Mapped[str] = mapped_column(String(120), default="")
+    company: Mapped[str] = mapped_column(String(64), default="")
+    vin: Mapped[str] = mapped_column(String(20), default="")
+    year: Mapped[str] = mapped_column(String(8), default="")
+    make: Mapped[str] = mapped_column(String(60), default="")
+    model: Mapped[str] = mapped_column(String(60), default="")
+    fleet_no: Mapped[str] = mapped_column(String(40), default="")
+    plate: Mapped[str] = mapped_column(String(20), default="")
+    plate_state: Mapped[str] = mapped_column(String(8), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 # ---------------------------------------------------------------------------
 # Aislamiento por tenant (H6 fase 3c): enforcement a nivel ORM
 # ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 import UnitDrawer from '../components/UnitDrawer'
 import IconButton from '../components/IconButton'
+import AddUnitModal from '../components/AddUnitModal'
 import { useTerminals } from '../terminal'
 
 type SortKey = 'unit' | 'open'
@@ -40,6 +41,7 @@ export default function FleetPage({ onOpenUnit }: {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [selected, setSelected] = useState<FleetUnit | null>(null)
+  const [showAdd, setShowAdd] = useState(false)
 
   const fleetQuery = useQuery({ queryKey: ['fleet'], queryFn: listFleet })
   const { terminalOf, labelOf, present } = useTerminals()
@@ -143,12 +145,25 @@ export default function FleetPage({ onOpenUnit }: {
             </svg>
             {fetching ? 'Refreshing…' : 'Refresh'}
           </button>
-          <button className="btn btn-primary" disabled={sorted.length === 0}
+          <button className="btn btn-ghost" disabled={sorted.length === 0}
             onClick={() => downloadCSV(matrix)}>
             Export CSV
           </button>
+          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
+            + Add Unit
+          </button>
         </div>
       </div>
+
+      {showAdd && (
+        <AddUnitModal
+          onClose={() => setShowAdd(false)}
+          onSaved={async () => {
+            setShowAdd(false)
+            await qc.invalidateQueries({ queryKey: ['fleet'] })
+          }}
+        />
+      )}
 
       {error && <div className="banner error"><span>{error}</span></div>}
 

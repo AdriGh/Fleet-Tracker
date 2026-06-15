@@ -16,11 +16,11 @@ from fastapi import Header
 
 from ..core import (
     alerts, app_config, auth, batch, docscan, driver_contacts, engine,
-    excel, integrations_admin, local_config, lynx, mailer, maint, media_host,
-    notify_service, open_defects, org_config, parts, permissions, pm, pois,
-    pretrip, reefer, samsara, sms_service, telegram_notify, terminals,
-    thermoking, tms, traccar, tracking, unit_settings, unitdocs, wo_invoice,
-    workorders,
+    excel, integrations_admin, local_config, lynx, mailer, maint,
+    manual_units, media_host, notify_service, open_defects, org_config,
+    parts, permissions, pm, pois, pretrip, reefer, samsara, sms_service,
+    telegram_notify, terminals, thermoking, tms, traccar, tracking,
+    unit_settings, unitdocs, vin_decode, wo_invoice, workorders,
 )
 from ..core.contacts import name_key
 from ..schemas import (
@@ -948,6 +948,49 @@ def terminals_assign(body: TerminalAssignIn,
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+# ----- Unidades manuales (Fleet → Add New Unit) ----------------------------
+
+class UnitIn(BaseModel):
+    unit: str
+    unit_type: str = "truck"
+    subtype: str = ""
+    terminal: str = ""
+    customer: str = ""
+    company: str = ""
+    vin: str = ""
+    year: str = ""
+    make: str = ""
+    model: str = ""
+    fleet_no: str = ""
+    plate: str = ""
+    plate_state: str = ""
+
+
+@router.get("/units/manual")
+def units_manual_list():
+    """Unidades agregadas a mano (las del tenant actual)."""
+    return {"units": manual_units.list_units()}
+
+
+@router.post("/units/manual")
+def units_manual_add(body: UnitIn):
+    try:
+        return manual_units.add(body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/units/manual/{unit_id}")
+def units_manual_delete(unit_id: int):
+    return {"deleted": manual_units.delete(unit_id)}
+
+
+@router.get("/vin/{vin}")
+async def vin_decode_endpoint(vin: str):
+    """Decodifica un VIN (Year/Make/Model) via NHTSA vPIC."""
+    return await vin_decode.decode(vin)
+
+
 class IntegrationTestIn(BaseModel):
     provider: str
 
@@ -1221,17 +1264,28 @@ async def fleet(refresh: bool = False):
     """
     if refresh:
         samsara.clear_cache()
-    if not samsara.is_available():
-        return {"available": False, "source": "none", "units": [], "settings": app_config.get_settings()}
     st = app_config.get_settings()
+    # Unidades agregadas a mano (Fleet -> Add New Unit): se muestran SIEMPRE,
+    # esten o no disponibles los datos de Samsara.
+    if not samsara.is_available():
+        units = manual_units.merge_into_fleet([])
+        for u in units:
+            u["archived"], u["archive_reason"] = False, None
+        return {"available": bool(units),
+                "source": "manual" if units else "none",
+                "units": units, "settings": st, "archived_count": 0}
     arch = app_config.archived_ids()
     keep = app_config.kept_active_ids()
     auto_days = st["auto_archive_days"] if st["auto_archive_enabled"] else None
     try:
         units = await samsara.list_fleet(auto_days)
     except Exception as exc:  # noqa: BLE001
-        return {"available": False, "source": "error",
-                "error": str(exc), "units": [], "settings": st}
+        units = manual_units.merge_into_fleet([])
+        for u in units:
+            u["archived"], u["archive_reason"] = False, None
+        return {"available": bool(units),
+                "source": "error" if not units else "manual",
+                "error": str(exc), "units": units, "settings": st}
 
     for u in units:
         uid = str(u.get("id"))
@@ -1242,6 +1296,12 @@ async def fleet(refresh: bool = False):
             u["archived"], u["archive_reason"] = True, "auto"
         else:
             u["archived"], u["archive_reason"] = False, None
+
+    # Mergear las unidades manuales (Samsara gana por numero de unidad).
+    units = manual_units.merge_into_fleet(units)
+    for u in units:
+        u.setdefault("archived", False)
+        u.setdefault("archive_reason", None)
 
     return {
         "available": True,
@@ -1318,6 +1378,14 @@ async def pm_tracker(refresh: bool = False):
     if refresh:
         samsara.clear_cache()
     records = pm.load()
+    # Unidades manuales (Fleet -> Add New Unit) que no esten en el CSV: fila PM
+    # base (sin historial) para que aparezcan y se les pueda cargar PM history.
+    csv_names = {r["unit"] for r in records}
+    for name in manual_units.names():
+        if name not in csv_names:
+            records.append({"unit": name, "model": "", "pm_type": None,
+                            "last_pm_date": None, "last_pm_miles": None,
+                            "report_miles": None})
     if not records:
         return {"available": False, "interval": interval,
                 "upcoming_miles": upcoming, "units": [], "excluded": []}

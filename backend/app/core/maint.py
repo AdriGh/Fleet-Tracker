@@ -21,7 +21,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import select
 
 from ..db import MaintRecord, SessionLocal, TmsDriver
-from . import org_config, pm, samsara, unit_settings
+from . import manual_units, org_config, pm, samsara, unit_settings
 
 OPS_STATUSES = ("", "out_of_service", "in_shop")
 DOT_INTERVAL_DAYS = 365
@@ -140,8 +140,9 @@ async def board(kind: str, refresh: bool = False) -> dict:
         except Exception:  # noqa: BLE001
             odo = {}
 
-    # Universo: camiones del CSV + cualquier unidad con registro del kind.
-    units = sorted(set(csv_rows) | set(records))
+    # Universo: camiones del CSV + cualquier unidad con registro del kind +
+    # las unidades agregadas a mano (Fleet -> Add New Unit).
+    units = sorted(set(csv_rows) | set(records) | manual_units.names())
     today = date.today()
     out: list[dict] = []
     excluded: list[dict] = []

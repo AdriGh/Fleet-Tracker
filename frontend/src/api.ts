@@ -285,6 +285,48 @@ export async function listFleet(): Promise<FleetUnit[]> {
   return (data.units ?? []) as FleetUnit[]
 }
 
+// --- Alta manual de unidades (Fleet → Add New Unit) ---------------------
+export interface UnitInput {
+  unit: string
+  unit_type?: string
+  subtype?: string
+  terminal?: string
+  customer?: string
+  company?: string
+  vin?: string
+  year?: string
+  make?: string
+  model?: string
+  fleet_no?: string
+  plate?: string
+  plate_state?: string
+}
+
+export async function addUnit(p: UnitInput): Promise<void> {
+  const res = await fetch('/api/units/manual', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(p),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+export interface VinDecode {
+  ok: boolean
+  vin?: string
+  year?: string
+  make?: string
+  model?: string
+  error?: string
+}
+
+// Decodifica un VIN (Year/Make/Model) vía NHTSA vPIC (backend proxy).
+export async function decodeVin(vin: string): Promise<VinDecode> {
+  const res = await fetch(`/api/vin/${encodeURIComponent(vin)}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as VinDecode
+}
+
 export async function fleetArchive(id: string, action: string): Promise<void> {
   const res = await fetch('/api/fleet/archive', {
     method: 'POST',
