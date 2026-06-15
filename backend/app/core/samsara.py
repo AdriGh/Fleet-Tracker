@@ -23,6 +23,7 @@ from pathlib import Path
 import httpx
 
 from .open_defects import _is_noise, company_of
+from . import secretstore
 
 CONF_PATH = Path(__file__).resolve().parents[2] / "samsara.local.json"
 
@@ -95,13 +96,10 @@ def _infer_type(comment: str, kind: str) -> str:
     return "Other"
 
 
-def _read_config() -> dict | None:
-    if not CONF_PATH.exists():
-        return None
-    try:
-        return json.loads(CONF_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+def _read_config() -> dict:
+    # H6 fase 3d-2: las credenciales viven detras de SecretStore (backend de
+    # archivos por defecto: backend/samsara.local.json). {} = sin configurar.
+    return secretstore.store().get_blob("samsara")
 
 
 def org_summaries() -> list[dict]:

@@ -29,13 +29,16 @@ from datetime import datetime, timedelta
 from sqlalchemy import select, update
 
 from .. import config
-from ..db import AlertEvent, SessionLocal, default_org_id
+from ..db import (
+    AlertEvent, SessionLocal, default_org_id, get_setting, save_setting,
+)
 from . import tenant
 from . import (
     mailer, reefer, reefer_wo, sms_service, tracking, unit_settings,
 )
 
-SETTINGS_PATH = config.BACKEND_DIR / "alerts.local.json"
+SETTING_KEY = "alerts"
+SETTINGS_PATH = config.BACKEND_DIR / "alerts.local.json"   # legacy (migracion)
 
 LOOP_SECONDS = 60
 COOLDOWN_S = 60 * 60          # no repetir la misma alerta de una unidad
@@ -76,12 +79,7 @@ _last_fired: dict[tuple[str, str], float] = {}
 # ----- Config -----------------------------------------------------------
 
 def get_settings() -> dict:
-    data = {}
-    if SETTINGS_PATH.exists():
-        try:
-            data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            data = {}
+    data = get_setting(SETTING_KEY, legacy_file=SETTINGS_PATH) or {}
     out = json.loads(json.dumps(DEFAULTS))  # deep copy
     for rule, cfg in (data.get("rules") or {}).items():
         if rule in out["rules"] and isinstance(cfg, dict):
@@ -119,8 +117,7 @@ def save_settings(new: dict) -> dict:
     if "phones" in rec:
         cur["recipients"]["phones"] = [
             str(p).strip() for p in rec["phones"] if str(p).strip()][:10]
-    SETTINGS_PATH.write_text(
-        json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
+    save_setting(SETTING_KEY, cur)
     return cur
 
 

@@ -52,6 +52,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 from .. import config
+from . import secretstore
 
 SETTINGS_PATH = config.BACKEND_DIR / "lynx.local.json"
 _TIMEOUT = 20
@@ -94,12 +95,8 @@ def _norm_tier(value) -> str:
 
 
 def load_settings() -> dict:
-    data: dict = {}
-    if SETTINGS_PATH.exists():
-        try:
-            data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            data = {}
+    # H6 fase 3d-2: credenciales via SecretStore (lynx.local.json).
+    data = secretstore.store().get_blob("lynx")
     out = dict(_DEFAULTS)
     for k in _DEFAULTS:
         if k in data:
