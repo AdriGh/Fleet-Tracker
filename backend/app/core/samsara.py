@@ -615,3 +615,206 @@ async def list_drivers() -> list[dict]:
     out = [d for sub in per_org for d in sub]
     out.sort(key=lambda d: (d["company"], d["name"]))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Import de reportes desde el ELD (Reporting / fase 2)
+# ---------------------------------------------------------------------------
+# Produce las MISMAS estructuras que el flujo manual de CSVs (filas de dvir_df
+# + activity {unidad: millas}) pero leidas de la API de Samsara, para que
+# engine.build_report las consuma igual. Defensivo con los nombres de campo:
+# el endpoint diagnostico devuelve una muestra CRUDA para validarlos/ajustarlos
+# contra una cuenta real.
+
+_STATUS_MAP = {
+    "safe": "Safe", "unsafe": "Unsafe", "resolved": "Resolved",
+    "needsresolution": "Unsafe", "safewithdefects": "Unsafe",
+}
+
+
+def _day_window(day: datetime.date) -> tuple[str, str]:
+    """Ventana ISO (UTC) que cubre un dia: [00:00, +1d 00:00).
+    TODO(tz): el dia operativo es local; por ahora UTC (refinable con la tz
+    de la flota)."""
+    start = datetime.datetime(day.year, day.month, day.day,
+                              tzinfo=datetime.timezone.utc)
+    end = start + datetime.timedelta(days=1)
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    return start.strftime(fmt), end.strftime(fmt)
+
+
+def _orgs_for(company: str | None) -> list[dict]:
+    """Orgs aplicables a `company`. None -> todos. Si ninguno matchea
+    explicitamente, usa los de company auto y, si tampoco hay, todos."""
+    orgs = _orgs()
+    if not company:
+        return orgs
+    cu = company.strip().upper()
+    exact = [o for o in orgs if (o.get("company") or "").upper() == cu]
+    if exact:
+        return exact
+    auto = [o for o in orgs if not o.get("company")]
+    return auto or orgs
+
+
+def _name_of(ref: dict | None, assets: dict) -> str:
+    ref = ref or {}
+    name = (ref.get("name") or "").strip()
+    if name:
+        return name
+    aid = ref.get("id")
+    return (assets.get(aid, {}).get("name") or "").strip() if aid else ""
+
+
+def _author_of(d: dict) -> str:
+    for k in ("driver", "author", "createdBy", "signedBy"):
+        v = d.get(k)
+        if isinstance(v, dict) and (v.get("name") or "").strip():
+            return v["name"].strip()
+    for k in ("driverName", "authorName"):
+        if str(d.get(k) or "").strip():
+            return str(d[k]).strip()
+    return ""
+
+
+def _status_of(d: dict) -> str:
+    raw = str(d.get("safetyStatus") or d.get("status") or "").strip().lower()
+    return _STATUS_MAP.get(raw.replace("_", ""), raw.title() or "Safe")
+
+
+def _defect_details(d: dict) -> str:
+    items = d.get("vehicleDefects") or d.get("defects") or []
+    out = []
+    for it in items:
+        if isinstance(it, dict):
+            c = (it.get("comment") or it.get("description")
+                 or it.get("defectType") or "").strip()
+            if c:
+                out.append(c)
+    return "; ".join(out)
+
+
+def _dvir_to_row(d: dict, assets: dict) -> dict:
+    """Un DVIR de Samsara -> fila con las columnas del dvir_df del engine."""
+    veh = _name_of(d.get("vehicle"), assets)
+    trl = _name_of(d.get("trailer"), assets)
+    signed = (d.get("time") or d.get("endTime") or d.get("startTime")
+              or (d.get("signature") or {}).get("signedAtTime") or "")
+    details = _defect_details(d)
+    return {
+        "Vehicle Name": veh,
+        "Trailer": trl,
+        "Author": _author_of(d),
+        "Signed At": str(signed),
+        "Status": _status_of(d),
+        "Type": str(d.get("inspectionType") or "").strip(),
+        "Vehicle Defect Details": details if veh else "",
+        "Trailer Defect Details": details if (trl and not veh) else "",
+        "Mechanic Notes": "",
+    }
+
+
+async def _org_dvir_rows(
+    client: httpx.AsyncClient, cfg: dict, day: datetime.date,
+) -> tuple[list[dict], list[dict]]:
+    s, e = _day_window(day)
+    ref, dvirs = await asyncio.gather(
+        _reference(client, cfg),
+        _paged(client, cfg,
+               f"/fleet/dvirs/history?startTime={s}&endTime={e}"),
+    )
+    assets = ref["assets"]
+    rows = [_dvir_to_row(d, assets) for d in dvirs]
+    return rows, dvirs[:3]          # filas parseadas + muestra cruda
+
+
+async def _org_day_distance(
+    client: httpx.AsyncClient, cfg: dict, day: datetime.date,
+) -> tuple[dict[str, float], list[dict]]:
+    s, e = _day_window(day)
+    rows = await _paged(
+        client, cfg,
+        "/fleet/vehicles/stats/history"
+        f"?types=gpsDistanceMeters&startTime={s}&endTime={e}")
+    out: dict[str, float] = {}
+    for x in rows:
+        name = (x.get("name") or "").strip()
+        if not name:
+            continue
+        series = x.get("gpsDistanceMeters") or []
+        vals = [p.get("value") for p in series
+                if isinstance(p, dict) and p.get("value") is not None]
+        if len(vals) >= 2:                      # delta = distancia del dia
+            out[name] = round((max(vals) - min(vals)) / 1609.344, 1)
+    return out, rows[:3]
+
+
+async def report_dvir_rows(
+    company: str | None, day: datetime.date,
+) -> list[dict]:
+    orgs = _orgs_for(company)
+    if not orgs:
+        return []
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        per = await asyncio.gather(
+            *(_org_dvir_rows(client, cfg, day) for cfg in orgs))
+    return [r for rows, _ in per for r in rows]
+
+
+async def report_day_distance(
+    company: str | None, day: datetime.date,
+) -> dict[str, float]:
+    orgs = _orgs_for(company)
+    if not orgs:
+        return {}
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        per = await asyncio.gather(
+            *(_org_day_distance(client, cfg, day) for cfg in orgs))
+    out: dict[str, float] = {}
+    for d, _ in per:
+        out.update(d)
+    return out
+
+
+async def report_eld_diagnostic(
+    company: str | None, day: datetime.date,
+) -> dict:
+    """Trae DVIR + distancia del dia y devuelve lo PARSEADO + una muestra
+    CRUDA de Samsara y los errores, para validar/ajustar los nombres de
+    campo antes de armar el reporte encima."""
+    orgs = _orgs_for(company)
+    if not orgs:
+        return {"available": False, "detail": "Samsara not configured",
+                "dvir_rows": [], "distance": {}, "raw": {}, "errors": []}
+    errors: list[str] = []
+    dvir_rows: list[dict] = []
+    distance: dict[str, float] = {}
+    raw_dvir: list[dict] = []
+    raw_stats: list[dict] = []
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        for cfg in orgs:
+            tag = cfg.get("company") or "auto"
+            try:
+                rows, sample = await _org_dvir_rows(client, cfg, day)
+                dvir_rows += rows
+                raw_dvir += sample
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"DVIR ({tag}): {exc}")
+            try:
+                dist, dsample = await _org_day_distance(client, cfg, day)
+                distance.update(dist)
+                raw_stats += dsample
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"distance ({tag}): {exc}")
+    return {
+        "available": True,
+        "day": day.isoformat(),
+        "company": company,
+        "dvir_count": len(dvir_rows),
+        "dvir_rows": dvir_rows[:200],
+        "distance_count": len(distance),
+        "distance": dict(list(distance.items())[:200]),
+        "raw": {"dvir_sample": raw_dvir, "stats_sample": raw_stats},
+        "errors": errors,
+    }
+

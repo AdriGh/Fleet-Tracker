@@ -208,6 +208,22 @@ def batch_generate(req: BatchGenerateRequest):
 
 
 # ---------------------------------------------------------------------------
+# Reporting · Import desde el ELD (fase 2a: diagnostico de fetchers)
+# ---------------------------------------------------------------------------
+@router.get("/reporting/eld/preview")
+async def reporting_eld_preview(date: str, company: str | None = None):
+    """Trae DVIR + distancia del dia desde Samsara y devuelve lo PARSEADO +
+    una muestra CRUDA, para validar los mapeos de campos contra la cuenta
+    real antes de armar el reporte. `date` = YYYY-MM-DD."""
+    try:
+        day = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail="date debe ser YYYY-MM-DD")
+    return await samsara.report_eld_diagnostic(company, day)
+
+
+# ---------------------------------------------------------------------------
 # Panel DVIR
 # ---------------------------------------------------------------------------
 @router.get("/dvir/recent")

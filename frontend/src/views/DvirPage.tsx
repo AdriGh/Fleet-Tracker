@@ -16,6 +16,7 @@ import {
 import { copyBlock } from '../clipboard'
 import { notifyOk, notifyErr } from '../toast'
 import CreateReportModal from '../components/CreateReportModal'
+import EldPreviewModal from '../components/EldPreviewModal'
 import DriverModal from '../components/DriverModal'
 import MissingDrivers from '../components/MissingDrivers'
 import PreviewTable from '../components/PreviewTable'
@@ -35,6 +36,7 @@ export default function DvirPage() {
   const [sort, setSort] = useState<RecentSort>('created_at')
   const [selected, setSelected] = useState<BlockDetail | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [eldOpen, setEldOpen] = useState(false)
   const [driverModal, setDriverModal] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
@@ -137,6 +139,15 @@ export default function DvirPage() {
               <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
             </svg>
             {fetching ? 'Refreshing…' : 'Refresh'}
+          </button>
+          <button className="btn btn-ghost" onClick={() => setEldOpen(true)}
+            title="Importar DVIR + actividad desde el ELD (beta)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" width="16" height="16" strokeLinecap="round"
+              strokeLinejoin="round">
+              <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+            </svg>
+            Import from ELD
           </button>
           <button className="btn btn-primary" onClick={() => setModalOpen(true)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -292,6 +303,8 @@ export default function DvirPage() {
           onCreated={handleCreated}
         />
       )}
+
+      {eldOpen && <EldPreviewModal onClose={() => setEldOpen(false)} />}
 
       {driverModal && (
         <DriverModal

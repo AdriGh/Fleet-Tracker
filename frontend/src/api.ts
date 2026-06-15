@@ -285,6 +285,30 @@ export async function listFleet(): Promise<FleetUnit[]> {
   return (data.units ?? []) as FleetUnit[]
 }
 
+// --- Reporting: import desde el ELD (preview/diagnostico) ----------------
+export interface EldPreview {
+  available: boolean
+  detail?: string
+  day?: string
+  company?: string | null
+  dvir_count?: number
+  dvir_rows?: Record<string, string>[]
+  distance_count?: number
+  distance?: Record<string, number>
+  raw?: { dvir_sample: unknown[]; stats_sample: unknown[] }
+  errors?: string[]
+}
+
+export async function eldPreview(
+  date: string, company?: string,
+): Promise<EldPreview> {
+  const q = new URLSearchParams({ date })
+  if (company) q.set('company', company)
+  const res = await fetch(`/api/reporting/eld/preview?${q.toString()}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as EldPreview
+}
+
 // --- Alta manual de unidades (Fleet → Add New Unit) ---------------------
 export interface UnitInput {
   unit: string
