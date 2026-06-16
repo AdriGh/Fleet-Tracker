@@ -760,34 +760,40 @@ async def _org_day_distance(
         "?types=obdOdometerMeters,gpsOdometerMeters,gpsDistanceMeters"
         f"&startTime={s}&endTime={e}")
     # La serie de un vehiculo se reparte en VARIAS paginas (Samsara pagina por
-    # tiempo: cada pagina trae un tramo). Hay que acumular min/max por vehiculo
-    # ACROSS paginas; si no, queda el delta de un solo tramo (mucho menos).
-    acc: dict[str, dict[str, list[float]]] = {}
+    # tiempo). Por cada vehiculo+tipo se guarda la PRIMERA y la ULTIMA lectura
+    # POR TIEMPO (across paginas). El delta = ultimo - primero, igual que el
+    # Activity report (End Odometer - Start Odometer); usar primera/ultima por
+    # tiempo (no min/max) ignora un pico suelto del odometro en el medio.
+    acc: dict[str, dict[str, list]] = {}
     for x in rows:
         name = (x.get("name") or "").strip()
         if not name:
             continue
         for typ in ("obdOdometerMeters", "gpsOdometerMeters",
                     "gpsDistanceMeters"):
-            vals = [p.get("value") for p in (x.get(typ) or [])
-                    if isinstance(p, dict) and p.get("value") is not None]
-            if not vals:
-                continue
-            mm = acc.setdefault(name, {}).get(typ)
-            if mm is None:
-                acc[name][typ] = [min(vals), max(vals)]
-            else:
-                mm[0] = min(mm[0], min(vals))
-                mm[1] = max(mm[1], max(vals))
+            for p in (x.get(typ) or []):
+                if not isinstance(p, dict):
+                    continue
+                t, v = p.get("time"), p.get("value")
+                if t is None or v is None:
+                    continue
+                cur = acc.setdefault(name, {}).get(typ)
+                if cur is None:                  # [t_first, v_first, t_last, v_last]
+                    acc[name][typ] = [t, v, t, v]
+                else:
+                    if t < cur[0]:
+                        cur[0], cur[1] = t, v
+                    if t > cur[2]:
+                        cur[2], cur[3] = t, v
     # El Activity report de Samsara usa el ODOMETRO (Start/End Odometer), no la
     # distancia GPS (que da menos). Se prefiere OBD; fallback a odometro/dist GPS.
     out: dict[str, float] = {}
     for name, types in acc.items():
         for typ in ("obdOdometerMeters", "gpsOdometerMeters",
                     "gpsDistanceMeters"):
-            mm = types.get(typ)
-            if mm:
-                out[name] = round((mm[1] - mm[0]) / 1609.344, 1)
+            c = types.get(typ)
+            if c:
+                out[name] = round((c[3] - c[1]) / 1609.344, 1)
                 break
     return out, rows[:3]
 
