@@ -759,25 +759,36 @@ async def _org_day_distance(
         "/fleet/vehicles/stats/history"
         "?types=obdOdometerMeters,gpsOdometerMeters,gpsDistanceMeters"
         f"&startTime={s}&endTime={e}")
-    out: dict[str, float] = {}
+    # La serie de un vehiculo se reparte en VARIAS paginas (Samsara pagina por
+    # tiempo: cada pagina trae un tramo). Hay que acumular min/max por vehiculo
+    # ACROSS paginas; si no, queda el delta de un solo tramo (mucho menos).
+    acc: dict[str, dict[str, list[float]]] = {}
     for x in rows:
         name = (x.get("name") or "").strip()
         if not name:
             continue
-        # El Activity report de Samsara usa el ODOMETRO (Start/End Odometer),
-        # no la distancia GPS (que da menos). Se toma el delta del odometro OBD
-        # del dia; si la unidad no lo reporta, cae al odometro/distancia GPS.
-        miles = None
         for typ in ("obdOdometerMeters", "gpsOdometerMeters",
                     "gpsDistanceMeters"):
-            series = x.get(typ) or []
-            vals = [p.get("value") for p in series
+            vals = [p.get("value") for p in (x.get(typ) or [])
                     if isinstance(p, dict) and p.get("value") is not None]
-            if len(vals) >= 2:
-                miles = round((max(vals) - min(vals)) / 1609.344, 1)
+            if not vals:
+                continue
+            mm = acc.setdefault(name, {}).get(typ)
+            if mm is None:
+                acc[name][typ] = [min(vals), max(vals)]
+            else:
+                mm[0] = min(mm[0], min(vals))
+                mm[1] = max(mm[1], max(vals))
+    # El Activity report de Samsara usa el ODOMETRO (Start/End Odometer), no la
+    # distancia GPS (que da menos). Se prefiere OBD; fallback a odometro/dist GPS.
+    out: dict[str, float] = {}
+    for name, types in acc.items():
+        for typ in ("obdOdometerMeters", "gpsOdometerMeters",
+                    "gpsDistanceMeters"):
+            mm = types.get(typ)
+            if mm:
+                out[name] = round((mm[1] - mm[0]) / 1609.344, 1)
                 break
-        if miles is not None:
-            out[name] = miles
     return out, rows[:3]
 
 
