@@ -215,28 +215,28 @@ export default function NotifyPage() {
             copy to their terminal.
           </p>
         </div>
-        <div className="head-actions">
+        <div className="head-actions nf-status">
           <button className="btn btn-primary"
             onClick={() => setBroadcastOpen(true)}>
             Mensaje / Plantillas
           </button>
+          {status && (
+            <>
+              <span className={`nf-pill ${status.mode === 'live' ? 'is-on' : 'is-demo'}`}>
+                <span className="nf-dot" />
+                {status.mode === 'live' ? 'Live sheet' : 'Demo data'}
+              </span>
+              <span className={`nf-pill ${emailSim ? 'is-sim' : 'is-real'}`}>
+                <span className="nf-pill-ico">{IcoMail}</span>
+                {emailSim ? 'Email: simulated' : 'Email: LIVE'}
+              </span>
+              <span className={`nf-pill ${smsSim ? 'is-sim' : 'is-real'}`}>
+                <span className="nf-pill-ico">{IcoSms}</span>
+                {smsSim ? 'SMS: simulated' : 'SMS: LIVE'}
+              </span>
+            </>
+          )}
         </div>
-        {status && (
-          <div className="head-actions nf-status">
-            <span className={`nf-pill ${status.mode === 'live' ? 'is-on' : 'is-demo'}`}>
-              <span className="nf-dot" />
-              {status.mode === 'live' ? 'Live sheet' : 'Demo data'}
-            </span>
-            <span className={`nf-pill ${emailSim ? 'is-sim' : 'is-real'}`}>
-              <span className="nf-pill-ico">{IcoMail}</span>
-              {emailSim ? 'Email: simulated' : 'Email: LIVE'}
-            </span>
-            <span className={`nf-pill ${smsSim ? 'is-sim' : 'is-real'}`}>
-              <span className="nf-pill-ico">{IcoSms}</span>
-              {smsSim ? 'SMS: simulated' : 'SMS: LIVE'}
-            </span>
-          </div>
-        )}
       </div>
 
       {status?.live_error && (

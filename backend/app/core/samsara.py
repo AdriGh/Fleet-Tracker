@@ -19,6 +19,7 @@ import re
 import time
 import urllib.parse
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -632,15 +633,21 @@ _STATUS_MAP = {
 }
 
 
+# Zona horaria operativa de la flota (la mayoria esta en Central). El "dia"
+# del reporte es el dia LOCAL, no UTC: si no, un DVIR de las 7pm local (que en
+# UTC cae despues de medianoche) se atribuiria al dia siguiente. Se puede
+# hacer configurable por org mas adelante.
+_FLEET_TZ = ZoneInfo("America/Chicago")
+
+
 def _day_window(day: datetime.date) -> tuple[str, str]:
-    """Ventana ISO (UTC) que cubre un dia: [00:00, +1d 00:00).
-    TODO(tz): el dia operativo es local; por ahora UTC (refinable con la tz
-    de la flota)."""
-    start = datetime.datetime(day.year, day.month, day.day,
-                              tzinfo=datetime.timezone.utc)
+    """Ventana ISO en UTC que cubre el dia LOCAL de la flota
+    [00:00, +1d 00:00) hora Central, convertido a UTC para la API."""
+    start = datetime.datetime(day.year, day.month, day.day, tzinfo=_FLEET_TZ)
     end = start + datetime.timedelta(days=1)
     fmt = "%Y-%m-%dT%H:%M:%SZ"
-    return start.strftime(fmt), end.strftime(fmt)
+    return (start.astimezone(datetime.timezone.utc).strftime(fmt),
+            end.astimezone(datetime.timezone.utc).strftime(fmt))
 
 
 def _orgs_for(company: str | None) -> list[dict]:
