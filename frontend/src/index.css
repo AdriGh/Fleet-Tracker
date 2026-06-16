@@ -2473,6 +2473,7 @@ td.dur-high {
 }
 .avisos-preview .card-body {
   min-height: 0;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -4446,6 +4447,10 @@ table.defects-table td {
 /* Paso 3: dock de envío */
 .nf-dock-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .nf-channels { display: flex; gap: 8px; }
+.nf-tpl { display: flex; align-items: center; gap: 7px; font-size: 0.8rem; }
+.nf-tpl > span { color: var(--text-muted); text-transform: uppercase;
+  letter-spacing: .04em; font-weight: 600; font-size: 0.72rem; }
+.nf-tpl select { max-width: 230px; }
 .nf-channel {
   display: inline-flex;
   align-items: center;
@@ -4599,7 +4604,14 @@ table.defects-table td {
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface-2);
+  /* Cadena de altura: el cuerpo del mail (prev-body) scrollea cuando el
+     aviso es largo, en vez de cortarse. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
 }
+.mail-head, .mail-subject { flex: none; }
 .mail-head {
   display: flex;
   align-items: flex-start;
