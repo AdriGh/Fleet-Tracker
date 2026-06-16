@@ -117,6 +117,13 @@ export default function EldPreviewModal(
         </div>
       )}
 
+      {res?.demo && (
+        <div className="banner warn">
+          <span>Datos <b>demo</b> (sintéticos) — no hay un ELD real
+            conectado.</span>
+        </div>
+      )}
+
       {res?.available && (
         <>
           <div style={{

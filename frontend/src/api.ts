@@ -299,6 +299,7 @@ export async function listFleet(): Promise<FleetUnit[]> {
 export interface EldPreview {
   available: boolean
   detail?: string
+  demo?: boolean
   day?: string
   company?: string | null
   dvir_count?: number

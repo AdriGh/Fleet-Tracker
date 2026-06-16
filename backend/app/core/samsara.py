@@ -24,7 +24,14 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from .open_defects import _is_noise, company_of
-from . import secretstore
+from .. import config
+from . import demo_eld, secretstore
+
+
+def _demo() -> bool:
+    """True si se debe usar el ELD sintetico (demo): forzado por FLEET_DEMO o
+    porque no hay ninguna Samsara configurada."""
+    return config.DEMO_ELD or not _orgs()
 
 CONF_PATH = Path(__file__).resolve().parents[2] / "samsara.local.json"
 
@@ -155,8 +162,8 @@ def _orgs() -> list[dict]:
 
 
 def is_available() -> bool:
-    """True si hay al menos un org/token configurado."""
-    return bool(_orgs())
+    """True si hay un org/token configurado o si corre en modo demo."""
+    return _demo() or bool(_orgs())
 
 
 async def _get(client: httpx.AsyncClient, cfg: dict, path: str) -> dict:
@@ -535,6 +542,8 @@ async def list_fleet(auto_days: int | None = None) -> list[dict]:
     si `auto_days` viene dado, el último DVIR de cada unidad (para auto-archivo).
     Lanza excepción si la API falla.
     """
+    if _demo():
+        return demo_eld.fleet()
     orgs = _orgs()
     if not orgs:
         return []
@@ -801,6 +810,8 @@ async def _org_day_distance(
 async def report_dvir_rows(
     company: str | None, day: datetime.date,
 ) -> list[dict]:
+    if _demo():
+        return demo_eld.dvir_rows(company, day)
     orgs = _orgs_for(company)
     if not orgs:
         return []
@@ -814,6 +825,8 @@ async def report_dvir_rows(
 async def report_day_distance(
     company: str | None, day: datetime.date,
 ) -> dict[str, float]:
+    if _demo():
+        return demo_eld.day_distance(company, day)
     orgs = _orgs_for(company)
     if not orgs:
         return {}
@@ -895,6 +908,8 @@ async def report_pretrip(
     company: str | None, day: datetime.date,
 ) -> dict[str, dict]:
     """{name_key(driver): {pre, post}} de un dia, de los HoS de Samsara."""
+    if _demo():
+        return demo_eld.pretrip(company, day)
     orgs = _orgs_for(company)
     if not orgs:
         return {}
@@ -917,6 +932,20 @@ async def report_eld_diagnostic(
     """Trae DVIR + distancia del dia y devuelve lo PARSEADO + una muestra
     CRUDA de Samsara y los errores, para validar/ajustar los nombres de
     campo antes de armar el reporte encima."""
+    if _demo():
+        rows = demo_eld.dvir_rows(company, day)
+        dist = demo_eld.day_distance(company, day)
+        pt = demo_eld.pretrip(company, day)
+        return {
+            "available": True, "day": day.isoformat(), "company": company,
+            "demo": True,
+            "dvir_count": len(rows), "dvir_rows": rows,
+            "distance_count": len(dist), "distance": dist,
+            "pretrip_count": sum(1 for v in pt.values()
+                                 if v.get("pre") is not None),
+            "raw": {"note": "modo demo: datos sinteticos (sin Samsara real)"},
+            "errors": [],
+        }
     orgs = _orgs_for(company)
     if not orgs:
         return {"available": False, "detail": "Samsara not configured",

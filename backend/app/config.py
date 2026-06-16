@@ -24,4 +24,8 @@ IS_SQLITE = DATABASE_URL.startswith("sqlite")
 # Origenes permitidos para CORS (servidor de desarrollo de Vite).
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
+# Modo demo del ELD: usa datos sinteticos (core.demo_eld) en vez de Samsara.
+# Si no se fuerza, se activa solo cuando no hay Samsara configurada.
+DEMO_ELD = os.environ.get("FLEET_DEMO", "").strip().lower() in ("1", "true", "yes")
+
 JOBS_DIR.mkdir(exist_ok=True)
