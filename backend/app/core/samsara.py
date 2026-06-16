@@ -757,17 +757,27 @@ async def _org_day_distance(
     rows = await _paged(
         client, cfg,
         "/fleet/vehicles/stats/history"
-        f"?types=gpsDistanceMeters&startTime={s}&endTime={e}")
+        "?types=obdOdometerMeters,gpsOdometerMeters,gpsDistanceMeters"
+        f"&startTime={s}&endTime={e}")
     out: dict[str, float] = {}
     for x in rows:
         name = (x.get("name") or "").strip()
         if not name:
             continue
-        series = x.get("gpsDistanceMeters") or []
-        vals = [p.get("value") for p in series
-                if isinstance(p, dict) and p.get("value") is not None]
-        if len(vals) >= 2:                      # delta = distancia del dia
-            out[name] = round((max(vals) - min(vals)) / 1609.344, 1)
+        # El Activity report de Samsara usa el ODOMETRO (Start/End Odometer),
+        # no la distancia GPS (que da menos). Se toma el delta del odometro OBD
+        # del dia; si la unidad no lo reporta, cae al odometro/distancia GPS.
+        miles = None
+        for typ in ("obdOdometerMeters", "gpsOdometerMeters",
+                    "gpsDistanceMeters"):
+            series = x.get(typ) or []
+            vals = [p.get("value") for p in series
+                    if isinstance(p, dict) and p.get("value") is not None]
+            if len(vals) >= 2:
+                miles = round((max(vals) - min(vals)) / 1609.344, 1)
+                break
+        if miles is not None:
+            out[name] = miles
     return out, rows[:3]
 
 
