@@ -676,6 +676,11 @@ def _name_of(ref: dict | None, assets: dict) -> str:
 
 
 def _author_of(d: dict) -> str:
+    # El autor del DVIR firma en authorSignature.signatoryUser (formato real
+    # de /fleet/dvirs/history). Se dejan fallbacks por compatibilidad.
+    sig = (d.get("authorSignature") or {}).get("signatoryUser") or {}
+    if str(sig.get("name") or "").strip():
+        return sig["name"].strip()
     for k in ("driver", "author", "createdBy", "signedBy"):
         v = d.get(k)
         if isinstance(v, dict) and (v.get("name") or "").strip():
@@ -707,8 +712,9 @@ def _dvir_to_row(d: dict, assets: dict) -> dict:
     """Un DVIR de Samsara -> fila con las columnas del dvir_df del engine."""
     veh = _name_of(d.get("vehicle"), assets)
     trl = _name_of(d.get("trailer"), assets)
-    signed = (d.get("time") or d.get("endTime") or d.get("startTime")
-              or (d.get("signature") or {}).get("signedAtTime") or "")
+    signed = (d.get("endTime") or d.get("time")
+              or (d.get("authorSignature") or {}).get("signedAtTime")
+              or d.get("startTime") or "")
     details = _defect_details(d)
     return {
         "Vehicle Name": veh,
@@ -716,7 +722,7 @@ def _dvir_to_row(d: dict, assets: dict) -> dict:
         "Author": _author_of(d),
         "Signed At": str(signed),
         "Status": _status_of(d),
-        "Type": str(d.get("inspectionType") or "").strip(),
+        "Type": str(d.get("type") or d.get("inspectionType") or "").strip(),
         "Vehicle Defect Details": details if veh else "",
         "Trailer Defect Details": details if (trl and not veh) else "",
         "Mechanic Notes": "",
