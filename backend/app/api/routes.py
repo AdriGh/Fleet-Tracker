@@ -128,6 +128,7 @@ def batch_generate(req: BatchGenerateRequest):
 
     roster = engine.load_roster(
         config.DEFAULT_ROSTER if config.DEFAULT_ROSTER.exists() else None)
+    incl_pretrip = engine.template_pretrip(req.template)
 
     by_company: dict[str, list] = {}
     warnings: list[str] = []
@@ -149,7 +150,7 @@ def batch_generate(req: BatchGenerateRequest):
                 if pt_file else {}
             groups = engine.build_report(
                 dvir_df, activity_data, roster, engine.MIN_MILES,
-                block.company, pretrip_data)
+                block.company, pretrip_data, include_pretrip=incl_pretrip)
         except engine.ReportError as exc:
             raise HTTPException(
                 422, f"Block {block.company} {block.date_label}: "
@@ -224,9 +225,16 @@ async def reporting_eld_preview(date: str, company: str | None = None):
     return await samsara.report_eld_diagnostic(company, day)
 
 
+@router.get("/reporting/templates")
+def reporting_templates():
+    """Plantillas de reporte (Standard con Pre-trip / Legacy sin)."""
+    return {"templates": engine.REPORT_TEMPLATES}
+
+
 class EldImportIn(BaseModel):
     date: str            # YYYY-MM-DD
     company: str
+    template: str = "standard"
 
 
 @router.post("/reporting/eld/import")
@@ -242,9 +250,12 @@ async def reporting_eld_import(body: EldImportIn):
     if not company:
         raise HTTPException(status_code=422, detail="Falta la empresa")
 
+    incl_pretrip = engine.template_pretrip(body.template)
     rows = await samsara.report_dvir_rows(company, day)
     activity = await samsara.report_day_distance(company, day)
-    pretrip_data = await samsara.report_pretrip(company, day)
+    # Legacy no usa pre-trip: ni se pide a Samsara.
+    pretrip_data = (await samsara.report_pretrip(company, day)
+                    if incl_pretrip else {})
     if not rows and not activity:
         raise HTTPException(
             status_code=422,
@@ -256,7 +267,8 @@ async def reporting_eld_import(body: EldImportIn):
         config.DEFAULT_ROSTER if config.DEFAULT_ROSTER.exists() else None)
     dvir_df = engine.dvir_df_from_rows(rows)
     groups = engine.build_report(
-        dvir_df, activity, roster, engine.MIN_MILES, company, pretrip_data)
+        dvir_df, activity, roster, engine.MIN_MILES, company, pretrip_data,
+        include_pretrip=incl_pretrip)
     metrics = engine.block_metrics(dvir_df, groups)
     defects = engine.extract_defects(dvir_df)
     date_label = f"{day.month}.{day.day}"
@@ -1653,7 +1665,9 @@ def dvir_block(block_id: int):
     block = db.get_block(block_id)
     if block is None:
         raise HTTPException(404, "Block not found.")
-    block["columns"] = engine.COLUMNS
+    # Columnas segun la plantilla del bloque (Legacy = sin Pre-trip), derivadas
+    # de los datos guardados.
+    block["columns"] = engine.columns_for_groups(block["groups"])
     return block
 
 

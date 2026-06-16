@@ -31,6 +31,7 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [drag, setDrag] = useState(false)
+  const [template, setTemplate] = useState('standard')
 
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -89,6 +90,7 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
           activity_file_id: b.activity_file_id,
           pretrip_file_id: b.pretrip_file_id,
         })),
+        template,
       )
       setResult(res)
       onCreated()
@@ -327,6 +329,18 @@ export default function CreateReportModal({ onClose, onCreated }: Props) {
               </div>
 
               <div className="actions">
+                <label style={{ display: 'flex', alignItems: 'center',
+                  gap: 8, marginRight: 'auto' }}>
+                  <span style={{ fontSize: 13, color: 'var(--muted,#667)' }}>
+                    Plantilla
+                  </span>
+                  <select className="cell-input" value={template}
+                    onChange={(e) => setTemplate(e.target.value)}
+                    style={{ width: 'auto' }}>
+                    <option value="standard">Standard (con Pre-trip)</option>
+                    <option value="legacy">Legacy (DVIR + Activity)</option>
+                  </select>
+                </label>
                 <button
                   className="btn btn-primary"
                   disabled={!complete || generating}

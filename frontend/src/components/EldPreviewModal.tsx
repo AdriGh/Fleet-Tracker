@@ -10,6 +10,7 @@ export default function EldPreviewModal(
 ) {
   const [date, setDate] = useState('')
   const [company, setCompany] = useState('')
+  const [template, setTemplate] = useState('standard')
   const [busy, setBusy] = useState(false)
   const [res, setRes] = useState<EldPreview | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -37,7 +38,7 @@ export default function EldPreviewModal(
     setImporting(true)
     setErr(null)
     try {
-      const r = await eldImport(date, company)
+      const r = await eldImport(date, company, template)
       setDone(`Importado: ${r.company} ${r.date_label} · `
         + `${r.n_reports} con DVIR · ${r.n_no_dvir} NO DVIR`)
       onImported?.()
@@ -79,6 +80,14 @@ export default function EldPreviewModal(
             <option value="">(todas)</option>
             <option value="CHASER">CHASER</option>
             <option value="MCC">MCC</option>
+          </select>
+        </label>
+        <label>
+          <span>Plantilla</span>
+          <select className="cell-input" value={template}
+            onChange={(e) => setTemplate(e.target.value)}>
+            <option value="standard">Standard (con Pre-trip)</option>
+            <option value="legacy">Legacy (DVIR + Activity)</option>
           </select>
         </label>
         <button className="btn btn-primary" onClick={run} disabled={busy}>

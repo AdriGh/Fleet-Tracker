@@ -126,14 +126,24 @@ export async function analyzeBatch(
 export async function generateBatch(
   batchId: string,
   blocks: BatchBlockInput[],
+  template = 'standard',
 ): Promise<BatchGenerateResponse> {
   const res = await fetch('/api/batch/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ batch_id: batchId, blocks }),
+    body: JSON.stringify({ batch_id: batchId, blocks, template }),
   })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
+}
+
+// --- Plantillas de reporte (Standard / Legacy) --------------------------
+export interface ReportTemplate { id: string; name: string; pretrip: boolean }
+
+export async function listReportTemplates(): Promise<ReportTemplate[]> {
+  const res = await fetch('/api/reporting/templates')
+  if (!res.ok) throw new Error(await readError(res))
+  return ((await res.json()).templates ?? []) as ReportTemplate[]
 }
 
 // --- Panel DVIR -------------------------------------------------------
@@ -320,12 +330,12 @@ export interface EldImportResult {
 }
 
 export async function eldImport(
-  date: string, company: string,
+  date: string, company: string, template = 'standard',
 ): Promise<EldImportResult> {
   const res = await fetch('/api/reporting/eld/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ date, company }),
+    body: JSON.stringify({ date, company, template }),
   })
   if (!res.ok) throw new Error(await readError(res))
   return (await res.json()) as EldImportResult
