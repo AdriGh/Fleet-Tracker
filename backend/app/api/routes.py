@@ -23,6 +23,7 @@ from ..core import (
     manual_units, media_host, notify_service, open_defects, org_config,
     parts, permissions, pm, pois, pretrip, providers, reefer, samsara,
     sms_service,
+    teams,
     telegram_notify, terminals, thermoking, tms, traccar, tracking,
     unit_settings, unitdocs, vin_decode, wo_invoice, workorders,
 )
@@ -1024,6 +1025,62 @@ def terminals_assign(body: TerminalAssignIn,
     _require_admin(authorization)
     try:
         return terminals.assign(body.terminal, body.units)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+# ----- Equipos (Settings → Teams) ------------------------------------------
+
+class DriverIn(BaseModel):
+    name: str = ""
+    email: str = ""
+
+
+class TeamIn(BaseModel):
+    key: str = ""            # vacío = crear; existente = editar
+    label: str
+    drivers: list[DriverIn] = []
+
+
+class TeamAssignIn(BaseModel):
+    team: str
+    units: list[str] = []
+
+
+@router.get("/teams")
+def teams_get():
+    """Equipos configurados + membresías unidad→equipo."""
+    return teams.get_all()
+
+
+@router.post("/teams")
+def teams_save(body: TeamIn,
+               authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    try:
+        return teams.save_team(
+            body.key, body.label, [d.model_dump() for d in body.drivers])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/teams/{key}")
+def teams_delete(key: str,
+                 authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    try:
+        return teams.delete_team(key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/teams/assign")
+def teams_assign(body: TeamAssignIn,
+                 authorization: str | None = Header(default=None)):
+    """Reemplaza la flota del equipo por la lista enviada."""
+    _require_admin(authorization)
+    try:
+        return teams.assign(body.team, body.units)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

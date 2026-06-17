@@ -581,6 +581,64 @@ export async function assignTerminal(
   return (await res.json()) as TerminalsConfig
 }
 
+// --- Equipos (Settings → Teams) ----------------------------------------
+// Un equipo es un grupo explícito de unidades + una lista de conductores.
+// Sin prefijos: una unidad pertenece a un equipo solo si está asignada.
+export interface Driver {
+  name: string
+  email: string
+}
+
+export interface TeamDef {
+  key: string
+  label: string
+  drivers: Driver[]
+}
+
+export interface TeamsConfig {
+  teams: TeamDef[]
+  members: Record<string, string>   // unidad → key de equipo
+}
+
+export async function listTeams(): Promise<TeamsConfig> {
+  const res = await fetch('/api/teams')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as TeamsConfig
+}
+
+export async function saveTeam(t: {
+  key?: string; label: string; drivers: Driver[]
+}): Promise<TeamsConfig> {
+  const res = await fetch('/api/teams', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: t.key ?? '', label: t.label,
+      drivers: t.drivers }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as TeamsConfig
+}
+
+export async function deleteTeam(key: string): Promise<TeamsConfig> {
+  const res = await fetch(`/api/teams/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as TeamsConfig
+}
+
+export async function assignTeam(
+  team: string, units: string[],
+): Promise<TeamsConfig> {
+  const res = await fetch('/api/teams/assign', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ team, units }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as TeamsConfig
+}
+
 // --- Live Map (tracking en vivo, fase G1) -------------------------------
 export interface TrackVehicle {
   id: string

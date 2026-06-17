@@ -1,19 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  addCompany, assignTerminal, createAppUser, deleteCompany, deleteTerminal,
+  addCompany, assignTeam, assignTerminal, createAppUser, deleteCompany,
+  deleteTeam, deleteTerminal,
   eldFleetPreview, fleetArchive, getAlertsSettings, getHealth,
   getIntegrationSpecs, getIntegrations, getOrg, getSettings, importUnitsCsv,
   listAppUsers, listCompanies,
   listFleet, patchAppUser, renameCompany, saveAlertsSettings,
-  saveIntegrationConfig, saveOrg, saveSettings, saveTerminal, setEldActive,
+  saveIntegrationConfig, saveOrg, saveSettings, saveTeam, saveTerminal,
+  setEldActive,
   testIntegration, unitsCsvTemplate,
-  type AlertsSettings, type Company, type FleetUnit,
+  type AlertsSettings, type Company, type Driver, type FleetUnit,
   type IntegrationProvider, type IntegrationSpec, type IntegrationStatus,
-  type OrgConfig, type TerminalDef, type TerminalsConfig,
+  type OrgConfig, type TeamDef, type TeamsConfig,
+  type TerminalDef, type TerminalsConfig,
   type UnitImportResult,
 } from '../api'
 import { useTerminals } from '../terminal'
+import { useTeams } from '../teams'
 import { notifyOk, notifyErr } from '../toast'
 import Skeleton from '../components/Skeleton'
 import Modal from '../components/Modal'
@@ -263,6 +267,7 @@ export default function SettingsPage(
       {isAdmin && <CompanyCard />}
       {isAdmin && <CompaniesCard />}
       {isAdmin && <TerminalsCard activeUnits={activeUnits} />}
+      {isAdmin && <TeamsCard activeUnits={activeUnits} />}
       {isAdmin && <UsersCard />}
 
       {/* ----- Alertas de flota (G3) ----- */}
@@ -2147,6 +2152,367 @@ function TerminalPicker({ units, terminal, cfg, terminalOf, labelOf, busy, onSav
         <button className="btn btn-primary" disabled={busy}
           onClick={() => onSave([...picked])}>
           {busy ? 'Saving…' : `Save (${picked.size} pinned)`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ----- Equipos: grupos de unidades + conductores (solo admin) ------------
+function TeamsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const { cfg, teams, teamOf, labelOf } = useTeams()
+  const [assigning, setAssigning] = useState<TeamDef | null>(null)
+  const [editing, setEditing] = useState<TeamDef | null>(null)
+  const [nLabel, setNLabel] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  // Unidades efectivas por equipo (de la flota activa) y total pinneado
+  // (incluye archivadas, que no aparecen en activeUnits).
+  const counts = useMemo(() => {
+    const eff: Record<string, number> = {}
+    for (const u of activeUnits) {
+      const k = teamOf(u.unit)
+      if (k) eff[k] = (eff[k] ?? 0) + 1
+    }
+    const total: Record<string, number> = {}
+    for (const t of Object.values(cfg.members)) {
+      total[t] = (total[t] ?? 0) + 1
+    }
+    return { eff, total }
+  }, [activeUnits, teamOf, cfg])
+
+  async function persist(
+    run: () => Promise<TeamsConfig>, ok: string,
+  ): Promise<boolean> {
+    setBusy(true)
+    try {
+      qc.setQueryData(['teams'], await run())
+      notifyOk(ok)
+      return true
+    } catch (e) {
+      notifyErr("Couldn't save teams", e)
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function addTeam() {
+    if (!nLabel.trim()) {
+      notifyErr('Missing name', 'Give the team a name')
+      return
+    }
+    if (await persist(
+      () => saveTeam({ label: nLabel.trim(), drivers: [] }),
+      `Team ${nLabel.trim()} created`,
+    )) setNLabel('')
+  }
+
+  async function saveEdited(label: string, drivers: Driver[]) {
+    if (!editing) return
+    if (await persist(
+      () => saveTeam({ key: editing.key, label, drivers }),
+      `Team ${label} saved`,
+    )) setEditing(null)
+  }
+
+  async function remove(t: TeamDef) {
+    const n = counts.total[t.key] ?? 0
+    if (!window.confirm(
+      `Delete team ${t.label}?` +
+      (n ? ` ${n} unit${n === 1 ? '' : 's'} will be unassigned.` : ''))) return
+    await persist(() => deleteTeam(t.key), `Team ${t.label} deleted`)
+  }
+
+  return (
+    <section className="card settings-card">
+      <button className="collapse-head" onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}>
+        <svg className={`collapse-chevron ${open ? 'open' : ''}`}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+        <div>
+          <h2>Teams</h2>
+          <span className="sub">
+            Fleet groups with their drivers · {teams.length}
+          </span>
+        </div>
+      </button>
+
+      {open && (
+        <div className="card-body">
+          <p className="settings-help">
+            Teams group fleet units together with the drivers that run them
+            — handy for dispatch and ownership. A unit belongs to a team
+            only when you assign it (a unit can be in one team at a time).
+          </p>
+
+          {teams.length === 0 ? (
+            <p className="muted" style={{ margin: '6px 0 2px' }}>
+              No teams yet. Create one below, then add drivers and fleet.
+            </p>
+          ) : (
+            <table className="defects-table users-table">
+              <thead>
+                <tr>
+                  <th>Team</th>
+                  <th>Drivers</th>
+                  <th>Units</th>
+                  <th aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {teams.map((t) => (
+                  <tr key={t.key}>
+                    <td>
+                      <span className="nf-driver-text">
+                        <strong>{t.label}</strong>
+                        <span className="nf-units">{t.key}</span>
+                      </span>
+                    </td>
+                    <td>
+                      {t.drivers.length === 0
+                        ? <span className="muted">—</span>
+                        : (
+                          <span>
+                            {t.drivers.slice(0, 2)
+                              .map((d) => d.name || d.email).join(', ')}
+                            {t.drivers.length > 2 && (
+                              <span className="muted">
+                                {' '}+{t.drivers.length - 2}
+                              </span>
+                            )}
+                          </span>
+                        )}
+                    </td>
+                    <td>
+                      {counts.eff[t.key] ?? 0}
+                      {(counts.total[t.key] ?? 0)
+                        > (counts.eff[t.key] ?? 0) && (
+                        <span className="muted">
+                          {' '}· {counts.total[t.key]} total
+                        </span>
+                      )}
+                    </td>
+                    <td className="num">
+                      <span className="users-reset">
+                        <button className="btn btn-ghost btn-xs"
+                          onClick={() => setAssigning(t)}>
+                          Assign fleet
+                        </button>
+                        <button className="btn btn-ghost btn-xs"
+                          onClick={() => setEditing(t)}>
+                          Edit
+                        </button>
+                        <button className="icon-x" title="Delete team"
+                          onClick={() => remove(t)}>✕</button>
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <hr className="settings-divider" />
+          <h3 className="settings-sub-h">Add team</h3>
+          <div className="settings-add-row">
+            <input className="cell-input" placeholder="Name (e.g. Road Crew)"
+              value={nLabel} onChange={(e) => setNLabel(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') addTeam() }} />
+            <button className="btn btn-primary btn-expand" onClick={addTeam}
+              disabled={busy}>
+              <span className="btn-plus" aria-hidden>＋</span>
+              {busy ? 'Saving…' : 'Add team'}
+            </button>
+          </div>
+          <p className="settings-help">
+            After creating a team, use <strong>Edit</strong> to add drivers
+            and <strong>Assign fleet</strong> to add units.
+          </p>
+        </div>
+      )}
+
+      {editing && (
+        <Modal title={`Edit team — ${editing.label}`} width={520}
+          onClose={() => setEditing(null)}>
+          <TeamEditor team={editing} busy={busy} onSave={saveEdited} />
+        </Modal>
+      )}
+
+      {assigning && (
+        <Modal title={`Assign fleet — ${assigning.label}`} width={560}
+          onClose={() => setAssigning(null)}>
+          <TeamPicker units={activeUnits} team={assigning} cfg={cfg}
+            teamOf={teamOf} labelOf={labelOf} busy={busy}
+            onSave={async (us) => {
+              if (await persist(
+                () => assignTeam(assigning.key, us),
+                `${assigning.label}: ${us.length} unit${us.length === 1 ? '' : 's'} assigned`,
+              )) setAssigning(null)
+            }} />
+        </Modal>
+      )}
+    </section>
+  )
+}
+
+// Editor de un equipo: nombre + lista de conductores ({name, email}).
+function TeamEditor({ team, busy, onSave }: {
+  team: TeamDef
+  busy: boolean
+  onSave: (label: string, drivers: Driver[]) => void
+}) {
+  const [label, setLabel] = useState(team.label)
+  const [drivers, setDrivers] = useState<Driver[]>(
+    team.drivers.map((d) => ({ ...d })))
+
+  const setDriver = (i: number, patch: Partial<Driver>) =>
+    setDrivers((ds) => ds.map((d, j) => (j === i ? { ...d, ...patch } : d)))
+  const addDriver = () =>
+    setDrivers((ds) => [...ds, { name: '', email: '' }])
+  const removeDriver = (i: number) =>
+    setDrivers((ds) => ds.filter((_, j) => j !== i))
+  const clean = () => drivers
+    .map((d) => ({ name: d.name.trim(), email: d.email.trim() }))
+    .filter((d) => d.name || d.email)
+
+  return (
+    <div className="team-editor">
+      <label className="ud-field">
+        <span>Team name</span>
+        <input className="cell-input" value={label} autoFocus
+          onChange={(e) => setLabel(e.target.value)} />
+      </label>
+
+      <h4 className="settings-sub-h">Drivers</h4>
+      {drivers.length === 0 && (
+        <p className="muted" style={{ margin: '2px 0 8px' }}>
+          No drivers yet — add the people who run this team.
+        </p>
+      )}
+      <div className="team-drivers">
+        {drivers.map((d, i) => (
+          <div className="team-driver-row" key={i}>
+            <input className="cell-input" placeholder="Name"
+              value={d.name}
+              onChange={(e) => setDriver(i, { name: e.target.value })} />
+            <input className="cell-input" placeholder="email@company.com"
+              value={d.email} type="email"
+              onChange={(e) => setDriver(i, { email: e.target.value })} />
+            <button className="icon-x" title="Remove driver"
+              onClick={() => removeDriver(i)}>✕</button>
+          </div>
+        ))}
+      </div>
+      <button className="btn btn-ghost btn-xs btn-expand" onClick={addDriver}>
+        <span className="btn-plus" aria-hidden>＋</span>Add driver
+      </button>
+
+      <div className="ep-foot">
+        <span className="settings-sub">
+          Empty rows are dropped on save.
+        </span>
+        <button className="btn btn-primary btn-expand"
+          disabled={busy || !label.trim()}
+          onClick={() => onSave(label.trim(), clean())}>
+          {busy ? 'Saving…' : 'Save team'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Picker de flota para un equipo: marcar = la unidad pertenece a este
+// equipo; desmarcar = queda sin equipo. Una unidad solo puede estar en un
+// equipo, así que marcarla aquí la mueve desde el equipo que tuviera.
+function TeamPicker({ units, team, cfg, teamOf, labelOf, busy, onSave }: {
+  units: FleetUnit[]
+  team: TeamDef
+  cfg: TeamsConfig
+  teamOf: (unit: string) => string
+  labelOf: (key: string) => string
+  busy: boolean
+  onSave: (units: string[]) => void
+}) {
+  const [q, setQ] = useState('')
+  // Preseleccionar TODOS los miembros de este equipo desde la config (no
+  // solo flota activa): assign() reemplaza el set entero, así que un
+  // miembro archivado debe viajar en `picked` para no borrarse al guardar.
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(
+    Object.entries(cfg.members)
+      .filter(([, key]) => key === team.key)
+      .map(([unit]) => unit)))
+  const shown = useMemo(() => {
+    const s = q.trim().toLowerCase()
+    return s
+      ? units.filter((u) => u.unit.toLowerCase().includes(s)
+          || u.company.toLowerCase().includes(s))
+      : units
+  }, [units, q])
+  const allOn = shown.length > 0 && shown.every((u) => picked.has(u.unit))
+
+  function toggle(unit: string) {
+    setPicked((prev) => {
+      const n = new Set(prev)
+      if (n.has(unit)) n.delete(unit); else n.add(unit)
+      return n
+    })
+  }
+  function toggleAll() {
+    setPicked((prev) => {
+      const n = new Set(prev)
+      if (allOn) shown.forEach((u) => n.delete(u.unit))
+      else shown.forEach((u) => n.add(u.unit))
+      return n
+    })
+  }
+
+  function memberHint(u: FleetUnit): string {
+    if (picked.has(u.unit)) return 'in this team'
+    const other = teamOf(u.unit)
+    return other && other !== team.key
+      ? `moves from ${labelOf(other)}`
+      : 'unassigned'
+  }
+
+  return (
+    <div className="export-picker">
+      <input className="cell-input" placeholder="Search units…"
+        value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="ep-head">
+        <label className="ep-all">
+          <input type="checkbox" checked={allOn} onChange={toggleAll} />
+          <span>{allOn ? 'Deselect all' : 'Select all'}</span>
+        </label>
+        <span className="ep-count">
+          {picked.size} in {team.label}
+        </span>
+      </div>
+      <ul className="ep-list">
+        {shown.map((u) => (
+          <li key={u.id}>
+            <label className="ep-item">
+              <input type="checkbox" checked={picked.has(u.unit)}
+                onChange={() => toggle(u.unit)} />
+              <span className="ep-unit">{u.unit}</span>
+              <span className="ep-kind">{u.unit_type}</span>
+              <span className="ep-co">{memberHint(u)}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="ep-foot">
+        <span className="settings-sub">
+          A unit can be in one team at a time.
+        </span>
+        <button className="btn btn-primary" disabled={busy}
+          onClick={() => onSave([...picked])}>
+          {busy ? 'Saving…' : `Save (${picked.size})`}
         </button>
       </div>
     </div>

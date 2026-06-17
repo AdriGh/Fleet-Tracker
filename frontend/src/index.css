@@ -2614,6 +2614,21 @@ td.dur-high {
   white-space: nowrap;
 }
 
+/* Editor de equipo: lista de conductores (nombre + email + quitar). */
+.team-editor { display: flex; flex-direction: column; gap: 6px; }
+.team-editor .settings-sub-h { margin: 10px 0 2px; }
+.team-drivers { display: flex; flex-direction: column; gap: 8px; }
+.team-driver-row {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr auto;
+  gap: 8px;
+  align-items: center;
+}
+.team-editor > .btn-ghost { align-self: flex-start; margin-top: 4px; }
+@media (max-width: 560px) {
+  .team-driver-row { grid-template-columns: 1fr 1fr auto; }
+}
+
 /* Settings */
 .settings-card { width: 100%; }
 .collapse-head {
