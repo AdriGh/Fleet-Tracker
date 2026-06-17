@@ -373,6 +373,8 @@ async def load() -> list[dict]:
 
     Lanza excepción si la API falla; el endpoint la captura y cae al CSV.
     """
+    if _demo():
+        return demo_eld.open_defects()
     orgs = _orgs()
     if not orgs:
         return []
@@ -442,6 +444,8 @@ async def load_window(days: int) -> list[dict]:
     el dashboard (todos los orgs en paralelo). `status` = "Unsafe" (abierto) /
     "Resolved". Lanza excepción si la API falla.
     """
+    if _demo():
+        return demo_eld.defect_window(days)
     orgs = _orgs()
     if not orgs:
         return []
@@ -602,6 +606,8 @@ async def _org_odometers(client: httpx.AsyncClient, cfg: dict) -> dict[str, dict
 
 async def vehicle_odometers() -> dict[str, dict]:
     """{nombre de unidad -> {miles, source}} con el odómetro actual (obd>gps)."""
+    if _demo():
+        return demo_eld.odometers()
     orgs = _orgs()
     if not orgs:
         return {}
@@ -616,6 +622,8 @@ async def vehicle_odometers() -> dict[str, dict]:
 
 async def list_drivers() -> list[dict]:
     """Conductores ACTIVOS de todos los orgs (Samsara `/fleet/drivers`)."""
+    if _demo():
+        return demo_eld.drivers()
     orgs = _orgs()
     if not orgs:
         return []

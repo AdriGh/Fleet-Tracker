@@ -21,7 +21,7 @@ interface BlockRow {
   pretrip_file_id: string
 }
 
-const COMPANIES = ['CHASER', 'MCC']
+const COMPANIES = ['SUMMIT']
 
 export default function CreateReportModal({ onClose, onCreated }: Props) {
   const [analysis, setAnalysis] = useState<BatchAnalyzeResponse | null>(null)

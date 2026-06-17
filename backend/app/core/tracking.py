@@ -29,7 +29,8 @@ from datetime import datetime, timezone
 
 import httpx
 
-from .samsara import _TIMEOUT, _get, _orgs, _paged  # noqa: F401 (reuso interno)
+from . import demo_eld
+from .samsara import _TIMEOUT, _demo, _get, _orgs, _paged  # noqa: F401 (reuso interno)
 
 _STATS_A = ("/fleet/vehicles/stats"
             "?types=gps,engineStates,obdOdometerMeters&limit=512")
@@ -145,6 +146,8 @@ async def _org_track(client: httpx.AsyncClient, cfg: dict) -> dict:
 
 async def load_live() -> dict:
     """Snapshot del mapa: unidades con GPS + resumen de duty status."""
+    if _demo():
+        return demo_eld.map_payload()
     orgs = _orgs()
     if not orgs:
         return {

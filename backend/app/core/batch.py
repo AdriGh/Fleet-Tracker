@@ -26,7 +26,10 @@ _MONTHS = {
 }
 
 # Empresas reconocidas: codigo -> patrones en el nombre del archivo.
+# SUMMIT = empresa demo (para los CSV de portafolio); CHASER/MCC quedan como
+# detección histórica (no se muestran en el selector, solo aquí).
 _COMPANY_PATTERNS = {
+    "SUMMIT": ("summit",),
     "CHASER": ("chaser",),
     "MCC": ("memphis", "mcc"),
 }
