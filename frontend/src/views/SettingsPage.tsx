@@ -363,7 +363,7 @@ export default function SettingsPage(
                 </div>
 
                 <div className="settings-actions">
-                  <button className="btn btn-primary" onClick={save}
+                  <button className="btn btn-primary btn-expand" onClick={save}
                     disabled={!dirty || saving}>
                     {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save changes'}
                   </button>
@@ -517,7 +517,6 @@ export default function SettingsPage(
 
 // ----- Empresa (G7): branding, umbrales y CC routing -----------------------
 const ORG_ACCENTS = ['', '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0d9488']
-const CC_TERMINALS = ['CHASER', 'MEM', 'MDW', 'MIA', 'ATL', 'SAV']
 const THRESHOLD_META: {
   key: keyof OrgConfig['thresholds']
   label: string
@@ -709,13 +708,16 @@ function CompaniesCard() {
                   )}
                 </tbody>
               </table>
-              <div className="settings-actions" style={{ gap: 8 }}>
+              <div className="settings-add-row">
                 <input className="cell-input"
                   placeholder="New company name (e.g. Demo Co)"
                   value={nLabel} onChange={(e) => setNLabel(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') add() }} />
-                <button className="btn btn-primary" disabled={busy}
-                  onClick={add}>Add company</button>
+                <button className="btn btn-primary btn-expand" disabled={busy}
+                  onClick={add}>
+                  <span className="btn-plus" aria-hidden>＋</span>
+                  Add company
+                </button>
               </div>
 
               <hr className="settings-divider" />
@@ -733,10 +735,11 @@ function CompaniesCard() {
                 <code>terminal</code> column.
               </p>
               <div className="settings-actions" style={{ gap: 8 }}>
-                <button className="btn btn-ghost" onClick={downloadTemplate}>
+                <button className="btn btn-ghost btn-expand"
+                  onClick={downloadTemplate}>
                   Download template
                 </button>
-                <label className="btn btn-primary"
+                <label className="btn btn-primary btn-expand"
                   style={{ cursor: importing ? 'default' : 'pointer' }}>
                   {importing ? 'Importing…' : 'Upload CSV'}
                   <input ref={fileRef} type="file" accept=".csv,text/csv" hidden
@@ -773,6 +776,8 @@ function CompanyCard() {
   const q = useQuery({ queryKey: ['org'], queryFn: getOrg, enabled: open })
   const companiesQ = useQuery({
     queryKey: ['companies'], queryFn: listCompanies, enabled: open })
+  // CC routing por terminal configurada (ya no listas hardcodeadas).
+  const { terminals } = useTerminals()
 
   useEffect(() => {
     if (q.data) setForm(JSON.parse(JSON.stringify(q.data)))
@@ -914,27 +919,27 @@ function CompanyCard() {
 
               <h3 className="settings-sub-h">Notice CC routing</h3>
               <p className="settings-help">
-                Comma-separated emails per terminal. Empty = factory
-                default (Chaser/MCCI lists). "Always" goes on every
-                notice.
+                Comma-separated emails per terminal (from your{' '}
+                <strong>Terminals</strong> below). Empty = factory default
+                routing. "Always" goes on every notice.
               </p>
               <div className="org-cc">
                 <label className="ud-field">
                   <span>Always CC</span>
                   <input className="cell-input"
                     value={(form.always_cc ?? []).join(', ')}
-                    placeholder="factory default"
+                    placeholder="every notice"
                     onChange={(e) => setForm({ ...form,
                       always_cc: e.target.value.split(',')
                         .map((s) => s.trim()).filter(Boolean) })} />
                 </label>
-                {CC_TERMINALS.map((t) => (
-                  <label className="ud-field" key={t}>
-                    <span>{t}</span>
+                {terminals.map((t) => (
+                  <label className="ud-field" key={t.key}>
+                    <span>{t.label}</span>
                     <input className="cell-input"
-                      value={(form.cc[t] ?? []).join(', ')}
+                      value={(form.cc[t.key] ?? []).join(', ')}
                       placeholder="factory default"
-                      onChange={(e) => setCc(t, e.target.value)} />
+                      onChange={(e) => setCc(t.key, e.target.value)} />
                   </label>
                 ))}
               </div>
@@ -1079,7 +1084,7 @@ function CompanyCard() {
               ))}
 
               <div className="settings-actions">
-                <button className="btn btn-primary" onClick={save}
+                <button className="btn btn-primary btn-expand" onClick={save}
                   disabled={!dirty || saving}>
                   {saving ? 'Saving…' : 'Save company'}
                 </button>
@@ -1454,7 +1459,7 @@ function AlertsCard() {
               </div>
 
               <div className="settings-actions">
-                <button className="btn btn-primary" onClick={save}
+                <button className="btn btn-primary btn-expand" onClick={save}
                   disabled={!dirty || saving}>
                   {saving ? 'Saving…' : 'Save alert rules'}
                 </button>
@@ -1745,7 +1750,7 @@ function IntegrationConfigModal({ provider, onClose, onSaved }: {
           )}
 
           <div className="settings-actions">
-            <button className="btn btn-primary" onClick={save}
+            <button className="btn btn-primary btn-expand" onClick={save}
               disabled={saving}>
               {saving ? 'Saving…' : 'Save credentials'}
             </button>
@@ -2022,7 +2027,7 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
 
           <hr className="settings-divider" />
           <h3 className="settings-sub-h">Add terminal</h3>
-          <div className="users-add">
+          <div className="settings-add-row">
             <input className="cell-input" placeholder="Name (e.g. Dallas)"
               value={nLabel} onChange={(e) => setNLabel(e.target.value)} />
             <input className="cell-input"
@@ -2030,9 +2035,10 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
               value={nPrefixes}
               onChange={(e) => setNPrefixes(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') addTerminal() }} />
-            <button className="btn btn-primary btn-xs" onClick={addTerminal}
+            <button className="btn btn-primary btn-expand" onClick={addTerminal}
               disabled={busy}>
-              {busy ? 'Saving…' : 'Add'}
+              <span className="btn-plus" aria-hidden>＋</span>
+              {busy ? 'Saving…' : 'Add terminal'}
             </button>
           </div>
           <p className="settings-help">

@@ -2564,6 +2564,56 @@ td.dur-high {
   border-color: #f0d28a; }
 .btn-xs { font-size: 11.5px; padding: 4px 10px; }
 
+/* Botón con efecto "expand" en hover: lift + leve escala + glow. Reutilizable
+   en cualquier .btn (primary o ghost). Respeta prefers-reduced-motion. */
+.btn-expand {
+  transition: background 0.15s, color 0.15s, border-color 0.15s,
+    transform 0.16s cubic-bezier(0.2, 0.8, 0.3, 1), box-shadow 0.18s;
+  will-change: transform;
+}
+.btn-expand:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.025);
+  box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.32);
+}
+.btn-primary.btn-expand:hover:not(:disabled) {
+  box-shadow: 0 10px 22px -6px rgba(226, 35, 26, 0.6);
+}
+.btn-expand:active:not(:disabled) {
+  transform: translateY(0) scale(0.99);
+}
+.btn-plus {
+  font-size: 1.15em;
+  line-height: 0;
+  margin-right: -2px;
+  transition: transform 0.16s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.btn-expand:hover:not(:disabled) .btn-plus {
+  transform: rotate(90deg) scale(1.1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-expand, .btn-plus { transition: background 0.15s; }
+  .btn-expand:hover:not(:disabled) { transform: none; }
+  .btn-expand:hover:not(:disabled) .btn-plus { transform: none; }
+}
+
+/* Fila "agregar" en Settings: inputs flexibles + botón compacto (ya no el
+   grid de 5 columnas de .users-add que estiraba el botón). */
+.settings-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+.settings-add-row .cell-input {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.settings-add-row .btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 /* Settings */
 .settings-card { width: 100%; }
 .collapse-head {
