@@ -16,28 +16,20 @@ import random
 
 from .contacts import name_key
 
-# (unidad, empresa, marca, modelo, anio). CF/CI -> CHASER, MEM/MDW -> MCC,
-# para que el filtro por empresa (company_of) funcione igual que en real.
-_TRUCKS = [
-    ("CF2246", "CHASER", "Freightliner", "Cascadia", "2022"),
-    ("CF2248", "CHASER", "Freightliner", "Cascadia", "2022"),
-    ("CF2250", "CHASER", "Freightliner", "Cascadia", "2022"),
-    ("CF2251", "CHASER", "Freightliner", "Cascadia", "2022"),
-    ("CF2253", "CHASER", "Freightliner", "Cascadia", "2021"),
-    ("CF2254", "CHASER", "Freightliner", "Cascadia", "2022"),
-    ("CI2037", "CHASER", "International", "LT625", "2022"),
-    ("CI2242", "CHASER", "International", "LT625", "2022"),
-    ("CI2245", "CHASER", "International", "LT625", "2022"),
-    ("MEM-1021", "MCC", "Volvo", "VNL", "2021"),
-    ("MEM-1044", "MCC", "Volvo", "VNL", "2020"),
-    ("MDW-3007", "MCC", "Kenworth", "T680", "2021"),
-]
-_TRAILERS = ["429017", "743451", "558115", "277186", "429005", "620838",
-             "429006", "558454"]
-_DRIVERS = ["Earl Stockton", "John Samuels", "Shawn Dempsey", "Robert Lotz",
-            "Julio Hernandez", "Cedric Dorsey", "Victor Bingue",
-            "Keith Crawford", "David Barren", "Marcus Webb", "Tony Russo",
-            "Andre Pierce"]
+# Semilla de flota para el demo. (unidad, empresa, marca, modelo, anio).
+#
+# INTENCIONALMENTE VACIA: la app NO trae ninguna flota cargada de fabrica.
+# Fleet, PM, DOT y los reportes arrancan en cero, y vos armas tu propia flota
+# de demo (datos genericos/inventados) desde el boton "Add New Unit".
+#
+# Si en algun momento queres poblar el demo automaticamente, agregá unidades
+# GENERICAS aca (nada de numeros/nombres reales de ninguna empresa), p.ej.:
+#   ("TRK-001", "DEMO CO", "Freightliner", "Cascadia", "2022"),
+# y empresas tipo "DEMO CO" / "DEMO LOGISTICS" para que el filtro por empresa
+# siga funcionando.
+_TRUCKS: list[tuple[str, str, str, str, str]] = []
+_TRAILERS: list[str] = []
+_DRIVERS: list[str] = []
 
 
 def _rng(day: datetime.date, salt: str = "") -> random.Random:

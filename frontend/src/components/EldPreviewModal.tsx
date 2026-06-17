@@ -78,8 +78,8 @@ export default function EldPreviewModal(
           <select className="cell-input" value={company}
             onChange={(e) => setCompany(e.target.value)}>
             <option value="">(todas)</option>
-            <option value="CHASER">CHASER</option>
-            <option value="MCC">MCC</option>
+            <option value="DEMO CO">Demo Co</option>
+            <option value="DEMO LOGISTICS">Demo Logistics</option>
           </select>
         </label>
         <label>
@@ -110,8 +110,8 @@ export default function EldPreviewModal(
       {res?.available && !hasData && (
         <div className="banner">
           <span>
-            Samsara no devolvió datos de {company || 'esa empresa'} para ese
-            día. Si la empresa no está en Samsara (p.ej. <b>MCC</b>), usá{' '}
+            El ELD no devolvió datos de {company || 'esa empresa'} para ese
+            día. Si la empresa no está en el ELD, usá{' '}
             <b>Create DVIR Report</b> con los archivos.
           </span>
         </div>

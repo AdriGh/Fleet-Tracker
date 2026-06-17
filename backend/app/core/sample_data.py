@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Snapshot de datos reales del DVIR Report (modo offline).
+"""Snapshot offline del DVIR Report (respaldo de la pantalla de Avisos).
 
-Se usa como respaldo cuando todavia no hay credenciales de Google
-configuradas, para poder ver la pantalla de Avisos funcionando con datos
-reales. Cuando se configure el Service Account, `datasource` leera la
-planilla en vivo y este snapshot deja de usarse.
+Se usa cuando todavia no hay credenciales de Google configuradas. Cuando se
+configure el Service Account, `datasource` lee la planilla en vivo y este
+snapshot deja de usarse.
+
+INTENCIONALMENTE VACIO: no se versiona ninguna flota/roster real en el repo.
+La pantalla de Avisos arranca sin filas; los datos llegan de la planilla en
+vivo (modo "live") o de lo que cargues vos. Si queres un snapshot de demo,
+agregá filas GENERICAS aca (empresas tipo "DEMO CO", unidades "TRK-001",
+nombres inventados) respetando la estructura de abajo.
 
 Estructura de cada hoja de empresa (filas):
     Company, Driver, Trk#, DVIR, Trl#, DVIR Trl, Pre-trip, Distance (mi)
-
-Pre-trip es por conductor (logs de HoS): '⚠ NO PRE-TRIP' si no
-registro esa inspeccion; en rojo si dura < 15 min.
 """
 
 M = ""  # celda vacia
@@ -18,185 +20,8 @@ M = ""  # celda vacia
 HEADER = ["Company", "Driver", "Trk#", "DVIR", "Trl#", "DVIR Trl",
           "Pre-trip", "Distance (mi)"]
 
-CHASER_6 = [
-    HEADER,
-    ['6.1'],
-    ['CHASER', 'John Samuels', 'CF2248', 'Safe', '-', '-', '18m 22s', '321.1'],
-    ['CHASER', 'Cedric Dorsey', 'CF2250', 'Safe', '867667', 'Unsafe', '12m 50s', '454.5'],
-    ['CHASER', 'Shawn Dempsey', 'CF2251', 'Safe', '-', '-', '34m 17s', '431.9'],
-    ['CHASER', 'David Barren', 'CI2037', 'Safe', '558330', 'Safe', '⚠ NO PRE-TRIP', '434.9'],
-    ['CHASER', 'Robert Lotz', 'CI2242', 'Safe', '429005', 'Safe', '20m 5s', '284.9'],
-    ['CHASER', 'Christiaan Zeeuw', 'CI2244', 'Safe', '620276', 'Safe', '17m 40s', '736.3'],
-    ['CHASER', 'Keith Crawford', 'CF2254', '⚠ NO DVIR', M, M, '8m 31s', '126.8'],
-    ['6.2'],
-    ['CHASER', 'Earl Stockton', 'CF2246', 'Safe', '429015', 'Safe', '25m 25s', '407.5'],
-    [M, M, M, M, '743451', 'Safe', M, M],
-    ['CHASER', 'John Samuels', 'CF2248', 'Safe', '-', '-', '16m 11s', '226.5'],
-    ['CHASER', 'Cedric Dorsey', 'CF2250', 'Safe', '620306', 'Safe', '9m 9s', '289.6'],
-    ['CHASER', 'Shawn Dempsey', 'CF2251', 'Safe', '-', '-', '18m 22s', '287.5'],
-    ['CHASER', 'Victor Bingue', 'CF2253', 'Resolved', '880419', 'Safe', '12m 50s', '11.4'],
-    ['CHASER', 'Keith Crawford', 'CF2254', 'Resolved', '867669', 'Safe', '34m 17s', '470.9'],
-    ['CHASER', 'Julio Hernandez', 'CI2036', 'Resolved', '743449', 'Resolved', '⚠ NO PRE-TRIP', '10.3'],
-    ['CHASER', 'David Barren', 'CI2037', 'Safe', '-', '-', '20m 5s', '469.1'],
-    ['CHASER', 'Robert Lotz', 'CI2242', 'Safe', '429005', 'Safe', '17m 40s', '367'],
-    ['CHASER', M, M, M, '558696', 'Unsafe', M, M],
-    ['CHASER', 'Christiaan Zeeuw', 'CI2244', 'Safe', '277188', 'Safe', '8m 31s', '454.3'],
-    ['CHASER', M, M, M, '620276', 'Safe', M, M],
-]
+# Sin hojas de empresa cargadas de fabrica.
+SHEETS: dict[str, list[list]] = {}
 
-MCC_6 = [
-    HEADER,
-    ['6.1'],
-    ['MCC', 'MICHEAL JOHNSON', 'ATL-CI2243', 'Safe', '-', '-', '18m 22s', '361.2'],
-    ['MCC', 'PATRICK WELLS', 'CI2033', 'Safe', '-', '-', '12m 50s', '402.1'],
-    ['MCC', 'Chris Dotson', 'MDW-2019109', 'Safe', '-', '-', '34m 17s', '516'],
-    ['MCC', 'Reginald Robertson', 'MDW-373', 'Safe', 'Cell 690967', 'Safe', '⚠ NO PRE-TRIP', '231.8'],
-    [M, M, M, M, 'XYZZ 204185', 'Safe', M, M],
-    [M, M, M, M, 'XYZZ 333503', 'Safe', M, M],
-    ['MCC', 'Edwin Viteri', 'MDW-CF1663', 'Safe', '-', '-', '20m 5s', '77.1'],
-    ['MCC', M, 'MDW-CF1846', 'Safe', '-', '-', '⚠ NO PRE-TRIP', '369'],
-    ['MCC', 'Kevin Newsome', 'MDW-CF1847', 'Safe', '-', '-', '17m 40s', '386.4'],
-    ['MCC', 'Joseph Zabinski', 'MDW-CF1849', 'Safe', '-', '-', '8m 31s', '464.2'],
-    ['MCC', 'Deshario Gates', 'MEM-CI1921', 'Safe', '-', '-', '25m 25s', '389.2'],
-    ['MCC', 'Michael Parham', 'MEM-CK20105', 'Safe', '-', '-', '16m 11s', '179.5'],
-    ['MCC', 'Jimmone Jones', 'MEM-RMF1821', 'Safe', '-', '-', '9m 9s', '191.7'],
-    ['MCC', 'John Hawkins', 'MEM-RMF1824', 'Safe', '-', '-', '18m 22s', '378.6'],
-    ['MCC', 'Melvin Tyms', 'MEM-RMF1826', 'Safe', '-', '-', '12m 50s', '113.4'],
-    ['MCC', 'Everick Morris', 'MEM-RMF1829', 'Safe', '-', '-', '34m 17s', '134.6'],
-    ['MCC', 'Marvin Clinton', 'MEM-RMI1703', 'Safe', '-', '-', '⚠ NO PRE-TRIP', '226.7'],
-    ['MCC', 'Jarrod Snell', 'MEM-RMO0035', 'Safe', '-', '-', '20m 5s', '76.4'],
-    ['MCC', 'Johnny Pickens', 'MEM-RMO0066', 'Safe', '-', '-', '17m 40s', '125'],
-    ['MCC', 'Clayton Mabon', 'MEM-RMO0093', 'Safe', 'TCLU673527 0', 'Safe', '8m 31s', '216.4'],
-    ['MCC', 'Ahmad Alhindi', 'MEM-RMO0096', 'Safe', '-', '-', '25m 25s', '144.5'],
-    ['MCC', 'Joe Teague', 'MEM-RMO0104', 'Safe', '-', '-', '16m 11s', '106.9'],
-    ['MCC', 'Alonzo Starks', 'MEM-RMO0117', 'Safe', '-', '-', '9m 9s', '173.8'],
-    ['MCC', 'Jettie Pickens', 'MEM-RMO0120', 'Safe', '-', '-', '18m 22s', '95.8'],
-    ['MCC', 'Jermaine Underwood', 'MEM-RMO0121', 'Safe', '-', '-', '12m 50s', '86.3'],
-    ['MCC', 'Robert Cobelo', 'MIA-OOF07001', 'Safe', '-', '-', '34m 17s', '472.5'],
-    ['MCC', 'Bianca Smith', 'SAV-CI1924', 'Safe', 'Hgiu 516448', 'Safe', '⚠ NO PRE-TRIP', '267.2'],
-    ['MCC', 'Quanterrio Wright', 'SAV-CI1926', 'Safe', '-', '-', '20m 5s', '363.6'],
-    ['MCC', 'Sam Mcgowan', 'ATL- CI2034', '⚠ NO DVIR', M, M, '17m 40s', '423.5'],
-    ['MCC', 'Jamal Johnson', 'MDW-849', '⚠ NO DVIR', M, M, '8m 31s', '618.6'],
-    ['MCC', 'Dominique Webster', 'MDW-CF1852', '⚠ NO DVIR', M, M, '25m 25s', '386.4'],
-    ['MCC', 'Brett Anderson', 'MEM-CI2030', '⚠ NO DVIR', M, M, '16m 11s', '167.6'],
-    ['6.2'],
-    ['MCC', 'MICHEAL JOHNSON', 'ATL-CI2243', 'Safe', '-', '-', '9m 9s', '402.4'],
-    ['MCC', 'PATRICK WELLS', 'CI2033', 'Safe', '-', '-', '18m 22s', '235.9'],
-    ['MCC', 'Chris Dotson', 'MDW-2019109', 'Safe', '-', '-', '12m 50s', '177.8'],
-    ['MCC', 'Reginald Robertson', 'MDW-373', 'Safe', 'BMOU4923688', 'Safe', '34m 17s', '246.4'],
-    ['MCC', 'Jamal Johnson', 'MDW-849', 'Safe', '-', '-', '⚠ NO PRE-TRIP', '219.2'],
-    ['MCC', 'Edwin Viteri', 'MDW-CF1663', 'Safe', '-', '-', '20m 5s', '419.6'],
-    ['MCC', 'Kevin Newsome', 'MDW-CF1847', 'Safe', '-', '-', '17m 40s', '293.1'],
-    ['MCC', 'Daniel Hicks', 'MDW-CF1848', 'Safe', '-', '-', '8m 31s', '406.8'],
-    ['MCC', 'Joseph Zabinski', 'MDW-CF1849', 'Safe', '-', '-', '25m 25s', '466.3'],
-    ['MCC', 'Dominique Webster', 'MDW-CF1852', 'Safe', '-', '-', '16m 11s', '256.3'],
-    ['MCC', 'Jasmaine Harris', 'MDW-CF1852', 'Safe', '-', '-', '9m 9s', '256.3'],
-    ['MCC', 'Kahari Brown', 'MDW 1925', 'Safe', '-', '-', '18m 22s', '0.2'],
-    ['MCC', M, 'MDW-CF1851', 'Safe', M, '-', '⚠ NO PRE-TRIP', '322.3'],
-    ['MCC', 'Jimmone Jones', 'MEM-CF1927', 'Unsafe', '-', '-', '12m 50s', '0'],
-    ['MCC', M, 'MEM-RMF1821', 'Safe', M, '-', '⚠ NO PRE-TRIP', '372.8'],
-    ['MCC', 'Deshario Gates', 'MEM-CI1921', 'Safe', '-', '-', '34m 17s', '559.2'],
-    ['MCC', 'Johnathan Brooks', 'MEM-CI2019113', 'Safe', '-', '-', '⚠ NO PRE-TRIP', '182.9'],
-    ['MCC', 'Brett Anderson', 'MEM-CI2030', 'Safe', '-', '-', '20m 5s', '173.8'],
-    ['MCC', 'Michael Parham', 'MEM-CK20105', 'Safe', '-', '-', '17m 40s', '264.1'],
-    ['MCC', 'Gary Hyman', 'MEM-CK20106', 'Safe', '-', '-', '8m 31s', '217.9'],
-    ['MCC', 'Travis Turner', 'MEM-RMF1822', 'Safe', '-', '-', '25m 25s', '308.9'],
-    ['MCC', 'John Hawkins', 'MEM-RMF1824', 'Safe', '-', '-', '16m 11s', '297.6'],
-    ['MCC', 'Melvin Tyms', 'MEM-RMF1826', 'Safe', 'TGBU894906-7', 'Safe', '9m 9s', '558'],
-    ['MCC', 'Everick Morris', 'MEM-RMF1829', 'Safe', '-', '-', '18m 22s', '531.8'],
-    ['MCC', 'Marvin Clinton', 'MEM-RMI1703', 'Safe', '-', '-', '12m 50s', '75.9'],
-    ['MCC', 'Jarrod Snell', 'MEM-RMO0035', 'Safe', '-', '-', '34m 17s', '34.6'],
-    ['MCC', 'Johnny Pickens', 'MEM-RMO0066', 'Safe', '-', '-', '⚠ NO PRE-TRIP', '87.1'],
-    ['MCC', 'Damien Boone', 'MEM-RMO0087', 'Safe', '-', '-', '20m 5s', '39.3'],
-    ['MCC', 'Clayton Mabon', 'MEM-RMO0093', 'Safe', 'TCLU673527 0', 'Safe', '17m 40s', '267.2'],
-    ['MCC', 'Ahmad Alhindi', 'MEM-RMO0096', 'Safe', '-', '-', '8m 31s', '149.8'],
-    ['MCC', 'Joe Teague', 'MEM-RMO0104', 'Safe', '-', '-', '25m 25s', '111.6'],
-    ['MCC', 'Alonzo Starks', 'MEM-RMO0117', 'Safe', '-', '-', '16m 11s', '198.8'],
-    ['MCC', 'Jettie Pickens', 'MEM-RMO0120', 'Safe', '-', '-', '9m 9s', '166.5'],
-    ['MCC', 'Bianca Smith', 'SAV-CI1924', 'Safe', 'Hgiu 516448', 'Safe', '18m 22s', '393.1'],
-    ['MCC', M, M, M, 'Hgiu 528190', 'Safe', M, M],
-    ['MCC', 'Sam mcgowan', 'ATL- CI2034', '⚠ NO DVIR', M, M, '12m 50s', '456.1'],
-    ['MCC', 'Jermaine Underwood', 'MEM-RMO0121', '⚠ NO DVIR', M, M, '34m 17s', '540.8'],
-    ['MCC', 'Quanterrio Wright', 'SAV-CI1926', '⚠ NO DVIR', M, M, '⚠ NO PRE-TRIP', '403.5'],
-]
-
-SHEETS = {"CHASER 6": CHASER_6, "MCC 6": MCC_6}
-
-# Hoja `Driver info` (respaldo del modo demo). Encabezados: #, DRIVER NAME,
-# PHONE, EMAIL, COMPANY. Los emails y telefonos son ANONIMOS a proposito:
-# la PII real vive en la planilla de Drive (que se lee en vivo), no en el repo.
-_DRIVERS = [
-    ("CHRISTOPHER DOTSON", "555-0100", "christopher.dotson@example.com", "MCC"),
-    ("DANIEL HICKS", "555-0100", "daniel.hicks@example.com", "MCC"),
-    ("DEVION MCREYNOLDS", "555-0100", "devion.mcreynolds@example.com", "MCC"),
-    ("DOMINIQUE WEBSTER", "555-0100", "dominique.webster@example.com", "MCC"),
-    ("EDWIN VITERI", "555-0100", "edwin.viteri@example.com", "MCC"),
-    ("JOSEPH ZABINSKI", "555-0100", "joseph.zabinski@example.com", "MCC"),
-    ("KEVIN NEWSOME", "555-0100", "kevin.newsome@example.com", "MCC"),
-    ("Reginald Robertson", "555-0100", "reginald.robertson@example.com", "MCC"),
-    ("Jamal Johnson", "555-0100", "jamal.johnson@example.com", "MCC"),
-    ("Kahari Brown", "555-0100", "kahari.brown@example.com", "MCC"),
-    ("Jasmaine Harris", "555-0100", "jasmaine.harris@example.com", "MCC"),
-    ("Rashod Lee", "555-0100", "rashod.lee@example.com", "MCC"),
-    ("Ryan Davis", "555-0100", "ryan.davis@example.com", "MCC"),
-    ("DAVID BARREN", "555-0100", "david.barren@example.com", "CHASER"),
-    ("RASHON BENNETT", "555-0100", "rashon.bennett@example.com", "CHASER"),
-    ("DURRELL BRISTER", "555-0100", "durrell.brister@example.com", "CHASER"),
-    ("KEITH CRAWFORD", "555-0100", "keith.crawford@example.com", "CHASER"),
-    ("ONEIL DEASON", "555-0100", "oneil.deason@example.com", "CHASER"),
-    ("SHAWN DEMPSEY", "555-0100", "shawn.dempsey@example.com", "CHASER"),
-    ("CEDRIC DORSEY", "555-0100", "cedric.dorsey@example.com", "CHASER"),
-    ("KHALID ENEFFAH", "555-0100", "khalid.eneffah@example.com", "CHASER"),
-    ("LAWRENCE GRUNDY", "555-0100", "lawrence.grundy@example.com", "CHASER"),
-    ("MICHAEL HEARD", "555-0100", "michael.heard@example.com", "CHASER"),
-    ("ANTHONY HENRY", "555-0100", "anthony.henry@example.com", "CHASER"),
-    ("JULIO HERNANDEZ", "555-0100", "julio.hernandez@example.com", "CHASER"),
-    ("LARRY MCDANIEL", "555-0100", "larry.mcdaniel@example.com", "CHASER"),
-    ("EVERETT MCGLOTTEN", "555-0100", "everett.mcglotten@example.com", "CHASER"),
-    ("STANFORD MOUTON", "555-0100", "stanford.mouton@example.com", "CHASER"),
-    ("SAMUEL SALAZAR", "555-0100", "samuel.salazar@example.com", "CHASER"),
-    ("JOHN SAMUELS", "555-0100", "john.samuels@example.com", "CHASER"),
-    ("VONDERRICK SMITH", "555-0100", "vonderrick.smith@example.com", "CHASER"),
-    ("EARL STOCKTON", "555-0100", "earl.stockton@example.com", "CHASER"),
-    ("ROSS WASHINGTON", "555-0100", "ross.washington@example.com", "CHASER"),
-    ("CHRISTIAAN ZEEUW", "555-0100", "christiaan.zeeuw@example.com", "CHASER"),
-    ("Robert Cobelo", "555-0100", "robert.cobelo@example.com", "MCC"),
-    ("Luis Herrera", "555-0100", "luis.herrera@example.com", "MCC"),
-    ("Ramon Herrera", "555-0100", "ramon.herrera@example.com", "MCC"),
-    ("Quanterrio Wright", "555-0100", "quanterrio.wright@example.com", "MCC"),
-    ("Bianca Smith", "555-0100", "bianca.smith@example.com", "MCC"),
-    ("Samuel Bacote", "555-0100", "samuel.bacote@example.com", "MCC"),
-    ("Michael Parham", "555-0100", "michael.parham@example.com", "MCC"),
-    ("Gary Hyman", "555-0100", "gary.hyman@example.com", "MCC"),
-    ("John Hawkins", "555-0100", "john.hawkins@example.com", "MCC"),
-    ("Marvin Clinton", "555-0100", "marvin.clinton@example.com", "MCC"),
-    ("Jimmone Jones", "555-0100", "jimmone.jones@example.com", "MCC"),
-    ("Johnathan Brooks", "555-0100", "johnathan.brooks@example.com", "MCC"),
-    ("Everick Morris", "555-0100", "everick.morris@example.com", "MCC"),
-    ("Melvin Tyms", "555-0100", "melvin.tyms@example.com", "MCC"),
-    ("Deshario Gates", "555-0100", "deshario.gates@example.com", "MCC"),
-    ("Brett Anderson", "555-0100", "brett.anderson@example.com", "MCC"),
-    ("Travis Truner", "555-0100", "travis.truner@example.com", "MCC"),
-    ("Jackie Williams", "555-0100", "jackie.williams@example.com", "MCC"),
-    ("Richard Jackson", "555-0100", "richard.jackson@example.com", "MCC"),
-    ("Jettie Pickens", "555-0100", "jettie.pickens@example.com", "MCC"),
-    ("Damien Boone", "555-0100", "damien.boone@example.com", "MCC"),
-    ("Joe Teague", "555-0100", "joe.teague@example.com", "MCC"),
-    ("Ahmad AlHindi", "555-0100", "ahmad.alhindi@example.com", "MCC"),
-    ("Hakam Awawdah", "555-0100", "hakam.awawdah@example.com", "MCC"),
-    ("Jarrod Snell", "555-0100", "jarrod.snell@example.com", "MCC"),
-    ("Johnnie Pickens", "555-0100", "johnnie.pickens@example.com", "MCC"),
-    ("Alonzo Starks", "555-0100", "alonzo.starks@example.com", "MCC"),
-    ("Nasser Awawda", "555-0100", "nasser.awawda@example.com", "MCC"),
-    ("Clayton Mabon", "555-0100", "clayton.mabon@example.com", "MCC"),
-    ("Jermaine Underwood", "555-0100", "jermaine.underwood@example.com", "MCC"),
-    ("Robert Lotz", "555-0100", "robert.lotz@example.com", "CHASER"),
-    ("Victor Bingue", "555-0100", "victor.bingue@example.com", "CHASER"),
-    ("MICHEAL JOHNSON", "555-0100", "micheal.johnson@example.com", "MCC"),
-    ("Patrick Wells", "555-0100", "patrick.wells@example.com", "MCC"),
-]
-
-DRIVER_INFO = [["#", "DRIVER NAME", "PHONE", "EMAIL", "COMPANY"]] + [
-    [str(i + 1), name, phone, email, company]
-    for i, (name, phone, email, company) in enumerate(_DRIVERS)
-]
+# Hoja `Driver info`: solo encabezados (sin roster real en el repo).
+DRIVER_INFO = [["#", "DRIVER NAME", "PHONE", "EMAIL", "COMPANY"]]

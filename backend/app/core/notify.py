@@ -120,8 +120,8 @@ DEFAULT_SUBJECT = "DVIR Compliance Notice — {date}"
 # EXACTAMENTE (incluido el apostrofo de "DVIR's") con la linea en DEFAULT_BODY.
 BOLD_PARAGRAPH = (
     "If you have any questions, comments, thoughts, or issues with regards to "
-    "Samsara, HOS, logs, or DVIR's, please reach out to Ryan Andrews at "
-    "773-765-8798."
+    "Samsara, HOS, logs, or DVIR's, please reach out to the Safety/Maintenance "
+    "department."
 )
 
 # Texto oficial del aviso (provisto por Safety/Maintenance). SIN placeholders.
@@ -149,7 +149,7 @@ We are monitoring these items closely internally and any deviation from the proc
 
 As an  example.....If you submit a DVIR stating all equipment is safe and you are then pulled over and placed out of service for a bald tire.....this would have been something caught during a Pre-trip and will not be tolerated.  IF THERE IS SOMETHING WRONG WITH THE EQUIPMENT, REPORT IT SO WE CAN FIX IT!!!!
 
-If you have any questions, comments, thoughts, or issues with regards to Samsara, HOS, logs, or DVIR's, please reach out to Ryan Andrews at 773-765-8798.
+If you have any questions, comments, thoughts, or issues with regards to Samsara, HOS, logs, or DVIR's, please reach out to the Safety/Maintenance department.
 
 Your time and cooperation in this matter is greatly appreciated......DRIVE SAFE!!!!!"""
 
@@ -170,7 +170,7 @@ SMS_NOTICE_BODY = """A Pre- and Post-trip inspection + a DVIR in the app are req
 
 You'll get a message that all tasks are complete. Report any equipment issue so we can fix it; submitting a "safe" DVIR and then being placed out of service (e.g. a bald tire) will not be tolerated. Deviations have consequences, up to termination.
 
-Questions? Ryan Andrews 773-765-8798. DRIVE SAFE!"""
+Questions? Reach out to the Safety/Maintenance department. DRIVE SAFE!"""
 
 # Email = saludo + lo que se marcó (unidad/issues) + el texto oficial + firma.
 # Placeholders: {driver}, {date}, {issues}.
@@ -224,7 +224,7 @@ _BODY_FONT = "Arial, Helvetica, sans-serif"
 
 def _render_html(text: str) -> str:
     """Convierte el cuerpo de texto plano en HTML, poniendo en negrita el
-    parrafo de contacto (Ryan Andrews). Preserva saltos y espacios con
+    parrafo de contacto (Safety/Maintenance). Preserva saltos y espacios con
     `white-space: pre-wrap`."""
     esc = _html.escape(text)
     bold = _html.escape(BOLD_PARAGRAPH)

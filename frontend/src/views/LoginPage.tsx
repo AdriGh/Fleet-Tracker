@@ -55,7 +55,7 @@ const SLIDES: Slide[] = [
     src: 'https://images.unsplash.com/photo-1591768793355-74d04bb6608f?auto=format&fit=crop&w=1600&q=80',
     alt: 'Fleet of cargo trucks seen from the front',
     eyebrow: 'Multi-terminal',
-    headline: 'Chaser, Memphis, Chicago and more',
+    headline: 'Every terminal, every unit',
     sub: 'One unified view of every terminal and every unit.',
   },
 ]

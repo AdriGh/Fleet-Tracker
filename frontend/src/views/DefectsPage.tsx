@@ -691,8 +691,8 @@ export default function DefectsPage() {
       {listRows && (
         <SummaryReport
           rows={listRows}
-          scope={company === 'MCC' ? 'MCCI'
-            : company === 'CHASER' ? 'Chaser' : 'All companies'}
+          scope={company === 'MCC' ? 'Company B'
+            : company === 'CHASER' ? 'Company A' : 'All companies'}
           onClose={() => setListRows(null)}
         />
       )}

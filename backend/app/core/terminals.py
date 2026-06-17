@@ -25,12 +25,10 @@ from .. import config
 
 PATH = config.BACKEND_DIR / "terminals.local.json"
 
+# Una sola terminal generica de fabrica (sin estructura real de ninguna
+# empresa). El admin crea sus terminales reales desde Settings -> Terminals.
 DEFAULTS: list[dict] = [
-    {"key": "CHASER", "label": "Chaser", "prefixes": []},
-    {"key": "MEM", "label": "Memphis", "prefixes": ["MEM"]},
-    {"key": "MDW", "label": "Chicago", "prefixes": ["MDW"]},
-    {"key": "MIA", "label": "Miami", "prefixes": ["MIA"]},
-    {"key": "GA", "label": "Georgia", "prefixes": ["ATL", "SAV"]},
+    {"key": "MAIN", "label": "Main", "prefixes": []},
 ]
 
 _MAX_TERMINALS = 30

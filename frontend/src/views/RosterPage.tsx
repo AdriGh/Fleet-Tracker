@@ -201,8 +201,8 @@ export default function RosterPage({ embedded = false }: Props) {
   ) : (
     <div className="kpi-row">
       <StatCard label="Active drivers" value={kpis.total} tone="accent" />
-      <StatCard label="Chaser" value={kpis.chaser} tone="info" />
-      <StatCard label="MCC" value={kpis.mcc} tone="default" />
+      <StatCard label="Company A" value={kpis.chaser} tone="info" />
+      <StatCard label="Company B" value={kpis.mcc} tone="default" />
     </div>
   )
 
@@ -210,9 +210,9 @@ export default function RosterPage({ embedded = false }: Props) {
     <div className="filters-row">
       <div className="company-tabs" role="tablist">
         <button className={`tab-btn ${company === 'CHASER' ? 'active' : ''}`}
-          onClick={() => setCompany('CHASER')}>Chaser</button>
+          onClick={() => setCompany('CHASER')}>Company A</button>
         <button className={`tab-btn ${company === 'MCC' ? 'active' : ''}`}
-          onClick={() => setCompany('MCC')}>MCCI</button>
+          onClick={() => setCompany('MCC')}>Company B</button>
         <button className={`tab-btn ${company === '' ? 'active' : ''}`}
           onClick={() => setCompany('')}>All</button>
       </div>
@@ -331,7 +331,7 @@ export default function RosterPage({ embedded = false }: Props) {
         <div>
           <h1>Roster</h1>
           <p className="page-sub">
-            Active drivers across Chaser and MCC (live from Samsara).
+            Active drivers across all companies.
             {masked && ' Sensitive data is masked.'}
           </p>
         </div>

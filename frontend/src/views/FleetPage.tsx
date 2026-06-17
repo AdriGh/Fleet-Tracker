@@ -131,8 +131,8 @@ export default function FleetPage({ onOpenUnit }: {
         <div>
           <h1>Fleet</h1>
           <p className="page-sub">
-            Every unit across Chaser and MCC (live from Samsara): type,
-            details and open defects.
+            Every unit across all companies: type, details and open
+            defects.
           </p>
         </div>
         <div className="head-actions">
