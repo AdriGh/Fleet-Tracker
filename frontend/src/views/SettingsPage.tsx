@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  assignTerminal, createAppUser, deleteTerminal, fleetArchive,
-  getAlertsSettings, getHealth,
-  getIntegrationSpecs, getIntegrations, getOrg, getSettings, listAppUsers,
-  listFleet, patchAppUser, saveAlertsSettings, saveIntegrationConfig,
-  saveOrg, saveSettings, saveTerminal, testIntegration,
-  type AlertsSettings, type FleetUnit,
+  addCompany, assignTerminal, createAppUser, deleteCompany, deleteTerminal,
+  fleetArchive, getAlertsSettings, getHealth,
+  getIntegrationSpecs, getIntegrations, getOrg, getSettings, importUnitsCsv,
+  listAppUsers, listCompanies,
+  listFleet, patchAppUser, renameCompany, saveAlertsSettings,
+  saveIntegrationConfig, saveOrg, saveSettings, saveTerminal, testIntegration,
+  unitsCsvTemplate,
+  type AlertsSettings, type Company, type FleetUnit,
   type IntegrationProvider, type IntegrationSpec, type IntegrationStatus,
   type OrgConfig, type TerminalDef, type TerminalsConfig,
+  type UnitImportResult,
 } from '../api'
 import { useTerminals } from '../terminal'
 import { notifyOk, notifyErr } from '../toast'
@@ -40,6 +43,7 @@ export default function SettingsPage(
     () => localStorage.getItem('ft-roster-mask') !== '0',
   )
   const [rosterOpen, setRosterOpen] = useState(false)
+  const [connOpen, setConnOpen] = useState(true)
   const [configuring, setConfiguring] = useState<string | null>(null)
   function toggleMask(on: boolean) {
     setMaskPII(on)
@@ -189,15 +193,29 @@ export default function SettingsPage(
         </div>
       </section>
 
-      {/* ----- Conectividad: hub de integraciones ----- */}
-      <section className="card">
-        <div className="card-head">
-          <h2>Connectivity</h2>
-          <span className="sub">ELD platforms, messaging and data sources</span>
-          <button className="btn-link" onClick={() => onNavigate('avisos')}>
+      {/* ----- Conectividad: hub de integraciones (colapsable) ----- */}
+      <section className="card settings-card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button className="collapse-head" style={{ flex: 1 }}
+            onClick={() => setConnOpen((o) => !o)} aria-expanded={connOpen}>
+            <svg className={`collapse-chevron ${connOpen ? 'open' : ''}`}
+              viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+            <div>
+              <h2>Connectivity</h2>
+              <span className="sub">
+                ELD platforms, messaging and data sources
+              </span>
+            </div>
+          </button>
+          <button className="btn-link" style={{ marginRight: 16,
+            whiteSpace: 'nowrap' }} onClick={() => onNavigate('avisos')}>
             Open Notices →
           </button>
         </div>
+        {connOpen && (
         <div className="card-body">
           {integrationsQuery.isPending ? (
             <Skeleton h={220} />
@@ -238,10 +256,12 @@ export default function SettingsPage(
               }} />
           )}
         </div>
+        )}
       </section>
 
       {/* ----- Empresa y usuarios (G7, solo admin) ----- */}
       {isAdmin && <CompanyCard />}
+      {isAdmin && <CompaniesCard />}
       {isAdmin && <TerminalsCard activeUnits={activeUnits} />}
       {isAdmin && <UsersCard />}
 
@@ -498,8 +518,6 @@ export default function SettingsPage(
 // ----- Empresa (G7): branding, umbrales y CC routing -----------------------
 const ORG_ACCENTS = ['', '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0d9488']
 const CC_TERMINALS = ['CHASER', 'MEM', 'MDW', 'MIA', 'ATL', 'SAV']
-// H3-C: empresas dueñas de unidades para el Bill-To del invoice.
-const BILL_TO_COMPANIES = ['CHASER', 'MCC']
 const THRESHOLD_META: {
   key: keyof OrgConfig['thresholds']
   label: string
@@ -516,12 +534,245 @@ const THRESHOLD_META: {
     help: 'How far back the live defect stream looks' },
 ]
 
+// ----- Empresas + import masivo de unidades (Settings, solo admin) ---------
+function CompaniesCard() {
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const q = useQuery({
+    queryKey: ['companies'], queryFn: listCompanies, enabled: open })
+  const companies = q.data ?? []
+  const [nLabel, setNLabel] = useState('')
+  const [editKey, setEditKey] = useState<string | null>(null)
+  const [eLabel, setELabel] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [result, setResult] = useState<UnitImportResult | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  async function run(p: Promise<Company[]>, ok: string) {
+    setBusy(true)
+    try {
+      qc.setQueryData(['companies'], await p)
+      notifyOk(ok)
+      return true
+    } catch (e) {
+      notifyErr("Couldn't save companies", e)
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function add() {
+    if (!nLabel.trim()) {
+      notifyErr('Missing name', 'Give the company a name')
+      return
+    }
+    if (await run(addCompany(nLabel.trim()), `Company ${nLabel.trim()} added`)) {
+      setNLabel('')
+    }
+  }
+  async function saveEdit(c: Company) {
+    if (await run(renameCompany(c.key, eLabel.trim() || c.label),
+      'Company renamed')) setEditKey(null)
+  }
+  async function remove(c: Company) {
+    if (!window.confirm(
+      `Delete company ${c.label}? Existing units keep their company tag.`)) {
+      return
+    }
+    await run(deleteCompany(c.key), `Company ${c.label} deleted`)
+  }
+
+  async function downloadTemplate() {
+    try {
+      const csv = await unitsCsvTemplate()
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'fleet-units-template.csv'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      notifyErr("Couldn't get the template", e)
+    }
+  }
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true)
+    setResult(null)
+    try {
+      const res = await importUnitsCsv(await file.text())
+      setResult(res)
+      qc.invalidateQueries({ queryKey: ['fleet'] })
+      qc.invalidateQueries({ queryKey: ['pm'] })
+      notifyOk('Import done', `${res.added} added · ${res.updated} updated`)
+    } catch (err) {
+      notifyErr('Import failed', err)
+    } finally {
+      setImporting(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  return (
+    <section className="card settings-card">
+      <button className="collapse-head" onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}>
+        <svg className={`collapse-chevron ${open ? 'open' : ''}`}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+        <div>
+          <h2>Companies &amp; fleet import</h2>
+          <span className="sub">
+            Carriers and bulk unit import (CSV)
+          </span>
+        </div>
+      </button>
+
+      {open && (
+        <div className="card-body">
+          {q.isPending ? (
+            <Skeleton h={160} />
+          ) : (
+            <>
+              <h3 className="settings-sub-h">Companies</h3>
+              <p className="settings-help">
+                Carriers that own units. Used across Fleet, Bill-To and
+                reports.
+              </p>
+              <table className="defects-table users-table">
+                <thead>
+                  <tr>
+                    <th>Company</th><th>Key</th><th aria-label="Actions" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {companies.map((c) => (
+                    <tr key={c.key}>
+                      {editKey === c.key ? (
+                        <>
+                          <td>
+                            <input className="cell-input" value={eLabel}
+                              autoFocus
+                              onChange={(e) => setELabel(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') saveEdit(c)
+                                if (e.key === 'Escape') setEditKey(null)
+                              }} />
+                          </td>
+                          <td><span className="nf-units">{c.key}</span></td>
+                          <td className="num">
+                            <span className="users-reset">
+                              <button className="btn btn-primary btn-xs"
+                                disabled={busy} onClick={() => saveEdit(c)}>
+                                Save
+                              </button>
+                              <button className="btn btn-ghost btn-xs"
+                                onClick={() => setEditKey(null)}>
+                                Cancel
+                              </button>
+                            </span>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td><strong>{c.label}</strong></td>
+                          <td><span className="nf-units">{c.key}</span></td>
+                          <td className="num">
+                            <span className="users-reset">
+                              <button className="btn btn-ghost btn-xs"
+                                onClick={() => {
+                                  setEditKey(c.key); setELabel(c.label)
+                                }}>
+                                Rename
+                              </button>
+                              <button className="icon-x" title="Delete company"
+                                onClick={() => remove(c)}>✕</button>
+                            </span>
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  ))}
+                  {companies.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="muted"
+                        style={{ textAlign: 'center', padding: 12 }}>
+                        No companies yet. Add one below.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              <div className="settings-actions" style={{ gap: 8 }}>
+                <input className="cell-input"
+                  placeholder="New company name (e.g. Demo Co)"
+                  value={nLabel} onChange={(e) => setNLabel(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') add() }} />
+                <button className="btn btn-primary" disabled={busy}
+                  onClick={add}>Add company</button>
+              </div>
+
+              <hr className="settings-divider" />
+
+              <h3 className="settings-sub-h">Bulk import units (CSV)</h3>
+              <p className="settings-help">
+                Upload a CSV to add or update many units at once (e.g. every
+                truck of a company). Required column: <code>unit</code>.
+                Optional: <code>unit_type</code>, <code>company</code>,{' '}
+                <code>terminal</code>, <code>vin</code>, <code>year</code>,{' '}
+                <code>make</code>, <code>model</code>, <code>plate</code>,{' '}
+                <code>plate_state</code>, <code>fleet_no</code>. Matches by
+                unit number (upsert). Assign units to terminals in{' '}
+                <strong>Terminals</strong> below or via the{' '}
+                <code>terminal</code> column.
+              </p>
+              <div className="settings-actions" style={{ gap: 8 }}>
+                <button className="btn btn-ghost" onClick={downloadTemplate}>
+                  Download template
+                </button>
+                <label className="btn btn-primary"
+                  style={{ cursor: importing ? 'default' : 'pointer' }}>
+                  {importing ? 'Importing…' : 'Upload CSV'}
+                  <input ref={fileRef} type="file" accept=".csv,text/csv" hidden
+                    disabled={importing} onChange={onFile} />
+                </label>
+              </div>
+              {result && (
+                <div className={`banner ${result.errors.length
+                  ? 'warn' : 'success'}`}>
+                  <span>
+                    {result.added} added · {result.updated} updated
+                    {result.errors.length > 0 && (
+                      <>
+                        {' '}· {result.errors.length} skipped
+                        <br />{result.errors.slice(0, 5).join(' · ')}
+                      </>
+                    )}
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function CompanyCard() {
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<OrgConfig | null>(null)
   const [saving, setSaving] = useState(false)
   const q = useQuery({ queryKey: ['org'], queryFn: getOrg, enabled: open })
+  const companiesQ = useQuery({
+    queryKey: ['companies'], queryFn: listCompanies, enabled: open })
 
   useEffect(() => {
     if (q.data) setForm(JSON.parse(JSON.stringify(q.data)))
@@ -596,14 +847,6 @@ function CompanyCard() {
           ) : (
             <>
               <div className="org-grid">
-                <label className="ud-field">
-                  <span>App name</span>
-                  <input className="cell-input"
-                    value={form.branding.app_name}
-                    onChange={(e) => setForm({ ...form,
-                      branding: { ...form.branding,
-                        app_name: e.target.value } })} />
-                </label>
                 <label className="ud-field">
                   <span>Tagline</span>
                   <input className="cell-input"
@@ -779,11 +1022,15 @@ function CompanyCard() {
               <h3 className="settings-sub-h">Bill-To addresses</h3>
               <p className="settings-help">
                 Per company that owns the unit. Empty = just the company
-                name on the document.
+                name on the document. Manage companies in{' '}
+                <strong>Companies &amp; fleet import</strong> below.
               </p>
-              {BILL_TO_COMPANIES.map((co) => (
+              {(companiesQ.data?.length
+                ? companiesQ.data
+                : Object.keys(form.billing).map((k) => ({ key: k, label: k }))
+              ).map(({ key: co, label }) => (
                 <div className="org-billing" key={co}>
-                  <span className="org-billing-co">{co}</span>
+                  <span className="org-billing-co">{label}</span>
                   <div className="org-grid">
                     <label className="ud-field">
                       <span>Name</span>

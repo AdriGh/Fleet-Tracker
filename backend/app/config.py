@@ -28,4 +28,11 @@ DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 # Si no se fuerza, se activa solo cuando no hay Samsara configurada.
 DEMO_ELD = os.environ.get("FLEET_DEMO", "").strip().lower() in ("1", "true", "yes")
 
+# Semillas opcionales para el PRIMER arranque (util en deploys de nube). Si el
+# store de empresas/terminales esta vacio, se siembra una sola vez desde estas
+# env vars; despues se gestiona todo desde Settings. Formato: JSON
+# ([{key,label}] o lista de strings) o nombres separados por coma.
+SEED_COMPANIES_RAW = os.environ.get("FLEET_COMPANIES", "")
+SEED_TERMINALS_RAW = os.environ.get("FLEET_TERMINALS", "")
+
 JOBS_DIR.mkdir(exist_ok=True)

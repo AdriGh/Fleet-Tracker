@@ -7,11 +7,42 @@ en Samsara, y alimentan los trackers PM/DOT. Persisten en la tabla `unit`
 
 from __future__ import annotations
 
+import csv as _csv
+import io
 from datetime import datetime
 
 from .. import db
 
 _TYPES = ("truck", "trailer", "chassis")
+
+# Columnas del CSV de import masivo (encabezados de la plantilla).
+CSV_COLUMNS = [
+    "unit", "unit_type", "company", "terminal", "vin", "year", "make",
+    "model", "plate", "plate_state", "fleet_no", "subtype", "customer",
+]
+
+# Encabezados aceptados (en minusculas) -> campo interno. 'unit' es el unico
+# obligatorio. Se aceptan alias comunes para que entre un export de otra herram.
+_CSV_ALIASES = {
+    "unit": "unit", "unit #": "unit", "unit number": "unit", "unit no": "unit",
+    "truck": "unit", "truck #": "unit", "trk#": "unit", "trk #": "unit",
+    "number": "unit", "asset": "unit", "asset #": "unit",
+    "type": "unit_type", "unit_type": "unit_type", "unit type": "unit_type",
+    "asset type": "unit_type",
+    "subtype": "subtype",
+    "terminal": "terminal", "yard": "terminal", "region": "terminal",
+    "customer": "customer", "client": "customer",
+    "company": "company", "carrier": "company", "owner": "company",
+    "vin": "vin",
+    "year": "year",
+    "make": "make",
+    "model": "model",
+    "fleet": "fleet_no", "fleet #": "fleet_no", "fleet no": "fleet_no",
+    "fleet_no": "fleet_no", "fleet number": "fleet_no",
+    "plate": "plate", "license": "plate", "license plate": "plate",
+    "plate state": "plate_state", "plate_state": "plate_state",
+    "state": "plate_state",
+}
 
 
 def _clean(s, cap: int) -> str:
@@ -109,6 +140,62 @@ def _as_fleet_row(r: dict) -> dict:
         "source": "manual",
         "terminal": r["terminal"],
     }
+
+
+def csv_template() -> str:
+    """CSV de ejemplo (encabezados + 2 filas) para descargar y completar."""
+    out = io.StringIO()
+    w = _csv.writer(out)
+    w.writerow(CSV_COLUMNS)
+    w.writerow(["TRK-001", "truck", "DEMO CO", "MAIN", "", "2022",
+                "Freightliner", "Cascadia", "", "", "", "", ""])
+    w.writerow(["TRL-100", "trailer", "DEMO CO", "MAIN", "", "2019",
+                "Wabash", "DuraPlate", "", "", "", "", ""])
+    return out.getvalue()
+
+
+def import_csv(text: str) -> dict:
+    """Importa unidades en masa desde un CSV. Devuelve un resumen.
+
+    Acepta encabezados flexibles (ver _CSV_ALIASES); 'unit' es obligatorio.
+    Hace upsert por numero de unidad (igual que add())."""
+    text = (text or "").lstrip("﻿")
+    if not text.strip():
+        return {"added": 0, "updated": 0, "total": 0,
+                "errors": ["empty file"]}
+    reader = _csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        return {"added": 0, "updated": 0, "total": 0,
+                "errors": ["no header row"]}
+    colmap: dict[str, str] = {}
+    for col in reader.fieldnames:
+        field = _CSV_ALIASES.get(str(col or "").strip().lower())
+        if field:
+            colmap[col] = field
+    if "unit" not in colmap.values():
+        return {"added": 0, "updated": 0, "total": 0,
+                "errors": ["missing required 'unit' (or 'truck') column"]}
+
+    existing = names()
+    added = updated = 0
+    errors: list[str] = []
+    for i, raw in enumerate(reader, start=2):       # fila 1 = encabezados
+        data = {field: raw.get(col, "") for col, field in colmap.items()}
+        unit = str(data.get("unit") or "").strip()
+        if not unit:
+            continue                                # fila sin unidad: ignorar
+        try:
+            was_new = unit not in existing
+            add(data)
+            if was_new:
+                added += 1
+                existing.add(unit)
+            else:
+                updated += 1
+        except ValueError as exc:
+            errors.append(f"row {i}: {exc}")
+    return {"added": added, "updated": updated,
+            "total": added + updated, "errors": errors[:20]}
 
 
 def merge_into_fleet(samsara_units: list[dict]) -> list[dict]:

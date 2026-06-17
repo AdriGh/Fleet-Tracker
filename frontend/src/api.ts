@@ -447,6 +447,67 @@ export async function fleetArchive(id: string, action: string): Promise<void> {
   if (!res.ok) throw new Error(await readError(res))
 }
 
+// --- Empresas (Settings → Companies) ----------------------------------
+export interface Company { key: string; label: string }
+
+function pickCompanies(j: unknown): Company[] {
+  return ((j as { companies?: Company[] })?.companies ?? []) as Company[]
+}
+
+export async function listCompanies(): Promise<Company[]> {
+  const res = await fetch('/api/companies')
+  if (!res.ok) throw new Error(await readError(res))
+  return pickCompanies(await res.json())
+}
+
+export async function addCompany(label: string, key = ''): Promise<Company[]> {
+  const res = await fetch('/api/companies', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label, key }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return pickCompanies(await res.json())
+}
+
+export async function renameCompany(
+  key: string, label: string,
+): Promise<Company[]> {
+  const res = await fetch('/api/companies/rename', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, label }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return pickCompanies(await res.json())
+}
+
+export async function deleteCompany(key: string): Promise<Company[]> {
+  const res = await fetch(`/api/companies/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return pickCompanies(await res.json())
+}
+
+// --- Import masivo de unidades por CSV (Settings) ----------------------
+export interface UnitImportResult {
+  added: number; updated: number; total: number; errors: string[]
+}
+
+export async function importUnitsCsv(csv: string): Promise<UnitImportResult> {
+  const res = await fetch('/api/units/manual/import', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ csv }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as UnitImportResult
+}
+
+export async function unitsCsvTemplate(): Promise<string> {
+  const res = await fetch('/api/units/manual/template')
+  if (!res.ok) throw new Error(await readError(res))
+  return ((await res.json())?.csv ?? '') as string
+}
+
 // --- Configuración de la app (Settings) -------------------------------
 export interface AppSettings {
   auto_archive_enabled: boolean

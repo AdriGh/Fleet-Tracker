@@ -24,9 +24,13 @@ from .. import config, db
 SETTING_KEY = "org_config"
 CONFIG_PATH = config.BACKEND_DIR / "org.local.json"   # legacy (migracion)
 
+# Nombre fijo de la app. NO es editable desde Settings (se ignora cualquier
+# valor que llegue en branding.app_name y get() siempre devuelve este).
+APP_NAME = "Fleet Tracker"
+
 DEFAULTS: dict = {
     "branding": {
-        "app_name": "Fleet Tracker",
+        "app_name": APP_NAME,
         "tagline": "Fleet compliance",
         "accent": "",                # vacío = rojo de fábrica (#e11900)
     },
@@ -110,6 +114,7 @@ def get() -> dict:
             str(co): {f: str(addr.get(f, "")) for f in _ADDR_FIELDS}
             for co, addr in data["billing"].items() if isinstance(addr, dict)
         }
+    out["branding"]["app_name"] = APP_NAME      # nombre fijo, no editable
     return out
 
 
@@ -119,6 +124,8 @@ def save(new: dict) -> dict:
         for k, v in (new.get(section) or {}).items():
             if k not in cur[section]:
                 continue
+            if section == "branding" and k == "app_name":
+                continue                        # nombre fijo, no editable
             if section == "thresholds":
                 try:
                     cur[section][k] = max(1, int(v))

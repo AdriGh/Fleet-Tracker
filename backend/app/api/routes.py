@@ -15,7 +15,8 @@ from pydantic import BaseModel
 from fastapi import Header
 
 from ..core import (
-    alerts, app_config, auth, batch, docscan, driver_contacts, engine,
+    alerts, app_config, auth, batch, companies, docscan, driver_contacts,
+    engine,
     excel, integrations_admin, local_config, lynx, mailer, maint,
     manual_units, media_host, notify_service, open_defects, org_config,
     parts, permissions, pm, pois, pretrip, reefer, samsara, sms_service,
@@ -1059,6 +1060,70 @@ def units_manual_add(body: UnitIn):
 @router.delete("/units/manual/{unit_id}")
 def units_manual_delete(unit_id: int):
     return {"deleted": manual_units.delete(unit_id)}
+
+
+class UnitsCsvIn(BaseModel):
+    csv: str = ""
+
+
+@router.get("/units/manual/template")
+def units_manual_template():
+    """CSV de ejemplo para el import masivo de unidades (Settings)."""
+    return {"csv": manual_units.csv_template(),
+            "columns": manual_units.CSV_COLUMNS}
+
+
+@router.post("/units/manual/import")
+def units_manual_import(body: UnitsCsvIn,
+                        authorization: str | None = Header(default=None)):
+    """Import masivo de unidades desde un CSV (upsert por numero de unidad)."""
+    _require_admin(authorization)
+    return manual_units.import_csv(body.csv)
+
+
+# ----- Empresas (Settings -> Companies) ------------------------------------
+
+class CompanyIn(BaseModel):
+    label: str
+    key: str = ""
+
+
+class CompanyRenameIn(BaseModel):
+    key: str
+    label: str
+
+
+@router.get("/companies")
+def companies_list():
+    """Empresas (carriers) del tenant actual."""
+    return {"companies": companies.list_companies()}
+
+
+@router.post("/companies")
+def companies_add(body: CompanyIn,
+                  authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    try:
+        return {"companies": companies.add(body.label, body.key)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/companies/rename")
+def companies_rename(body: CompanyRenameIn,
+                     authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    try:
+        return {"companies": companies.rename(body.key, body.label)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/companies/{key}")
+def companies_delete(key: str,
+                     authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    return {"companies": companies.delete(key)}
 
 
 @router.get("/vin/{vin}")
