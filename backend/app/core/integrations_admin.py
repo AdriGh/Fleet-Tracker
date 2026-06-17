@@ -55,12 +55,31 @@ def _tail(secret: str) -> str:
 # ----- Specs de configuración por proveedor ------------------------------
 # field: {key, label, secret?, kind: text|password|toggle, help?}
 
+def _provider_spec(p) -> dict:
+    """Spec de configuración generado desde un TelematicsProvider que se
+    autodescribe (campos + colas enmascaradas leídas de sus credenciales)."""
+    creds = p.creds()
+    fields = []
+    for f in p.config_fields():
+        item = dict(f)
+        if f.get("kind") == "toggle":
+            item["value"] = bool(creds.get(f["key"], False))
+        elif f.get("kind") == "password":
+            item["tail"] = _tail(str(creds.get(f["key"], "")))
+        else:
+            item["tail"] = str(creds.get(f["key"], ""))
+        fields.append(item)
+    return {"title": f"{p.name} API", "help": p.docs, "fields": fields}
+
+
 def config_specs() -> dict[str, dict]:
-    """Qué campos edita cada proveedor y su estado enmascarado actual."""
+    """Qué campos edita cada proveedor y su estado enmascarado actual.
+
+    Los proveedores ELD (registry) se generan solos desde su autodescripción;
+    el resto son specs explícitos."""
     twilio = sms_service.load_settings()
     cloud = media_host.load_settings()
     avisos = local_config.load()
-    motive = _read_json(config.BACKEND_DIR / "motive.local.json")
     google = _read_json(pois.GOOGLE_CONF)
     telegram = telegram_notify.load_settings()
     claude = docscan.load_settings()
@@ -68,7 +87,7 @@ def config_specs() -> dict[str, dict]:
     lyn = lynx.load_settings()
     tk = thermoking.load_settings()
 
-    return {
+    specs = {
         "thermoking": {
             "title": "Thermo King TracKing (OEM reefer)",
             "help": ("Direct two-way Thermo King TracKing / ConnectedSuite "
@@ -136,14 +155,6 @@ def config_specs() -> dict[str, dict]:
                  "token_tail": f"…{o['token_tail']}",
                  "trailer_dvirs": o["trailer_dvirs"]}
                 for o in samsara.org_summaries()
-            ],
-        },
-        "motive": {
-            "title": "Motive API key",
-            "help": "Self-serve key from developer.gomotive.com.",
-            "fields": [
-                {"key": "api_key", "label": "API key", "kind": "password",
-                 "tail": _tail(motive.get("api_key", ""))},
             ],
         },
         "twilio": {
@@ -244,6 +255,13 @@ def config_specs() -> dict[str, dict]:
         },
     }
 
+    # Proveedores ELD que se autodescriben (Motive y cualquier adapter
+    # futuro con config_fields). Samsara ya tiene su spec especial (multi-org).
+    for p in registry().values():
+        if p.id not in specs and p.config_fields():
+            specs[p.id] = _provider_spec(p)
+    return specs
+
 
 def save_config(provider: str, values: dict) -> dict:
     """Mergea credenciales al *.local.json del proveedor.
@@ -263,9 +281,16 @@ def save_config(provider: str, values: dict) -> dict:
             data[k] = v
         _write_json(path, data)
 
-    if provider == "motive":
-        merge(config.BACKEND_DIR / "motive.local.json", ["api_key"])
-    elif provider == "twilio":
+    # Proveedores ELD que se autodescriben: delegan en su propio adapter.
+    reg = registry()
+    if provider in reg and provider != "samsara":
+        prov = reg[provider]
+        if not prov.config_fields():
+            raise ValueError(f"Provider not configurable: {provider}")
+        prov.save_creds(values)
+        return {"ok": True}
+
+    if provider == "twilio":
         merge(sms_service.SETTINGS_PATH,
               ["account_sid", "auth_token", "from_number",
                "messaging_service_sid", "dry_run"])

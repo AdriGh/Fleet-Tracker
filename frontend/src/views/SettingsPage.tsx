@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   addCompany, assignTerminal, createAppUser, deleteCompany, deleteTerminal,
-  fleetArchive, getAlertsSettings, getHealth,
+  eldFleetPreview, fleetArchive, getAlertsSettings, getHealth,
   getIntegrationSpecs, getIntegrations, getOrg, getSettings, importUnitsCsv,
   listAppUsers, listCompanies,
   listFleet, patchAppUser, renameCompany, saveAlertsSettings,
-  saveIntegrationConfig, saveOrg, saveSettings, saveTerminal, testIntegration,
-  unitsCsvTemplate,
+  saveIntegrationConfig, saveOrg, saveSettings, saveTerminal, setEldActive,
+  testIntegration, unitsCsvTemplate,
   type AlertsSettings, type Company, type FleetUnit,
   type IntegrationProvider, type IntegrationSpec, type IntegrationStatus,
   type OrgConfig, type TerminalDef, type TerminalsConfig,
@@ -1523,14 +1523,27 @@ function providerGlyph(id: string, name: string) {
   }
 }
 
+// Capacidades del adapter ELD -> etiqueta legible (orden de muestra).
+const CAP_LABELS: [keyof NonNullable<IntegrationProvider['capabilities']>,
+  string][] = [
+  ['fleet', 'Fleet'], ['drivers', 'Drivers'], ['defects', 'Defects'],
+  ['track', 'Live map'], ['reefer', 'Reefer'],
+]
+
 function IntegrationCard({ provider, onConfigure }: {
   provider: IntegrationProvider
   onConfigure: () => void
 }) {
+  const qc = useQueryClient()
   const badge = STATUS_BADGE[provider.status]
   const inactive =
     provider.status === 'planned' || provider.status === 'not_configured'
   const [testing, setTesting] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const caps = provider.capabilities
+  const liveCaps = caps ? CAP_LABELS.filter(([k]) => caps[k]) : []
+  const canActivate = !!caps && !provider.active
+    && (provider.status === 'connected' || provider.status === 'live')
 
   async function runTest() {
     setTesting(true)
@@ -1542,6 +1555,36 @@ function IntegrationCard({ provider, onConfigure }: {
       notifyErr(`${provider.name}: error`, e)
     } finally {
       setTesting(false)
+    }
+  }
+
+  async function makeActive() {
+    setBusy(true)
+    try {
+      await setEldActive(provider.id)
+      notifyOk(`${provider.name} is now the active ELD`)
+      qc.invalidateQueries({ queryKey: ['integrations'] })
+    } catch (e) {
+      notifyErr("Couldn't set active provider", e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function previewFleet() {
+    setBusy(true)
+    try {
+      const r = await eldFleetPreview(provider.id)
+      if (r.ok) {
+        notifyOk(`${provider.name}: ${r.detail}`,
+          r.sample.slice(0, 6).map((u) => u.unit).join(', ') || 'no units')
+      } else {
+        notifyErr(`${provider.name}: preview`, r.detail)
+      }
+    } catch (e) {
+      notifyErr(`${provider.name}: preview failed`, e)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -1560,9 +1603,20 @@ function IntegrationCard({ provider, onConfigure }: {
           >
             {badge.label}
           </span>
+          {provider.active && (
+            <span className="set-badge is-ok"
+              title="Default ELD data source">Active</span>
+          )}
         </span>
         <span className="intg-kind">{provider.kind}</span>
         <span className="intg-detail">{provider.detail}</span>
+        {liveCaps.length > 0 && (
+          <span className="intg-chips">
+            {liveCaps.map(([k, label]) => (
+              <span key={k} className="intg-chip"><strong>{label}</strong></span>
+            ))}
+          </span>
+        )}
         {provider.items.length > 0 && (
           <span className="intg-chips">
             {provider.items.map((it) => (
@@ -1572,12 +1626,25 @@ function IntegrationCard({ provider, onConfigure }: {
             ))}
           </span>
         )}
-        {(provider.testable || provider.configurable) && (
+        {(provider.testable || provider.configurable
+          || provider.previewable || canActivate) && (
           <span className="intg-actions">
             {provider.testable && (
               <button className="btn btn-ghost btn-xs" onClick={runTest}
                 disabled={testing}>
                 {testing ? 'Testing…' : 'Test'}
+              </button>
+            )}
+            {provider.previewable && (
+              <button className="btn btn-ghost btn-xs" onClick={previewFleet}
+                disabled={busy}>
+                Preview fleet
+              </button>
+            )}
+            {canActivate && (
+              <button className="btn btn-ghost btn-xs" onClick={makeActive}
+                disabled={busy}>
+                Set active
               </button>
             )}
             {provider.configurable && (

@@ -6,6 +6,8 @@ import re
 import uuid
 from datetime import date, datetime, timedelta
 
+import httpx
+
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
@@ -19,7 +21,8 @@ from ..core import (
     engine,
     excel, integrations_admin, local_config, lynx, mailer, maint,
     manual_units, media_host, notify_service, open_defects, org_config,
-    parts, permissions, pm, pois, pretrip, reefer, samsara, sms_service,
+    parts, permissions, pm, pois, pretrip, providers, reefer, samsara,
+    sms_service,
     telegram_notify, terminals, thermoking, tms, traccar, tracking,
     unit_settings, unitdocs, vin_decode, wo_invoice, workorders,
 )
@@ -1162,6 +1165,50 @@ def integrations_config(body: IntegrationConfigIn):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+# ----- Framework ELD: proveedor activo + preview de adapter -----------------
+
+class EldActiveIn(BaseModel):
+    provider: str
+
+
+@router.post("/integrations/eld/active")
+def eld_set_active(body: EldActiveIn,
+                   authorization: str | None = Header(default=None)):
+    """Marca cuál proveedor ELD es el activo (fuente de datos por defecto)."""
+    _require_admin(authorization)
+    try:
+        return {"active": providers.set_active(body.provider)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/integrations/eld/{provider}/fleet-preview")
+async def eld_fleet_preview(provider: str,
+                            authorization: str | None = Header(default=None)):
+    """Corre el adapter list_fleet del proveedor y devuelve conteo + muestra.
+
+    Verifica de punta a punta que un adapter trae datos reales, sin tocar el
+    inventario de la app."""
+    _require_admin(authorization)
+    reg = providers.registry()
+    prov = reg.get(provider)
+    if prov is None:
+        raise HTTPException(status_code=404, detail="unknown provider")
+    if not prov.capabilities().get("fleet"):
+        return {"ok": False, "count": 0, "sample": [],
+                "detail": f"{prov.name} has no fleet adapter yet"}
+    try:
+        units = await prov.list_fleet()
+    except (httpx.HTTPError, ValueError, NotImplementedError) as exc:
+        return {"ok": False, "count": 0, "sample": [],
+                "detail": f"{type(exc).__name__}: {exc}"[:160]}
+    sample = [{"unit": u.get("unit"), "year": u.get("year"),
+               "make": u.get("make"), "model": u.get("model"),
+               "vin": u.get("vin")} for u in units[:25]]
+    return {"ok": True, "count": len(units), "sample": sample,
+            "detail": f"{len(units)} unit{'s' if len(units) != 1 else ''}"}
+
+
 # Qué proveedores soportan test/configure desde la UI.
 _TESTABLE = {"samsara", "motive", "twilio", "cloudinary", "gmail",
              "gplaces", "gsheets", "fullbay", "telegram", "docscan",
@@ -1179,7 +1226,6 @@ def integrations_status():
     backend/*.local.json hasta que llegue la edición en-app, fase G6/G7).
     Estados: connected | live | dry_run | not_configured | available | planned.
     """
-    orgs = samsara.org_summaries()
     email = mailer.load_settings()
     sms = sms_service.load_settings()
     media = media_host.load_settings()
@@ -1199,50 +1245,7 @@ def integrations_status():
 
     out = {
         "groups": [
-            {
-                "id": "eld",
-                "label": "ELD / Telematics",
-                "note": ("Read-only API tokens. Token editing moves in-app "
-                         "with the multi-ELD adapter."),
-                "providers": [
-                    {
-                        "id": "samsara", "name": "Samsara",
-                        "kind": "Telematics + ELD",
-                        "status": "connected" if orgs else "not_configured",
-                        "detail": (f"{len(orgs)} org{'s' if len(orgs) != 1 else ''} · "
-                                   + ", ".join(o["company"] for o in orgs)
-                                   if orgs else "No API tokens configured"),
-                        "items": [
-                            {"label": o["company"],
-                             "value": f"token …{o['token_tail']}"}
-                            for o in orgs
-                        ],
-                    },
-                    {
-                        "id": "motive", "name": "Motive",
-                        "kind": "Telematics + ELD",
-                        "status": "available",
-                        "detail": "Public self-serve REST API + OAuth. "
-                                  "Adapter planned.",
-                        "items": [],
-                    },
-                    {
-                        "id": "geotab", "name": "Geotab",
-                        "kind": "Telematics + ELD",
-                        "status": "planned",
-                        "detail": "JSON-RPC API with customer database "
-                                  "credentials.",
-                        "items": [],
-                    },
-                    {
-                        "id": "panda", "name": "Panda ELD",
-                        "kind": "ELD",
-                        "status": "planned",
-                        "detail": "No public API yet — partnership required.",
-                        "items": [],
-                    },
-                ],
-            },
+            providers.hub_group(),
             {
                 "id": "messaging",
                 "label": "Messaging",
@@ -1381,10 +1384,12 @@ def integrations_status():
             },
         ],
     }
+    # Los proveedores ELD ya traen testable/configurable desde su hub_card
+    # (autodescripción); el resto los deriva de los sets estáticos.
     for g in out["groups"]:
         for p in g["providers"]:
-            p["testable"] = p["id"] in _TESTABLE
-            p["configurable"] = p["id"] in _CONFIGURABLE
+            p.setdefault("testable", p["id"] in _TESTABLE)
+            p.setdefault("configurable", p["id"] in _CONFIGURABLE)
     return out
 
 

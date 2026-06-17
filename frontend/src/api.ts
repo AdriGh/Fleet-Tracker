@@ -1336,6 +1336,14 @@ export type IntegrationStatus =
   | 'connected' | 'live' | 'dry_run' | 'not_configured'
   | 'available' | 'planned'
 
+export interface EldCapabilities {
+  fleet: boolean
+  drivers: boolean
+  defects: boolean
+  track: boolean
+  reefer: boolean
+}
+
 export interface IntegrationProvider {
   id: string
   name: string
@@ -1345,6 +1353,10 @@ export interface IntegrationProvider {
   items: { label: string; value: string }[]
   testable: boolean
   configurable: boolean
+  // Solo proveedores ELD (registry): capacidades del adapter + estado activo.
+  capabilities?: EldCapabilities
+  active?: boolean
+  previewable?: boolean
 }
 
 export interface IntegrationField {
@@ -1390,6 +1402,34 @@ export async function saveIntegrationConfig(
     body: JSON.stringify({ provider, values }),
   })
   if (!res.ok) throw new Error(await readError(res))
+}
+
+// Framework ELD: marcar el proveedor activo + previsualizar su flota.
+export async function setEldActive(provider: string): Promise<string> {
+  const res = await fetch('/api/integrations/eld/active', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return ((await res.json())?.active ?? '') as string
+}
+
+export interface EldFleetPreview {
+  ok: boolean
+  count: number
+  detail: string
+  sample: {
+    unit: string; year: string; make: string; model: string; vin: string
+  }[]
+}
+
+export async function eldFleetPreview(
+  provider: string,
+): Promise<EldFleetPreview> {
+  const res = await fetch(
+    `/api/integrations/eld/${encodeURIComponent(provider)}/fleet-preview`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as EldFleetPreview
 }
 
 export interface IntegrationGroup {

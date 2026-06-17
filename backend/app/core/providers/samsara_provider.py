@@ -19,9 +19,27 @@ from . import TelematicsProvider
 class SamsaraProvider(TelematicsProvider):
     id = "samsara"
     name = "Samsara"
+    docs = "Read-only API tokens, one per org."
 
     def configured(self) -> bool:
         return bool(samsara.org_summaries())
+
+    # Samsara se configura aparte (multi-org, en integrations_admin), no con
+    # los campos genéricos; pero sí es configurable desde el hub.
+    def configurable(self) -> bool:
+        return True
+
+    def status_detail(self) -> tuple[str, str]:
+        orgs = samsara.org_summaries()
+        if not orgs:
+            return "not_configured", "No API tokens configured"
+        n = len(orgs)
+        return "connected", (f"{n} org{'s' if n != 1 else ''} · "
+                             + ", ".join(o["company"] for o in orgs))
+
+    def hub_items(self) -> list[dict]:
+        return [{"label": o["company"], "value": f"token …{o['token_tail']}"}
+                for o in samsara.org_summaries()]
 
     async def ping(self) -> dict:
         """Un GET mínimo por org; reporta latencia y empresa."""
