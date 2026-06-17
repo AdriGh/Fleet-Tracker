@@ -18,6 +18,7 @@ import {
 } from '../api'
 import { useTerminals } from '../terminal'
 import { useTeams } from '../teams'
+import FleetBoard from '../components/FleetBoard'
 import { notifyOk, notifyErr } from '../toast'
 import Skeleton from '../components/Skeleton'
 import Modal from '../components/Modal'
@@ -1840,7 +1841,7 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
   const { cfg, terminals, terminalOf, labelOf } = useTerminals()
-  const [assigning, setAssigning] = useState<TerminalDef | null>(null)
+  const [board, setBoard] = useState<{ focus: string | null } | null>(null)
   const [editKey, setEditKey] = useState<string | null>(null)
   const [eLabel, setELabel] = useState('')
   const [ePrefixes, setEPrefixes] = useState('')
@@ -1912,6 +1913,33 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
     await persist(() => deleteTerminal(t.key), `Terminal ${t.label} deleted`)
   }
 
+  // Guarda el tablero: reconciliando todas las terminales de una vez.
+  // assign() reemplaza el set pinneado de cada terminal, así que iteramos
+  // todas (incluso las vacías) para soltar los pins removidos. Los pines de
+  // unidades archivadas (no visibles en el board) se preservan aparte.
+  async function commitBoard(placement: Record<string, string[]>) {
+    setBusy(true)
+    try {
+      const activeSet = new Set(activeUnits.map((u) => u.unit))
+      const hidden: Record<string, string[]> = {}
+      for (const [unit, key] of Object.entries(cfg.assignments)) {
+        if (!activeSet.has(unit)) (hidden[key] ??= []).push(unit)
+      }
+      let last: TerminalsConfig | null = null
+      for (const t of terminals) {
+        last = await assignTerminal(t.key,
+          [...(placement[t.key] ?? []), ...(hidden[t.key] ?? [])])
+      }
+      if (last) qc.setQueryData(['terminals'], last)
+      notifyOk('Fleet board saved')
+      setBoard(null)
+    } catch (e) {
+      notifyErr("Couldn't save terminals", e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <section className="card settings-card">
       <button className="collapse-head" onClick={() => setOpen((o) => !o)}
@@ -1938,6 +1966,14 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
             assignment first, then by unit-number prefix (e.g.
             <code>MEM</code> matches <code>MEM-123</code>).
           </p>
+
+          <div className="settings-actions" style={{ marginBottom: 12 }}>
+            <button className="btn btn-primary btn-expand"
+              onClick={() => setBoard({ focus: null })}>
+              <span className="btn-plus" aria-hidden>⠿</span>
+              Open fleet board
+            </button>
+          </div>
 
           <table className="defects-table users-table">
             <thead>
@@ -2008,7 +2044,7 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
                       <td className="num">
                         <span className="users-reset">
                           <button className="btn btn-ghost btn-xs"
-                            onClick={() => setAssigning(t)}>
+                            onClick={() => setBoard({ focus: t.key })}>
                             Assign fleet
                           </button>
                           <button className="btn btn-ghost btn-xs"
@@ -2053,108 +2089,20 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
         </div>
       )}
 
-      {assigning && (
-        <Modal title={`Assign fleet — ${assigning.label}`} width={560}
-          onClose={() => setAssigning(null)}>
-          <TerminalPicker units={activeUnits} terminal={assigning}
-            cfg={cfg} terminalOf={terminalOf} labelOf={labelOf} busy={busy}
-            onSave={async (us) => {
-              if (await persist(
-                () => assignTerminal(assigning.key, us),
-                `${assigning.label}: ${us.length} unit${us.length === 1 ? '' : 's'} pinned`,
-              )) setAssigning(null)
-            }} />
+      {board && (
+        <Modal title="Fleet board — Terminals" width={1060} fullHeight
+          onClose={() => setBoard(null)}>
+          <FleetBoard kind="terminal" busy={busy} focusKey={board.focus}
+            units={activeUnits}
+            columns={terminals.map((t) => ({ key: t.key, label: t.label }))}
+            initialOf={(unit) => cfg.assignments[unit] ?? ''}
+            autoHintOf={(u) => cfg.assignments[u.unit]
+              ? undefined
+              : `auto: ${labelOf(terminalOf(u.unit, u.company))}`}
+            onCommit={commitBoard} />
         </Modal>
       )}
     </section>
-  )
-}
-
-// Picker de flota para una terminal: marcar = pinnear la unidad a esa
-// terminal; desmarcar = vuelve a resolución por prefijo/empresa.
-function TerminalPicker({ units, terminal, cfg, terminalOf, labelOf, busy, onSave }: {
-  units: FleetUnit[]
-  terminal: TerminalDef
-  cfg: TerminalsConfig
-  terminalOf: (unit: string, company?: string) => string
-  labelOf: (key: string) => string
-  busy: boolean
-  onSave: (units: string[]) => void
-}) {
-  const [q, setQ] = useState('')
-  // Preseleccionar TODOS los pins de esta terminal desde la config, no
-  // solo los de la flota activa: assign() reemplaza el set entero, así
-  // que un pin de una unidad archivada (invisible aquí) debe viajar en
-  // `picked` para no borrarse silenciosamente al guardar.
-  const [picked, setPicked] = useState<Set<string>>(() => new Set(
-    Object.entries(cfg.assignments)
-      .filter(([, key]) => key === terminal.key)
-      .map(([unit]) => unit)))
-  const shown = useMemo(() => {
-    const s = q.trim().toLowerCase()
-    return s
-      ? units.filter((u) => u.unit.toLowerCase().includes(s)
-          || u.company.toLowerCase().includes(s))
-      : units
-  }, [units, q])
-  const allOn = shown.length > 0 && shown.every((u) => picked.has(u.unit))
-
-  function toggle(unit: string) {
-    setPicked((prev) => {
-      const n = new Set(prev)
-      if (n.has(unit)) n.delete(unit); else n.add(unit)
-      return n
-    })
-  }
-  function toggleAll() {
-    setPicked((prev) => {
-      const n = new Set(prev)
-      if (allOn) shown.forEach((u) => n.delete(u.unit))
-      else shown.forEach((u) => n.add(u.unit))
-      return n
-    })
-  }
-
-  return (
-    <div className="export-picker">
-      <input className="cell-input" placeholder="Search units…"
-        value={q} onChange={(e) => setQ(e.target.value)} />
-      <div className="ep-head">
-        <label className="ep-all">
-          <input type="checkbox" checked={allOn} onChange={toggleAll} />
-          <span>{allOn ? 'Deselect all' : 'Select all'}</span>
-        </label>
-        <span className="ep-count">
-          {picked.size} pinned to {terminal.label}
-        </span>
-      </div>
-      <ul className="ep-list">
-        {shown.map((u) => (
-          <li key={u.id}>
-            <label className="ep-item">
-              <input type="checkbox" checked={picked.has(u.unit)}
-                onChange={() => toggle(u.unit)} />
-              <span className="ep-unit">{u.unit}</span>
-              <span className="ep-kind">{u.unit_type}</span>
-              <span className="ep-co">
-                {picked.has(u.unit)
-                  ? 'pinned'
-                  : labelOf(terminalOf(u.unit, u.company))}
-              </span>
-            </label>
-          </li>
-        ))}
-      </ul>
-      <div className="ep-foot">
-        <span className="settings-sub">
-          Unchecked units follow prefix and company rules.
-        </span>
-        <button className="btn btn-primary" disabled={busy}
-          onClick={() => onSave([...picked])}>
-          {busy ? 'Saving…' : `Save (${picked.size} pinned)`}
-        </button>
-      </div>
-    </div>
   )
 }
 
@@ -2163,7 +2111,7 @@ function TeamsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
   const { cfg, teams, teamOf, labelOf } = useTeams()
-  const [assigning, setAssigning] = useState<TeamDef | null>(null)
+  const [board, setBoard] = useState<{ focus: string | null } | null>(null)
   const [editing, setEditing] = useState<TeamDef | null>(null)
   const [nLabel, setNLabel] = useState('')
   const [busy, setBusy] = useState(false)
@@ -2226,6 +2174,33 @@ function TeamsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
     await persist(() => deleteTeam(t.key), `Team ${t.label} deleted`)
   }
 
+  // Guarda el tablero: reasigna cada equipo de una vez. assign() reemplaza
+  // la flota del equipo, así que iteramos todos (incluso vacíos) para que
+  // las unidades movidas al pool queden sin equipo. Las membresías de
+  // unidades archivadas (no visibles) se preservan aparte.
+  async function commitBoard(placement: Record<string, string[]>) {
+    setBusy(true)
+    try {
+      const activeSet = new Set(activeUnits.map((u) => u.unit))
+      const hidden: Record<string, string[]> = {}
+      for (const [unit, key] of Object.entries(cfg.members)) {
+        if (!activeSet.has(unit)) (hidden[key] ??= []).push(unit)
+      }
+      let last: TeamsConfig | null = null
+      for (const t of teams) {
+        last = await assignTeam(t.key,
+          [...(placement[t.key] ?? []), ...(hidden[t.key] ?? [])])
+      }
+      if (last) qc.setQueryData(['teams'], last)
+      notifyOk('Fleet board saved')
+      setBoard(null)
+    } catch (e) {
+      notifyErr("Couldn't save teams", e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <section className="card settings-card">
       <button className="collapse-head" onClick={() => setOpen((o) => !o)}
@@ -2250,6 +2225,16 @@ function TeamsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
             — handy for dispatch and ownership. A unit belongs to a team
             only when you assign it (a unit can be in one team at a time).
           </p>
+
+          {teams.length > 0 && (
+            <div className="settings-actions" style={{ marginBottom: 12 }}>
+              <button className="btn btn-primary btn-expand"
+                onClick={() => setBoard({ focus: null })}>
+                <span className="btn-plus" aria-hidden>⠿</span>
+                Open fleet board
+              </button>
+            </div>
+          )}
 
           {teams.length === 0 ? (
             <p className="muted" style={{ margin: '6px 0 2px' }}>
@@ -2301,7 +2286,7 @@ function TeamsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
                     <td className="num">
                       <span className="users-reset">
                         <button className="btn btn-ghost btn-xs"
-                          onClick={() => setAssigning(t)}>
+                          onClick={() => setBoard({ focus: t.key })}>
                           Assign fleet
                         </button>
                         <button className="btn btn-ghost btn-xs"
@@ -2344,17 +2329,14 @@ function TeamsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
         </Modal>
       )}
 
-      {assigning && (
-        <Modal title={`Assign fleet — ${assigning.label}`} width={560}
-          onClose={() => setAssigning(null)}>
-          <TeamPicker units={activeUnits} team={assigning} cfg={cfg}
-            teamOf={teamOf} labelOf={labelOf} busy={busy}
-            onSave={async (us) => {
-              if (await persist(
-                () => assignTeam(assigning.key, us),
-                `${assigning.label}: ${us.length} unit${us.length === 1 ? '' : 's'} assigned`,
-              )) setAssigning(null)
-            }} />
+      {board && (
+        <Modal title="Fleet board — Teams" width={1060} fullHeight
+          onClose={() => setBoard(null)}>
+          <FleetBoard kind="team" busy={busy} focusKey={board.focus}
+            units={activeUnits}
+            columns={teams.map((t) => ({ key: t.key, label: t.label }))}
+            initialOf={(unit) => teamOf(unit)}
+            onCommit={commitBoard} />
         </Modal>
       )}
     </section>
@@ -2427,94 +2409,3 @@ function TeamEditor({ team, busy, onSave }: {
   )
 }
 
-// Picker de flota para un equipo: marcar = la unidad pertenece a este
-// equipo; desmarcar = queda sin equipo. Una unidad solo puede estar en un
-// equipo, así que marcarla aquí la mueve desde el equipo que tuviera.
-function TeamPicker({ units, team, cfg, teamOf, labelOf, busy, onSave }: {
-  units: FleetUnit[]
-  team: TeamDef
-  cfg: TeamsConfig
-  teamOf: (unit: string) => string
-  labelOf: (key: string) => string
-  busy: boolean
-  onSave: (units: string[]) => void
-}) {
-  const [q, setQ] = useState('')
-  // Preseleccionar TODOS los miembros de este equipo desde la config (no
-  // solo flota activa): assign() reemplaza el set entero, así que un
-  // miembro archivado debe viajar en `picked` para no borrarse al guardar.
-  const [picked, setPicked] = useState<Set<string>>(() => new Set(
-    Object.entries(cfg.members)
-      .filter(([, key]) => key === team.key)
-      .map(([unit]) => unit)))
-  const shown = useMemo(() => {
-    const s = q.trim().toLowerCase()
-    return s
-      ? units.filter((u) => u.unit.toLowerCase().includes(s)
-          || u.company.toLowerCase().includes(s))
-      : units
-  }, [units, q])
-  const allOn = shown.length > 0 && shown.every((u) => picked.has(u.unit))
-
-  function toggle(unit: string) {
-    setPicked((prev) => {
-      const n = new Set(prev)
-      if (n.has(unit)) n.delete(unit); else n.add(unit)
-      return n
-    })
-  }
-  function toggleAll() {
-    setPicked((prev) => {
-      const n = new Set(prev)
-      if (allOn) shown.forEach((u) => n.delete(u.unit))
-      else shown.forEach((u) => n.add(u.unit))
-      return n
-    })
-  }
-
-  function memberHint(u: FleetUnit): string {
-    if (picked.has(u.unit)) return 'in this team'
-    const other = teamOf(u.unit)
-    return other && other !== team.key
-      ? `moves from ${labelOf(other)}`
-      : 'unassigned'
-  }
-
-  return (
-    <div className="export-picker">
-      <input className="cell-input" placeholder="Search units…"
-        value={q} onChange={(e) => setQ(e.target.value)} />
-      <div className="ep-head">
-        <label className="ep-all">
-          <input type="checkbox" checked={allOn} onChange={toggleAll} />
-          <span>{allOn ? 'Deselect all' : 'Select all'}</span>
-        </label>
-        <span className="ep-count">
-          {picked.size} in {team.label}
-        </span>
-      </div>
-      <ul className="ep-list">
-        {shown.map((u) => (
-          <li key={u.id}>
-            <label className="ep-item">
-              <input type="checkbox" checked={picked.has(u.unit)}
-                onChange={() => toggle(u.unit)} />
-              <span className="ep-unit">{u.unit}</span>
-              <span className="ep-kind">{u.unit_type}</span>
-              <span className="ep-co">{memberHint(u)}</span>
-            </label>
-          </li>
-        ))}
-      </ul>
-      <div className="ep-foot">
-        <span className="settings-sub">
-          A unit can be in one team at a time.
-        </span>
-        <button className="btn btn-primary" disabled={busy}
-          onClick={() => onSave([...picked])}>
-          {busy ? 'Saving…' : `Save (${picked.size})`}
-        </button>
-      </div>
-    </div>
-  )
-}

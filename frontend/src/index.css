@@ -2614,6 +2614,101 @@ td.dur-high {
   white-space: nowrap;
 }
 
+/* ---------- Tablero de asignación de flota (drag & drop) ----------------- */
+.fleet-board { display: flex; flex-direction: column; gap: 12px; }
+.fb-toolbar {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+.fb-toolbar .cell-input { flex: 1 1 200px; min-width: 0; }
+.fb-summary { font-size: 12.5px; color: var(--muted, #6b7280); }
+
+.fb-cols {
+  display: flex; gap: 12px; align-items: flex-start;
+  overflow-x: auto; padding: 2px 2px 10px;
+}
+.fb-col {
+  flex: 0 0 220px; width: 220px;
+  background: var(--surface-2, #f6f7f9);
+  border: 1.5px solid var(--border, #e3e6ea);
+  border-radius: 12px;
+  display: flex; flex-direction: column; max-height: 56vh;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+/* Primera columna = pool, visualmente distinta (origen de la flota). */
+.fb-col:first-child {
+  background: color-mix(in srgb, var(--accent, #e11900) 5%, var(--surface, #fff));
+  border-style: dashed;
+}
+.fb-col.over {
+  border-color: var(--accent, #e11900);
+  box-shadow: 0 0 0 3px var(--accent-soft, rgba(225, 25, 0, 0.12));
+  background: var(--accent-soft, rgba(225, 25, 0, 0.06));
+}
+.fb-col.focus { border-color: var(--accent, #e11900); }
+.fb-col-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 10px 12px;
+  border-bottom: 1px solid var(--border, #e3e6ea);
+  position: sticky; top: 0;
+}
+.fb-col-label { font-weight: 700; font-size: 13px; }
+.fb-col-count {
+  font-size: 11.5px; font-weight: 700; color: var(--muted, #6b7280);
+  background: var(--surface, #fff); border: 1px solid var(--border, #e3e6ea);
+  border-radius: 999px; padding: 1px 8px; min-width: 22px; text-align: center;
+}
+.fb-col-body {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px; overflow-y: auto;
+}
+.fb-empty {
+  font-size: 12px; color: var(--muted, #9aa1ac); text-align: center;
+  padding: 14px 6px; margin: 0;
+}
+
+.fb-card {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e3e6ea); border-radius: 9px;
+  padding: 7px 9px; cursor: grab; touch-action: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.12s, border-color 0.12s, transform 0.05s;
+}
+.fb-card:hover { border-color: var(--accent, #e11900); }
+.fb-card:active { cursor: grabbing; }
+.fb-card.dragging { opacity: 0.4; }
+.fb-card-overlay {
+  opacity: 1; cursor: grabbing; transform: rotate(2deg) scale(1.03);
+  box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.4);
+  border-color: var(--accent, #e11900);
+}
+.fb-card-main {
+  display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0;
+}
+.fb-card-unit {
+  font-weight: 700; font-size: 13px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fb-card-kind { font-size: 11px; color: var(--muted, #6b7280); }
+.fb-card-auto {
+  font-size: 10.5px; color: var(--muted, #9aa1ac); font-style: italic;
+  white-space: nowrap;
+}
+/* Fallback accesible: el <select> "mover a" solo aparece en pantallas
+   chicas o punteros gruesos (touch), donde arrastrar es incómodo. En
+   desktop se arrastra (o se usa teclado, que dnd-kit soporta). */
+.fb-move { display: none; }
+.fb-help { font-size: 12px; color: var(--muted, #6b7280); margin: 0; }
+@media (max-width: 760px), (pointer: coarse) {
+  .fb-move {
+    display: block; flex: 0 0 auto; max-width: 120px;
+    font-size: 11px; padding: 3px 4px; border-radius: 7px;
+    border: 1px solid var(--border, #e3e6ea);
+    background: var(--surface, #fff); color: var(--text, #1a1a1a);
+  }
+  .fb-card { cursor: default; }
+}
+
 /* Editor de equipo: lista de conductores (nombre + email + quitar). */
 .team-editor { display: flex; flex-direction: column; gap: 6px; }
 .team-editor .settings-sub-h { margin: 10px 0 2px; }
