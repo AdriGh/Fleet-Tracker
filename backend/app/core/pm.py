@@ -11,14 +11,17 @@ El PM se hace cada 20.000 millas → próximo PM = millaje del último PM + 20.0
 """
 
 import csv
-import json
 import re
 from pathlib import Path
 
+from .. import db
+
 CSV_PATH = Path(__file__).resolve().parents[2] / "pm.local.csv"
 # Overrides manuales por unidad (telemetría/Fullbay errados): exclude, millaje
-# actual y/o millaje del último PM. Local, gitignored.
-OVERRIDES_PATH = Path(__file__).resolve().parents[2] / "pm_overrides.local.json"
+# actual y/o millaje del último PM. H6: en org_setting por-tenant (clave
+# 'pm_overrides'); el JSON legacy se importa una vez a la org 'default'.
+OVERRIDES_KEY = "pm_overrides"
+OVERRIDES_PATH = Path(__file__).resolve().parents[2] / "pm_overrides.local.json"  # legacy
 INTERVAL_MILES = 20000
 
 
@@ -27,17 +30,12 @@ def is_available() -> bool:
 
 
 def load_overrides() -> dict:
-    if not OVERRIDES_PATH.exists():
-        return {}
-    try:
-        return json.loads(OVERRIDES_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    data = db.get_setting(OVERRIDES_KEY, legacy_file=OVERRIDES_PATH)
+    return data if isinstance(data, dict) else {}
 
 
 def _save_overrides(d: dict) -> None:
-    OVERRIDES_PATH.write_text(
-        json.dumps(d, indent=2, ensure_ascii=False), encoding="utf-8")
+    db.save_setting(OVERRIDES_KEY, d)
 
 
 def set_override(unit: str, field: str, value) -> None:

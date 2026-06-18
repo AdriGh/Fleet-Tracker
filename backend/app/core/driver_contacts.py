@@ -9,36 +9,32 @@ snapshot. Pensado como paso previo a migrar todo esto a una base de datos.
 Estructura del archivo: { name_key: {name, email, phone, company} }.
 """
 
-import json
 from pathlib import Path
 
 from . import datasource
+from .. import db
 from .contacts import name_key, parse_contacts
 
-STORE_PATH = Path(__file__).resolve().parents[2] / "driver_contacts.local.json"
-# Overrides manuales de email ({name_key: email}). Archivo SEPARADO para que la
-# re-sincronización desde la hoja NO los pise. Tienen prioridad sobre el snapshot.
-MANUAL_PATH = Path(__file__).resolve().parents[2] / "driver_emails.local.json"
+# H6: snapshot + overrides en org_setting por-tenant (claves 'driver_contacts'
+# y 'driver_emails'); los JSON legacy se importan una vez a la org 'default'.
+SETTING_KEY = "driver_contacts"
+MANUAL_KEY = "driver_emails"
+STORE_PATH = Path(__file__).resolve().parents[2] / "driver_contacts.local.json"  # legacy
+# Overrides manuales de email ({name_key: email}), separados para que la
+# re-sincronización desde la hoja NO los pise (prioridad sobre el snapshot).
+MANUAL_PATH = Path(__file__).resolve().parents[2] / "driver_emails.local.json"  # legacy
 
 
 def load() -> dict:
     """Snapshot guardado: {name_key: {name, email, phone, company}}."""
-    if not STORE_PATH.exists():
-        return {}
-    try:
-        return json.loads(STORE_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    data = db.get_setting(SETTING_KEY, legacy_file=STORE_PATH)
+    return data if isinstance(data, dict) else {}
 
 
 def manual() -> dict:
     """Overrides manuales: {name_key: email}."""
-    if not MANUAL_PATH.exists():
-        return {}
-    try:
-        return json.loads(MANUAL_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    data = db.get_setting(MANUAL_KEY, legacy_file=MANUAL_PATH)
+    return data if isinstance(data, dict) else {}
 
 
 def set_email(name: str, email: str) -> None:
@@ -50,8 +46,7 @@ def set_email(name: str, email: str) -> None:
         m[key] = email
     else:
         m.pop(key, None)
-    MANUAL_PATH.write_text(
-        json.dumps(m, indent=2, ensure_ascii=False), encoding="utf-8")
+    db.save_setting(MANUAL_KEY, m)
 
 
 def email_for(name: str) -> str:
@@ -63,7 +58,7 @@ def info() -> dict:
     """Metadatos del snapshot (cantidad, con email) para la UI."""
     store = load()
     return {
-        "exists": STORE_PATH.exists(),
+        "exists": bool(store),
         "count": len(store),
         "with_email": sum(1 for v in store.values() if v.get("email")),
     }
@@ -83,8 +78,7 @@ def sync_from_sheet() -> dict:
             "phone": c.phone,
             "company": c.company,
         }
-    STORE_PATH.write_text(
-        json.dumps(store, indent=2, ensure_ascii=False), encoding="utf-8")
+    db.save_setting(SETTING_KEY, store)
     return {
         "count": len(store),
         "with_email": sum(1 for v in store.values() if v.get("email")),

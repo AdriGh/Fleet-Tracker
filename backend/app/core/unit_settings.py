@@ -9,29 +9,24 @@ que muestran Fleet y el Live Map).
 
 from __future__ import annotations
 
-import json
+from .. import config, db
 
-from .. import config
-
-SETTINGS_PATH = config.BACKEND_DIR / "units.local.json"
+# H6: persiste por-tenant en org_setting (clave 'unit_settings'); el JSON
+# legacy (units.local.json) se importa una sola vez a la org 'default'.
+SETTING_KEY = "unit_settings"
+SETTINGS_PATH = config.BACKEND_DIR / "units.local.json"   # legacy (migracion)
 
 _FIELDS = ("nickname", "group", "muted", "notes", "ops_status",
            "campaigns")
 
 
 def _load() -> dict:
-    if SETTINGS_PATH.exists():
-        try:
-            return json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
-    return {}
+    data = db.get_setting(SETTING_KEY, legacy_file=SETTINGS_PATH)
+    return data if isinstance(data, dict) else {}
 
 
 def _save(data: dict) -> None:
-    SETTINGS_PATH.write_text(
-        json.dumps(data, ensure_ascii=False, indent=1),
-        encoding="utf-8")
+    db.save_setting(SETTING_KEY, data)
 
 
 def all_settings() -> dict[str, dict]:

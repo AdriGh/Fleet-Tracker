@@ -7,6 +7,28 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.7.0] - 2026-06-18
+
+H6 — config y PII por-tenant: los stores de configuración que todavía eran
+archivos `*.local.json` ahora viven en la base (`OrgSetting`, por
+organización), con import transparente del JSON legacy.
+
+### Cambiado
+- **terminals**, **teams**, **unit_settings** (device settings por unidad),
+  **pm overrides** y **driver contacts/emails** (PII) migrados de
+  `*.local.json` a `OrgSetting` (claves `terminals`/`teams`/`unit_settings`/
+  `pm_overrides`/`driver_contacts`/`driver_emails`), vía
+  `db.get_setting`/`save_setting` con `legacy_file` — los JSON existentes se
+  importan una sola vez a la org `default`. Quedan org-scoped (multi-tenant)
+  sin cambiar la API pública de cada módulo.
+
+### Notas
+- Con esto, toda la configuración no-secreta vive en `OrgSetting` (org_config,
+  app_config, alerts, companies, notice_templates, providers, terminals,
+  teams, unit_settings, pm_overrides, driver_contacts). Pendiente de H6:
+  `org_id` NOT NULL + Row-Level Security en Postgres y un script de migración
+  de datos SQLite→Postgres.
+
 ## [1.6.0] - 2026-06-18
 
 Release de consolidación: todo el trabajo acumulado desde v1.5.0 (no
