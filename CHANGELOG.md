@@ -7,18 +7,54 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.6.0] - 2026-06-18
+
+Release de consolidación: todo el trabajo acumulado desde v1.5.0 (no
+publicado hasta ahora) — productización multi-tenant, Postgres/Alembic,
+control de reefer por OEM, framework multi-ELD y un modo demo para
+portafolio.
+
 ### Añadido
-- **Alembic** (H6 fase 2): migraciones de esquema versionadas. `backend/alembic/`
-  con `env.py` que toma la URL del motor de `app.config` (Postgres en prod,
-  SQLite en dev) y `Base.metadata` para `--autogenerate`; migración inicial
-  con todo el esquema. Dep `alembic` en requirements. Guía en
-  `backend/DATABASE.md`.
+- **H6 — Multi-tenant + Postgres/Alembic**: motor de base configurable por
+  `DATABASE_URL` (PostgreSQL en prod, SQLite en dev); aislamiento por
+  organización (`org_id`) con `Organization`/`OrgSetting`, contexto de tenant
+  por request y scoping a nivel ORM; config no-secreta por tenant en
+  `OrgSetting` y secretos en `SecretStore`. **Alembic** para migraciones de
+  esquema (migración inicial con todo el esquema); guía `backend/DATABASE.md`.
+- **Cold Chain — control OEM bidireccional**: adapters **Carrier Lynx** y
+  **Thermo King** (setpoint/modo/defrost, two-way) con orden de fuentes por
+  soberanía del dato (OEM → Traccar → demo) y UI de control gateada por rol.
+- **Puente reefer → Work Order** (`core/reefer_wo.py`): un fault code de
+  reefer crea una orden de trabajo idempotente, disparado por el loop de
+  alertas.
+- **Framework multi-ELD**: proveedores auto-descriptivos + hub por registry;
+  proveedor **Motive** además de Samsara.
+- **Teams (Equipos)** + **Fleet board** con asignación drag-and-drop; **alta
+  manual de unidades + VIN decoder**; CRUD de empresas + import de unidades
+  por CSV en Settings.
+- **Reporting desde el ELD**: import de DVIR/actividad/pre-trip desde Samsara
+  (distancia por odómetro, pre-trip desde HoS) con plantillas Standard/Legacy;
+  plantillas de avisos + broadcast a conductores.
+- **PM/DOT**: export a PDF con reporte diseñado (donut + tarjetas), filas
+  coloreadas por estado, fechas en formato US.
+- **Modo demo (portafolio)**: ELD sintético (`core/demo_eld.py`) para correr
+  sin Samsara, con flota ficticia "Summit Freight"; `clean_for_demo.bat` para
+  limpiar datos/credenciales locales; empresa SUMMIT en el import de CSV.
 
 ### Cambiado
+- **Foco de producto**: se removió Loads/dispatch; el roster de conductores
+  queda como **Driver Compliance** dentro de Maintenance & Compliance.
+- **Settings rework**: botones hover-expand, fila de alta rediseñada, CC
+  routing dinámico por terminal, Connectivity colapsable.
 - `db.py`: la creación del esquema se movió a `init_schema()`. SQLite (dev)
   sigue con `create_all` + migraciones aditivas; en **Postgres el esquema lo
-  maneja Alembic** (`alembic upgrade head`), ya no `create_all`. Importar
-  `app.db` con `FLEET_SKIP_DB_INIT=1` da la metadata sin tocar la base.
+  maneja Alembic** (`alembic upgrade head`). `FLEET_SKIP_DB_INIT` permite a
+  Alembic importar la metadata sin tocar la base.
+- `launch.bat`: auto-actualiza (`git pull --ff-only`) al arrancar.
+
+### Seguridad / privacidad
+- Se eliminaron del repo los datos/PII del ex-empleador; semillas vacías para
+  un demo limpio. Los `*.local.json/csv` (credenciales/PII) siguen gitignored.
 
 ## [1.5.0] - 2026-06-14
 
