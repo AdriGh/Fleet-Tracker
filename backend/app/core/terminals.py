@@ -21,9 +21,12 @@ from __future__ import annotations
 import json
 import re
 
-from .. import config
+from .. import config, db
 
-PATH = config.BACKEND_DIR / "terminals.local.json"
+# H6: persiste por-tenant en org_setting (clave 'terminals'); el JSON legacy
+# se importa una sola vez a la org 'default'.
+SETTING_KEY = "terminals"
+PATH = config.BACKEND_DIR / "terminals.local.json"   # legacy (migracion)
 
 # Una sola terminal generica de fabrica (sin estructura real de ninguna
 # empresa). El admin crea sus terminales reales desde Settings -> Terminals.
@@ -36,19 +39,12 @@ _MAX_PREFIXES = 8
 
 
 def _load() -> dict:
-    if PATH.exists():
-        try:
-            data = json.loads(PATH.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                return data
-        except (OSError, ValueError):
-            pass
-    return {}
+    data = db.get_setting(SETTING_KEY, legacy_file=PATH)
+    return data if isinstance(data, dict) else {}
 
 
 def _save(data: dict) -> None:
-    PATH.write_text(
-        json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    db.save_setting(SETTING_KEY, data)
 
 
 def _terminals(data: dict | None = None) -> list[dict]:

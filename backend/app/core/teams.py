@@ -17,9 +17,12 @@ from __future__ import annotations
 import json
 import re
 
-from .. import config
+from .. import config, db
 
-PATH = config.BACKEND_DIR / "teams.local.json"
+# H6: persiste por-tenant en org_setting (clave 'teams'); el JSON legacy se
+# importa una sola vez a la org 'default'.
+SETTING_KEY = "teams"
+PATH = config.BACKEND_DIR / "teams.local.json"   # legacy (migracion)
 
 # Los equipos son opcionales: sin config no hay ninguno (a diferencia de
 # las terminales, que siempre tienen al menos una de fábrica).
@@ -30,19 +33,12 @@ _MAX_DRIVERS = 50
 
 
 def _load() -> dict:
-    if PATH.exists():
-        try:
-            data = json.loads(PATH.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                return data
-        except (OSError, ValueError):
-            pass
-    return {}
+    data = db.get_setting(SETTING_KEY, legacy_file=PATH)
+    return data if isinstance(data, dict) else {}
 
 
 def _save(data: dict) -> None:
-    PATH.write_text(
-        json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    db.save_setting(SETTING_KEY, data)
 
 
 def _clean_drivers(drivers: list) -> list[dict]:
