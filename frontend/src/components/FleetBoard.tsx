@@ -87,7 +87,7 @@ export default function FleetBoard({
   /** Columna explícita inicial de una unidad, o '' → pool. */
   initialOf: (unit: string) => string
   /** Terminales: etiqueta muda de la resolución automática (pool). */
-  autoHintOf?: (u: FleetUnit) => string
+  autoHintOf?: (u: FleetUnit) => string | undefined
   busy: boolean
   /** Columna a resaltar (la que disparó el board), opcional. */
   focusKey?: string | null
