@@ -16,8 +16,9 @@ import {
 import { notifyOk, notifyErr } from '../toast'
 import SafeDonut from '../components/SafeDonut'
 import Skeleton from '../components/Skeleton'
-import StatCard from '../components/StatCard'
+import CountUp from '../components/CountUp'
 import TrendsChart from '../components/TrendsChart'
+import { Button, StatCard } from '../components/ds'
 
 const UPCOMING_MILES = 5500
 
@@ -178,22 +179,25 @@ export default function Dashboard({ onNavigate }: Props) {
           </p>
         </div>
         <div className="head-actions">
-          <button
-            className="btn btn-ghost"
+          <Button
+            variant="ghost"
             onClick={() => {
               summaryQ.refetch(); openQ.refetch(); pmQ.refetch()
               fleetQ.refetch(); trendsQ.refetch(); missingQ.refetch()
             }}
+            loading={fetching}
             disabled={fetching}
             title="Refresh"
+            icon={
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                strokeLinejoin="round">
+                <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
+              </svg>
+            }
           >
-            <svg className={fetching ? 'spin' : ''} viewBox="0 0 24 24"
-              width="15" height="15" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
-            </svg>
             {fetching ? 'Refreshing…' : 'Refresh'}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -206,31 +210,33 @@ export default function Dashboard({ onNavigate }: Props) {
         <div className="kpi-row">
           <StatCard
             label="Fleet SAFE (month)"
-            value={summary?.fleet_safe_pct != null ? `${summary.fleet_safe_pct.toFixed(1)}%` : '—'}
+            value={summary?.fleet_safe_pct != null
+              ? <CountUp value={summary.fleet_safe_pct} format={(n) => `${n.toFixed(1)}%`} />
+              : '—'}
             sub={summary?.n_blocks ? `${summary.n_blocks} days` : 'no data'}
             tone={summary?.fleet_safe_pct != null && summary.fleet_safe_pct < 90 ? 'warn' : 'ok'}
           />
           <StatCard
             label="Open defects"
-            value={openDefects.length}
+            value={<CountUp value={openDefects.length} />}
             sub={`${unitsAffected} units`}
             tone={openDefects.length ? 'danger' : 'ok'}
           />
           <StatCard
             label="Overdue PMs"
-            value={pmStats.overdue}
+            value={<CountUp value={pmStats.overdue} />}
             sub={`${pmStats.upcoming} upcoming`}
             tone={pmStats.overdue ? 'danger' : 'ok'}
           />
           <StatCard
             label="Active units"
-            value={fleetStats.active}
+            value={<CountUp value={fleetStats.active} />}
             sub={`${fleetStats.truck} trk · ${fleetStats.trailer} trl · ${fleetStats.chassis} chs`}
             tone="info"
           />
           <StatCard
             label="Missing DVIRs"
-            value={missing.length}
+            value={<CountUp value={missing.length} />}
             sub="drivers this month"
             tone={missing.length ? 'warn' : 'ok'}
           />
