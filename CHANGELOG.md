@@ -7,6 +7,31 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.9.0] - 2026-06-18
+
+H7 (parte 2) — Cinemática: count-up en los KPIs + arranque de la adopción del
+Design System en el Dashboard (la vidriera).
+
+### Añadido
+- **`CountUp`** (`components/CountUp.tsx`): número que se anima (easeOutCubic)
+  de su valor previo al nuevo; respeta `prefers-reduced-motion` (salta al valor).
+- **KPIs con count-up en toda la app**: el `StatCard` compartido auto-anima los
+  valores numéricos → los KPIs de Dashboard, Defects, PM/DOT, Fleet, Work
+  Orders, etc. cuentan al cargar.
+- **Dashboard construido con `ds/`**: botón Refresh → `ds/Button` (con `loading`),
+  KPIs → `ds/StatCard`, valores con `CountUp` (incl. el % con formato).
+
+### Notas
+- La capa de motion ya era rica (F5: transiciones de página, entradas
+  escalonadas, cascada de filas, lift/press, spring del sidebar, modal pop, con
+  guards de `prefers-reduced-motion`); esta parte suma el count-up y empieza a
+  consumir los `ds/`.
+- **Rollout del DS por pantalla**: un análisis (workflow sobre 16 pantallas)
+  mapeó qué migra a `ds/` y su riesgo. Acciones→Button y filtros→Tabs son
+  low-risk; los pills con conteo embebido, los wrappers Card (clases de grid) y
+  los tiles bespoke son med/high y se migran en pasadas siguientes con
+  verificación visual.
+
 ## [1.8.0] - 2026-06-18
 
 H7 (parte 1) — Design System core: tokens + 9 componentes base (del design
