@@ -4,6 +4,7 @@ python-multipart>=0.0.20
 pandas>=2.2
 openpyxl>=3.1
 sqlalchemy>=2.0
+alembic>=1.13                  # migraciones de esquema (H6 fase 2)
 psycopg[binary]>=3.2          # driver Postgres (produccion); en dev se usa SQLite
 google-api-python-client>=2.130
 google-auth>=2.30

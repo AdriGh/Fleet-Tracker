@@ -7,6 +7,19 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+### Añadido
+- **Alembic** (H6 fase 2): migraciones de esquema versionadas. `backend/alembic/`
+  con `env.py` que toma la URL del motor de `app.config` (Postgres en prod,
+  SQLite en dev) y `Base.metadata` para `--autogenerate`; migración inicial
+  con todo el esquema. Dep `alembic` en requirements. Guía en
+  `backend/DATABASE.md`.
+
+### Cambiado
+- `db.py`: la creación del esquema se movió a `init_schema()`. SQLite (dev)
+  sigue con `create_all` + migraciones aditivas; en **Postgres el esquema lo
+  maneja Alembic** (`alembic upgrade head`), ya no `create_all`. Importar
+  `app.db` con `FLEET_SKIP_DB_INIT=1` da la metadata sin tocar la base.
+
 ## [1.5.0] - 2026-06-14
 
 H5 — Reefer tracking real (capa de software/ingesta): el Cold Chain puede

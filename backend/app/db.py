@@ -8,6 +8,7 @@ Guarda cada bloque diario generado para alimentar el panel DVIR
 """
 
 import json
+import os
 from datetime import date, datetime
 from pathlib import Path
 
@@ -419,9 +420,6 @@ def _scope_select_to_org(execute_state):
                 include_aliases=True))
 
 
-Base.metadata.create_all(_engine)
-
-
 DEFAULT_ORG_SLUG = "default"
 
 
@@ -497,8 +495,8 @@ def _migrate() -> None:
     tablas existentes). Idempotente: solo agrega lo que falte.
 
     Usa PRAGMA/ALTER especificos de SQLite y solo aplica a bases de
-    desarrollo viejas. En Postgres el esquema lo maneja create_all (esquema
-    nuevo) y, mas adelante, Alembic (H6 fase 2)."""
+    desarrollo viejas. En Postgres el esquema lo maneja **Alembic**
+    (`alembic upgrade head`), no este _migrate()."""
     with _engine.connect() as conn:
         cols = {r[1] for r in conn.exec_driver_sql(
             "PRAGMA table_info(work_order)").fetchall()}
@@ -558,9 +556,25 @@ def _migrate() -> None:
         conn.commit()
 
 
-ensure_default_org()
-if config.IS_SQLITE:
-    _migrate()
+def init_schema() -> None:
+    """Inicializa el esquema y siembra la org 'default'.
+
+    SQLite (dev): create_all + migraciones aditivas (`_migrate`). Postgres
+    (prod): el esquema lo maneja **Alembic** (`alembic upgrade head` en el
+    deploy), así que acá NO se hace create_all; solo se asegura la org
+    'default' (la tabla ya existe tras la migración)."""
+    if config.IS_SQLITE:
+        Base.metadata.create_all(_engine)
+    ensure_default_org()
+    if config.IS_SQLITE:
+        _migrate()
+
+
+# Inicializa al importar (back-compat: scripts/tests usan db directamente).
+# Alembic importa este módulo SOLO por su metadata: setea FLEET_SKIP_DB_INIT
+# para no tocar la base al generar/correr migraciones.
+if not os.environ.get("FLEET_SKIP_DB_INIT"):
+    init_schema()
 
 
 # ---------------------------------------------------------------------------
