@@ -7,6 +7,30 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.8.0] - 2026-06-18
+
+H7 (parte 1) — Design System core: tokens + 9 componentes base (del design
+handoff de Claude Design), listos para construir las pantallas a partir de
+ellos en vez de estilos one-off.
+
+### Añadido
+- **Design System core** (`frontend/src/components/ds/`): 9 componentes React
+  base — Button, IconButton, StatusPill, Badge, Tabs, Input, StatCard,
+  NavItem, Card. Se estilizan 100% con inline styles que leen los tokens
+  (`var(--*)`); sin dependencias nuevas. Importables desde `components/ds`.
+- **Tokens faltantes** en `index.css`: `--radius-btn`/`--radius-pill`, escala de
+  tipo (`--fs-*`), espaciado (`--space-*`), pesos (`--fw-*`), tracking,
+  `--glow-accent(-hover)`, `--dur-*`, `--shadow` alias, `--container-pad`,
+  `--sidebar-w-collapsed`, y el keyframe `ft-spin`. (Colores, temas, fuentes y
+  easings ya existían y coincidían con el handoff.)
+
+### Arreglado
+- Deps del frontend sincronizadas: `@dnd-kit/*` estaba en `package.json` pero sin
+  instalar → el Fleet board fallaba en runtime y el typecheck/build estaban
+  rojos. Tras `npm install`, typecheck y build vuelven a **verde**. Tipo de
+  `FleetBoard.autoHintOf` ahora admite `undefined`; quitado un `labelOf` sin
+  usar en `SettingsPage`.
+
 ## [1.7.0] - 2026-06-18
 
 H6 — config y PII por-tenant: los stores de configuración que todavía eran

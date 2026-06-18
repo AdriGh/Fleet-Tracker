@@ -45,7 +45,15 @@
   --radius-lg: 22px;
   --radius-sm: 10px;
   --radius-xs: 7px;
+  --radius-pill: 999px;   /* píldoras de estado, puntos */
+  --radius-btn: 11px;     /* botones, nav items */
   --sidebar-w: 250px;
+  --sidebar-w-collapsed: 80px;
+  --container-pad: 32px;
+
+  /* Escala de espaciado (px) */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 22px; --space-6: 32px; --space-7: 48px;
 
   /* Tipografía: display (Space Grotesk) + cuerpo (Geist) + mono */
   --font: "Geist Variable", "Inter Variable", system-ui, -apple-system,
@@ -53,6 +61,19 @@
   --font-display: "Space Grotesk Variable", "Geist Variable", system-ui,
     sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Tamaño base + escala de tipo (cockpit-denso → display) */
+  --text-size-base: 15px;
+  --line-base: 1.5;
+  --fs-micro: 10px; --fs-tiny: 11.5px; --fs-small: 13px; --fs-body: 15px;
+  --fs-h3: 15.5px; --fs-h2: 18px; --fs-stat: 1.7rem; --fs-h1: 1.9rem;
+  --fs-display: 3.1rem;
+  /* Pesos */
+  --fw-normal: 400; --fw-medium: 500; --fw-semibold: 600; --fw-bold: 700;
+  --fw-black: 800;
+  /* Tracking */
+  --tracking-display: -0.02em; --tracking-tight: -0.03em;
+  --tracking-label: 0.12em; --tracking-eyebrow: 0.16em;
 
   /* Escala de z-index (sin números mágicos) */
   --z-sticky: 50;
@@ -91,6 +112,10 @@
     0 1px 3px rgba(24, 24, 27, 0.05);
   --shadow-md: 0 16px 40px -16px rgba(24, 24, 27, 0.20),
     0 4px 14px -8px rgba(24, 24, 27, 0.12);
+  --shadow: var(--shadow-md);
+  --glow-accent: 0 2px 8px -1px rgba(226, 35, 26, 0.45);
+  --glow-accent-hover: 0 8px 22px -8px rgba(226, 35, 26, 0.6);
+  --dur-fast: 0.15s; --dur-mid: 0.22s; --dur-slow: 0.34s;
   --ring: rgba(225, 25, 0, 0.30);
 
   --grain: 0;   /* textura de grano (off en claro) */
@@ -4395,6 +4420,7 @@ table.defects-table td {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: none; }
 }
+@keyframes ft-spin { to { transform: rotate(360deg); } }
 .table-wrap { animation: ft-fade-up .26s ease both; }
 .kpi-row > * { animation: ft-fade-up .3s ease both; }
 .kpi-row > *:nth-child(2) { animation-delay: .04s; }

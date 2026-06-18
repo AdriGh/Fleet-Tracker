@@ -2110,7 +2110,7 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
 function TeamsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
-  const { cfg, teams, teamOf, labelOf } = useTeams()
+  const { cfg, teams, teamOf } = useTeams()
   const [board, setBoard] = useState<{ focus: string | null } | null>(null)
   const [editing, setEditing] = useState<TeamDef | null>(null)
   const [nLabel, setNLabel] = useState('')
