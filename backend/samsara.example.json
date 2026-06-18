@@ -2,21 +2,21 @@
   "open_only": true,
   "orgs": [
     {
-      "name": "Chaser",
-      "company": "CHASER",
-      "api_token": "PEGA_AQUI_EL_TOKEN_DE_CHASER",
+      "name": "Demo Co",
+      "company": "DEMO CO",
+      "api_token": "PEGA_AQUI_EL_TOKEN_DE_LA_EMPRESA",
       "base_url": "https://api.samsara.com",
       "trailer_dvirs": true
     },
     {
-      "name": "MCC (Memphis)",
-      "company": "MCC",
-      "api_token": "PEGA_AQUI_EL_TOKEN_DE_MCC",
+      "name": "Demo Logistics",
+      "company": "DEMO LOGISTICS",
+      "api_token": "PEGA_AQUI_EL_TOKEN_DE_LA_OTRA_EMPRESA",
       "base_url": "https://api.samsara.com",
       "trailer_dvirs": false
     }
   ],
 
-  "_nota": "Cada empresa (Chaser, MCC) es un org SEPARADO en Samsara, con su propio token. Agregá un objeto por org en 'orgs'. 'company' fuerza la empresa de todas las unidades de ese org (CHASER o MCC). 'trailer_dvirs' (default true): si a los TRAILERS de ese org se les hace DVIR. Si es false (p.ej. MCC), los trailers de ese org NO se auto-archivan por inactividad de DVIR (solo archivo manual). Si solo tenés un token, dejá un solo objeto. Formato viejo (api_token en la raíz) sigue funcionando.",
+  "_nota": "Cada empresa es un org SEPARADO en Samsara, con su propio token. Agregá un objeto por org en 'orgs'. 'company' fuerza la empresa de todas las unidades de ese org. 'trailer_dvirs' (default true): si a los TRAILERS de ese org se les hace DVIR. Si es false, los trailers de ese org NO se auto-archivan por inactividad de DVIR (solo archivo manual). Si solo tenés un token, dejá un solo objeto. Formato viejo (api_token en la raíz) sigue funcionando.",
   "_base_url": "EE.UU. = https://api.samsara.com · Europa = https://api.eu.samsara.com"
 }

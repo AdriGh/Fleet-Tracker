@@ -6,6 +6,8 @@ import re
 import uuid
 from datetime import date, datetime, timedelta
 
+import httpx
+
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
@@ -15,12 +17,17 @@ from pydantic import BaseModel
 from fastapi import Header
 
 from ..core import (
-    alerts, app_config, auth, batch, docscan, driver_contacts, engine,
-    excel, integrations_admin, local_config, mailer, maint, media_host,
-    notify_service, open_defects, org_config, parts, permissions, pm, pois,
-    pretrip, reefer, samsara, sms_service, telegram_notify, terminals, tms,
-    traccar, tracking, unit_settings, unitdocs, wo_invoice, workorders,
+    alerts, app_config, auth, batch, companies, docscan, driver_contacts,
+    engine,
+    excel, integrations_admin, local_config, lynx, mailer, maint,
+    manual_units, media_host, notify_service, open_defects, org_config,
+    parts, permissions, pm, pois, pretrip, providers, reefer, samsara,
+    sms_service,
+    teams,
+    telegram_notify, terminals, thermoking, tms, traccar, tracking,
+    unit_settings, unitdocs, vin_decode, wo_invoice, workorders,
 )
+from ..core import notice_templates
 from ..core.contacts import name_key
 from ..schemas import (
     BatchAnalyzeResponse,
@@ -126,6 +133,7 @@ def batch_generate(req: BatchGenerateRequest):
 
     roster = engine.load_roster(
         config.DEFAULT_ROSTER if config.DEFAULT_ROSTER.exists() else None)
+    incl_pretrip = engine.template_pretrip(req.template)
 
     by_company: dict[str, list] = {}
     warnings: list[str] = []
@@ -147,7 +155,7 @@ def batch_generate(req: BatchGenerateRequest):
                 if pt_file else {}
             groups = engine.build_report(
                 dvir_df, activity_data, roster, engine.MIN_MILES,
-                block.company, pretrip_data)
+                block.company, pretrip_data, include_pretrip=incl_pretrip)
         except engine.ReportError as exc:
             raise HTTPException(
                 422, f"Block {block.company} {block.date_label}: "
@@ -204,6 +212,80 @@ def batch_generate(req: BatchGenerateRequest):
 
     return BatchGenerateResponse(id=report_id, filename=filename,
                                  sheets=stats, warnings=warnings)
+
+
+# ---------------------------------------------------------------------------
+# Reporting · Import desde el ELD (fase 2a: diagnostico de fetchers)
+# ---------------------------------------------------------------------------
+@router.get("/reporting/eld/preview")
+async def reporting_eld_preview(date: str, company: str | None = None):
+    """Trae DVIR + distancia del dia desde Samsara y devuelve lo PARSEADO +
+    una muestra CRUDA, para validar los mapeos de campos contra la cuenta
+    real antes de armar el reporte. `date` = YYYY-MM-DD."""
+    try:
+        day = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail="date debe ser YYYY-MM-DD")
+    return await samsara.report_eld_diagnostic(company, day)
+
+
+@router.get("/reporting/templates")
+def reporting_templates():
+    """Plantillas de reporte (Standard con Pre-trip / Legacy sin)."""
+    return {"templates": engine.REPORT_TEMPLATES}
+
+
+class EldImportIn(BaseModel):
+    date: str            # YYYY-MM-DD
+    company: str
+    template: str = "standard"
+
+
+@router.post("/reporting/eld/import")
+async def reporting_eld_import(body: EldImportIn):
+    """Arma y GUARDA el reporte de un dia leyendo DVIR + distancia del ELD
+    (mismas estructuras que el flujo manual -> reusa engine.build_report).
+    Aparece en Recent DVIRs. Pre-trip pendiente (fase 2c)."""
+    try:
+        day = datetime.strptime(body.date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="date debe ser YYYY-MM-DD")
+    company = (body.company or "").strip().upper()
+    if not company:
+        raise HTTPException(status_code=422, detail="Falta la empresa")
+
+    incl_pretrip = engine.template_pretrip(body.template)
+    rows = await samsara.report_dvir_rows(company, day)
+    activity = await samsara.report_day_distance(company, day)
+    # Legacy no usa pre-trip: ni se pide a Samsara.
+    pretrip_data = (await samsara.report_pretrip(company, day)
+                    if incl_pretrip else {})
+    if not rows and not activity:
+        raise HTTPException(
+            status_code=422,
+            detail=(f"Samsara no devolvio datos de {company} para {body.date}. "
+                    "Si esa empresa no esta en Samsara (p.ej. MCC), usa "
+                    "'Create DVIR Report' con los archivos."))
+
+    roster = engine.load_roster(
+        config.DEFAULT_ROSTER if config.DEFAULT_ROSTER.exists() else None)
+    dvir_df = engine.dvir_df_from_rows(rows)
+    groups = engine.build_report(
+        dvir_df, activity, roster, engine.MIN_MILES, company, pretrip_data,
+        include_pretrip=incl_pretrip)
+    metrics = engine.block_metrics(dvir_df, groups)
+    defects = engine.extract_defects(dvir_df)
+    date_label = f"{day.month}.{day.day}"
+    db.save_block(company, date_label, day, groups, metrics, defects)
+    return {
+        "ok": True, "company": company, "date_label": date_label,
+        "block_date": day.isoformat(),
+        "n_reports": metrics["n_reports"],
+        "n_no_dvir": metrics["n_no_dvir"],
+        "n_unsafe": metrics["n_unsafe"],
+        "pretrip": bool(pretrip_data),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -358,41 +440,6 @@ class TmsDriverIn(BaseModel):
     notes: str | None = None
 
 
-class LoadStopIn(BaseModel):
-    kind: str = "pickup"
-    name: str = ""
-    city: str = ""
-    state: str = ""
-    appt: str = ""
-
-
-class LoadIn(BaseModel):
-    broker: str
-    ref: str = ""
-    driver: str = ""
-    unit: str = ""
-    hauling_rate: float = 0
-    accessorials: float = 0
-    pay_pct: float = 0
-    miles: float | None = None
-    stops: list[LoadStopIn] = []
-
-
-class LoadPatch(BaseModel):
-    status: str | None = None
-    broker: str | None = None
-    ref: str | None = None
-    driver: str | None = None
-    unit: str | None = None
-    hauling_rate: float | None = None
-    accessorials: float | None = None
-    pay_pct: float | None = None
-    miles: float | None = None
-    tags: list[str] | None = None
-    docs: dict | None = None
-    notes: str | None = None
-
-
 @router.get("/tms/drivers")
 async def tms_drivers():
     """Roster vivo + perfil TMS por conductor."""
@@ -407,58 +454,6 @@ def tms_driver_save(body: TmsDriverIn):
         return tms.save_driver(body.name, fields)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-
-
-@router.get("/tms/loads")
-def tms_loads(status: str = "", driver: str = ""):
-    return {"loads": tms.list_loads(status, driver),
-            "stats": tms.load_stats()}
-
-
-@router.post("/tms/loads")
-def tms_load_create(body: LoadIn):
-    try:
-        return tms.create_load(
-            body.broker, body.ref, body.driver, body.unit,
-            body.hauling_rate, body.accessorials, body.pay_pct,
-            body.miles, [s.model_dump() for s in body.stops])
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@router.get("/tms/loads/{load_id}")
-def tms_load_get(load_id: int):
-    ld = tms.get_load(load_id)
-    if ld is None:
-        raise HTTPException(status_code=404, detail="Load not found")
-    return ld
-
-
-@router.patch("/tms/loads/{load_id}")
-def tms_load_patch(load_id: int, body: LoadPatch):
-    ld = tms.update_load(
-        load_id, {k: v for k, v in body.model_dump().items()
-                  if v is not None})
-    if ld is None:
-        raise HTTPException(status_code=404, detail="Load not found")
-    return ld
-
-
-@router.post("/tms/loads/{load_id}/stops")
-def tms_load_add_stop(load_id: int, body: LoadStopIn):
-    ld = tms.add_stop(load_id, body.kind, body.name, body.city,
-                      body.state, body.appt)
-    if ld is None:
-        raise HTTPException(status_code=404, detail="Load not found")
-    return ld
-
-
-@router.delete("/tms/loads/{load_id}/stops/{stop_id}")
-def tms_load_del_stop(load_id: int, stop_id: int):
-    ld = tms.delete_stop(load_id, stop_id)
-    if ld is None:
-        raise HTTPException(status_code=404, detail="Load not found")
-    return ld
 
 
 class WorkOrderIn(BaseModel):
@@ -688,8 +683,8 @@ def wo_del_line(wo_id: int, line_id: int):
 
 @router.get("/reefer")
 async def reefer_live():
-    """Snapshot del cold chain (fase G4). Si Samsara no tiene trailers
-    con reefer todavía, sirve el set DEMO etiquetado (demo: true)."""
+    """Snapshot del cold chain. Fuente directa por prioridad Lynx (OEM) ->
+    Traccar (aftermarket) -> demo etiquetado (demo: true)."""
     return await reefer.load_live()
 
 
@@ -697,6 +692,38 @@ async def reefer_live():
 async def reefer_history(id: str, hours: int = 24):
     """Serie de temperaturas de un reefer para el chart (24 h default)."""
     return await reefer.history(id, max(1, min(hours, 72)))
+
+
+class ReeferSetpointIn(BaseModel):
+    setpoint_f: float
+
+
+class ReeferCommandIn(BaseModel):
+    command: str                 # mode | defrost | power
+    mode: str | None = None
+    on: bool | None = None
+
+
+@router.post("/reefer/{unit_id}/setpoint")
+async def reefer_setpoint(unit_id: str, body: ReeferSetpointIn):
+    """Cambia el setpoint REAL del reefer vía su API OEM (two-way).
+
+    Se despacha por prefijo al módulo OEM (Carrier Lynx 'lynx-' / Thermo
+    King 'tk-'). El módulo devuelve {ok: false, detail} si falta config o
+    el tier no habilita control (-> 400)."""
+    r = await reefer.set_setpoint(unit_id, body.setpoint_f)
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("detail", "Failed"))
+    return r
+
+
+@router.post("/reefer/{unit_id}/command")
+async def reefer_command(unit_id: str, body: ReeferCommandIn):
+    """Comandos OEM extra (two-way): mode / defrost / power."""
+    r = await reefer.command(unit_id, body.command, body.mode, body.on)
+    if not r.get("ok"):
+        raise HTTPException(status_code=400, detail=r.get("detail", "Failed"))
+    return r
 
 
 @router.get("/track")
@@ -1002,6 +1029,169 @@ def terminals_assign(body: TerminalAssignIn,
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+# ----- Equipos (Settings → Teams) ------------------------------------------
+
+class DriverIn(BaseModel):
+    name: str = ""
+    email: str = ""
+
+
+class TeamIn(BaseModel):
+    key: str = ""            # vacío = crear; existente = editar
+    label: str
+    drivers: list[DriverIn] = []
+
+
+class TeamAssignIn(BaseModel):
+    team: str
+    units: list[str] = []
+
+
+@router.get("/teams")
+def teams_get():
+    """Equipos configurados + membresías unidad→equipo."""
+    return teams.get_all()
+
+
+@router.post("/teams")
+def teams_save(body: TeamIn,
+               authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    try:
+        return teams.save_team(
+            body.key, body.label, [d.model_dump() for d in body.drivers])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/teams/{key}")
+def teams_delete(key: str,
+                 authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    try:
+        return teams.delete_team(key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/teams/assign")
+def teams_assign(body: TeamAssignIn,
+                 authorization: str | None = Header(default=None)):
+    """Reemplaza la flota del equipo por la lista enviada."""
+    _require_admin(authorization)
+    try:
+        return teams.assign(body.team, body.units)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+# ----- Unidades manuales (Fleet → Add New Unit) ----------------------------
+
+class UnitIn(BaseModel):
+    unit: str
+    unit_type: str = "truck"
+    subtype: str = ""
+    terminal: str = ""
+    customer: str = ""
+    company: str = ""
+    vin: str = ""
+    year: str = ""
+    make: str = ""
+    model: str = ""
+    fleet_no: str = ""
+    plate: str = ""
+    plate_state: str = ""
+
+
+@router.get("/units/manual")
+def units_manual_list():
+    """Unidades agregadas a mano (las del tenant actual)."""
+    return {"units": manual_units.list_units()}
+
+
+@router.post("/units/manual")
+def units_manual_add(body: UnitIn):
+    try:
+        return manual_units.add(body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/units/manual/{unit_id}")
+def units_manual_delete(unit_id: int):
+    return {"deleted": manual_units.delete(unit_id)}
+
+
+class UnitsCsvIn(BaseModel):
+    csv: str = ""
+
+
+@router.get("/units/manual/template")
+def units_manual_template():
+    """CSV de ejemplo para el import masivo de unidades (Settings)."""
+    return {"csv": manual_units.csv_template(),
+            "columns": manual_units.CSV_COLUMNS}
+
+
+@router.post("/units/manual/import")
+def units_manual_import(body: UnitsCsvIn,
+                        authorization: str | None = Header(default=None)):
+    """Import masivo de unidades desde un CSV (upsert por numero de unidad)."""
+    _require_admin(authorization)
+    return manual_units.import_csv(body.csv)
+
+
+# ----- Empresas (Settings -> Companies) ------------------------------------
+
+class CompanyIn(BaseModel):
+    label: str
+    key: str = ""
+
+
+class CompanyRenameIn(BaseModel):
+    key: str
+    label: str
+
+
+@router.get("/companies")
+def companies_list():
+    """Empresas (carriers) del tenant actual."""
+    return {"companies": companies.list_companies()}
+
+
+@router.post("/companies")
+def companies_add(body: CompanyIn,
+                  authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    try:
+        return {"companies": companies.add(body.label, body.key)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/companies/rename")
+def companies_rename(body: CompanyRenameIn,
+                     authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    try:
+        return {"companies": companies.rename(body.key, body.label)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/companies/{key}")
+def companies_delete(key: str,
+                     authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    return {"companies": companies.delete(key)}
+
+
+@router.get("/vin/{vin}")
+async def vin_decode_endpoint(vin: str):
+    """Decodifica un VIN (Year/Make/Model) via NHTSA vPIC."""
+    return await vin_decode.decode(vin)
+
+
 class IntegrationTestIn(BaseModel):
     provider: str
 
@@ -1032,12 +1222,57 @@ def integrations_config(body: IntegrationConfigIn):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+# ----- Framework ELD: proveedor activo + preview de adapter -----------------
+
+class EldActiveIn(BaseModel):
+    provider: str
+
+
+@router.post("/integrations/eld/active")
+def eld_set_active(body: EldActiveIn,
+                   authorization: str | None = Header(default=None)):
+    """Marca cuál proveedor ELD es el activo (fuente de datos por defecto)."""
+    _require_admin(authorization)
+    try:
+        return {"active": providers.set_active(body.provider)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/integrations/eld/{provider}/fleet-preview")
+async def eld_fleet_preview(provider: str,
+                            authorization: str | None = Header(default=None)):
+    """Corre el adapter list_fleet del proveedor y devuelve conteo + muestra.
+
+    Verifica de punta a punta que un adapter trae datos reales, sin tocar el
+    inventario de la app."""
+    _require_admin(authorization)
+    reg = providers.registry()
+    prov = reg.get(provider)
+    if prov is None:
+        raise HTTPException(status_code=404, detail="unknown provider")
+    if not prov.capabilities().get("fleet"):
+        return {"ok": False, "count": 0, "sample": [],
+                "detail": f"{prov.name} has no fleet adapter yet"}
+    try:
+        units = await prov.list_fleet()
+    except (httpx.HTTPError, ValueError, NotImplementedError) as exc:
+        return {"ok": False, "count": 0, "sample": [],
+                "detail": f"{type(exc).__name__}: {exc}"[:160]}
+    sample = [{"unit": u.get("unit"), "year": u.get("year"),
+               "make": u.get("make"), "model": u.get("model"),
+               "vin": u.get("vin")} for u in units[:25]]
+    return {"ok": True, "count": len(units), "sample": sample,
+            "detail": f"{len(units)} unit{'s' if len(units) != 1 else ''}"}
+
+
 # Qué proveedores soportan test/configure desde la UI.
 _TESTABLE = {"samsara", "motive", "twilio", "cloudinary", "gmail",
              "gplaces", "gsheets", "fullbay", "telegram", "docscan",
-             "traccar"}
+             "traccar", "lynx", "thermoking"}
 _CONFIGURABLE = {"samsara", "motive", "twilio", "cloudinary",
-                 "gplaces", "gmail", "telegram", "docscan", "traccar"}
+                 "gplaces", "gmail", "telegram", "docscan", "traccar",
+                 "lynx", "thermoking"}
 
 
 @router.get("/integrations")
@@ -1048,7 +1283,6 @@ def integrations_status():
     backend/*.local.json hasta que llegue la edición en-app, fase G6/G7).
     Estados: connected | live | dry_run | not_configured | available | planned.
     """
-    orgs = samsara.org_summaries()
     email = mailer.load_settings()
     sms = sms_service.load_settings()
     media = media_host.load_settings()
@@ -1068,50 +1302,7 @@ def integrations_status():
 
     out = {
         "groups": [
-            {
-                "id": "eld",
-                "label": "ELD / Telematics",
-                "note": ("Read-only API tokens. Token editing moves in-app "
-                         "with the multi-ELD adapter."),
-                "providers": [
-                    {
-                        "id": "samsara", "name": "Samsara",
-                        "kind": "Telematics + ELD",
-                        "status": "connected" if orgs else "not_configured",
-                        "detail": (f"{len(orgs)} org{'s' if len(orgs) != 1 else ''} · "
-                                   + ", ".join(o["company"] for o in orgs)
-                                   if orgs else "No API tokens configured"),
-                        "items": [
-                            {"label": o["company"],
-                             "value": f"token …{o['token_tail']}"}
-                            for o in orgs
-                        ],
-                    },
-                    {
-                        "id": "motive", "name": "Motive",
-                        "kind": "Telematics + ELD",
-                        "status": "available",
-                        "detail": "Public self-serve REST API + OAuth. "
-                                  "Adapter planned.",
-                        "items": [],
-                    },
-                    {
-                        "id": "geotab", "name": "Geotab",
-                        "kind": "Telematics + ELD",
-                        "status": "planned",
-                        "detail": "JSON-RPC API with customer database "
-                                  "credentials.",
-                        "items": [],
-                    },
-                    {
-                        "id": "panda", "name": "Panda ELD",
-                        "kind": "ELD",
-                        "status": "planned",
-                        "detail": "No public API yet — partnership required.",
-                        "items": [],
-                    },
-                ],
-            },
+            providers.hub_group(),
             {
                 "id": "messaging",
                 "label": "Messaging",
@@ -1202,12 +1393,43 @@ def integrations_status():
             {
                 "id": "coldchain",
                 "label": "Cold chain",
-                "note": "Reefer temperature from your own hardware via Traccar "
-                        "(replaces the demo). See backend/REEFER_SETUP.md.",
+                "note": "Reefer data from your OWN integration — direct, never "
+                        "through Samsara. OEM (Carrier Lynx) for real remote "
+                        "control, or aftermarket hardware via Traccar. See "
+                        "backend/LYNX_SETUP.md / REEFER_SETUP.md.",
                 "providers": [
                     {
+                        "id": "lynx", "name": "Carrier Lynx · OEM reefer",
+                        "kind": "Reefer monitor + remote control (OEM)",
+                        "status": ("connected" if lynx.is_configured()
+                                   else "not_configured"),
+                        "detail": (
+                            (f"{lynx.load_settings()['base_url']} · "
+                             f"tier {lynx.load_settings()['tier']}"
+                             + ("" if lynx.can_control()
+                                else " (read-only — needs Monitor+Control)"))
+                            if lynx.is_configured()
+                            else "Configure base URL + dealer credentials"),
+                        "items": [],
+                    },
+                    {
+                        "id": "thermoking",
+                        "name": "Thermo King · OEM reefer",
+                        "kind": "Reefer monitor + remote control (OEM)",
+                        "status": ("connected" if thermoking.is_configured()
+                                   else "not_configured"),
+                        "detail": (
+                            (f"{thermoking.load_settings()['base_url']} · "
+                             f"tier {thermoking.load_settings()['tier']}"
+                             + ("" if thermoking.can_control()
+                                else " (read-only — needs two-way tier)"))
+                            if thermoking.is_configured()
+                            else "Configure base URL + TracKing credentials"),
+                        "items": [],
+                    },
+                    {
                         "id": "traccar", "name": "Traccar · reefer trackers",
-                        "kind": "Reefer temperature (hardware)",
+                        "kind": "Reefer temperature (aftermarket hardware)",
                         "status": ("connected" if traccar.is_configured()
                                    else "not_configured"),
                         "detail": (traccar.load_settings()["url"]
@@ -1219,10 +1441,12 @@ def integrations_status():
             },
         ],
     }
+    # Los proveedores ELD ya traen testable/configurable desde su hub_card
+    # (autodescripción); el resto los deriva de los sets estáticos.
     for g in out["groups"]:
         for p in g["providers"]:
-            p["testable"] = p["id"] in _TESTABLE
-            p["configurable"] = p["id"] in _CONFIGURABLE
+            p.setdefault("testable", p["id"] in _TESTABLE)
+            p.setdefault("configurable", p["id"] in _CONFIGURABLE)
     return out
 
 
@@ -1243,17 +1467,28 @@ async def fleet(refresh: bool = False):
     """
     if refresh:
         samsara.clear_cache()
-    if not samsara.is_available():
-        return {"available": False, "source": "none", "units": [], "settings": app_config.get_settings()}
     st = app_config.get_settings()
+    # Unidades agregadas a mano (Fleet -> Add New Unit): se muestran SIEMPRE,
+    # esten o no disponibles los datos de Samsara.
+    if not samsara.is_available():
+        units = manual_units.merge_into_fleet([])
+        for u in units:
+            u["archived"], u["archive_reason"] = False, None
+        return {"available": bool(units),
+                "source": "manual" if units else "none",
+                "units": units, "settings": st, "archived_count": 0}
     arch = app_config.archived_ids()
     keep = app_config.kept_active_ids()
     auto_days = st["auto_archive_days"] if st["auto_archive_enabled"] else None
     try:
         units = await samsara.list_fleet(auto_days)
     except Exception as exc:  # noqa: BLE001
-        return {"available": False, "source": "error",
-                "error": str(exc), "units": [], "settings": st}
+        units = manual_units.merge_into_fleet([])
+        for u in units:
+            u["archived"], u["archive_reason"] = False, None
+        return {"available": bool(units),
+                "source": "error" if not units else "manual",
+                "error": str(exc), "units": units, "settings": st}
 
     for u in units:
         uid = str(u.get("id"))
@@ -1264,6 +1499,12 @@ async def fleet(refresh: bool = False):
             u["archived"], u["archive_reason"] = True, "auto"
         else:
             u["archived"], u["archive_reason"] = False, None
+
+    # Mergear las unidades manuales (Samsara gana por numero de unidad).
+    units = manual_units.merge_into_fleet(units)
+    for u in units:
+        u.setdefault("archived", False)
+        u.setdefault("archive_reason", None)
 
     return {
         "available": True,
@@ -1340,6 +1581,14 @@ async def pm_tracker(refresh: bool = False):
     if refresh:
         samsara.clear_cache()
     records = pm.load()
+    # Unidades manuales (Fleet -> Add New Unit) que no esten en el CSV: fila PM
+    # base (sin historial) para que aparezcan y se les pueda cargar PM history.
+    csv_names = {r["unit"] for r in records}
+    for name in manual_units.names():
+        if name not in csv_names:
+            records.append({"unit": name, "model": "", "pm_type": None,
+                            "last_pm_date": None, "last_pm_miles": None,
+                            "report_miles": None})
     if not records:
         return {"available": False, "interval": interval,
                 "upcoming_miles": upcoming, "units": [], "excluded": []}
@@ -1543,7 +1792,9 @@ def dvir_block(block_id: int):
     block = db.get_block(block_id)
     if block is None:
         raise HTTPException(404, "Block not found.")
-    block["columns"] = engine.COLUMNS
+    # Columnas segun la plantilla del bloque (Legacy = sin Pre-trip), derivadas
+    # de los datos guardados.
+    block["columns"] = engine.columns_for_groups(block["groups"])
     return block
 
 
@@ -1617,3 +1868,52 @@ async def notify_media(file: UploadFile = File(...)):
         "error": host.get("error", ""),
         "filename": file.filename, "size": len(content),
     }
+
+
+# ----- Plantillas de mensajes + broadcast (Notices) ------------------------
+
+class TemplateIn(BaseModel):
+    id: str = ""
+    name: str
+    subject: str = ""
+    body: str = ""
+
+
+class BroadcastIn(BaseModel):
+    drivers: list[str]
+    channels: list[str] = ["email"]
+    subject: str = ""
+    body: str
+
+
+@router.get("/notify/templates")
+def notify_templates_list():
+    """Plantillas de mensajes (del tenant actual)."""
+    return {"templates": notice_templates.list_templates()}
+
+
+@router.post("/notify/templates")
+def notify_templates_save(body: TemplateIn):
+    return notice_templates.upsert(body.model_dump())
+
+
+@router.delete("/notify/templates/{tid}")
+def notify_templates_delete(tid: str):
+    return {"deleted": notice_templates.delete(tid)}
+
+
+@router.get("/notify/recipients")
+def notify_recipients():
+    """Conductores con contacto cargado (para el broadcast)."""
+    return {"recipients": notify_service.recipients()}
+
+
+@router.post("/notify/broadcast")
+def notify_broadcast(req: BroadcastIn):
+    """Envia (o simula) un mensaje de plantilla a los conductores elegidos."""
+    if not req.drivers:
+        raise HTTPException(422, "No driver selected.")
+    if not req.body.strip():
+        raise HTTPException(422, "The message body is empty.")
+    return notify_service.broadcast(
+        req.drivers, req.channels, req.subject, req.body)

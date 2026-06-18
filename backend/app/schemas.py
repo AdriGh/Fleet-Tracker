@@ -53,6 +53,7 @@ class BatchBlockInput(BaseModel):
 class BatchGenerateRequest(BaseModel):
     batch_id: str
     blocks: list[BatchBlockInput]
+    template: str = "standard"   # 'standard' (con Pre-trip) | 'legacy' (sin)
 
 
 class BatchSheetStat(BaseModel):

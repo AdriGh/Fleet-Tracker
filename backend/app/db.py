@@ -1,24 +1,33 @@
-"""Capa de persistencia: SQLite + SQLAlchemy.
+"""Capa de persistencia: SQLAlchemy sobre Postgres (produccion) o SQLite (dev).
+
+El motor se elige por la variable de entorno DATABASE_URL (ver config.py);
+si no esta seteada, se usa una SQLite local para desarrollo/tests.
 
 Guarda cada bloque diario generado para alimentar el panel DVIR
 (ultimos informes, top de conductores sin DVIR).
 """
 
 import json
+import os
 from datetime import date, datetime
+from pathlib import Path
 
 from sqlalchemy import (
     Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text,
-    create_engine, func, select,
+    create_engine, event, func, select,
 )
 from sqlalchemy.orm import (
     DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker,
+    with_loader_criteria,
 )
 
-from .config import BACKEND_DIR
+from . import config
+from .core import tenant
 
-DB_PATH = BACKEND_DIR / "dvir.db"
-_engine = create_engine(f"sqlite:///{DB_PATH}")
+# SQLite necesita check_same_thread=False para usarse desde el threadpool de
+# FastAPI; Postgres no acepta ese argumento.
+_connect_args = {"check_same_thread": False} if config.IS_SQLITE else {}
+_engine = create_engine(config.DATABASE_URL, connect_args=_connect_args)
 SessionLocal = sessionmaker(bind=_engine)
 
 
@@ -26,7 +35,19 @@ class Base(DeclarativeBase):
     pass
 
 
-class ReportBlock(Base):
+class OrgScoped:
+    """Mixin H6 fase 3: agrega org_id (tenant) a las tablas de datos. Toda la
+    data de negocio se aisla por organizacion.
+
+    Nullable por ahora: la fase 3b agrega la columna y backfillea a la org
+    'default'; la fase 3c la hace obligatoria + activa Row-Level Security en
+    Postgres, una vez que toda escritura garantiza completar el org_id."""
+
+    org_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organization.id"), index=True, nullable=True)
+
+
+class ReportBlock(OrgScoped, Base):
     __tablename__ = "report_block"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -46,7 +67,7 @@ class ReportBlock(Base):
         back_populates="block", cascade="all, delete-orphan")
 
 
-class BlockDriver(Base):
+class BlockDriver(OrgScoped, Base):
     __tablename__ = "block_driver"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -57,7 +78,7 @@ class BlockDriver(Base):
     block: Mapped[ReportBlock] = relationship(back_populates="drivers")
 
 
-class Defect(Base):
+class Defect(OrgScoped, Base):
     __tablename__ = "defect"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -81,6 +102,11 @@ class Defect(Base):
 class Poi(Base):
     """Punto de interés del Live Map (talleres, dealers, básculas).
 
+    Datos públicos compartidos (OSM/DOT), NO se aislan por tenant: su PK es
+    el id global de OSM, asi que una copia por organizacion colisionaria. Si
+    a futuro se quieren POIs privados por cliente, hace falta rediseñar la PK
+    (compuesta org_id+id) — fuera del alcance de H6 fase 3.
+
     Se siembra desde `backend/data/pois_seed.json` (OSM + DOTs estatales,
     con atribución ODbL) y se cura a mano desde la app. `kind`:
     repair | dealer_truck | dealer_trailer | scale. `subtype`:
@@ -100,7 +126,7 @@ class Poi(Base):
     source: Mapped[str] = mapped_column(String(20), default="manual")
 
 
-class WorkOrder(Base):
+class WorkOrder(OrgScoped, Base):
     """Orden de trabajo (G5, pipeline H2 — reemplazo de Fullbay).
 
     Pipeline: open -> assigned -> in_progress -> completed -> invoiced
@@ -152,7 +178,7 @@ class WorkOrder(Base):
         back_populates="wo", cascade="all, delete-orphan")
 
 
-class WorkOrderLine(Base):
+class WorkOrderLine(OrgScoped, Base):
     """Línea de un WO: parte (qty × costo) o labor (horas × tarifa)."""
     __tablename__ = "work_order_line"
 
@@ -169,6 +195,35 @@ class WorkOrderLine(Base):
     wo: Mapped[WorkOrder] = relationship(back_populates="lines")
 
 
+class Organization(Base):
+    """Tenant del SaaS (H6 fase 3): el cliente-cuenta que paga por usar la
+    herramienta. Por encima de `company` (los carriers tipo CHASER/MCC viven
+    DENTRO de una organizacion). Toda la data se aisla por org_id.
+
+    Hay una org 'default' sembrada al iniciar; el modo single-tenant actual
+    equivale a una sola organizacion."""
+    __tablename__ = "organization"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    slug: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), default="")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class OrgSetting(Base):
+    """Config NO secreta por-tenant (H6 fase 3d): un blob JSON por
+    (organizacion, clave). Reemplaza los *.local.json single-tenant de
+    org_config/app_config/alerts. Los secretos NO viven aca (ver core/
+    secrets.py). Se accede via get_setting()/save_setting()."""
+    __tablename__ = "org_setting"
+
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organization.id"), primary_key=True)
+    key: Mapped[str] = mapped_column(String(40), primary_key=True)
+    value_json: Mapped[str] = mapped_column(Text)
+
+
 class User(Base):
     """Usuario de la app (fase G7): auth real con roles.
 
@@ -178,6 +233,8 @@ class User(Base):
     __tablename__ = "user"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(
+        ForeignKey("organization.id"), index=True)
     username: Mapped[str] = mapped_column(String(40), unique=True,
                                           index=True)
     name: Mapped[str] = mapped_column(String(120), default="")
@@ -187,7 +244,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
-class TmsDriver(Base):
+class TmsDriver(OrgScoped, Base):
     """Perfil TMS de un conductor (fase G-TMS).
 
     Extiende el roster vivo de Samsara con datos de despacho: contrato
@@ -215,54 +272,7 @@ class TmsDriver(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
 
 
-class Load(Base):
-    """Carga / trip (fase G-TMS, referencia QuickManage).
-
-    Pipeline: upcoming -> dispatched -> in_transit -> delivered ->
-    invoiced -> closed. Payout del driver = hauling × pay_pct% +
-    accessorials (los accesorios van 100% al driver).
-    """
-    __tablename__ = "load"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime)
-    updated_at: Mapped[datetime] = mapped_column(DateTime)
-    status: Mapped[str] = mapped_column(String(16), default="upcoming",
-                                        index=True)
-    broker: Mapped[str] = mapped_column(String(120), default="")
-    ref: Mapped[str] = mapped_column(String(60), default="")
-    driver: Mapped[str] = mapped_column(String(128), default="", index=True)
-    unit: Mapped[str] = mapped_column(String(32), default="")
-    hauling_rate: Mapped[float] = mapped_column(Float, default=0.0)
-    accessorials: Mapped[float] = mapped_column(Float, default=0.0)
-    pay_pct: Mapped[float] = mapped_column(Float, default=0.0)
-    miles: Mapped[float | None] = mapped_column(Float, nullable=True)
-    tags: Mapped[str] = mapped_column(String(160), default="")
-    docs: Mapped[str] = mapped_column(String(60), default="")
-    notes: Mapped[str] = mapped_column(Text, default="")
-
-    stops: Mapped[list["LoadStop"]] = relationship(
-        back_populates="load", cascade="all, delete-orphan",
-        order_by="LoadStop.seq")
-
-
-class LoadStop(Base):
-    """Parada de una carga: pickup o delivery, con cita."""
-    __tablename__ = "load_stop"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    load_id: Mapped[int] = mapped_column(ForeignKey("load.id"))
-    seq: Mapped[int] = mapped_column(Integer, default=1)
-    kind: Mapped[str] = mapped_column(String(10), default="pickup")
-    name: Mapped[str] = mapped_column(String(120), default="")
-    city: Mapped[str] = mapped_column(String(80), default="")
-    state: Mapped[str] = mapped_column(String(4), default="")
-    appt: Mapped[str] = mapped_column(String(24), default="")
-
-    load: Mapped[Load] = relationship(back_populates="stops")
-
-
-class AlertEvent(Base):
+class AlertEvent(OrgScoped, Base):
     """Evento de alerta de flota (fase G3): velocidad, idle, fuel/DEF
     bajos, GPS sin señal. Los genera el evaluador de core/alerts.py."""
     __tablename__ = "alert_event"
@@ -278,7 +288,7 @@ class AlertEvent(Base):
     acked: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
-class UnitDoc(Base):
+class UnitDoc(OrgScoped, Base):
     """Documento adjunto de una unidad (fase H3, pestaña Attachments del
     perfil): copia del PM, copia del DOT, CAB card, registration, etc.
     El archivo vive en backend/uploads/units/<unit>/ (gitignored)."""
@@ -294,7 +304,7 @@ class UnitDoc(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime)
 
 
-class MaintRecord(Base):
+class MaintRecord(OrgScoped, Base):
     """Evento de mantenimiento por unidad (fase H1): kind 'pm' (servicio
     preventivo) o 'dot' (inspección anual DOT). Historial editable desde
     los dashboards gemelos PM/DOT; el más reciente por fecha manda."""
@@ -309,7 +319,7 @@ class MaintRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
-class Vendor(Base):
+class Vendor(OrgScoped, Base):
     """Proveedor de partes/servicios (fase H3, pestaña Vendors estilo
     Fullbay). El taller le compra partes; se referencia desde Part y, a
     futuro, desde las órdenes de compra."""
@@ -326,7 +336,7 @@ class Vendor(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
-class Part(Base):
+class Part(OrgScoped, Base):
     """Parte del catálogo (fase H3, pestaña Parts estilo Fullbay). Costo
     INTERNO (lo que paga el taller; sin markup — decisión del usuario).
     `on_hand` es un conteo manual de inventario (sin auto-decremento aún).
@@ -346,12 +356,147 @@ class Part(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime)
 
 
-Base.metadata.create_all(_engine)
+class Unit(OrgScoped, Base):
+    """Unidad agregada a mano (Fleet -> Add New Unit). Complementa el fleet
+    vivo de Samsara para terminales/clientes que no estan en Samsara, y
+    alimenta los trackers PM/DOT. Clave de negocio: `unit` (numero de unidad)
+    unico por organizacion. org-scoped (multi-tenant, H6 fase 3)."""
+    __tablename__ = "unit"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    unit: Mapped[str] = mapped_column(String(64), index=True)   # numero de unidad
+    unit_type: Mapped[str] = mapped_column(String(16), default="truck")  # truck|trailer|chassis
+    subtype: Mapped[str] = mapped_column(String(40), default="")
+    terminal: Mapped[str] = mapped_column(String(40), default="")  # key de terminal (ex-nickname)
+    customer: Mapped[str] = mapped_column(String(120), default="")
+    company: Mapped[str] = mapped_column(String(64), default="")
+    vin: Mapped[str] = mapped_column(String(20), default="")
+    year: Mapped[str] = mapped_column(String(8), default="")
+    make: Mapped[str] = mapped_column(String(60), default="")
+    model: Mapped[str] = mapped_column(String(60), default="")
+    fleet_no: Mapped[str] = mapped_column(String(40), default="")
+    plate: Mapped[str] = mapped_column(String(20), default="")
+    plate_state: Mapped[str] = mapped_column(String(8), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+# ---------------------------------------------------------------------------
+# Aislamiento por tenant (H6 fase 3c): enforcement a nivel ORM
+# ---------------------------------------------------------------------------
+# Estos dos eventos hacen que toda la data de negocio (tablas OrgScoped) se
+# escriba y se lea acotada al tenant del request (tenant.get_current_org()).
+# Cuando NO hay tenant en contexto (trabajos de fondo, scripts, seeding,
+# arranque) no se completa ni se filtra: esos paths son server-side de
+# confianza y deben fijar el contexto explicitamente si quieren acotar (p.ej.
+# el loop de alertas). La red de seguridad a nivel base (RLS de Postgres)
+# llega en la fase 3c-2, que necesita un Postgres vivo para validarse.
+
+@event.listens_for(SessionLocal, "before_flush")
+def _assign_org_on_insert(session, flush_context, instances):
+    """Completa org_id en las filas nuevas OrgScoped desde el tenant del
+    contexto (si hay). No pisa un org_id ya seteado a mano."""
+    org = tenant.get_current_org()
+    if org is None:
+        return
+    for obj in session.new:
+        if isinstance(obj, OrgScoped) and obj.org_id is None:
+            obj.org_id = org
+
+
+@event.listens_for(SessionLocal, "do_orm_execute")
+def _scope_select_to_org(execute_state):
+    """Acota los SELECT de entidades OrgScoped al tenant del contexto. Sigue
+    la receta de SQLAlchemy (with_loader_criteria), excluyendo cargas de
+    columna/relacion para no sorprender en lazy-loads."""
+    org = tenant.get_current_org()
+    if org is None:
+        return
+    if (execute_state.is_select
+            and not execute_state.is_column_load
+            and not execute_state.is_relationship_load):
+        execute_state.statement = execute_state.statement.options(
+            with_loader_criteria(
+                OrgScoped, lambda cls: cls.org_id == org,
+                include_aliases=True))
+
+
+DEFAULT_ORG_SLUG = "default"
+
+
+def ensure_default_org() -> int:
+    """Garantiza que exista la organizacion 'default' (modo single-tenant) y
+    devuelve su id. Idempotente; corre en ambos motores al iniciar."""
+    with SessionLocal() as session:
+        org = session.scalar(select(Organization).where(
+            Organization.slug == DEFAULT_ORG_SLUG))
+        if org is None:
+            org = Organization(slug=DEFAULT_ORG_SLUG, name="Default",
+                               active=True, created_at=datetime.now())
+            session.add(org)
+            session.commit()
+        return org.id
+
+
+def default_org_id() -> int:
+    """Id de la organizacion 'default'."""
+    with SessionLocal() as session:
+        return session.scalar(select(Organization.id).where(
+            Organization.slug == DEFAULT_ORG_SLUG))
+
+
+def _setting_org() -> int:
+    """org del request actual, o la 'default' para paths sin contexto."""
+    return tenant.get_current_org() or default_org_id()
+
+
+def get_setting(key: str, legacy_file: Path | None = None) -> dict | None:
+    """Config (dict) de `key` para el tenant actual, o None si no existe.
+
+    Migracion transparente (H6 fase 3d): si no hay fila y se pasa el archivo
+    *.local.json legacy, se importa UNA vez a la org 'default' (los datos
+    single-tenant existentes le pertenecen) y se devuelve. Para otras orgs
+    sin fila devuelve None (caen a los DEFAULTS del modulo consumidor)."""
+    org = _setting_org()
+    with SessionLocal() as session:
+        row = session.get(OrgSetting, (org, key))
+        blob = row.value_json if row is not None else None
+    if blob is not None:
+        try:
+            return json.loads(blob)
+        except ValueError:
+            return None
+    if (legacy_file is not None and org == default_org_id()
+            and legacy_file.exists()):
+        try:
+            data = json.loads(legacy_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if isinstance(data, dict):
+            save_setting(key, data)
+            return data
+    return None
+
+
+def save_setting(key: str, value: dict) -> None:
+    """Persiste el blob de config de `key` para el tenant actual."""
+    org = _setting_org()
+    blob = json.dumps(value, ensure_ascii=False)
+    with SessionLocal() as session:
+        row = session.get(OrgSetting, (org, key))
+        if row is None:
+            session.add(OrgSetting(org_id=org, key=key, value_json=blob))
+        else:
+            row.value_json = blob
+        session.commit()
 
 
 def _migrate() -> None:
     """Migraciones aditivas para SQLite (create_all no agrega columnas a
-    tablas existentes). Idempotente: solo agrega lo que falte."""
+    tablas existentes). Idempotente: solo agrega lo que falte.
+
+    Usa PRAGMA/ALTER especificos de SQLite y solo aplica a bases de
+    desarrollo viejas. En Postgres el esquema lo maneja **Alembic**
+    (`alembic upgrade head`), no este _migrate()."""
     with _engine.connect() as conn:
         cols = {r[1] for r in conn.exec_driver_sql(
             "PRAGMA table_info(work_order)").fetchall()}
@@ -391,10 +536,45 @@ def _migrate() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE work_order_line "
                 "ADD COLUMN part_number VARCHAR(60) DEFAULT ''")
+        # H6 fase 3: cada fila pertenece a una organizacion (tenant). El
+        # usuario y las 11 tablas de datos llevan org_id; las DBs viejas no
+        # tienen la columna, asi que se agrega y se backfillea a 'default'.
+        # (poi queda global: datos publicos compartidos, ver modelo Poi.)
+        oid = default_org_id()
+        for table in ("user", "report_block", "block_driver", "defect",
+                      "work_order", "work_order_line", "tms_driver",
+                      "alert_event", "unit_doc", "maint_record", "vendor",
+                      "part"):
+            cols = {r[1] for r in conn.exec_driver_sql(
+                f'PRAGMA table_info("{table}")').fetchall()}
+            if "org_id" not in cols:
+                conn.exec_driver_sql(
+                    f'ALTER TABLE "{table}" ADD COLUMN org_id INTEGER '
+                    'REFERENCES organization(id)')
+            conn.exec_driver_sql(
+                f'UPDATE "{table}" SET org_id = {oid} WHERE org_id IS NULL')
         conn.commit()
 
 
-_migrate()
+def init_schema() -> None:
+    """Inicializa el esquema y siembra la org 'default'.
+
+    SQLite (dev): create_all + migraciones aditivas (`_migrate`). Postgres
+    (prod): el esquema lo maneja **Alembic** (`alembic upgrade head` en el
+    deploy), así que acá NO se hace create_all; solo se asegura la org
+    'default' (la tabla ya existe tras la migración)."""
+    if config.IS_SQLITE:
+        Base.metadata.create_all(_engine)
+    ensure_default_org()
+    if config.IS_SQLITE:
+        _migrate()
+
+
+# Inicializa al importar (back-compat: scripts/tests usan db directamente).
+# Alembic importa este módulo SOLO por su metadata: setea FLEET_SKIP_DB_INIT
+# para no tocar la base al generar/correr migraciones.
+if not os.environ.get("FLEET_SKIP_DB_INIT"):
+    init_schema()
 
 
 # ---------------------------------------------------------------------------

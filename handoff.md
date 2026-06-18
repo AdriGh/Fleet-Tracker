@@ -1,7 +1,7 @@
 # HANDOFF — Fleet Tracker
 
 Documento de traspaso: objetivo, estado, investigación y siguiente paso.
-Actualizado: 2026-06-13.
+Actualizado: 2026-06-14.
 
 ## Objetivo
 
@@ -11,6 +11,34 @@ para carriers de 10-150 trucks: reemplazar Fullbay (taller), TrackFleet
 (temperaturas) y complementar al ELD (Samsara/Motive) sirviéndonos de su
 información. Diferenciales: sin contrato, precio plano, bilingüe
 EN/ES de back-office, y UX muy superior (cinemática, personalizable).
+
+**FOCO DE PRODUCTO (decidido jun-14, detalle en `PRODUCT.md`):**
+profundidad, no amplitud. Especializarse en el stack **Taller + Cold Chain**
+— el moat es su **intersección** (Fullbay no toca reefers; Samsara/TrackFleet
+no tienen taller). Núcleo a profundizar: WO + parts/PO + escáner AI + perfil
+de unidad + PM/DOT + Cold Chain con control OEM + **puente reefer→work order**
++ bilingüe de piso de taller. Soporte (se mantiene, no protagoniza): DVIR,
+Live Map, notices. **Removido (jun-14):** Loads/dispatch/payout (otro
+mercado) — borrado de UI + rutas + modelos (`Load`/`LoadStop`, `LoadsPage`,
+grupo nav "Dispatch"). El **roster de conductores se conserva como "Driver
+Compliance"** dentro de Maintenance & Compliance (lo usa el tablero de
+mantenimiento para mapear truck→conductor; `TmsDriver` + `core/tms.py`
+quedan solo-drivers).
+
+**PUENTE reefer→WO (CONSTRUIDO jun-14, el "workflow asesino" del foco):**
+`core/reefer_wo.py` `sync(snapshot, min_severity)` crea work orders
+IDEMPOTENTES desde los fault codes de los reefers (Lynx/TK/Traccar), con
+unidad + código + contexto (setpoint/return/modo) en el complaint y un
+marcador `[rf:<code>]` para deduplicar (no duplica mientras haya una WO
+viva para el mismo unit+code). Saltea códigos no-mecánicos (`no_data`,
+`low_battery`) y datos demo. Lo dispara el loop de `core/alerts.py` con la
+regla `reefer_fault_wo` (Settings → Fleet alerts; severidad mínima
+configurable); cada WO nueva genera un AlertEvent en el feed
+(`record_wo_events`). La WO sale con `source='reefer'` → badge "from reefer
+fault" en WorkOrdersPage. Verificado: py_compile + smoke de la lógica
+(elegibilidad/dedup/demo) con `workorders` stubbeado; front tsc/vite verdes.
+Refinamiento posible: saltear unidades muteadas (hoy el bridge ignora el
+mute, que es solo para notificaciones).
 
 ## Repos y archivos
 
@@ -60,6 +88,57 @@ rico (Teltonika + cable RS232 de Carrier → Traccar, ~$30-60 una vez + $0/mes
 **Se generó un PDF guía en el Escritorio del usuario** (`Fleet-Tracker-Cold-
 Chain-Guia.pdf`, 13 págs; generador en `%TEMP%\make_reefer_pdf.py`). H4.2
 diferido: sidebar por rol, gating por botón, billing por asiento.
+
+**ACTUALIZACIÓN jun-14 — research Lynx Fleet + principio de soberanía del
+dato (cambia la conclusión vieja de reefer):** se leyó el brochure oficial
+**Carrier Lynx Fleet (62-12176 Rev. C ©2025)** y la doc de integración
+pública. HALLAZGO que corrige el handoff anterior: el **Lynx API ES
+BIDIRECCIONAL e integrable en sistemas propios** (*"two-way command APIs
+that enable remote control… can be integrated in your own systems"*) — NO
+es solo-lectura. O sea: no hay control *aftermarket*, pero el **API OEM
+directo SÍ controla** (setpoint/modo/IntelliSet/defrost/power) y va **por
+nosotros, no por Samsara**. Credenciales (**Client ID + Client Secret +
+API Key**, estilo OAuth2) las emite el **dealer Carrier** al activar la
+suscripción; portal dev en `dev1.lynx.carrier.com` /
+`api.tta.lynxfleet.carrier.com`. El módulo Lynx **viene de fábrica en los
+X4 2022** (la flota del cliente YA lo tiene). 3 tiers: Monitor (lectura) /
+Monitor+Control (control real) / Monitor+Enhanced Control (+ data
+downloads, IntelliSet upload, OTA). **Precio NO público, cotizado por
+dealer.** **PRINCIPIO DE ARQUITECTURA fijado por el usuario — soberanía
+del dato por dominio:** el **power unit/HoS/fuel** se consume del **ELD que
+el cliente eligió** (Samsara/Motive); el **reefer/cold chain es NUESTRO y
+directo** — vía OEM (Lynx/Carrier o ConnectedSuite/TracKing de Thermo King)
+o aftermarket (Traccar) — **nunca a través de un tercero como Samsara**
+(esquiva el API-gating de Samsara). **TIERING decidido:** *Basic* =
+monitoreo de temps + setpoint como **umbral de alerta** (no control real);
+*add-on premium "Cold Chain Control"* (gateado por la suscripción de dealer
+Carrier o Thermo King) = **cambio remoto real de temperatura** vía el API
+OEM. **CAMBIO en lo construido:** la prioridad runtime de Cold Chain pasa
+de `Traccar → Samsara → demo` a **`Lynx (OEM directo) → Traccar
+(aftermarket) → demo`** (Samsara sale como fuente de reefer). Bajado a
+`docs/STRATEGY-data.md` (principio + tiering + Jugada revisada).
+**ENTREGADO jun-14 (boceto completo, verificado: py_compile + smoke; front
+tsc/vite/eslint verdes):** adapters OEM **`core/lynx.py`** (Carrier) y
+**`core/thermoking.py`** (Thermo King TracKing/ConnectedSuite) — espejos de
+`core/traccar.py`: OAuth2 client-credentials, ingesta a la forma ReeferUnit
+(setpoint/supply/ambient/modo/alarmas REALES) y **control two-way gateado
+por tier** (`set_setpoint`/`set_mode`/`defrost`/`power`; `monitor` =
+read-only → error claro sin pegarle al API). `reefer.py` reordenado a
+**Lynx → Thermo King → Traccar → demo** (Samsara fuera) y con **despacho de
+control por prefijo** (`lynx-`/`tk-`). Endpoints `POST
+/api/reefer/{id}/setpoint` y `/command` (RBAC `fleet.edit`, no abiertos a
+viewer). Cards en Connectivity (test+configure) para ambos OEM. **UI de
+control** en `ReeferPage` (panel setpoint + modo + defrost, gateado por
+`can_control` + `fleet.edit`, badge OEM-aware, chip CTRL, toasts; power
+on/off omitido a propósito por seguridad). Guías `backend/LYNX_SETUP.md` y
+`backend/THERMOKING_SETUP.md` + `*.example.json`. **PENDIENTES (solo del
+usuario, para activarlo de verdad):** (1) cotización + credenciales del
+dealer/proveedor (Carrier dealer · `tracking@thermoking.com`) y confirmar
+en qué tier el API expone control — preguntas en
+`docs/reefer-dealer-questions.md`; (2) confirmar contra el portal los
+**paths/campos exactos del JSON** (centralizados en `lynx.py`/
+`thermoking.py` como defaults overrideables + `_pick()`) y la auth de TK
+(se asume OAuth2; puede ser API key sola).
 
 **v1.4.0 — H4 RBAC real:** 5 roles (+`safety`), scopes finos con enforcement
 en el middleware (`_scope_for`), PII enmascarada server-side, gating en la UI

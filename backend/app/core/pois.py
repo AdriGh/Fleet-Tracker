@@ -25,6 +25,7 @@ from sqlalchemy import func, select
 
 from .. import config
 from ..db import Poi, SessionLocal
+from . import secretstore
 
 SEED_PATH = Path(__file__).resolve().parents[2] / "data" / "pois_seed.json"
 GOOGLE_CONF = config.BACKEND_DIR / "google.local.json"
@@ -113,13 +114,9 @@ def delete_poi(poi_id: str) -> bool:
 # ----- Búsqueda Google Places (lista, nunca mapa) ----------------------
 
 def _google_key() -> str:
-    if not GOOGLE_CONF.exists():
-        return ""
-    try:
-        data = json.loads(GOOGLE_CONF.read_text(encoding="utf-8"))
-        return str(data.get("places_api_key") or "").strip()
-    except (OSError, ValueError):
-        return ""
+    # H6 fase 3d-2: la API key vive detras de SecretStore (google.local.json).
+    data = secretstore.store().get_blob("google")
+    return str(data.get("places_api_key") or "").strip()
 
 
 def google_configured() -> bool:

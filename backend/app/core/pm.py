@@ -95,6 +95,10 @@ def _date_key(d: str | None) -> tuple:
 
 
 def load() -> list[dict]:
+    # En modo demo (sin Samsara), el PM board se alimenta de la flota demo.
+    from . import demo_eld, samsara
+    if samsara._demo():
+        return demo_eld.pm_rows()
     if not CSV_PATH.exists():
         return []
     with CSV_PATH.open(encoding="utf-8-sig", newline="") as fh:

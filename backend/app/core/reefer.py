@@ -1,146 +1,39 @@
 # -*- coding: utf-8 -*-
-"""Cold chain / monitoreo de reefers (fase G4 — el reemplazo de TrackFleet).
+"""Cold chain / monitoreo de reefers (G4 -> H5/H6 — reemplazo de TrackFleet).
 
-Fuente LIVE: Samsara `GET /fleet/trailers/stats` (scope "Read Trailer
-Statistics", ya presente en los tokens). Stat types reefer* — la API
-limita a 3 por request, así que se hacen 3 llamadas por org:
-  A: reeferSetPointTemperatureMilliCZone1, reeferReturnAirTemperatureMilliCZone1,
-     reeferSupplyAirTemperatureMilliCZone1
-  B: reeferAmbientAirTemperatureMilliC, reeferAlarms, reeferRunMode
-  C: reeferStateZone1, reeferFuelPercent, reeferDoorStateZone1
-Temperaturas en mili-°C -> se convierten a °F (flota US).
+Principio de SOBERANÍA DEL DATO (ver docs/STRATEGY-data.md): el reefer es
+NUESTRO y directo. Fuentes, por prioridad:
+  1. **Lynx (OEM directo)** — Carrier Lynx API: lee Y controla. `core/lynx.py`.
+  2. **Thermo King (OEM directo)** — TracKing/ConnectedSuite API: lee Y
+     controla. `core/thermoking.py`.
+  3. **Traccar (aftermarket)** — Teltonika/Queclink + sonda -> Traccar
+     self-host. Solo lectura + umbral de alerta. `core/traccar.py`.
+  4. **Demo** — set determinista etiquetado (`demo: true`) cuando no hay
+     ninguna fuente configurada, para poder ver/demostrar el dashboard.
 
-MODO DEMO: hoy los orgs de Samsara devuelven 0 trailers con reefer (los
-reefers del partner viven en hardware de terceros). Si live responde OK
-pero vacío, se sirve un set DEMO determinista claramente etiquetado
-(`demo: true`) para poder ver/demostrar el dashboard. Las alertas JAMÁS
-se evalúan sobre datos demo.
+Samsara NO es fuente de reefer (a propósito): evita depender de un tercero
+y del API-gating de Samsara; el ELD del cliente se usa para el power unit,
+no para el cold chain.
 
-Multizona (Zone2/3) queda para una iteración futura; las flotas de
-referencia son single-zone.
+Todas las fuentes emiten la MISMA forma ReeferUnit (unit, setpoint_f,
+return_f, supply_f, ambient_f, run_mode, state, fuel_pct, door, alarms[],
+updated, source, …) para que el frontend sea agnóstico. Las alertas JAMÁS
+se evalúan sobre datos demo. El control remoto (two-way) se despacha al
+módulo OEM según el prefijo del id (lynx- / tk-).
 """
 
 from __future__ import annotations
 
-import asyncio
 import math
 from datetime import datetime, timedelta, timezone
 
-import httpx
+from . import lynx, thermoking, traccar
 
-from . import traccar
-from .samsara import _TIMEOUT, _orgs, _paged
+# Fuentes reales en orden de prioridad (módulo, etiqueta de `source`).
+_SOURCES = ((lynx, "lynx"), (thermoking, "thermoking"), (traccar, "traccar"))
 
-_TYPES_A = ("reeferSetPointTemperatureMilliCZone1,"
-            "reeferReturnAirTemperatureMilliCZone1,"
-            "reeferSupplyAirTemperatureMilliCZone1")
-_TYPES_B = "reeferAmbientAirTemperatureMilliC,reeferAlarms,reeferRunMode"
-_TYPES_C = "reeferStateZone1,reeferFuelPercent,reeferDoorStateZone1"
-
-SCOPE_TRAILER_STATS = "Read Trailer Statistics"
-
-
-def _f(milli_c) -> float | None:
-    """Mili-°C -> °F redondeado a 1 decimal."""
-    if milli_c is None:
-        return None
-    return round(milli_c / 1000.0 * 9 / 5 + 32, 1)
-
-
-def _val(node):
-    """Valor de un stat (snapshot {value} o lista de eventos)."""
-    if isinstance(node, dict):
-        return node.get("value", node)
-    if isinstance(node, list) and node and isinstance(node[-1], dict):
-        return node[-1].get("value", node[-1])
-    return None
-
-
-def _time_of(node) -> str:
-    if isinstance(node, dict):
-        return node.get("time") or ""
-    if isinstance(node, list) and node and isinstance(node[-1], dict):
-        return node[-1].get("time") or ""
-    return ""
-
-
-def _alarms_of(node) -> list[dict]:
-    raw = _val(node)
-    items = []
-    if isinstance(raw, dict):
-        items = raw.get("alarms") or []
-    elif isinstance(raw, list):
-        items = raw
-    out = []
-    for a in items:
-        if not isinstance(a, dict):
-            continue
-        out.append({
-            "code": a.get("alarmCode") or a.get("code") or "",
-            "description": a.get("description") or "",
-            "severity": a.get("severity") or 0,
-            "operator_action": a.get("operatorAction") or "",
-        })
-    return out
-
-
-def _auth_error(exc: BaseException) -> bool:
-    return (isinstance(exc, httpx.HTTPStatusError)
-            and exc.response.status_code in (401, 403))
-
-
-async def _org_reefer(client: httpx.AsyncClient, cfg: dict) -> dict:
-    base = "/fleet/trailers/stats?limit=512&types="
-    a, b, c = await asyncio.gather(
-        _paged(client, cfg, base + _TYPES_A),
-        _paged(client, cfg, base + _TYPES_B),
-        _paged(client, cfg, base + _TYPES_C),
-        return_exceptions=True,
-    )
-    out: dict = {"company": cfg.get("company") or "", "units": [],
-                 "missing": set(), "ok": False}
-    parts = [a, b, c]
-    if any(isinstance(p, BaseException) for p in parts):
-        first = next(p for p in parts if isinstance(p, BaseException))
-        if _auth_error(first):
-            out["missing"].add(SCOPE_TRAILER_STATS)
-        return out
-    out["ok"] = True
-
-    merged: dict[str, dict] = {}
-    for batch in parts:
-        for t in batch:
-            tid = str(t.get("id"))
-            merged.setdefault(tid, {"id": tid,
-                                    "name": t.get("name") or tid})
-            merged[tid].update({k: v for k, v in t.items()
-                                if k not in ("id", "name")})
-
-    for t in merged.values():
-        has_reefer = any(k.startswith("reefer") for k in t)
-        if not has_reefer:
-            continue
-        set_node = t.get("reeferSetPointTemperatureMilliCZone1")
-        out["units"].append({
-            "id": t["id"],
-            "unit": t["name"],
-            "company": out["company"],
-            "setpoint_f": _f(_val(set_node)),
-            "return_f": _f(_val(
-                t.get("reeferReturnAirTemperatureMilliCZone1"))),
-            "supply_f": _f(_val(
-                t.get("reeferSupplyAirTemperatureMilliCZone1"))),
-            "ambient_f": _f(_val(
-                t.get("reeferAmbientAirTemperatureMilliC"))),
-            "run_mode": _val(t.get("reeferRunMode")) or "",
-            "state": _val(t.get("reeferStateZone1")) or "",
-            "fuel_pct": _val(t.get("reeferFuelPercent")),
-            "door": _val(t.get("reeferDoorStateZone1")) or "",
-            "alarms": _alarms_of(t.get("reeferAlarms")),
-            "updated": _time_of(set_node),
-            "demo": False,
-        })
-    return out
+# Control remoto: prefijo del id -> módulo OEM que lo ejecuta (two-way).
+_CONTROL_MODS = (("lynx-", lynx), ("tk-", thermoking))
 
 
 # ----- Demo determinista (etiquetado; nunca alimenta alertas) -----------
@@ -212,88 +105,75 @@ def demo_history(unit_id: str, hours: int = 24) -> list[dict]:
 # ----- API públicas ------------------------------------------------------
 
 async def load_live() -> dict:
-    # H5: reefers REALES desde Traccar (hardware propio) primero. Si no está
-    # configurado, Samsara; si Samsara reporta 0 reefers, demo etiquetado.
-    traccar_error = ""
-    if traccar.is_configured():
-        t = await traccar.load()
-        if t.get("available"):
-            return {"available": True, "demo": False, "source": "traccar",
-                    "missing_scopes": [], "units": t["units"],
-                    "live_empty": not t["units"]}
-        traccar_error = t.get("error", "")
+    """Snapshot del cold chain. Prioridad Lynx (OEM) -> Traccar -> demo.
 
-    orgs = _orgs()
-    if not orgs:
-        return {"available": bool(traccar_error), "demo": False,
-                "source": "traccar" if traccar_error else "none",
-                "missing_scopes": [], "units": [], "live_empty": False,
-                "error": traccar_error}
+    La primera fuente configurada y disponible gana. Si ninguna está
+    configurada/disponible, se sirve el demo etiquetado para poder ver el
+    dashboard (con el último error de una fuente que falló, si lo hubo)."""
+    last_error = ""
+    for mod, src in _SOURCES:
+        if not mod.is_configured():
+            continue
+        r = await mod.load()
+        if r.get("available"):
+            units = r["units"]
+            return {"available": True, "demo": False, "source": src,
+                    "missing_scopes": [], "units": units,
+                    "live_empty": not units}
+        last_error = r.get("error", "") or last_error
 
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        results = await asyncio.gather(
-            *(_org_reefer(client, o) for o in orgs))
-
-    units: list[dict] = []
-    missing: set[str] = set()
-    ok_any = False
-    for r in results:
-        missing |= r["missing"]
-        ok_any = ok_any or r["ok"]
-        units.extend(r["units"])
-
-    if not ok_any:
-        return {"available": False, "demo": False, "source": "none",
-                "missing_scopes": sorted(missing), "units": [],
-                "live_empty": False, "error": traccar_error}
-
-    if not units:
-        # Scope OK pero ningún trailer reporta reefer: servir demo
-        # etiquetado para poder ver/demostrar el dashboard.
-        return {"available": True, "demo": True, "source": "demo",
-                "missing_scopes": [], "units": demo_units(),
-                "live_empty": True}
-
-    units.sort(key=lambda u: (len(u["alarms"]) == 0, u["unit"]))
-    return {"available": True, "demo": False, "source": "samsara",
-            "missing_scopes": [], "units": units, "live_empty": False}
+    # Sin fuente real: demo etiquetado (las alertas nunca corren sobre demo).
+    return {"available": True, "demo": True, "source": "demo",
+            "missing_scopes": [], "units": demo_units(),
+            "live_empty": True, "error": last_error}
 
 
 async def history(unit_id: str, hours: int = 24) -> dict:
     if unit_id.startswith("demo-"):
         return {"unit_id": unit_id, "demo": True,
                 "points": demo_history(unit_id, hours)}
-    if unit_id.startswith("trc-"):                  # H5: historial de Traccar
+    if unit_id.startswith("lynx-"):                 # OEM directo (Carrier)
+        return await lynx.history(unit_id, hours)
+    if unit_id.startswith("tk-"):                   # OEM directo (Thermo King)
+        return await thermoking.history(unit_id, hours)
+    if unit_id.startswith("trc-"):                  # aftermarket (Traccar)
         return await traccar.history(unit_id, hours)
+    return {"unit_id": unit_id, "demo": False, "points": []}
 
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(hours=hours)
-    qs = (f"/fleet/trailers/stats/history?trailerIds={unit_id}"
-          f"&startTime={start.isoformat()}&endTime={end.isoformat()}"
-          f"&types={_TYPES_A}")
-    points: list[dict] = []
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        for cfg in _orgs():
-            try:
-                rows = await _paged(client, cfg, qs)
-            except httpx.HTTPError:
-                continue
-            for t in rows:
-                if str(t.get("id")) != unit_id:
-                    continue
-                sets = {e["time"]: e.get("value") for e in
-                        t.get("reeferSetPointTemperatureMilliCZone1") or []}
-                rets = {e["time"]: e.get("value") for e in
-                        t.get("reeferReturnAirTemperatureMilliCZone1") or []}
-                sups = {e["time"]: e.get("value") for e in
-                        t.get("reeferSupplyAirTemperatureMilliCZone1") or []}
-                for ts in sorted(set(sets) | set(rets) | set(sups)):
-                    points.append({
-                        "time": ts,
-                        "setpoint_f": _f(sets.get(ts)),
-                        "return_f": _f(rets.get(ts)),
-                        "supply_f": _f(sups.get(ts)),
-                    })
-            if points:
-                break
-    return {"unit_id": unit_id, "demo": False, "points": points}
+
+# ----- Control remoto (despacho por prefijo a la fuente OEM) -------------
+
+def _control_mod(unit_id: str):
+    for pfx, mod in _CONTROL_MODS:
+        if unit_id.startswith(pfx):
+            return mod
+    return None
+
+
+_NO_OEM = {"ok": False,
+           "detail": "Remote control is only available on OEM "
+                     "(Carrier Lynx / Thermo King) units"}
+
+
+async def set_setpoint(unit_id: str, setpoint_f: float) -> dict:
+    """Cambia el setpoint REAL del reefer vía su API OEM (two-way)."""
+    mod = _control_mod(unit_id)
+    if mod is None:
+        return dict(_NO_OEM)
+    return await mod.set_setpoint(unit_id, setpoint_f)
+
+
+async def command(unit_id: str, cmd: str, mode: str | None = None,
+                 on: bool | None = None) -> dict:
+    """Comandos OEM extra (two-way): mode / defrost / power."""
+    mod = _control_mod(unit_id)
+    if mod is None:
+        return dict(_NO_OEM)
+    cmd = (cmd or "").lower()
+    if cmd == "mode" and mode is not None:
+        return await mod.set_mode(unit_id, mode)
+    if cmd == "defrost":
+        return await mod.initiate_defrost(unit_id)
+    if cmd == "power" and on is not None:
+        return await mod.set_power(unit_id, on)
+    return {"ok": False, "detail": "Unknown reefer command"}

@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  getReefer, getReeferHistory,
+  getReefer, getReeferHistory, reeferCommand, setReeferSetpoint,
   type ReeferPoint, type ReeferUnit,
 } from '../api'
+import { usePerms } from '../perms'
+import { notifyErr, notifyOk } from '../toast'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 
@@ -131,7 +133,71 @@ function HistoryRow({ unitId }: { unitId: string }) {
   return <ReeferChart points={q.data.points} />
 }
 
+// ----- Control remoto OEM (Carrier Lynx, two-way) ------------------------
+// Solo se renderiza para unidades 'lynx-' con tier >= Monitor and Control
+// (u.can_control) y rol con scope fleet.edit. El backend re-gatea ambos.
+function ReeferControl({ unit }: { unit: ReeferUnit }) {
+  const qc = useQueryClient()
+  const [sp, setSp] = useState(
+    unit.setpoint_f != null ? String(unit.setpoint_f) : '')
+  const refresh = () => qc.invalidateQueries({ queryKey: ['reefer'] })
+
+  const setpointM = useMutation({
+    mutationFn: () => setReeferSetpoint(unit.id, Number(sp)),
+    onSuccess: (r) => { notifyOk('Setpoint sent', r.detail); refresh() },
+    onError: (e) => notifyErr('Could not set setpoint', e),
+  })
+  const cmdM = useMutation({
+    mutationFn: (b: Parameters<typeof reeferCommand>[1]) =>
+      reeferCommand(unit.id, b),
+    onSuccess: (r) => { notifyOk('Command sent', r.detail); refresh() },
+    onError: (e) => notifyErr('Command failed', e),
+  })
+
+  const busy = setpointM.isPending || cmdM.isPending
+  const spNum = Number(sp)
+  const spInvalid = sp === '' || Number.isNaN(spNum)
+    || spNum < -30 || spNum > 90
+  const oem = unit.source === 'thermoking' ? 'THERMO KING' : 'LYNX'
+
+  return (
+    <div className="reefer-control" onClick={(e) => e.stopPropagation()}>
+      <div className="rctl-head">
+        <span className="rctl-badge">REMOTE CONTROL · {oem}</span>
+        <span className="rctl-sub">
+          Two-way OEM commands change the real reefer, not just an alert.
+        </span>
+      </div>
+      <div className="rctl-row">
+        <label className="rctl-field">
+          <span>Setpoint °F</span>
+          <input type="number" step={1} value={sp} disabled={busy}
+            onChange={(e) => setSp(e.target.value)} />
+        </label>
+        <button className="btn btn-primary rctl-btn"
+          disabled={busy || spInvalid} onClick={() => setpointM.mutate()}>
+          {setpointM.isPending ? 'Sending…' : 'Set setpoint'}
+        </button>
+        <span className="rctl-spacer" />
+        <button className="btn btn-ghost rctl-btn" disabled={busy}
+          onClick={() => cmdM.mutate({ command: 'mode', mode: 'Continuous' })}>
+          Continuous
+        </button>
+        <button className="btn btn-ghost rctl-btn" disabled={busy}
+          onClick={() => cmdM.mutate({ command: 'mode', mode: 'Start-Stop' })}>
+          Start-Stop
+        </button>
+        <button className="btn btn-ghost rctl-btn" disabled={busy}
+          onClick={() => cmdM.mutate({ command: 'defrost' })}>
+          Defrost
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function ReeferPage() {
+  const { can } = usePerms()
   const q = useQuery({
     queryKey: ['reefer'],
     queryFn: getReefer,
@@ -201,9 +267,21 @@ export default function ReeferPage() {
         </div>
         <div className="head-actions">
           {data?.demo && (
-            <span className="nf-pill is-real" title={'Samsara is not reporting '
-              + 'reefers yet: simulated data to evaluate the dashboard'}>
+            <span className="nf-pill is-real" title={'No live reefer source '
+              + 'connected yet: simulated data to evaluate the dashboard'}>
               DEMO DATA
+            </span>
+          )}
+          {data?.source === 'lynx' && (
+            <span className="nf-pill"
+              title="Live OEM reefer telemetry + control via Carrier Lynx">
+              LIVE · LYNX
+            </span>
+          )}
+          {data?.source === 'thermoking' && (
+            <span className="nf-pill"
+              title="Live OEM reefer telemetry + control via Thermo King TracKing">
+              LIVE · THERMO KING
             </span>
           )}
           {data?.source === 'traccar' && (
@@ -226,15 +304,17 @@ export default function ReeferPage() {
       {data?.demo && (
         <div className="banner warn">
           <span>
-            <strong>Demo data.</strong> Your Samsara orgs report no
-            reefer-equipped trailers yet. To go live with your OWN
-            hardware: a tracker + temp probe (Teltonika FMC130 +
-            DS18B20) reporting to a self-hosted Traccar, then set the
-            server URL + token in <strong>Settings → Connectivity →
-            Traccar</strong> (guide: backend/REEFER_SETUP.md). Or, via
-            your dealer, the Thermo King TracKing / Carrier Lynx cloud
-            integration. The dashboard, alerts and exports are already
-            wired.
+            <strong>Demo data.</strong> No live reefer source is
+            connected yet. Go direct with your OWN integration — never
+            through Samsara: the OEM cloud for real remote setpoint
+            control (<strong>Carrier Lynx</strong> or{' '}
+            <strong>Thermo King TracKing</strong>, via your dealer), or
+            aftermarket hardware (a tracker + temp probe like Teltonika
+            FMC130 + DS18B20) reporting to a self-hosted{' '}
+            <strong>Traccar</strong>. Set it in{' '}
+            <strong>Settings → Connectivity → Cold chain</strong> (guides:
+            backend/LYNX_SETUP.md, THERMOKING_SETUP.md, REEFER_SETUP.md).
+            The dashboard, alerts and exports are already wired.
           </span>
         </div>
       )}
@@ -304,6 +384,12 @@ export default function ReeferPage() {
                           <span className="reefer-unit">
                             <span className={`reefer-state st-${u.state.toLowerCase() || 'na'}`} />
                             <strong>{u.unit}</strong>
+                            {u.can_control && (
+                              <span className="reefer-ctrl-tag"
+                                title="Remote control available (Carrier Lynx)">
+                                CTRL
+                              </span>
+                            )}
                           </span>
                         </td>
                         <td className="num mono">{fmtT(u.setpoint_f)}</td>
@@ -341,6 +427,9 @@ export default function ReeferPage() {
                       {expanded === u.id && (
                         <tr key={`${u.id}-chart`} className="reefer-chart-row">
                           <td colSpan={10}>
+                            {u.can_control && can('fleet.edit') && (
+                              <ReeferControl unit={u} />
+                            )}
                             <HistoryRow unitId={u.id} />
                           </td>
                         </tr>

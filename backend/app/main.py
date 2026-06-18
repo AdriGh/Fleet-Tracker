@@ -3,14 +3,14 @@
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__, config
 from .api.routes import router
-from .core import alerts, auth, permissions
+from .core import alerts, auth, permissions, tenant
 
 
 @asynccontextmanager
@@ -85,6 +85,9 @@ def _scope_for(method: str, path: str) -> str | None:
     # PII de conductores (editar email, sync de contactos).
     if path.startswith("/api/drivers"):
         return "pii.view"
+    # Control remoto de reefers (setpoint/modo OEM vía Lynx): acción de flota.
+    if path.startswith("/api/reefer/"):
+        return "fleet.edit"
     return None
 
 
@@ -94,6 +97,11 @@ async def _require_auth(request: Request, call_next):
     if path.startswith("/api/") and path not in _AUTH_ALLOWLIST:
         user = auth.user_from_header(
             request.headers.get("authorization"))
+        # H6 fase 3: el tenant del request viaja en request.state; la
+        # dependencia tenant.bind_tenant lo lleva al ContextVar dentro del
+        # endpoint. Se setea aca (mismo scope) para que llegue al endpoint.
+        request.state.user = user
+        request.state.org_id = user["org_id"] if user else None
         if user is None:
             # Sin usuarios todavía (primer arranque): la API queda
             # abierta SOLO hasta crear el admin en el wizard.
@@ -109,7 +117,9 @@ async def _require_auth(request: Request, call_next):
     return await call_next(request)
 
 
-app.include_router(router)
+# bind_tenant corre para toda ruta de la API: fija el ContextVar de tenant
+# (H6 fase 3) en el contexto del endpoint, donde corren las queries.
+app.include_router(router, dependencies=[Depends(tenant.bind_tenant)])
 
 
 # Frontend compilado (frontend/dist). En desarrollo puede no existir; en

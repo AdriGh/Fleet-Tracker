@@ -26,7 +26,10 @@ _MONTHS = {
 }
 
 # Empresas reconocidas: codigo -> patrones en el nombre del archivo.
+# SUMMIT = empresa demo (para los CSV de portafolio); CHASER/MCC quedan como
+# detección histórica (no se muestran en el selector, solo aquí).
 _COMPANY_PATTERNS = {
+    "SUMMIT": ("summit",),
     "CHASER": ("chaser",),
     "MCC": ("memphis", "mcc"),
 }
@@ -64,6 +67,20 @@ def company_from_filename(name: str):
         if any(n in low for n in needles):
             return code
     return None
+
+
+def _demo_company():
+    """Empresa por defecto en modo demo cuando no se detecta otra.
+
+    Los CSV demo de portafolio usan unidades genéricas (412/517...) y a veces
+    los nombres de archivo crudos de Samsara (sin empresa), así que sin esto el
+    import quedaría sin empresa. En modo real (con Samsara) devuelve None y el
+    comportamiento es el de siempre."""
+    try:
+        from . import samsara
+        return "SUMMIT" if samsara._demo() else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def company_from_units(df: pd.DataFrame):
@@ -131,6 +148,9 @@ class AnalyzedFile:
         elif self.kind == "dvir":
             self.company = (company_from_filename(name)
                             or company_from_units(df))
+        # Fallback de modo demo: empresa SUMMIT si no se detectó otra.
+        if not self.company and self.kind in ("activity", "pretrip", "dvir"):
+            self.company = _demo_company()
 
     @property
     def dvir_date(self):

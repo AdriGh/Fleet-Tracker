@@ -15,12 +15,10 @@ import {
   listTerminals, type TerminalDef, type TerminalsConfig,
 } from './api'
 
+// Espejo del backend (core/terminals.DEFAULTS): una sola terminal generica.
+// El admin crea las suyas desde Settings -> Terminals.
 export const FACTORY_TERMINALS: TerminalDef[] = [
-  { key: 'CHASER', label: 'Chaser', prefixes: [] },
-  { key: 'MEM', label: 'Memphis', prefixes: ['MEM'] },
-  { key: 'MDW', label: 'Chicago', prefixes: ['MDW'] },
-  { key: 'MIA', label: 'Miami', prefixes: ['MIA'] },
-  { key: 'GA', label: 'Georgia', prefixes: ['ATL', 'SAV'] },
+  { key: 'MAIN', label: 'Main', prefixes: [] },
 ]
 
 const FACTORY_CFG: TerminalsConfig = {

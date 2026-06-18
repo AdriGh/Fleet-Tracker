@@ -1435,6 +1435,12 @@ body::after {
   border: 1px solid var(--banner-warn-border);
 }
 
+.banner.success {
+  background: rgba(22, 163, 74, 0.10);
+  color: #15803d;
+  border: 1px solid rgba(22, 163, 74, 0.35);
+}
+
 .banner svg {
   flex: none;
   width: 18px;
@@ -2467,6 +2473,7 @@ td.dur-high {
 }
 .avisos-preview .card-body {
   min-height: 0;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2556,6 +2563,166 @@ td.dur-high {
 .archive-tag.auto { background: var(--ui-warn-bg, #fef3c7); color: #92600a;
   border-color: #f0d28a; }
 .btn-xs { font-size: 11.5px; padding: 4px 10px; }
+
+/* Botón con efecto "expand" en hover: lift + leve escala + glow. Reutilizable
+   en cualquier .btn (primary o ghost). Respeta prefers-reduced-motion. */
+.btn-expand {
+  transition: background 0.15s, color 0.15s, border-color 0.15s,
+    transform 0.16s cubic-bezier(0.2, 0.8, 0.3, 1), box-shadow 0.18s;
+  will-change: transform;
+}
+.btn-expand:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.025);
+  box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.32);
+}
+.btn-primary.btn-expand:hover:not(:disabled) {
+  box-shadow: 0 10px 22px -6px rgba(226, 35, 26, 0.6);
+}
+.btn-expand:active:not(:disabled) {
+  transform: translateY(0) scale(0.99);
+}
+.btn-plus {
+  font-size: 1.15em;
+  line-height: 0;
+  margin-right: -2px;
+  transition: transform 0.16s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.btn-expand:hover:not(:disabled) .btn-plus {
+  transform: rotate(90deg) scale(1.1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-expand, .btn-plus { transition: background 0.15s; }
+  .btn-expand:hover:not(:disabled) { transform: none; }
+  .btn-expand:hover:not(:disabled) .btn-plus { transform: none; }
+}
+
+/* Fila "agregar" en Settings: inputs flexibles + botón compacto (ya no el
+   grid de 5 columnas de .users-add que estiraba el botón). */
+.settings-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+.settings-add-row .cell-input {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.settings-add-row .btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* ---------- Tablero de asignación de flota (drag & drop) ----------------- */
+.fleet-board { display: flex; flex-direction: column; gap: 12px; }
+.fb-toolbar {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+.fb-toolbar .cell-input { flex: 1 1 200px; min-width: 0; }
+.fb-summary { font-size: 12.5px; color: var(--muted, #6b7280); }
+
+.fb-cols {
+  display: flex; gap: 12px; align-items: flex-start;
+  overflow-x: auto; padding: 2px 2px 10px;
+}
+.fb-col {
+  flex: 0 0 220px; width: 220px;
+  background: var(--surface-2, #f6f7f9);
+  border: 1.5px solid var(--border, #e3e6ea);
+  border-radius: 12px;
+  display: flex; flex-direction: column; max-height: 56vh;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+/* Primera columna = pool, visualmente distinta (origen de la flota). */
+.fb-col:first-child {
+  background: color-mix(in srgb, var(--accent, #e11900) 5%, var(--surface, #fff));
+  border-style: dashed;
+}
+.fb-col.over {
+  border-color: var(--accent, #e11900);
+  box-shadow: 0 0 0 3px var(--accent-soft, rgba(225, 25, 0, 0.12));
+  background: var(--accent-soft, rgba(225, 25, 0, 0.06));
+}
+.fb-col.focus { border-color: var(--accent, #e11900); }
+.fb-col-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 10px 12px;
+  border-bottom: 1px solid var(--border, #e3e6ea);
+  position: sticky; top: 0;
+}
+.fb-col-label { font-weight: 700; font-size: 13px; }
+.fb-col-count {
+  font-size: 11.5px; font-weight: 700; color: var(--muted, #6b7280);
+  background: var(--surface, #fff); border: 1px solid var(--border, #e3e6ea);
+  border-radius: 999px; padding: 1px 8px; min-width: 22px; text-align: center;
+}
+.fb-col-body {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px; overflow-y: auto;
+}
+.fb-empty {
+  font-size: 12px; color: var(--muted, #9aa1ac); text-align: center;
+  padding: 14px 6px; margin: 0;
+}
+
+.fb-card {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e3e6ea); border-radius: 9px;
+  padding: 7px 9px; cursor: grab; touch-action: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.12s, border-color 0.12s, transform 0.05s;
+}
+.fb-card:hover { border-color: var(--accent, #e11900); }
+.fb-card:active { cursor: grabbing; }
+.fb-card.dragging { opacity: 0.4; }
+.fb-card-overlay {
+  opacity: 1; cursor: grabbing; transform: rotate(2deg) scale(1.03);
+  box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.4);
+  border-color: var(--accent, #e11900);
+}
+.fb-card-main {
+  display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0;
+}
+.fb-card-unit {
+  font-weight: 700; font-size: 13px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fb-card-kind { font-size: 11px; color: var(--muted, #6b7280); }
+.fb-card-auto {
+  font-size: 10.5px; color: var(--muted, #9aa1ac); font-style: italic;
+  white-space: nowrap;
+}
+/* Fallback accesible: el <select> "mover a" solo aparece en pantallas
+   chicas o punteros gruesos (touch), donde arrastrar es incómodo. En
+   desktop se arrastra (o se usa teclado, que dnd-kit soporta). */
+.fb-move { display: none; }
+.fb-help { font-size: 12px; color: var(--muted, #6b7280); margin: 0; }
+@media (max-width: 760px), (pointer: coarse) {
+  .fb-move {
+    display: block; flex: 0 0 auto; max-width: 120px;
+    font-size: 11px; padding: 3px 4px; border-radius: 7px;
+    border: 1px solid var(--border, #e3e6ea);
+    background: var(--surface, #fff); color: var(--text, #1a1a1a);
+  }
+  .fb-card { cursor: default; }
+}
+
+/* Editor de equipo: lista de conductores (nombre + email + quitar). */
+.team-editor { display: flex; flex-direction: column; gap: 6px; }
+.team-editor .settings-sub-h { margin: 10px 0 2px; }
+.team-drivers { display: flex; flex-direction: column; gap: 8px; }
+.team-driver-row {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr auto;
+  gap: 8px;
+  align-items: center;
+}
+.team-editor > .btn-ghost { align-self: flex-start; margin-top: 4px; }
+@media (max-width: 560px) {
+  .team-driver-row { grid-template-columns: 1fr 1fr auto; }
+}
 
 /* Settings */
 .settings-card { width: 100%; }
@@ -3958,6 +4125,92 @@ td.dur-high {
   font-size: 9px; color: #9aa3b2; text-align: center;
 }
 
+/* ----- Reporte PM / DOT (print -> PDF) ----- */
+.maint-report {
+  width: 184mm; margin: 0 auto;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #1a2233; background: #fff;
+  font-size: 11px; line-height: 1.45;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.maint-report .ur-head { border-bottom-color: var(--accent, #e11900); }
+.mr-overview {
+  display: flex; gap: 22px; align-items: center;
+  margin: 16px 0 6px;
+}
+.mr-cards {
+  flex: 1; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+  align-content: center;
+}
+.mr-card {
+  border: 1px solid #e6e9f0; border-left: 4px solid #cbd5e1;
+  border-radius: 10px; padding: 9px 13px 11px; background: #fff;
+}
+.mr-card-top {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 8px;
+}
+.mr-card-label {
+  font-size: 9px; text-transform: uppercase; letter-spacing: .05em;
+  color: #6b7280; font-weight: 600;
+}
+.mr-card-pct { font-size: 11px; color: #6b7280; font-weight: 600; }
+.mr-card-n {
+  display: block; font-size: 25px; font-weight: 800; color: #111827;
+  line-height: 1.05; margin-top: 3px; letter-spacing: -.01em;
+}
+.mr-card-bar {
+  display: block; height: 3px; border-radius: 2px; background: #eef0f4;
+  margin-top: 9px; overflow: hidden;
+}
+.mr-card-bar i { display: block; height: 100%; }
+.mr-card-all { border-left-color: var(--accent, #e11900); }
+.mr-card-all .mr-card-n { color: var(--accent, #e11900); }
+.mr-card-all .mr-card-bar i { background: var(--accent, #e11900); }
+.mr-donut { flex: 0 0 auto; }
+/* El desglose por estado va en las tarjetas; se oculta la leyenda interna
+   del donut para no repetir la informacion. */
+.maint-report .pie-legend { display: none; }
+.maint-report .piechart { display: block; }
+
+.mr-section {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 800; color: #111827;
+  margin: 12px 0 8px; padding-bottom: 6px;
+  border-bottom: 2px solid #e6e9f0;
+}
+.mr-section-n {
+  font-size: 10px; font-weight: 700; color: #6b7280;
+  background: #f1f3f7; border-radius: 999px; padding: 1px 8px;
+}
+
+.mr-table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+.mr-table thead { display: table-header-group; }   /* repite el header por pagina */
+.mr-table thead th {
+  text-align: left; font-size: 8.5px; text-transform: uppercase;
+  letter-spacing: .05em; color: #6b7280; font-weight: 700;
+  border-bottom: 1.5px solid #cfd6e0; padding: 6px 8px;
+}
+.mr-table th.num, .mr-table td.num { text-align: right; }
+.mr-table tbody tr { break-inside: avoid; }
+.mr-table tbody td {
+  padding: 7px 9px; border-bottom: 1px solid #eef1f5; vertical-align: top;
+}
+/* Cada fila se colorea por estado (tinte + acento izquierdo + codigo) via
+   estilos inline: overdue rojo, on track verde, never gris, etc. */
+.mr-row strong { font-weight: 700; }
+.mr-table td.neg { color: #dc2626; font-weight: 700; }
+.mr-model {
+  display: block; font-size: 8.5px; color: #6b7280; text-transform: uppercase;
+}
+.mr-pill {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 9px; font-weight: 700; white-space: nowrap;
+}
+.mr-foot {
+  margin-top: 16px; font-size: 9px; color: #9ca3af; text-align: center;
+}
+
 @media print {
   /* Solo el documento imprimible es visible. Se ocultan #root, el toaster
      de sonner y los PORTALES de vaul (drawers) y de Modal.tsx, que cuelgan
@@ -4354,6 +4607,10 @@ table.defects-table td {
 /* Paso 3: dock de envío */
 .nf-dock-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .nf-channels { display: flex; gap: 8px; }
+.nf-tpl { display: flex; align-items: center; gap: 7px; font-size: 0.8rem; }
+.nf-tpl > span { color: var(--text-muted); text-transform: uppercase;
+  letter-spacing: .04em; font-weight: 600; font-size: 0.72rem; }
+.nf-tpl select { max-width: 230px; }
 .nf-channel {
   display: inline-flex;
   align-items: center;
@@ -4507,7 +4764,14 @@ table.defects-table td {
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface-2);
+  /* Cadena de altura: el cuerpo del mail (prev-body) scrollea cuando el
+     aviso es largo, en vez de cortarse. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
 }
+.mail-head, .mail-subject { flex: none; }
 .mail-head {
   display: flex;
   align-items: flex-start;
@@ -5044,6 +5308,70 @@ table.defects-table td {
 .rc-d-supply { background: #3b82f6; }
 .rc-d-set { background: var(--text-muted); }
 
+/* Chip "CTRL" en unidades Lynx controlables. */
+.reefer-ctrl-tag {
+  margin-left: 7px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  vertical-align: middle;
+}
+
+/* Panel de control remoto OEM (Carrier Lynx, two-way). */
+.reefer-control {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  cursor: default;
+}
+.rctl-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.rctl-badge {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+.rctl-sub { font-size: 0.76rem; color: var(--text-muted); }
+.rctl-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rctl-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.rctl-field input {
+  width: 92px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.rctl-btn { padding: 6px 12px; font-size: 0.78rem; }
+.rctl-spacer { flex: 1 1 auto; min-width: 8px; }
+
 /* ==================================================================
    Work Orders (fase G5) — pipeline, líneas parte/labor, drawer
    ================================================================== */
@@ -5236,7 +5564,7 @@ table.defects-table td {
 .ud-towo { margin-left: auto; }
 
 /* ==================================================================
-   TMS: Drivers & Loads (fase G-TMS, referencia QuickManage)
+   Driver roster & compliance (ex-TMS, referencia QuickManage)
    ================================================================== */
 .tms-table tbody tr { cursor: pointer; }
 .tms-llc {
@@ -5331,150 +5659,6 @@ table.defects-table td {
   align-items: start;
 }
 
-/* Ruta origen -> destino con citas LEGIBLES */
-.tms-route { display: inline-flex; align-items: center; gap: 12px; min-width: 0; }
-.tms-stop { display: flex; flex-direction: column; gap: 0; min-width: 0; }
-.tms-stop strong { font-size: 0.84rem; white-space: nowrap; }
-.tms-stop span {
-  font-size: 0.74rem;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.tms-route-arrow {
-  color: var(--text-muted);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  font-size: 0.95rem;
-}
-.tms-route-arrow em {
-  font-style: normal;
-  font-size: 0.62rem;
-  white-space: nowrap;
-}
-.tms-permile {
-  display: block;
-  font-size: 0.7rem;
-  color: var(--text-muted);
-}
-
-/* Estados de carga */
-.load-status {
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 3px 10px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-.load-status.ls-upcoming { background: var(--surface-2); color: var(--text-muted); }
-.load-status.ls-dispatched { background: rgba(139, 92, 246, 0.14); color: #8b5cf6; }
-.load-status.ls-transit { background: rgba(59, 130, 246, 0.14); color: #3b82f6; }
-.load-status.ls-delivered { background: rgba(34, 197, 94, 0.14); color: #16a34a; }
-.load-status.ls-invoiced { background: rgba(20, 184, 166, 0.14); color: #14b8a6; }
-.load-status.ls-closed { background: var(--surface-3); color: var(--text-muted); }
-.load-pipeline .wo-step { font-size: 0.64rem; padding: 8px 2px 8px 10px; }
-
-/* Tags de carga */
-.tms-tags { display: inline-flex; gap: 4px; flex-wrap: wrap; }
-.load-tag {
-  font-size: 0.64rem;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-}
-.load-tag.lt-set { background: rgba(34, 197, 94, 0.14); color: #16a34a; }
-.load-tag.lt-paid { background: rgba(20, 184, 166, 0.14); color: #14b8a6; }
-.load-tag.lt-short { background: rgba(245, 158, 11, 0.18); color: #d97706; }
-.load-tag.lt-lumper { background: rgba(244, 114, 182, 0.16); color: #ec4899; }
-.load-tag.lt-issue { background: rgba(220, 38, 38, 0.16); color: #ef4444; }
-button.load-tag { cursor: pointer; font-family: inherit; }
-button.load-tag.off { opacity: 0.35; }
-button.load-tag.off:hover { opacity: 0.7; }
-
-/* Docs RC/BOL/POD (puntos azules de QuickManage, a nuestra manera) */
-.tms-docdots { display: inline-flex; gap: 4px; }
-.tms-docdot {
-  font-size: 0.6rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: var(--surface-2);
-  color: var(--text-muted);
-  opacity: 0.5;
-  border: 1px solid var(--border);
-}
-.tms-docdot.on {
-  background: rgba(59, 130, 246, 0.14);
-  color: #3b82f6;
-  opacity: 1;
-  border-color: rgba(59, 130, 246, 0.3);
-}
-button.tms-docdot { cursor: pointer; font-family: inherit; }
-.tms-docdot.big { font-size: 0.74rem; padding: 6px 14px; border-radius: 9px; }
-.load-doc-toggles { display: flex; gap: 8px; margin-bottom: 10px; }
-.load-tag-toggles { display: flex; gap: 6px; flex-wrap: wrap; }
-
-/* Entrada de cargas */
-.load-form-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-.load-form-grid.three { grid-template-columns: 1fr 1fr 1fr; }
-.load-stops-edit { display: flex; flex-direction: column; gap: 8px; }
-.load-stop-row {
-  display: grid;
-  grid-template-columns: 26px 96px 1fr 110px 44px 168px auto;
-  gap: 6px;
-  align-items: center;
-}
-.load-stop-row .cell-input { height: 36px; }
-.load-stop-n {
-  width: 24px; height: 24px;
-  display: grid; place-items: center;
-  border-radius: 50%;
-  font-size: 0.72rem;
-  font-weight: 800;
-  background: var(--surface-3);
-  color: var(--text-muted);
-  flex: none;
-}
-.load-stop-n.pickup { background: var(--accent-soft); color: var(--accent); }
-.load-stop-n.delivery { background: rgba(34, 197, 94, 0.14); color: #16a34a; }
-.load-payout {
-  display: flex;
-  gap: 24px;
-  align-items: flex-end;
-  justify-content: space-between;
-  padding: 13px 16px;
-  border-radius: var(--radius);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-}
-.load-payout > div { display: flex; flex-direction: column; gap: 2px; }
-.load-payout span { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
-.load-payout strong {
-  font-family: var(--font-display);
-  font-size: 1.3rem;
-  font-variant-numeric: tabular-nums;
-}
-.load-payout em { font-style: normal; font-size: 0.74rem; color: var(--text-muted); }
-.load-payout-n { color: var(--accent); }
-
-/* Stops en el drawer */
-.load-stops { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
-.load-stops li { display: flex; align-items: flex-start; gap: 10px; }
-.load-stop-text { display: flex; flex-direction: column; gap: 1px; font-size: 0.84rem; }
-.load-stop-text span { font-size: 0.76rem; color: var(--text-muted); }
-
-@media (max-width: 760px) {
-  .load-stop-row { grid-template-columns: 26px 1fr 1fr; }
-  .load-form-grid, .load-form-grid.three { grid-template-columns: 1fr; }
-}
 
 /* ==================================================================
    Auth + Onboarding (fase G7)

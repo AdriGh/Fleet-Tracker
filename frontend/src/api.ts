@@ -126,14 +126,24 @@ export async function analyzeBatch(
 export async function generateBatch(
   batchId: string,
   blocks: BatchBlockInput[],
+  template = 'standard',
 ): Promise<BatchGenerateResponse> {
   const res = await fetch('/api/batch/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ batch_id: batchId, blocks }),
+    body: JSON.stringify({ batch_id: batchId, blocks, template }),
   })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
+}
+
+// --- Plantillas de reporte (Standard / Legacy) --------------------------
+export interface ReportTemplate { id: string; name: string; pretrip: boolean }
+
+export async function listReportTemplates(): Promise<ReportTemplate[]> {
+  const res = await fetch('/api/reporting/templates')
+  if (!res.ok) throw new Error(await readError(res))
+  return ((await res.json()).templates ?? []) as ReportTemplate[]
 }
 
 // --- Panel DVIR -------------------------------------------------------
@@ -285,6 +295,149 @@ export async function listFleet(): Promise<FleetUnit[]> {
   return (data.units ?? []) as FleetUnit[]
 }
 
+// --- Reporting: import desde el ELD (preview/diagnostico) ----------------
+export interface EldPreview {
+  available: boolean
+  detail?: string
+  demo?: boolean
+  day?: string
+  company?: string | null
+  dvir_count?: number
+  dvir_rows?: Record<string, string>[]
+  distance_count?: number
+  distance?: Record<string, number>
+  pretrip_count?: number
+  raw?: { dvir_sample: unknown[]; stats_sample: unknown[]; hos_sample?: unknown[] }
+  errors?: string[]
+}
+
+export async function eldPreview(
+  date: string, company?: string,
+): Promise<EldPreview> {
+  const q = new URLSearchParams({ date })
+  if (company) q.set('company', company)
+  const res = await fetch(`/api/reporting/eld/preview?${q.toString()}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as EldPreview
+}
+
+export interface EldImportResult {
+  ok: boolean
+  company: string
+  date_label: string
+  n_reports: number
+  n_no_dvir: number
+  n_unsafe: number
+}
+
+export async function eldImport(
+  date: string, company: string, template = 'standard',
+): Promise<EldImportResult> {
+  const res = await fetch('/api/reporting/eld/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ date, company, template }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as EldImportResult
+}
+
+// --- Notices: plantillas de mensajes + broadcast ------------------------
+export interface MsgTemplate {
+  id: string; name: string; subject: string; body: string
+}
+export interface Recipient {
+  name: string; company: string; email: string; phone: string
+  has_email: boolean; has_phone: boolean
+}
+export interface BroadcastResult {
+  channels: string[]; sent: number
+  email_dry_run: boolean; sms_dry_run: boolean
+  results: { driver: string }[]
+}
+
+export async function listTemplates(): Promise<MsgTemplate[]> {
+  const res = await fetch('/api/notify/templates')
+  if (!res.ok) throw new Error(await readError(res))
+  return ((await res.json()).templates ?? []) as MsgTemplate[]
+}
+
+export async function saveTemplate(
+  t: Partial<MsgTemplate>,
+): Promise<MsgTemplate> {
+  const res = await fetch('/api/notify/templates', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(t),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as MsgTemplate
+}
+
+export async function deleteTemplate(id: string): Promise<void> {
+  const res = await fetch(`/api/notify/templates/${encodeURIComponent(id)}`,
+    { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+export async function listRecipients(): Promise<Recipient[]> {
+  const res = await fetch('/api/notify/recipients')
+  if (!res.ok) throw new Error(await readError(res))
+  return ((await res.json()).recipients ?? []) as Recipient[]
+}
+
+export async function sendBroadcast(p: {
+  drivers: string[]; channels: string[]; subject: string; body: string
+}): Promise<BroadcastResult> {
+  const res = await fetch('/api/notify/broadcast', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(p),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as BroadcastResult
+}
+
+// --- Alta manual de unidades (Fleet → Add New Unit) ---------------------
+export interface UnitInput {
+  unit: string
+  unit_type?: string
+  subtype?: string
+  terminal?: string
+  customer?: string
+  company?: string
+  vin?: string
+  year?: string
+  make?: string
+  model?: string
+  fleet_no?: string
+  plate?: string
+  plate_state?: string
+}
+
+export async function addUnit(p: UnitInput): Promise<void> {
+  const res = await fetch('/api/units/manual', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(p),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+export interface VinDecode {
+  ok: boolean
+  vin?: string
+  year?: string
+  make?: string
+  model?: string
+  error?: string
+}
+
+// Decodifica un VIN (Year/Make/Model) vía NHTSA vPIC (backend proxy).
+export async function decodeVin(vin: string): Promise<VinDecode> {
+  const res = await fetch(`/api/vin/${encodeURIComponent(vin)}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as VinDecode
+}
+
 export async function fleetArchive(id: string, action: string): Promise<void> {
   const res = await fetch('/api/fleet/archive', {
     method: 'POST',
@@ -292,6 +445,67 @@ export async function fleetArchive(id: string, action: string): Promise<void> {
     body: JSON.stringify({ id, action }),
   })
   if (!res.ok) throw new Error(await readError(res))
+}
+
+// --- Empresas (Settings → Companies) ----------------------------------
+export interface Company { key: string; label: string }
+
+function pickCompanies(j: unknown): Company[] {
+  return ((j as { companies?: Company[] })?.companies ?? []) as Company[]
+}
+
+export async function listCompanies(): Promise<Company[]> {
+  const res = await fetch('/api/companies')
+  if (!res.ok) throw new Error(await readError(res))
+  return pickCompanies(await res.json())
+}
+
+export async function addCompany(label: string, key = ''): Promise<Company[]> {
+  const res = await fetch('/api/companies', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label, key }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return pickCompanies(await res.json())
+}
+
+export async function renameCompany(
+  key: string, label: string,
+): Promise<Company[]> {
+  const res = await fetch('/api/companies/rename', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, label }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return pickCompanies(await res.json())
+}
+
+export async function deleteCompany(key: string): Promise<Company[]> {
+  const res = await fetch(`/api/companies/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return pickCompanies(await res.json())
+}
+
+// --- Import masivo de unidades por CSV (Settings) ----------------------
+export interface UnitImportResult {
+  added: number; updated: number; total: number; errors: string[]
+}
+
+export async function importUnitsCsv(csv: string): Promise<UnitImportResult> {
+  const res = await fetch('/api/units/manual/import', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ csv }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as UnitImportResult
+}
+
+export async function unitsCsvTemplate(): Promise<string> {
+  const res = await fetch('/api/units/manual/template')
+  if (!res.ok) throw new Error(await readError(res))
+  return ((await res.json())?.csv ?? '') as string
 }
 
 // --- Configuración de la app (Settings) -------------------------------
@@ -365,6 +579,64 @@ export async function assignTerminal(
   })
   if (!res.ok) throw new Error(await readError(res))
   return (await res.json()) as TerminalsConfig
+}
+
+// --- Equipos (Settings → Teams) ----------------------------------------
+// Un equipo es un grupo explícito de unidades + una lista de conductores.
+// Sin prefijos: una unidad pertenece a un equipo solo si está asignada.
+export interface Driver {
+  name: string
+  email: string
+}
+
+export interface TeamDef {
+  key: string
+  label: string
+  drivers: Driver[]
+}
+
+export interface TeamsConfig {
+  teams: TeamDef[]
+  members: Record<string, string>   // unidad → key de equipo
+}
+
+export async function listTeams(): Promise<TeamsConfig> {
+  const res = await fetch('/api/teams')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as TeamsConfig
+}
+
+export async function saveTeam(t: {
+  key?: string; label: string; drivers: Driver[]
+}): Promise<TeamsConfig> {
+  const res = await fetch('/api/teams', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: t.key ?? '', label: t.label,
+      drivers: t.drivers }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as TeamsConfig
+}
+
+export async function deleteTeam(key: string): Promise<TeamsConfig> {
+  const res = await fetch(`/api/teams/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as TeamsConfig
+}
+
+export async function assignTeam(
+  team: string, units: string[],
+): Promise<TeamsConfig> {
+  const res = await fetch('/api/teams/assign', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ team, units }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as TeamsConfig
 }
 
 // --- Live Map (tracking en vivo, fase G1) -------------------------------
@@ -578,7 +850,7 @@ export async function saveOrg(
   return res.json()
 }
 
-// --- TMS: Drivers & Loads (fase G-TMS, referencia QuickManage) -----------
+// --- Driver roster & compliance (ex-TMS) -------------------------------
 export interface TmsDriverRow {
   name: string
   company: string
@@ -616,97 +888,6 @@ export async function saveTmsDriver(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  })
-  if (!res.ok) throw new Error(await readError(res))
-  return res.json()
-}
-
-export type LoadStatus =
-  | 'upcoming' | 'dispatched' | 'in_transit'
-  | 'delivered' | 'invoiced' | 'closed'
-
-export interface LoadStop {
-  id: number
-  seq: number
-  kind: 'pickup' | 'delivery'
-  name: string
-  city: string
-  state: string
-  appt: string
-}
-
-export interface Load {
-  id: number
-  created_at: string
-  updated_at: string
-  status: LoadStatus
-  broker: string
-  ref: string
-  driver: string
-  unit: string
-  hauling_rate: number
-  accessorials: number
-  pay_pct: number
-  miles: number | null
-  rate_per_mile: number | null
-  tags: string[]
-  docs: { rc: boolean; bol: boolean; pod: boolean }
-  notes: string
-  total: number
-  payout: number
-  n_stops: number
-  origin: LoadStop | null
-  destination: LoadStop | null
-  stops?: LoadStop[]
-}
-
-export interface LoadStats {
-  active: number
-  in_transit: number
-  delivered_30d: number
-  revenue_30d: number
-}
-
-export async function listLoads(
-  status = '', driver = '',
-): Promise<{ loads: Load[]; stats: LoadStats }> {
-  const qs = new URLSearchParams()
-  if (status) qs.set('status', status)
-  if (driver) qs.set('driver', driver)
-  const res = await fetch(`/api/tms/loads?${qs}`)
-  if (!res.ok) throw new Error(await readError(res))
-  return res.json()
-}
-
-export async function createLoad(body: {
-  broker: string; ref?: string; driver?: string; unit?: string
-  hauling_rate?: number; accessorials?: number; pay_pct?: number
-  miles?: number | null
-  stops?: { kind: string; name: string; city: string; state: string
-            appt: string }[]
-}): Promise<Load> {
-  const res = await fetch('/api/tms/loads', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) throw new Error(await readError(res))
-  return res.json()
-}
-
-export async function getLoad(id: number): Promise<Load> {
-  const res = await fetch(`/api/tms/loads/${id}`)
-  if (!res.ok) throw new Error(await readError(res))
-  return res.json()
-}
-
-export async function patchLoad(
-  id: number, patch: Record<string, unknown>,
-): Promise<Load> {
-  const res = await fetch(`/api/tms/loads/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(patch),
   })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
@@ -1042,6 +1223,8 @@ export interface ReeferUnit {
   alarms: ReeferAlarm[]
   updated: string
   demo: boolean
+  source?: string            // lynx | thermoking | traccar | demo
+  can_control?: boolean      // OEM con tier que habilita two-way
 }
 
 export interface ReeferResponse {
@@ -1050,7 +1233,7 @@ export interface ReeferResponse {
   live_empty: boolean
   missing_scopes: string[]
   units: ReeferUnit[]
-  source?: string          // traccar | samsara | demo | none (H5)
+  source?: string          // lynx | thermoking | traccar | demo (H5/H6)
   error?: string
 }
 
@@ -1076,6 +1259,36 @@ export async function getReeferHistory(
   return res.json()
 }
 
+// Control remoto OEM (Carrier Lynx, two-way). Solo unidades 'lynx-' con
+// tier >= Monitor and Control; el backend gatea por tier y por scope
+// fleet.edit y devuelve 400 con el motivo si no aplica.
+export async function setReeferSetpoint(
+  unitId: string, setpointF: number,
+): Promise<{ ok: boolean; detail: string }> {
+  const res = await fetch(
+    `/api/reefer/${encodeURIComponent(unitId)}/setpoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ setpoint_f: setpointF }),
+    })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function reeferCommand(
+  unitId: string,
+  body: { command: 'mode' | 'defrost' | 'power'; mode?: string; on?: boolean },
+): Promise<{ ok: boolean; detail: string }> {
+  const res = await fetch(
+    `/api/reefer/${encodeURIComponent(unitId)}/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
 // --- Alertas de flota (fase G3) -----------------------------------------
 export interface AlertRule {
   enabled: boolean
@@ -1084,6 +1297,7 @@ export interface AlertRule {
   pct?: number
   hours?: number
   deviation_f?: number
+  min_severity?: number
 }
 
 export interface AlertsSettings {
@@ -1094,6 +1308,7 @@ export interface AlertsSettings {
     low_def: AlertRule
     no_gps: AlertRule
     reefer_temp: AlertRule
+    reefer_fault_wo: AlertRule
   }
   channels: { email: boolean; sms: boolean }
   recipients: { emails: string[]; phones: string[] }
@@ -1179,6 +1394,14 @@ export type IntegrationStatus =
   | 'connected' | 'live' | 'dry_run' | 'not_configured'
   | 'available' | 'planned'
 
+export interface EldCapabilities {
+  fleet: boolean
+  drivers: boolean
+  defects: boolean
+  track: boolean
+  reefer: boolean
+}
+
 export interface IntegrationProvider {
   id: string
   name: string
@@ -1188,6 +1411,10 @@ export interface IntegrationProvider {
   items: { label: string; value: string }[]
   testable: boolean
   configurable: boolean
+  // Solo proveedores ELD (registry): capacidades del adapter + estado activo.
+  capabilities?: EldCapabilities
+  active?: boolean
+  previewable?: boolean
 }
 
 export interface IntegrationField {
@@ -1233,6 +1460,34 @@ export async function saveIntegrationConfig(
     body: JSON.stringify({ provider, values }),
   })
   if (!res.ok) throw new Error(await readError(res))
+}
+
+// Framework ELD: marcar el proveedor activo + previsualizar su flota.
+export async function setEldActive(provider: string): Promise<string> {
+  const res = await fetch('/api/integrations/eld/active', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return ((await res.json())?.active ?? '') as string
+}
+
+export interface EldFleetPreview {
+  ok: boolean
+  count: number
+  detail: string
+  sample: {
+    unit: string; year: string; make: string; model: string; vin: string
+  }[]
+}
+
+export async function eldFleetPreview(
+  provider: string,
+): Promise<EldFleetPreview> {
+  const res = await fetch(
+    `/api/integrations/eld/${encodeURIComponent(provider)}/fleet-preview`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as EldFleetPreview
 }
 
 export interface IntegrationGroup {

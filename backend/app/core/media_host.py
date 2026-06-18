@@ -24,6 +24,8 @@ from pathlib import Path
 
 import httpx
 
+from . import secretstore
+
 SETTINGS_PATH = Path(__file__).resolve().parents[2] / "cloudinary.local.json"
 _TIMEOUT = 60
 
@@ -41,13 +43,8 @@ class MediaSettings:
 
 
 def load_settings() -> MediaSettings:
-    if SETTINGS_PATH.exists():
-        try:
-            return MediaSettings(
-                json.loads(SETTINGS_PATH.read_text(encoding="utf-8")))
-        except (OSError, ValueError):
-            pass
-    return MediaSettings({})
+    # H6 fase 3d-2: credenciales via SecretStore (cloudinary.local.json).
+    return MediaSettings(secretstore.store().get_blob("cloudinary"))
 
 
 def _resource_type(mime: str) -> str:

@@ -29,10 +29,16 @@ from datetime import datetime, timedelta
 from sqlalchemy import select, update
 
 from .. import config
-from ..db import AlertEvent, SessionLocal
-from . import mailer, reefer, sms_service, tracking, unit_settings
+from ..db import (
+    AlertEvent, SessionLocal, default_org_id, get_setting, save_setting,
+)
+from . import tenant
+from . import (
+    mailer, reefer, reefer_wo, sms_service, tracking, unit_settings,
+)
 
-SETTINGS_PATH = config.BACKEND_DIR / "alerts.local.json"
+SETTING_KEY = "alerts"
+SETTINGS_PATH = config.BACKEND_DIR / "alerts.local.json"   # legacy (migracion)
 
 LOOP_SECONDS = 60
 COOLDOWN_S = 60 * 60          # no repetir la misma alerta de una unidad
@@ -47,6 +53,9 @@ DEFAULTS: dict = {
         "low_def": {"enabled": False, "pct": 10},
         "no_gps": {"enabled": False, "hours": 24},
         "reefer_temp": {"enabled": False, "deviation_f": 5},
+        # Puente reefer -> work order: crea una WO desde fault codes del
+        # reefer con severidad >= min_severity (1 info · 2 check · 3 urgente).
+        "reefer_fault_wo": {"enabled": False, "min_severity": 2},
     },
     # email/sms apagados por defecto: el email envía EN REAL.
     "channels": {"email": False, "sms": False},
@@ -60,6 +69,7 @@ RULE_LABEL = {
     "low_def": "Low DEF",
     "no_gps": "No GPS signal",
     "reefer_temp": "Reefer temp deviation",
+    "reefer_fault_wo": "Reefer fault → work order",
 }
 
 # (vehicle_id, rule) -> epoch del último disparo (cooldown en memoria).
@@ -69,12 +79,7 @@ _last_fired: dict[tuple[str, str], float] = {}
 # ----- Config -----------------------------------------------------------
 
 def get_settings() -> dict:
-    data = {}
-    if SETTINGS_PATH.exists():
-        try:
-            data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            data = {}
+    data = get_setting(SETTING_KEY, legacy_file=SETTINGS_PATH) or {}
     out = json.loads(json.dumps(DEFAULTS))  # deep copy
     for rule, cfg in (data.get("rules") or {}).items():
         if rule in out["rules"] and isinstance(cfg, dict):
@@ -112,8 +117,7 @@ def save_settings(new: dict) -> dict:
     if "phones" in rec:
         cur["recipients"]["phones"] = [
             str(p).strip() for p in rec["phones"] if str(p).strip()][:10]
-    SETTINGS_PATH.write_text(
-        json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
+    save_setting(SETTING_KEY, cur)
     return cur
 
 
@@ -279,6 +283,38 @@ def evaluate_reefer(snapshot: dict, cfg: dict | None = None) -> list[dict]:
     return created
 
 
+def record_wo_events(created_wos: list[dict]) -> list[dict]:
+    """Cada WO nueva del puente reefer->WO -> un AlertEvent (feed + dispatch).
+
+    La idempotencia vive en reefer_wo.sync (no duplica WOs), así que cada
+    elemento de `created_wos` es genuinamente nuevo; no hace falta cooldown."""
+    if not created_wos:
+        return []
+    out: list[dict] = []
+    with SessionLocal() as session:
+        for w in created_wos:
+            ev = AlertEvent(
+                ts=datetime.now(),
+                vehicle_id=str(w.get("unit") or ""),
+                unit=w.get("unit") or "",
+                company="",
+                rule="reefer_fault_wo",
+                value=f"WO #{w['wo_id']}",
+                message=(f"Auto work order #{w['wo_id']} created from reefer "
+                         f"fault {w['code']} on {w['unit']}"),
+                acked=False,
+            )
+            session.add(ev)
+            session.flush()
+            out.append({
+                "id": ev.id, "ts": ev.ts.isoformat(), "unit": ev.unit,
+                "company": ev.company, "rule": ev.rule,
+                "value": ev.value, "message": ev.message,
+            })
+        session.commit()
+    return out
+
+
 # ----- Despacho externo (email/SMS, opt-in explícito) -------------------
 
 def _dispatch(created: list[dict], cfg: dict) -> None:
@@ -355,6 +391,11 @@ async def run_loop() -> None:
     al ciclo siguiente.
     """
     while True:
+        # H6 fase 3c: el loop corre sin request, asi que fija el tenant a
+        # mano para que los AlertEvent/WorkOrder que inserta queden tagueados
+        # y visibles. Single-tenant -> org 'default'. Multi-tenant (post-3e)
+        # deberia iterar las organizaciones evaluando cada una con su contexto.
+        org_token = tenant.set_current_org(default_org_id())
         try:
             cfg = get_settings()
             if any_rule_enabled(cfg):
@@ -364,11 +405,21 @@ async def run_loop() -> None:
                 if vehicle_rules:
                     track = await tracking.load_live()
                     created += evaluate(track, cfg)
-                if cfg["rules"]["reefer_temp"].get("enabled"):
+                reefer_temp_on = cfg["rules"]["reefer_temp"].get("enabled")
+                fault_cfg = cfg["rules"].get("reefer_fault_wo") or {}
+                if reefer_temp_on or fault_cfg.get("enabled"):
                     snapshot = await reefer.load_live()
-                    created += evaluate_reefer(snapshot, cfg)
+                    if reefer_temp_on:
+                        created += evaluate_reefer(snapshot, cfg)
+                    if fault_cfg.get("enabled"):
+                        wos = reefer_wo.sync(
+                            snapshot,
+                            int(fault_cfg.get("min_severity") or 2))
+                        created += record_wo_events(wos)
                 if created:
                     _dispatch(created, cfg)
         except Exception:
             pass
+        finally:
+            tenant.reset_current_org(org_token)
         await asyncio.sleep(LOOP_SECONDS)

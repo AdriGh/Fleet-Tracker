@@ -22,37 +22,95 @@ implementado; el resto lanza NotImplementedError con mensaje claro.
 
 from __future__ import annotations
 
-import json
 import time
 
 import httpx
 
 from ... import config
-from . import TelematicsProvider
+from . import FileCredsMixin, TelematicsProvider
 
 SETTINGS_PATH = config.BACKEND_DIR / "motive.local.json"
 BASE_URL = "https://api.gomotive.com"
 
 
-def _api_key() -> str:
-    if not SETTINGS_PATH.exists():
-        return ""
-    try:
-        data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-        return str(data.get("api_key") or "").strip()
-    except (OSError, ValueError):
-        return ""
+def _vehicle_to_fleet_row(v: dict) -> dict:
+    """Un /v1/vehicles de Motive con la forma canónica de fila de flota."""
+    vid = v.get("id")
+    unit = str(v.get("number") or v.get("name") or vid or "").strip()
+    return {
+        "id": f"motive-{vid}",
+        "unit": unit,
+        "kind": "truck",
+        "unit_type": "truck",
+        "asset_type": "vehicle",
+        "company": "",
+        "make": str(v.get("make") or ""),
+        "model": str(v.get("model") or ""),
+        "year": str(v.get("year") or ""),
+        "vin": str(v.get("vin") or "").upper(),
+        "plate": str(v.get("license_plate_number") or "").upper(),
+        "open_defects": 0,
+        "last_dvir": None,
+        "dvir_known": False,
+        "auto_eligible": False,
+        "source": "motive",
+        "terminal": "",
+    }
 
 
-class MotiveProvider(TelematicsProvider):
+class MotiveProvider(FileCredsMixin, TelematicsProvider):
     id = "motive"
     name = "Motive"
+    docs = "Public self-serve REST API + OAuth (developer.gomotive.com)."
+
+    SETTINGS_PATH = SETTINGS_PATH
+    CRED_FIELDS = ("api_key",)
+    SECRET_FIELDS = ("api_key",)
+
+    def _api_key(self) -> str:
+        return str(self.creds().get("api_key") or "").strip()
 
     def configured(self) -> bool:
-        return bool(_api_key())
+        return bool(self._api_key())
+
+    def config_fields(self) -> list[dict]:
+        return [{"key": "api_key", "label": "API key", "kind": "password"}]
+
+    def status_detail(self) -> tuple[str, str]:
+        if self.configured():
+            return "connected", "API key configured"
+        return "available", self.docs
+
+    async def list_fleet(self) -> list[dict]:
+        """Vehículos de Motive (GET /v1/vehicles) como filas de flota.
+
+        Solo vehículos (trucks); los trailers viven en otro endpoint
+        (assets) y quedan fuera de este adapter por ahora."""
+        key = self._api_key()
+        if not key:
+            return []
+        headers = {"X-Api-Key": key, "Accept": "application/json"}
+        out: list[dict] = []
+        async with httpx.AsyncClient(timeout=30) as client:
+            page = 1
+            while page <= 20:          # tope de seguridad (~2000 unidades)
+                r = await client.get(
+                    f"{BASE_URL}/v1/vehicles",
+                    params={"per_page": 100, "page_no": page},
+                    headers=headers)
+                r.raise_for_status()
+                body = r.json()
+                rows = body.get("vehicles") or []
+                for w in rows:
+                    out.append(_vehicle_to_fleet_row(w.get("vehicle") or w))
+                total = int((body.get("pagination") or {}).get("total") or 0)
+                if len(rows) < 100 or len(out) >= total:
+                    break
+                page += 1
+        return out
 
     async def ping(self) -> dict:
-        key = _api_key()
+        key = self._api_key()
         if not key:
             return {"ok": False,
                     "detail": "No API key (motive.local.json)", "ms": 0}

@@ -1,6 +1,7 @@
 # Estrategia de datos: cómo Fleet Tracker consigue información por su cuenta
 
-Investigación jun-2026 (3 sweeps con fuentes). Responde: qué atrae a un
+Investigación jun-2026 (3 sweeps con fuentes; actualizado jun-14 con el
+research de Lynx Fleet y el principio de soberanía del dato). Responde: qué atrae a un
 carrier, qué ofrece Samsara, cómo consiguen datos las apps que no son
 ELD, cómo los conseguimos nosotros, y el caso concreto de temperaturas
 de trailers.
@@ -12,6 +13,35 @@ fuel cards, (3) entrada del conductor por app móvil con OCR, y (4) APIs
 gratuitas del gobierno. El moat es el workflow y la amplitud de
 conectores, no la posesión del dato. Nuestro modelo "trae tu token de
 Samsara" ya es el patrón estándar de la industria.
+
+## Principio de arquitectura: soberanía del dato por dominio
+
+Refinamiento decidido jun-14. El dato se trata distinto según su tipo:
+
+- **Power unit / HoS / fuel·DEF / ubicación del tractor**: nos servimos
+  del **ELD que el cliente ya eligió** (Samsara, Motive…). Ahí somos
+  consumidores; no peleamos esa capa (es el patrón de la industria).
+- **Reefer / cold chain**: la integración es **nuestra y directa** — vía
+  OEM (Lynx API de Carrier, ConnectedSuite/TracKing de Thermo King) o vía
+  hardware aftermarket (Traccar) — **nunca a través de un tercero como
+  Samsara**. El reefer NO cuelga del ELD de nadie. Esto nos saca del
+  riesgo del API-gating de Samsara (ver Riesgos) y mantiene el cold chain
+  100% bajo nuestro control comercial y técnico.
+
+**Tiering del producto reefer (decidido jun-14):**
+
+- **Basic (incluido)**: monitorea temperaturas y el setpoint es un
+  **umbral configurable que dispara alertas** — NO cambia la temp real del
+  reefer. Funciona con cualquier fuente (Traccar aftermarket o lectura
+  OEM). Es la verdad técnica del handoff: una sonda/lectura no controla el
+  controlador propietario del reefer; el "control" barato es siempre un
+  umbral de software.
+- **Add-on premium "Cold Chain Control"** (gateado por la suscripción de
+  dealer del cliente, **Carrier Lynx o Thermo King**): habilita el
+  **cambio remoto real de setpoint/modo** vía el API OEM bidireccional. El
+  costo subyacente (suscripción OEM + comisionado del dealer) justifica el
+  tier caro, al estilo del upsell de integraciones de Fullbay
+  (Basic→Elite captura ~+$274/mes = ~47% vendiendo integraciones).
 
 ## 1. Qué atrae a un carrier (10-150 trucks)
 
@@ -132,12 +162,54 @@ es finísima, y está confirmado que se puede cortar:
   software puro, es lo que usan Samsara y Motive) o hardware cableado al
   controlador del reefer (ORBCOMM/Samsara AG52). No existe camino DIY y
   no hay que intentarlo (protocolos seriales propietarios y safety).
+- **CONFIRMADO jun-14** (brochure Carrier *Lynx Fleet* 62-12176 Rev. C
+  ©2025 + doc de integración pública): el **Lynx API es BIDIRECCIONAL e
+  integrable en sistemas propios** — *"two-way command APIs that enable
+  remote control of connected refrigeration units… can be integrated in
+  your own systems"*. NO es solo-lectura. Credenciales **Client ID +
+  Client Secret + API Key** (huele a OAuth2 client-credentials) las
+  **emite el dealer Carrier** tras activar la suscripción; portal dev en
+  `dev1.lynx.carrier.com` / `api.tta.lynxfleet.carrier.com` (requieren
+  login). El módulo Lynx **viene de fábrica en los X4 2022 y Vector 8000**
+  (la flota del cliente YA lo tiene instalado); field-install en X4/X2,
+  Vector, Supra. 3 tiers: **Monitor** (solo lectura) / **Monitor+Control**
+  (setpoint, modo, defrost, power on/off, IntelliSet, clear alarms,
+  pre-trip, pre-cooling) / **Monitor+Enhanced Control** (+ data-recorder
+  downloads, IntelliSet upload, OTA software). El cambio remoto real
+  requiere tier **≥ Monitor+Control**. **Precio: NO público, cotizado por
+  dealer** — pedir quote antes de fijar el add-on (preguntas listas en
+  `docs/reefer-dealer-questions.md`). Esto resuelve la conclusión vieja
+  "no hay control self-host": no hay control *aftermarket*, pero el API
+  OEM directo SÍ controla, y va por nosotros (no por Samsara).
 
-**Jugada**: camino 1 (pipeline Traccar propio) como reemplazo universal
-de TrackFleet a costo commodity, camino 2 (TK + Carrier) como tier
-premium con control remoto en reefers nuevos, camino 3 donde el carrier
-ya pague Samsara en trailers. El modelo de datos reefer de G4 ya sirve
-para los tres.
+**Jugada (revisada jun-14 — soberanía del dato):** el reefer es nuestro y
+directo. **Basic** = camino 1 (pipeline Traccar propio) o lectura OEM →
+monitoreo + setpoint como **umbral de alerta**, reemplazo universal de
+TrackFleet a costo commodity. **Add-on premium "Cold Chain Control"** =
+camino 2 (**Lynx/Carrier o TracKing/TK directo, NO vía Samsara**) →
+control remoto real de setpoint/modo, gateado por la suscripción de dealer
+del cliente. El **camino 3 (Samsara AG en trailers) queda descartado como
+fuente de reefer**: viola el principio de no depender de terceros y expone
+al API-gating de Samsara — si el cliente ya tiene Samsara en trailers, lo
+usamos para el power unit, jamás para cold chain. La prioridad runtime de
+Cold Chain pasa a **Lynx (OEM directo) → Traccar (aftermarket) → demo**
+(antes era Traccar → Samsara → demo; Samsara sale). El modelo de datos
+reefer de G4 sirve para ambos caminos nuestros.
+
+**ESTADO (construido jun-14, boceto verificado):** ambos adapters OEM ya
+existen — `core/lynx.py` (Carrier) y `core/thermoking.py` (Thermo King
+TracKing/ConnectedSuite), espejos de `core/traccar.py`: OAuth2
+client-credentials, ingesta a la forma ReeferUnit y **control two-way
+gateado por tier** (`monitor` = read-only). `core/reefer.py` orquesta
+**Lynx → Thermo King → Traccar → demo** con despacho de control por prefijo
+(`lynx-`/`tk-`); endpoints `POST /api/reefer/{id}/setpoint` y `/command`
+(RBAC `fleet.edit`); cards de Connectivity (test+configure) y UI de control
+en `ReeferPage` (setpoint/modo/defrost, gateada por `can_control` +
+`fleet.edit`; power on/off omitido por seguridad). Guías
+`backend/LYNX_SETUP.md` y `backend/THERMOKING_SETUP.md`. **Falta solo lo
+externo**: credenciales/cotización de cada proveedor + confirmar contra los
+portales los paths/campos exactos del JSON (centralizados en cada adapter)
+y la auth de TK. Ver `docs/reefer-dealer-questions.md`.
 
 ## Riesgos anotados
 
@@ -146,6 +218,6 @@ para los tres.
 - Agregadores son startups seed ($3-8M): no construir encima sin plan B.
 - Suscripciones OEM por unidad (TK/Carrier) son cotizadas por dealer:
   pueden comerse el margen; confirmar precio antes de prometer control
-  remoto.
+  remoto (preguntas listas en `docs/reefer-dealer-questions.md`).
 - "Vegapix" no existe (alucinación de referencia previa); los reales son
   Terminal, Catena y TruckerCloud.

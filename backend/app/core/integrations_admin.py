@@ -25,8 +25,8 @@ import httpx
 
 from .. import config
 from . import (
-    docscan, local_config, mailer, media_host, pm, pois, samsara,
-    sms_service, telegram_notify, traccar,
+    docscan, local_config, lynx, mailer, media_host, pm, pois, samsara,
+    sms_service, telegram_notify, thermoking, traccar,
 )
 from .providers import registry
 
@@ -55,18 +55,80 @@ def _tail(secret: str) -> str:
 # ----- Specs de configuración por proveedor ------------------------------
 # field: {key, label, secret?, kind: text|password|toggle, help?}
 
+def _provider_spec(p) -> dict:
+    """Spec de configuración generado desde un TelematicsProvider que se
+    autodescribe (campos + colas enmascaradas leídas de sus credenciales)."""
+    creds = p.creds()
+    fields = []
+    for f in p.config_fields():
+        item = dict(f)
+        if f.get("kind") == "toggle":
+            item["value"] = bool(creds.get(f["key"], False))
+        elif f.get("kind") == "password":
+            item["tail"] = _tail(str(creds.get(f["key"], "")))
+        else:
+            item["tail"] = str(creds.get(f["key"], ""))
+        fields.append(item)
+    return {"title": f"{p.name} API", "help": p.docs, "fields": fields}
+
+
 def config_specs() -> dict[str, dict]:
-    """Qué campos edita cada proveedor y su estado enmascarado actual."""
+    """Qué campos edita cada proveedor y su estado enmascarado actual.
+
+    Los proveedores ELD (registry) se generan solos desde su autodescripción;
+    el resto son specs explícitos."""
     twilio = sms_service.load_settings()
     cloud = media_host.load_settings()
     avisos = local_config.load()
-    motive = _read_json(config.BACKEND_DIR / "motive.local.json")
     google = _read_json(pois.GOOGLE_CONF)
     telegram = telegram_notify.load_settings()
     claude = docscan.load_settings()
     trc = traccar.load_settings()
+    lyn = lynx.load_settings()
+    tk = thermoking.load_settings()
 
-    return {
+    specs = {
+        "thermoking": {
+            "title": "Thermo King TracKing (OEM reefer)",
+            "help": ("Direct two-way Thermo King TracKing / ConnectedSuite "
+                     "API: real setpoint/mode control on TK reefers. Request "
+                     "API credentials from tracking@thermoking.com. Tier must "
+                     "be a ConnectedSuite level with two-way commands. See "
+                     "backend/THERMOKING_SETUP.md."),
+            "fields": [
+                {"key": "base_url", "label": "API base URL (https://…)",
+                 "kind": "text", "tail": tk["base_url"]},
+                {"key": "client_id", "label": "Client ID", "kind": "password",
+                 "tail": _tail(tk["client_id"])},
+                {"key": "client_secret", "label": "Client secret",
+                 "kind": "password", "tail": _tail(tk["client_secret"])},
+                {"key": "api_key", "label": "API key", "kind": "password",
+                 "tail": _tail(tk["api_key"])},
+                {"key": "tier", "label": "Tier (monitor | control | enhanced)",
+                 "kind": "text", "tail": tk["tier"]},
+            ],
+        },
+        "lynx": {
+            "title": "Carrier Lynx Fleet (OEM reefer)",
+            "help": ("Direct two-way Carrier Lynx API: real setpoint/mode "
+                     "control on X4/Vector TRUs. Your Carrier dealer issues "
+                     "the Client ID / Secret / API Key after activating a "
+                     "Lynx subscription. Tier must be 'control' (Monitor and "
+                     "Control) or 'enhanced' to change temps remotely. See "
+                     "backend/LYNX_SETUP.md."),
+            "fields": [
+                {"key": "base_url", "label": "API base URL (https://…)",
+                 "kind": "text", "tail": lyn["base_url"]},
+                {"key": "client_id", "label": "Client ID", "kind": "password",
+                 "tail": _tail(lyn["client_id"])},
+                {"key": "client_secret", "label": "Client secret",
+                 "kind": "password", "tail": _tail(lyn["client_secret"])},
+                {"key": "api_key", "label": "API key", "kind": "password",
+                 "tail": _tail(lyn["api_key"])},
+                {"key": "tier", "label": "Tier (monitor | control | enhanced)",
+                 "kind": "text", "tail": lyn["tier"]},
+            ],
+        },
         "traccar": {
             "title": "Traccar (reefer hardware)",
             "help": ("Self-hosted Traccar that receives the reefer tracker "
@@ -93,14 +155,6 @@ def config_specs() -> dict[str, dict]:
                  "token_tail": f"…{o['token_tail']}",
                  "trailer_dvirs": o["trailer_dvirs"]}
                 for o in samsara.org_summaries()
-            ],
-        },
-        "motive": {
-            "title": "Motive API key",
-            "help": "Self-serve key from developer.gomotive.com.",
-            "fields": [
-                {"key": "api_key", "label": "API key", "kind": "password",
-                 "tail": _tail(motive.get("api_key", ""))},
             ],
         },
         "twilio": {
@@ -201,6 +255,13 @@ def config_specs() -> dict[str, dict]:
         },
     }
 
+    # Proveedores ELD que se autodescriben (Motive y cualquier adapter
+    # futuro con config_fields). Samsara ya tiene su spec especial (multi-org).
+    for p in registry().values():
+        if p.id not in specs and p.config_fields():
+            specs[p.id] = _provider_spec(p)
+    return specs
+
 
 def save_config(provider: str, values: dict) -> dict:
     """Mergea credenciales al *.local.json del proveedor.
@@ -220,9 +281,16 @@ def save_config(provider: str, values: dict) -> dict:
             data[k] = v
         _write_json(path, data)
 
-    if provider == "motive":
-        merge(config.BACKEND_DIR / "motive.local.json", ["api_key"])
-    elif provider == "twilio":
+    # Proveedores ELD que se autodescriben: delegan en su propio adapter.
+    reg = registry()
+    if provider in reg and provider != "samsara":
+        prov = reg[provider]
+        if not prov.config_fields():
+            raise ValueError(f"Provider not configurable: {provider}")
+        prov.save_creds(values)
+        return {"ok": True}
+
+    if provider == "twilio":
         merge(sms_service.SETTINGS_PATH,
               ["account_sid", "auth_token", "from_number",
                "messaging_service_sid", "dry_run"])
@@ -239,6 +307,16 @@ def save_config(provider: str, values: dict) -> dict:
                "aws_secret_access_key", "aws_region"])
     elif provider == "gplaces":
         merge(pois.GOOGLE_CONF, ["places_api_key"])
+    elif provider == "lynx":
+        merge(lynx.SETTINGS_PATH,
+              ["base_url", "token_url", "client_id", "client_secret",
+               "api_key", "company", "tier", "temp_unit",
+               "path_assets", "path_command", "path_history"])
+    elif provider == "thermoking":
+        merge(thermoking.SETTINGS_PATH,
+              ["base_url", "token_url", "client_id", "client_secret",
+               "api_key", "company", "tier", "temp_unit",
+               "path_assets", "path_command", "path_history"])
     elif provider == "traccar":
         merge(traccar.SETTINGS_PATH,
               ["url", "token", "temp_attr", "temp_unit", "door_attr",
@@ -348,6 +426,12 @@ async def test(provider: str) -> dict:
 
     if provider == "telegram":
         return await telegram_notify.ping()
+
+    if provider == "lynx":
+        return await lynx.ping()
+
+    if provider == "thermoking":
+        return await thermoking.ping()
 
     if provider == "traccar":
         return await traccar.ping()

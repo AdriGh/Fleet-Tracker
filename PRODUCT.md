@@ -10,7 +10,19 @@ Operadores de flotas de trucking en EE.UU. (5–200 camiones): dueños-operadore
 
 ## Product Purpose
 
-Fleet Tracker es el cockpit unificado de operaciones de flota: cumplimiento (DVIR, defectos, avisos a conductores), mantenimiento (PM, work orders), tracking en vivo (mapa, alertas, cold chain) y despacho (drivers, loads) en una sola app que corre sobre el ELD que la flota ya paga (Samsara hoy; Motive/Geotab vía adapters). Nació como herramienta interna de Chaser/MCCI y se está productizando white-label. Éxito = reemplazar Fullbay y los portales GPS legacy (TrackFleet) con algo más barato, más bonito y sin contratos de 3 años.
+Fleet Tracker se especializa en el stack **Taller + Cold Chain** para carriers: el taller completo (work orders, parts/PO, escáner AI de invoices, PM/DOT, perfil de unidad estilo Fullbay) integrado con el monitoreo y el **control OEM de reefers** (Carrier Lynx / Thermo King, directo y two-way; aftermarket vía Traccar). El diferencial que nadie más ocupa: **el único software de taller que le habla a tus reefers**. Corre sobre el ELD que la flota ya paga (Samsara hoy; Motive/Geotab vía adapters). Alrededor de ese núcleo mantiene, como soporte (no como protagonista), el cumplimiento (DVIR, defectos, avisos a conductores) y el tracking en vivo (mapa, alertas). Nació como herramienta interna de Chaser/MCCI y se está productizando white-label. Éxito = reemplazar Fullbay (taller) y TrackFleet (reefer) con algo más barato, más bonito, bilingüe de verdad y sin contratos de 3 años.
+
+## Product Focus (decidido jun-2026)
+
+Profundidad, no amplitud. El moat es la **intersección Taller × Cold Chain**: Fullbay es profundo en taller pero no toca telemática de reefers; Samsara/TrackFleet monitorean reefers pero no tienen workflow de taller. Fleet Tracker tiene las dos mitades y conectadas.
+
+- **Núcleo (se lidera y profundiza):** Work Orders + Parts/PO + escáner AI de invoices + perfil de unidad + PM/DOT + **Cold Chain con control OEM (Lynx/TK)** + el puente **reefer → work order** + bilingüe de **piso de taller** (work orders, notas de técnico e invoices nativos en español — el shop floor en US es mayoritariamente hispanohablante; cuña más afilada que el "soporte en español" genérico).
+- **Soporte (se mantiene, no protagoniza):** DVIR, Live Map, notices. Sirven al cockpit; no se gasta energía compitiéndole a Samsara en mapas/telemática genérica.
+- **Removido (jun-14):** Loads / dispatch / payout — es otro producto y otro mercado. Se borró del producto (UI + rutas + modelos). El **roster de conductores se conserva como "Driver Compliance"** dentro de Maintenance & Compliance (CDL/med cert/MVR/clearinghouse + asignación truck→conductor que el tablero de mantenimiento usa): eso es compliance, no dispatch.
+
+**Workflow asesino (CONSTRUIDO jun-14):** un reefer tira un fault code (vía Lynx/TK/Traccar) → se crea solo un work order con unidad + código + contexto → se agenda y cierra como cualquier WO. Ni Fullbay ni Samsara pueden hacerlo: cada uno tiene solo la mitad. Implementación: regla `reefer_fault_wo` en Settings → Fleet alerts (severidad mínima configurable) → `core/reefer_wo.py` (idempotente: no duplica mientras haya una WO viva para el mismo unit+code) disparada por el loop de `alerts.py`; la WO sale con `source='reefer'` (badge "from reefer fault") y cada una genera un evento en el feed.
+
+> Validación pendiente (no es código): mostrar el demo a 2-3 dueños de flotas de reefer y ver si ese workflow les ilumina la cara. La tesis se confirma con clientes design-partner, no con más features.
 
 ## Brand Personality
 

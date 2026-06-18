@@ -17,13 +17,20 @@ from __future__ import annotations
 
 import json
 
-from .. import config
+from .. import config, db
 
-CONFIG_PATH = config.BACKEND_DIR / "org.local.json"
+# H6 fase 3d: la config vive por-tenant en la tabla org_setting (clave
+# 'org_config'); el JSON legacy se importa una sola vez a la org 'default'.
+SETTING_KEY = "org_config"
+CONFIG_PATH = config.BACKEND_DIR / "org.local.json"   # legacy (migracion)
+
+# Nombre fijo de la app. NO es editable desde Settings (se ignora cualquier
+# valor que llegue en branding.app_name y get() siempre devuelve este).
+APP_NAME = "Fleet Tracker"
 
 DEFAULTS: dict = {
     "branding": {
-        "app_name": "Fleet Tracker",
+        "app_name": APP_NAME,
         "tagline": "Fleet compliance",
         "accent": "",                # vacío = rojo de fábrica (#e11900)
     },
@@ -64,12 +71,11 @@ _ADDR_FIELDS = ("name", "address", "city", "state", "zip", "phone", "email")
 
 
 def _read() -> dict:
-    if CONFIG_PATH.exists():
-        try:
-            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
-    return {}
+    return db.get_setting(SETTING_KEY, legacy_file=CONFIG_PATH) or {}
+
+
+def _write(data: dict) -> None:
+    db.save_setting(SETTING_KEY, data)
 
 
 def get() -> dict:
@@ -108,6 +114,7 @@ def get() -> dict:
             str(co): {f: str(addr.get(f, "")) for f in _ADDR_FIELDS}
             for co, addr in data["billing"].items() if isinstance(addr, dict)
         }
+    out["branding"]["app_name"] = APP_NAME      # nombre fijo, no editable
     return out
 
 
@@ -117,6 +124,8 @@ def save(new: dict) -> dict:
         for k, v in (new.get(section) or {}).items():
             if k not in cur[section]:
                 continue
+            if section == "branding" and k == "app_name":
+                continue                        # nombre fijo, no editable
             if section == "thresholds":
                 try:
                     cur[section][k] = max(1, int(v))
@@ -156,8 +165,7 @@ def save(new: dict) -> dict:
                            for f in _ADDR_FIELDS}
             for co, addr in new["billing"].items() if isinstance(addr, dict)
         }
-    CONFIG_PATH.write_text(
-        json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
+    _write(cur)
     return cur
 
 
@@ -200,8 +208,7 @@ def next_invoice_number() -> str:
     n = int(cur["invoice"].get("next_number", 1001) or 1001)
     prefix = str(cur["invoice"].get("prefix", "") or "")
     cur["invoice"]["next_number"] = n + 1
-    CONFIG_PATH.write_text(
-        json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
+    _write(cur)
     return f"{prefix}{n}"
 
 

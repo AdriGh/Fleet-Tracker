@@ -5,14 +5,18 @@ import {
   notifyScan,
   notifySend,
   uploadNotifyMedia,
+  listTemplates,
+  sendBroadcast,
   type NotifyBlocksResponse,
   type NotifyScanResponse,
   type Notice,
   type NotifyChannel,
   type NotifySendResponse,
+  type MsgTemplate,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 import { usePerms } from '../perms'
+import BroadcastModal from '../components/BroadcastModal'
 
 type Media = { type: string; url: string; filename: string }
 const ALL_CHANNELS: NotifyChannel[] = ['email', 'sms']
@@ -73,6 +77,11 @@ export default function NotifyPage() {
   const [media, setMedia] = useState<Media | null>(null)
   const [uploadingMedia, setUploadingMedia] = useState(false)
   const [previewTab, setPreviewTab] = useState<NotifyChannel>('sms')
+  const [broadcastOpen, setBroadcastOpen] = useState(false)
+  // Plantillas de mensaje: '' = aviso DVIR automatico; si se elige una, el
+  // envio usa esa plantilla (broadcast) a los destinatarios seleccionados.
+  const [templates, setTemplates] = useState<MsgTemplate[]>([])
+  const [templateId, setTemplateId] = useState('')
 
   function toggleChannel(c: NotifyChannel) {
     setChannels((prev) => {
@@ -90,6 +99,17 @@ export default function NotifyPage() {
       setPreviewTab([...channels][0] ?? 'sms')
     }
   }, [channels, previewTab])
+
+  useEffect(() => {
+    listTemplates().then(setTemplates).catch(() => { /* ignore */ })
+  }, [])
+
+  const tpl = templates.find((t) => t.id === templateId) ?? null
+  function fillVars(text: string, name: string): string {
+    const first = (name || '').trim().split(' ')[0] || ''
+    return (text || '').replace(/\{first_name\}/g, first)
+      .replace(/\{name\}/g, name || '')
+  }
 
   const { can } = usePerms()
   const canSend = can('notices.send')   // H4: enviar avisos
@@ -176,10 +196,17 @@ export default function NotifyPage() {
     setError('')
     const chans = [...channels]
     try {
-      const r = await notifySend(
-        sheet, date, [...selected], chans,
-        media ? { type: media.type, url: media.url } : null)
-      setSendResult(r)
+      // Con una plantilla elegida, se manda ESA (broadcast) a los seleccionados;
+      // si no, el aviso DVIR automatico por bloque.
+      const r = tpl
+        ? await sendBroadcast({
+            drivers: [...selected], channels: chans,
+            subject: tpl.subject, body: tpl.body,
+          })
+        : await notifySend(
+            sheet, date, [...selected], chans,
+            media ? { type: media.type, url: media.url } : null)
+      setSendResult(r as NotifySendResponse)
       const sim = chans.every((c) => c === 'email'
         ? r.email_dry_run : r.sms_dry_run)
       notifyOk(
@@ -213,22 +240,28 @@ export default function NotifyPage() {
             copy to their terminal.
           </p>
         </div>
-        {status && (
-          <div className="head-actions nf-status">
-            <span className={`nf-pill ${status.mode === 'live' ? 'is-on' : 'is-demo'}`}>
-              <span className="nf-dot" />
-              {status.mode === 'live' ? 'Live sheet' : 'Demo data'}
-            </span>
-            <span className={`nf-pill ${emailSim ? 'is-sim' : 'is-real'}`}>
-              <span className="nf-pill-ico">{IcoMail}</span>
-              {emailSim ? 'Email: simulated' : 'Email: LIVE'}
-            </span>
-            <span className={`nf-pill ${smsSim ? 'is-sim' : 'is-real'}`}>
-              <span className="nf-pill-ico">{IcoSms}</span>
-              {smsSim ? 'SMS: simulated' : 'SMS: LIVE'}
-            </span>
-          </div>
-        )}
+        <div className="head-actions nf-status">
+          <button className="btn btn-primary"
+            onClick={() => setBroadcastOpen(true)}>
+            Mensaje / Plantillas
+          </button>
+          {status && (
+            <>
+              <span className={`nf-pill ${status.mode === 'live' ? 'is-on' : 'is-demo'}`}>
+                <span className="nf-dot" />
+                {status.mode === 'live' ? 'Live sheet' : 'Demo data'}
+              </span>
+              <span className={`nf-pill ${emailSim ? 'is-sim' : 'is-real'}`}>
+                <span className="nf-pill-ico">{IcoMail}</span>
+                {emailSim ? 'Email: simulated' : 'Email: LIVE'}
+              </span>
+              <span className={`nf-pill ${smsSim ? 'is-sim' : 'is-real'}`}>
+                <span className="nf-pill-ico">{IcoSms}</span>
+                {smsSim ? 'SMS: simulated' : 'SMS: LIVE'}
+              </span>
+            </>
+          )}
+        </div>
       </div>
 
       {status?.live_error && (
@@ -432,6 +465,19 @@ export default function NotifyPage() {
                   ))}
                 </div>
 
+                {templates.length > 0 && (
+                  <label className="nf-tpl" title="Mensaje a enviar">
+                    <span>Mensaje</span>
+                    <select className="cell-input" value={templateId}
+                      onChange={(e) => setTemplateId(e.target.value)}>
+                      <option value="">Aviso DVIR (automático)</option>
+                      {templates.map((t) => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
                 {wantSms && (
                   media ? (
                     <span className="nf-attach">
@@ -558,8 +604,8 @@ export default function NotifyPage() {
                     </div>
                   )}
                   <div className="sms-bubble">
-                    {focused.sms_text}
-                    {media && media.type === 'video'
+                    {tpl ? fillVars(tpl.body, focused.driver) : focused.sms_text}
+                    {!tpl && media && media.type === 'video'
                       ? `\nVideo: ${media.url}` : ''}
                   </div>
                   <span className="phone-foot">
@@ -582,13 +628,22 @@ export default function NotifyPage() {
                       )}
                     </div>
                   </div>
-                  <div className="mail-subject">{focused.subject}</div>
-                  <pre className="prev-body">{focused.body}</pre>
+                  <div className="mail-subject">
+                    {tpl ? fillVars(tpl.subject, focused.driver)
+                      : focused.subject}
+                  </div>
+                  <pre className="prev-body">
+                    {tpl ? fillVars(tpl.body, focused.driver) : focused.body}
+                  </pre>
                 </div>
               )}
             </div>
           </aside>
         </div>
+      )}
+
+      {broadcastOpen && (
+        <BroadcastModal onClose={() => setBroadcastOpen(false)} />
       )}
     </div>
   )

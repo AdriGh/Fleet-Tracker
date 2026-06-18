@@ -1,16 +1,24 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  assignTerminal, createAppUser, deleteTerminal, fleetArchive,
-  getAlertsSettings, getHealth,
-  getIntegrationSpecs, getIntegrations, getOrg, getSettings, listAppUsers,
-  listFleet, patchAppUser, saveAlertsSettings, saveIntegrationConfig,
-  saveOrg, saveSettings, saveTerminal, testIntegration,
-  type AlertsSettings, type FleetUnit,
+  addCompany, assignTeam, assignTerminal, createAppUser, deleteCompany,
+  deleteTeam, deleteTerminal,
+  eldFleetPreview, fleetArchive, getAlertsSettings, getHealth,
+  getIntegrationSpecs, getIntegrations, getOrg, getSettings, importUnitsCsv,
+  listAppUsers, listCompanies,
+  listFleet, patchAppUser, renameCompany, saveAlertsSettings,
+  saveIntegrationConfig, saveOrg, saveSettings, saveTeam, saveTerminal,
+  setEldActive,
+  testIntegration, unitsCsvTemplate,
+  type AlertsSettings, type Company, type Driver, type FleetUnit,
   type IntegrationProvider, type IntegrationSpec, type IntegrationStatus,
-  type OrgConfig, type TerminalDef, type TerminalsConfig,
+  type OrgConfig, type TeamDef, type TeamsConfig,
+  type TerminalDef, type TerminalsConfig,
+  type UnitImportResult,
 } from '../api'
 import { useTerminals } from '../terminal'
+import { useTeams } from '../teams'
+import FleetBoard from '../components/FleetBoard'
 import { notifyOk, notifyErr } from '../toast'
 import Skeleton from '../components/Skeleton'
 import Modal from '../components/Modal'
@@ -40,6 +48,7 @@ export default function SettingsPage(
     () => localStorage.getItem('ft-roster-mask') !== '0',
   )
   const [rosterOpen, setRosterOpen] = useState(false)
+  const [connOpen, setConnOpen] = useState(true)
   const [configuring, setConfiguring] = useState<string | null>(null)
   function toggleMask(on: boolean) {
     setMaskPII(on)
@@ -189,15 +198,29 @@ export default function SettingsPage(
         </div>
       </section>
 
-      {/* ----- Conectividad: hub de integraciones ----- */}
-      <section className="card">
-        <div className="card-head">
-          <h2>Connectivity</h2>
-          <span className="sub">ELD platforms, messaging and data sources</span>
-          <button className="btn-link" onClick={() => onNavigate('avisos')}>
+      {/* ----- Conectividad: hub de integraciones (colapsable) ----- */}
+      <section className="card settings-card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button className="collapse-head" style={{ flex: 1 }}
+            onClick={() => setConnOpen((o) => !o)} aria-expanded={connOpen}>
+            <svg className={`collapse-chevron ${connOpen ? 'open' : ''}`}
+              viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+            <div>
+              <h2>Connectivity</h2>
+              <span className="sub">
+                ELD platforms, messaging and data sources
+              </span>
+            </div>
+          </button>
+          <button className="btn-link" style={{ marginRight: 16,
+            whiteSpace: 'nowrap' }} onClick={() => onNavigate('avisos')}>
             Open Notices →
           </button>
         </div>
+        {connOpen && (
         <div className="card-body">
           {integrationsQuery.isPending ? (
             <Skeleton h={220} />
@@ -238,11 +261,14 @@ export default function SettingsPage(
               }} />
           )}
         </div>
+        )}
       </section>
 
       {/* ----- Empresa y usuarios (G7, solo admin) ----- */}
       {isAdmin && <CompanyCard />}
+      {isAdmin && <CompaniesCard />}
       {isAdmin && <TerminalsCard activeUnits={activeUnits} />}
+      {isAdmin && <TeamsCard activeUnits={activeUnits} />}
       {isAdmin && <UsersCard />}
 
       {/* ----- Alertas de flota (G3) ----- */}
@@ -343,7 +369,7 @@ export default function SettingsPage(
                 </div>
 
                 <div className="settings-actions">
-                  <button className="btn btn-primary" onClick={save}
+                  <button className="btn btn-primary btn-expand" onClick={save}
                     disabled={!dirty || saving}>
                     {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save changes'}
                   </button>
@@ -497,9 +523,6 @@ export default function SettingsPage(
 
 // ----- Empresa (G7): branding, umbrales y CC routing -----------------------
 const ORG_ACCENTS = ['', '#2563eb', '#16a34a', '#d97706', '#7c3aed', '#0d9488']
-const CC_TERMINALS = ['CHASER', 'MEM', 'MDW', 'MIA', 'ATL', 'SAV']
-// H3-C: empresas dueñas de unidades para el Bill-To del invoice.
-const BILL_TO_COMPANIES = ['CHASER', 'MCC']
 const THRESHOLD_META: {
   key: keyof OrgConfig['thresholds']
   label: string
@@ -516,12 +539,251 @@ const THRESHOLD_META: {
     help: 'How far back the live defect stream looks' },
 ]
 
+// ----- Empresas + import masivo de unidades (Settings, solo admin) ---------
+function CompaniesCard() {
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const q = useQuery({
+    queryKey: ['companies'], queryFn: listCompanies, enabled: open })
+  const companies = q.data ?? []
+  const [nLabel, setNLabel] = useState('')
+  const [editKey, setEditKey] = useState<string | null>(null)
+  const [eLabel, setELabel] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [result, setResult] = useState<UnitImportResult | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  async function run(p: Promise<Company[]>, ok: string) {
+    setBusy(true)
+    try {
+      qc.setQueryData(['companies'], await p)
+      notifyOk(ok)
+      return true
+    } catch (e) {
+      notifyErr("Couldn't save companies", e)
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function add() {
+    if (!nLabel.trim()) {
+      notifyErr('Missing name', 'Give the company a name')
+      return
+    }
+    if (await run(addCompany(nLabel.trim()), `Company ${nLabel.trim()} added`)) {
+      setNLabel('')
+    }
+  }
+  async function saveEdit(c: Company) {
+    if (await run(renameCompany(c.key, eLabel.trim() || c.label),
+      'Company renamed')) setEditKey(null)
+  }
+  async function remove(c: Company) {
+    if (!window.confirm(
+      `Delete company ${c.label}? Existing units keep their company tag.`)) {
+      return
+    }
+    await run(deleteCompany(c.key), `Company ${c.label} deleted`)
+  }
+
+  async function downloadTemplate() {
+    try {
+      const csv = await unitsCsvTemplate()
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'fleet-units-template.csv'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      notifyErr("Couldn't get the template", e)
+    }
+  }
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true)
+    setResult(null)
+    try {
+      const res = await importUnitsCsv(await file.text())
+      setResult(res)
+      qc.invalidateQueries({ queryKey: ['fleet'] })
+      qc.invalidateQueries({ queryKey: ['pm'] })
+      notifyOk('Import done', `${res.added} added · ${res.updated} updated`)
+    } catch (err) {
+      notifyErr('Import failed', err)
+    } finally {
+      setImporting(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  return (
+    <section className="card settings-card">
+      <button className="collapse-head" onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}>
+        <svg className={`collapse-chevron ${open ? 'open' : ''}`}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+        <div>
+          <h2>Companies &amp; fleet import</h2>
+          <span className="sub">
+            Carriers and bulk unit import (CSV)
+          </span>
+        </div>
+      </button>
+
+      {open && (
+        <div className="card-body">
+          {q.isPending ? (
+            <Skeleton h={160} />
+          ) : (
+            <>
+              <h3 className="settings-sub-h">Companies</h3>
+              <p className="settings-help">
+                Carriers that own units. Used across Fleet, Bill-To and
+                reports.
+              </p>
+              <table className="defects-table users-table">
+                <thead>
+                  <tr>
+                    <th>Company</th><th>Key</th><th aria-label="Actions" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {companies.map((c) => (
+                    <tr key={c.key}>
+                      {editKey === c.key ? (
+                        <>
+                          <td>
+                            <input className="cell-input" value={eLabel}
+                              autoFocus
+                              onChange={(e) => setELabel(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') saveEdit(c)
+                                if (e.key === 'Escape') setEditKey(null)
+                              }} />
+                          </td>
+                          <td><span className="nf-units">{c.key}</span></td>
+                          <td className="num">
+                            <span className="users-reset">
+                              <button className="btn btn-primary btn-xs"
+                                disabled={busy} onClick={() => saveEdit(c)}>
+                                Save
+                              </button>
+                              <button className="btn btn-ghost btn-xs"
+                                onClick={() => setEditKey(null)}>
+                                Cancel
+                              </button>
+                            </span>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td><strong>{c.label}</strong></td>
+                          <td><span className="nf-units">{c.key}</span></td>
+                          <td className="num">
+                            <span className="users-reset">
+                              <button className="btn btn-ghost btn-xs"
+                                onClick={() => {
+                                  setEditKey(c.key); setELabel(c.label)
+                                }}>
+                                Rename
+                              </button>
+                              <button className="icon-x" title="Delete company"
+                                onClick={() => remove(c)}>✕</button>
+                            </span>
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  ))}
+                  {companies.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="muted"
+                        style={{ textAlign: 'center', padding: 12 }}>
+                        No companies yet. Add one below.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              <div className="settings-add-row">
+                <input className="cell-input"
+                  placeholder="New company name (e.g. Demo Co)"
+                  value={nLabel} onChange={(e) => setNLabel(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') add() }} />
+                <button className="btn btn-primary btn-expand" disabled={busy}
+                  onClick={add}>
+                  <span className="btn-plus" aria-hidden>＋</span>
+                  Add company
+                </button>
+              </div>
+
+              <hr className="settings-divider" />
+
+              <h3 className="settings-sub-h">Bulk import units (CSV)</h3>
+              <p className="settings-help">
+                Upload a CSV to add or update many units at once (e.g. every
+                truck of a company). Required column: <code>unit</code>.
+                Optional: <code>unit_type</code>, <code>company</code>,{' '}
+                <code>terminal</code>, <code>vin</code>, <code>year</code>,{' '}
+                <code>make</code>, <code>model</code>, <code>plate</code>,{' '}
+                <code>plate_state</code>, <code>fleet_no</code>. Matches by
+                unit number (upsert). Assign units to terminals in{' '}
+                <strong>Terminals</strong> below or via the{' '}
+                <code>terminal</code> column.
+              </p>
+              <div className="settings-actions" style={{ gap: 8 }}>
+                <button className="btn btn-ghost btn-expand"
+                  onClick={downloadTemplate}>
+                  Download template
+                </button>
+                <label className="btn btn-primary btn-expand"
+                  style={{ cursor: importing ? 'default' : 'pointer' }}>
+                  {importing ? 'Importing…' : 'Upload CSV'}
+                  <input ref={fileRef} type="file" accept=".csv,text/csv" hidden
+                    disabled={importing} onChange={onFile} />
+                </label>
+              </div>
+              {result && (
+                <div className={`banner ${result.errors.length
+                  ? 'warn' : 'success'}`}>
+                  <span>
+                    {result.added} added · {result.updated} updated
+                    {result.errors.length > 0 && (
+                      <>
+                        {' '}· {result.errors.length} skipped
+                        <br />{result.errors.slice(0, 5).join(' · ')}
+                      </>
+                    )}
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function CompanyCard() {
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<OrgConfig | null>(null)
   const [saving, setSaving] = useState(false)
   const q = useQuery({ queryKey: ['org'], queryFn: getOrg, enabled: open })
+  const companiesQ = useQuery({
+    queryKey: ['companies'], queryFn: listCompanies, enabled: open })
+  // CC routing por terminal configurada (ya no listas hardcodeadas).
+  const { terminals } = useTerminals()
 
   useEffect(() => {
     if (q.data) setForm(JSON.parse(JSON.stringify(q.data)))
@@ -597,14 +859,6 @@ function CompanyCard() {
             <>
               <div className="org-grid">
                 <label className="ud-field">
-                  <span>App name</span>
-                  <input className="cell-input"
-                    value={form.branding.app_name}
-                    onChange={(e) => setForm({ ...form,
-                      branding: { ...form.branding,
-                        app_name: e.target.value } })} />
-                </label>
-                <label className="ud-field">
                   <span>Tagline</span>
                   <input className="cell-input"
                     value={form.branding.tagline}
@@ -671,27 +925,27 @@ function CompanyCard() {
 
               <h3 className="settings-sub-h">Notice CC routing</h3>
               <p className="settings-help">
-                Comma-separated emails per terminal. Empty = factory
-                default (Chaser/MCCI lists). "Always" goes on every
-                notice.
+                Comma-separated emails per terminal (from your{' '}
+                <strong>Terminals</strong> below). Empty = factory default
+                routing. "Always" goes on every notice.
               </p>
               <div className="org-cc">
                 <label className="ud-field">
                   <span>Always CC</span>
                   <input className="cell-input"
                     value={(form.always_cc ?? []).join(', ')}
-                    placeholder="factory default"
+                    placeholder="every notice"
                     onChange={(e) => setForm({ ...form,
                       always_cc: e.target.value.split(',')
                         .map((s) => s.trim()).filter(Boolean) })} />
                 </label>
-                {CC_TERMINALS.map((t) => (
-                  <label className="ud-field" key={t}>
-                    <span>{t}</span>
+                {terminals.map((t) => (
+                  <label className="ud-field" key={t.key}>
+                    <span>{t.label}</span>
                     <input className="cell-input"
-                      value={(form.cc[t] ?? []).join(', ')}
+                      value={(form.cc[t.key] ?? []).join(', ')}
                       placeholder="factory default"
-                      onChange={(e) => setCc(t, e.target.value)} />
+                      onChange={(e) => setCc(t.key, e.target.value)} />
                   </label>
                 ))}
               </div>
@@ -779,11 +1033,15 @@ function CompanyCard() {
               <h3 className="settings-sub-h">Bill-To addresses</h3>
               <p className="settings-help">
                 Per company that owns the unit. Empty = just the company
-                name on the document.
+                name on the document. Manage companies in{' '}
+                <strong>Companies &amp; fleet import</strong> below.
               </p>
-              {BILL_TO_COMPANIES.map((co) => (
+              {(companiesQ.data?.length
+                ? companiesQ.data
+                : Object.keys(form.billing).map((k) => ({ key: k, label: k }))
+              ).map(({ key: co, label }) => (
                 <div className="org-billing" key={co}>
-                  <span className="org-billing-co">{co}</span>
+                  <span className="org-billing-co">{label}</span>
                   <div className="org-grid">
                     <label className="ud-field">
                       <span>Name</span>
@@ -832,7 +1090,7 @@ function CompanyCard() {
               ))}
 
               <div className="settings-actions">
-                <button className="btn btn-primary" onClick={save}
+                <button className="btn btn-primary btn-expand" onClick={save}
                   disabled={!dirty || saving}>
                   {saving ? 'Saving…' : 'Save company'}
                 </button>
@@ -1030,7 +1288,7 @@ const RULE_META: {
   key: keyof AlertsSettings['rules']
   label: string
   desc: string
-  field: 'mph' | 'minutes' | 'pct' | 'hours' | 'deviation_f'
+  field: 'mph' | 'minutes' | 'pct' | 'hours' | 'deviation_f' | 'min_severity'
   suffix: string
 }[] = [
   { key: 'speeding', label: 'Speeding', field: 'mph', suffix: 'mph',
@@ -1045,6 +1303,9 @@ const RULE_META: {
     desc: 'No GPS ping for this long' },
   { key: 'reefer_temp', label: 'Reefer temp deviation', field: 'deviation_f',
     suffix: '°F', desc: 'Return air away from setpoint (live data only)' },
+  { key: 'reefer_fault_wo', label: 'Reefer fault → work order',
+    field: 'min_severity', suffix: 'sev',
+    desc: 'Auto-create a work order from reefer fault codes (severity ≥)' },
 ]
 
 function AlertsCard() {
@@ -1099,7 +1360,7 @@ function AlertsCard() {
         <div>
           <h2>Fleet alerts</h2>
           <span className="sub">
-            Speeding, idle, fuel, DEF and GPS rules
+            Speeding, idle, fuel, DEF, GPS and cold-chain rules
             {enabledCount ? ` · ${enabledCount} active` : ' · all off'}
           </span>
         </div>
@@ -1204,7 +1465,7 @@ function AlertsCard() {
               </div>
 
               <div className="settings-actions">
-                <button className="btn btn-primary" onClick={save}
+                <button className="btn btn-primary btn-expand" onClick={save}
                   disabled={!dirty || saving}>
                   {saving ? 'Saving…' : 'Save alert rules'}
                 </button>
@@ -1273,14 +1534,27 @@ function providerGlyph(id: string, name: string) {
   }
 }
 
+// Capacidades del adapter ELD -> etiqueta legible (orden de muestra).
+const CAP_LABELS: [keyof NonNullable<IntegrationProvider['capabilities']>,
+  string][] = [
+  ['fleet', 'Fleet'], ['drivers', 'Drivers'], ['defects', 'Defects'],
+  ['track', 'Live map'], ['reefer', 'Reefer'],
+]
+
 function IntegrationCard({ provider, onConfigure }: {
   provider: IntegrationProvider
   onConfigure: () => void
 }) {
+  const qc = useQueryClient()
   const badge = STATUS_BADGE[provider.status]
   const inactive =
     provider.status === 'planned' || provider.status === 'not_configured'
   const [testing, setTesting] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const caps = provider.capabilities
+  const liveCaps = caps ? CAP_LABELS.filter(([k]) => caps[k]) : []
+  const canActivate = !!caps && !provider.active
+    && (provider.status === 'connected' || provider.status === 'live')
 
   async function runTest() {
     setTesting(true)
@@ -1292,6 +1566,36 @@ function IntegrationCard({ provider, onConfigure }: {
       notifyErr(`${provider.name}: error`, e)
     } finally {
       setTesting(false)
+    }
+  }
+
+  async function makeActive() {
+    setBusy(true)
+    try {
+      await setEldActive(provider.id)
+      notifyOk(`${provider.name} is now the active ELD`)
+      qc.invalidateQueries({ queryKey: ['integrations'] })
+    } catch (e) {
+      notifyErr("Couldn't set active provider", e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function previewFleet() {
+    setBusy(true)
+    try {
+      const r = await eldFleetPreview(provider.id)
+      if (r.ok) {
+        notifyOk(`${provider.name}: ${r.detail}`,
+          r.sample.slice(0, 6).map((u) => u.unit).join(', ') || 'no units')
+      } else {
+        notifyErr(`${provider.name}: preview`, r.detail)
+      }
+    } catch (e) {
+      notifyErr(`${provider.name}: preview failed`, e)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -1310,9 +1614,20 @@ function IntegrationCard({ provider, onConfigure }: {
           >
             {badge.label}
           </span>
+          {provider.active && (
+            <span className="set-badge is-ok"
+              title="Default ELD data source">Active</span>
+          )}
         </span>
         <span className="intg-kind">{provider.kind}</span>
         <span className="intg-detail">{provider.detail}</span>
+        {liveCaps.length > 0 && (
+          <span className="intg-chips">
+            {liveCaps.map(([k, label]) => (
+              <span key={k} className="intg-chip"><strong>{label}</strong></span>
+            ))}
+          </span>
+        )}
         {provider.items.length > 0 && (
           <span className="intg-chips">
             {provider.items.map((it) => (
@@ -1322,12 +1637,25 @@ function IntegrationCard({ provider, onConfigure }: {
             ))}
           </span>
         )}
-        {(provider.testable || provider.configurable) && (
+        {(provider.testable || provider.configurable
+          || provider.previewable || canActivate) && (
           <span className="intg-actions">
             {provider.testable && (
               <button className="btn btn-ghost btn-xs" onClick={runTest}
                 disabled={testing}>
                 {testing ? 'Testing…' : 'Test'}
+              </button>
+            )}
+            {provider.previewable && (
+              <button className="btn btn-ghost btn-xs" onClick={previewFleet}
+                disabled={busy}>
+                Preview fleet
+              </button>
+            )}
+            {canActivate && (
+              <button className="btn btn-ghost btn-xs" onClick={makeActive}
+                disabled={busy}>
+                Set active
               </button>
             )}
             {provider.configurable && (
@@ -1428,7 +1756,7 @@ function IntegrationConfigModal({ provider, onClose, onSaved }: {
           )}
 
           <div className="settings-actions">
-            <button className="btn btn-primary" onClick={save}
+            <button className="btn btn-primary btn-expand" onClick={save}
               disabled={saving}>
               {saving ? 'Saving…' : 'Save credentials'}
             </button>
@@ -1513,7 +1841,7 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
   const { cfg, terminals, terminalOf, labelOf } = useTerminals()
-  const [assigning, setAssigning] = useState<TerminalDef | null>(null)
+  const [board, setBoard] = useState<{ focus: string | null } | null>(null)
   const [editKey, setEditKey] = useState<string | null>(null)
   const [eLabel, setELabel] = useState('')
   const [ePrefixes, setEPrefixes] = useState('')
@@ -1585,6 +1913,33 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
     await persist(() => deleteTerminal(t.key), `Terminal ${t.label} deleted`)
   }
 
+  // Guarda el tablero: reconciliando todas las terminales de una vez.
+  // assign() reemplaza el set pinneado de cada terminal, así que iteramos
+  // todas (incluso las vacías) para soltar los pins removidos. Los pines de
+  // unidades archivadas (no visibles en el board) se preservan aparte.
+  async function commitBoard(placement: Record<string, string[]>) {
+    setBusy(true)
+    try {
+      const activeSet = new Set(activeUnits.map((u) => u.unit))
+      const hidden: Record<string, string[]> = {}
+      for (const [unit, key] of Object.entries(cfg.assignments)) {
+        if (!activeSet.has(unit)) (hidden[key] ??= []).push(unit)
+      }
+      let last: TerminalsConfig | null = null
+      for (const t of terminals) {
+        last = await assignTerminal(t.key,
+          [...(placement[t.key] ?? []), ...(hidden[t.key] ?? [])])
+      }
+      if (last) qc.setQueryData(['terminals'], last)
+      notifyOk('Fleet board saved')
+      setBoard(null)
+    } catch (e) {
+      notifyErr("Couldn't save terminals", e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <section className="card settings-card">
       <button className="collapse-head" onClick={() => setOpen((o) => !o)}
@@ -1611,6 +1966,14 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
             assignment first, then by unit-number prefix (e.g.
             <code>MEM</code> matches <code>MEM-123</code>).
           </p>
+
+          <div className="settings-actions" style={{ marginBottom: 12 }}>
+            <button className="btn btn-primary btn-expand"
+              onClick={() => setBoard({ focus: null })}>
+              <span className="btn-plus" aria-hidden>⠿</span>
+              Open fleet board
+            </button>
+          </div>
 
           <table className="defects-table users-table">
             <thead>
@@ -1681,7 +2044,7 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
                       <td className="num">
                         <span className="users-reset">
                           <button className="btn btn-ghost btn-xs"
-                            onClick={() => setAssigning(t)}>
+                            onClick={() => setBoard({ focus: t.key })}>
                             Assign fleet
                           </button>
                           <button className="btn btn-ghost btn-xs"
@@ -1705,7 +2068,7 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
 
           <hr className="settings-divider" />
           <h3 className="settings-sub-h">Add terminal</h3>
-          <div className="users-add">
+          <div className="settings-add-row">
             <input className="cell-input" placeholder="Name (e.g. Dallas)"
               value={nLabel} onChange={(e) => setNLabel(e.target.value)} />
             <input className="cell-input"
@@ -1713,9 +2076,10 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
               value={nPrefixes}
               onChange={(e) => setNPrefixes(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') addTerminal() }} />
-            <button className="btn btn-primary btn-xs" onClick={addTerminal}
+            <button className="btn btn-primary btn-expand" onClick={addTerminal}
               disabled={busy}>
-              {busy ? 'Saving…' : 'Add'}
+              <span className="btn-plus" aria-hidden>＋</span>
+              {busy ? 'Saving…' : 'Add terminal'}
             </button>
           </div>
           <p className="settings-help">
@@ -1725,107 +2089,323 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
         </div>
       )}
 
-      {assigning && (
-        <Modal title={`Assign fleet — ${assigning.label}`} width={560}
-          onClose={() => setAssigning(null)}>
-          <TerminalPicker units={activeUnits} terminal={assigning}
-            cfg={cfg} terminalOf={terminalOf} labelOf={labelOf} busy={busy}
-            onSave={async (us) => {
-              if (await persist(
-                () => assignTerminal(assigning.key, us),
-                `${assigning.label}: ${us.length} unit${us.length === 1 ? '' : 's'} pinned`,
-              )) setAssigning(null)
-            }} />
+      {board && (
+        <Modal title="Fleet board — Terminals" width={1060} fullHeight
+          onClose={() => setBoard(null)}>
+          <FleetBoard kind="terminal" busy={busy} focusKey={board.focus}
+            units={activeUnits}
+            columns={terminals.map((t) => ({ key: t.key, label: t.label }))}
+            initialOf={(unit) => cfg.assignments[unit] ?? ''}
+            autoHintOf={(u) => cfg.assignments[u.unit]
+              ? undefined
+              : `auto: ${labelOf(terminalOf(u.unit, u.company))}`}
+            onCommit={commitBoard} />
         </Modal>
       )}
     </section>
   )
 }
 
-// Picker de flota para una terminal: marcar = pinnear la unidad a esa
-// terminal; desmarcar = vuelve a resolución por prefijo/empresa.
-function TerminalPicker({ units, terminal, cfg, terminalOf, labelOf, busy, onSave }: {
-  units: FleetUnit[]
-  terminal: TerminalDef
-  cfg: TerminalsConfig
-  terminalOf: (unit: string, company?: string) => string
-  labelOf: (key: string) => string
-  busy: boolean
-  onSave: (units: string[]) => void
-}) {
-  const [q, setQ] = useState('')
-  // Preseleccionar TODOS los pins de esta terminal desde la config, no
-  // solo los de la flota activa: assign() reemplaza el set entero, así
-  // que un pin de una unidad archivada (invisible aquí) debe viajar en
-  // `picked` para no borrarse silenciosamente al guardar.
-  const [picked, setPicked] = useState<Set<string>>(() => new Set(
-    Object.entries(cfg.assignments)
-      .filter(([, key]) => key === terminal.key)
-      .map(([unit]) => unit)))
-  const shown = useMemo(() => {
-    const s = q.trim().toLowerCase()
-    return s
-      ? units.filter((u) => u.unit.toLowerCase().includes(s)
-          || u.company.toLowerCase().includes(s))
-      : units
-  }, [units, q])
-  const allOn = shown.length > 0 && shown.every((u) => picked.has(u.unit))
+// ----- Equipos: grupos de unidades + conductores (solo admin) ------------
+function TeamsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const { cfg, teams, teamOf, labelOf } = useTeams()
+  const [board, setBoard] = useState<{ focus: string | null } | null>(null)
+  const [editing, setEditing] = useState<TeamDef | null>(null)
+  const [nLabel, setNLabel] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  function toggle(unit: string) {
-    setPicked((prev) => {
-      const n = new Set(prev)
-      if (n.has(unit)) n.delete(unit); else n.add(unit)
-      return n
-    })
+  // Unidades efectivas por equipo (de la flota activa) y total pinneado
+  // (incluye archivadas, que no aparecen en activeUnits).
+  const counts = useMemo(() => {
+    const eff: Record<string, number> = {}
+    for (const u of activeUnits) {
+      const k = teamOf(u.unit)
+      if (k) eff[k] = (eff[k] ?? 0) + 1
+    }
+    const total: Record<string, number> = {}
+    for (const t of Object.values(cfg.members)) {
+      total[t] = (total[t] ?? 0) + 1
+    }
+    return { eff, total }
+  }, [activeUnits, teamOf, cfg])
+
+  async function persist(
+    run: () => Promise<TeamsConfig>, ok: string,
+  ): Promise<boolean> {
+    setBusy(true)
+    try {
+      qc.setQueryData(['teams'], await run())
+      notifyOk(ok)
+      return true
+    } catch (e) {
+      notifyErr("Couldn't save teams", e)
+      return false
+    } finally {
+      setBusy(false)
+    }
   }
-  function toggleAll() {
-    setPicked((prev) => {
-      const n = new Set(prev)
-      if (allOn) shown.forEach((u) => n.delete(u.unit))
-      else shown.forEach((u) => n.add(u.unit))
-      return n
-    })
+
+  async function addTeam() {
+    if (!nLabel.trim()) {
+      notifyErr('Missing name', 'Give the team a name')
+      return
+    }
+    if (await persist(
+      () => saveTeam({ label: nLabel.trim(), drivers: [] }),
+      `Team ${nLabel.trim()} created`,
+    )) setNLabel('')
+  }
+
+  async function saveEdited(label: string, drivers: Driver[]) {
+    if (!editing) return
+    if (await persist(
+      () => saveTeam({ key: editing.key, label, drivers }),
+      `Team ${label} saved`,
+    )) setEditing(null)
+  }
+
+  async function remove(t: TeamDef) {
+    const n = counts.total[t.key] ?? 0
+    if (!window.confirm(
+      `Delete team ${t.label}?` +
+      (n ? ` ${n} unit${n === 1 ? '' : 's'} will be unassigned.` : ''))) return
+    await persist(() => deleteTeam(t.key), `Team ${t.label} deleted`)
+  }
+
+  // Guarda el tablero: reasigna cada equipo de una vez. assign() reemplaza
+  // la flota del equipo, así que iteramos todos (incluso vacíos) para que
+  // las unidades movidas al pool queden sin equipo. Las membresías de
+  // unidades archivadas (no visibles) se preservan aparte.
+  async function commitBoard(placement: Record<string, string[]>) {
+    setBusy(true)
+    try {
+      const activeSet = new Set(activeUnits.map((u) => u.unit))
+      const hidden: Record<string, string[]> = {}
+      for (const [unit, key] of Object.entries(cfg.members)) {
+        if (!activeSet.has(unit)) (hidden[key] ??= []).push(unit)
+      }
+      let last: TeamsConfig | null = null
+      for (const t of teams) {
+        last = await assignTeam(t.key,
+          [...(placement[t.key] ?? []), ...(hidden[t.key] ?? [])])
+      }
+      if (last) qc.setQueryData(['teams'], last)
+      notifyOk('Fleet board saved')
+      setBoard(null)
+    } catch (e) {
+      notifyErr("Couldn't save teams", e)
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
-    <div className="export-picker">
-      <input className="cell-input" placeholder="Search units…"
-        value={q} onChange={(e) => setQ(e.target.value)} />
-      <div className="ep-head">
-        <label className="ep-all">
-          <input type="checkbox" checked={allOn} onChange={toggleAll} />
-          <span>{allOn ? 'Deselect all' : 'Select all'}</span>
-        </label>
-        <span className="ep-count">
-          {picked.size} pinned to {terminal.label}
-        </span>
-      </div>
-      <ul className="ep-list">
-        {shown.map((u) => (
-          <li key={u.id}>
-            <label className="ep-item">
-              <input type="checkbox" checked={picked.has(u.unit)}
-                onChange={() => toggle(u.unit)} />
-              <span className="ep-unit">{u.unit}</span>
-              <span className="ep-kind">{u.unit_type}</span>
-              <span className="ep-co">
-                {picked.has(u.unit)
-                  ? 'pinned'
-                  : labelOf(terminalOf(u.unit, u.company))}
-              </span>
-            </label>
-          </li>
+    <section className="card settings-card">
+      <button className="collapse-head" onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}>
+        <svg className={`collapse-chevron ${open ? 'open' : ''}`}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+        <div>
+          <h2>Teams</h2>
+          <span className="sub">
+            Fleet groups with their drivers · {teams.length}
+          </span>
+        </div>
+      </button>
+
+      {open && (
+        <div className="card-body">
+          <p className="settings-help">
+            Teams group fleet units together with the drivers that run them
+            — handy for dispatch and ownership. A unit belongs to a team
+            only when you assign it (a unit can be in one team at a time).
+          </p>
+
+          {teams.length > 0 && (
+            <div className="settings-actions" style={{ marginBottom: 12 }}>
+              <button className="btn btn-primary btn-expand"
+                onClick={() => setBoard({ focus: null })}>
+                <span className="btn-plus" aria-hidden>⠿</span>
+                Open fleet board
+              </button>
+            </div>
+          )}
+
+          {teams.length === 0 ? (
+            <p className="muted" style={{ margin: '6px 0 2px' }}>
+              No teams yet. Create one below, then add drivers and fleet.
+            </p>
+          ) : (
+            <table className="defects-table users-table">
+              <thead>
+                <tr>
+                  <th>Team</th>
+                  <th>Drivers</th>
+                  <th>Units</th>
+                  <th aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {teams.map((t) => (
+                  <tr key={t.key}>
+                    <td>
+                      <span className="nf-driver-text">
+                        <strong>{t.label}</strong>
+                        <span className="nf-units">{t.key}</span>
+                      </span>
+                    </td>
+                    <td>
+                      {t.drivers.length === 0
+                        ? <span className="muted">—</span>
+                        : (
+                          <span>
+                            {t.drivers.slice(0, 2)
+                              .map((d) => d.name || d.email).join(', ')}
+                            {t.drivers.length > 2 && (
+                              <span className="muted">
+                                {' '}+{t.drivers.length - 2}
+                              </span>
+                            )}
+                          </span>
+                        )}
+                    </td>
+                    <td>
+                      {counts.eff[t.key] ?? 0}
+                      {(counts.total[t.key] ?? 0)
+                        > (counts.eff[t.key] ?? 0) && (
+                        <span className="muted">
+                          {' '}· {counts.total[t.key]} total
+                        </span>
+                      )}
+                    </td>
+                    <td className="num">
+                      <span className="users-reset">
+                        <button className="btn btn-ghost btn-xs"
+                          onClick={() => setBoard({ focus: t.key })}>
+                          Assign fleet
+                        </button>
+                        <button className="btn btn-ghost btn-xs"
+                          onClick={() => setEditing(t)}>
+                          Edit
+                        </button>
+                        <button className="icon-x" title="Delete team"
+                          onClick={() => remove(t)}>✕</button>
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <hr className="settings-divider" />
+          <h3 className="settings-sub-h">Add team</h3>
+          <div className="settings-add-row">
+            <input className="cell-input" placeholder="Name (e.g. Road Crew)"
+              value={nLabel} onChange={(e) => setNLabel(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') addTeam() }} />
+            <button className="btn btn-primary btn-expand" onClick={addTeam}
+              disabled={busy}>
+              <span className="btn-plus" aria-hidden>＋</span>
+              {busy ? 'Saving…' : 'Add team'}
+            </button>
+          </div>
+          <p className="settings-help">
+            After creating a team, use <strong>Edit</strong> to add drivers
+            and <strong>Assign fleet</strong> to add units.
+          </p>
+        </div>
+      )}
+
+      {editing && (
+        <Modal title={`Edit team — ${editing.label}`} width={520}
+          onClose={() => setEditing(null)}>
+          <TeamEditor team={editing} busy={busy} onSave={saveEdited} />
+        </Modal>
+      )}
+
+      {board && (
+        <Modal title="Fleet board — Teams" width={1060} fullHeight
+          onClose={() => setBoard(null)}>
+          <FleetBoard kind="team" busy={busy} focusKey={board.focus}
+            units={activeUnits}
+            columns={teams.map((t) => ({ key: t.key, label: t.label }))}
+            initialOf={(unit) => teamOf(unit)}
+            onCommit={commitBoard} />
+        </Modal>
+      )}
+    </section>
+  )
+}
+
+// Editor de un equipo: nombre + lista de conductores ({name, email}).
+function TeamEditor({ team, busy, onSave }: {
+  team: TeamDef
+  busy: boolean
+  onSave: (label: string, drivers: Driver[]) => void
+}) {
+  const [label, setLabel] = useState(team.label)
+  const [drivers, setDrivers] = useState<Driver[]>(
+    team.drivers.map((d) => ({ ...d })))
+
+  const setDriver = (i: number, patch: Partial<Driver>) =>
+    setDrivers((ds) => ds.map((d, j) => (j === i ? { ...d, ...patch } : d)))
+  const addDriver = () =>
+    setDrivers((ds) => [...ds, { name: '', email: '' }])
+  const removeDriver = (i: number) =>
+    setDrivers((ds) => ds.filter((_, j) => j !== i))
+  const clean = () => drivers
+    .map((d) => ({ name: d.name.trim(), email: d.email.trim() }))
+    .filter((d) => d.name || d.email)
+
+  return (
+    <div className="team-editor">
+      <label className="ud-field">
+        <span>Team name</span>
+        <input className="cell-input" value={label} autoFocus
+          onChange={(e) => setLabel(e.target.value)} />
+      </label>
+
+      <h4 className="settings-sub-h">Drivers</h4>
+      {drivers.length === 0 && (
+        <p className="muted" style={{ margin: '2px 0 8px' }}>
+          No drivers yet — add the people who run this team.
+        </p>
+      )}
+      <div className="team-drivers">
+        {drivers.map((d, i) => (
+          <div className="team-driver-row" key={i}>
+            <input className="cell-input" placeholder="Name"
+              value={d.name}
+              onChange={(e) => setDriver(i, { name: e.target.value })} />
+            <input className="cell-input" placeholder="email@company.com"
+              value={d.email} type="email"
+              onChange={(e) => setDriver(i, { email: e.target.value })} />
+            <button className="icon-x" title="Remove driver"
+              onClick={() => removeDriver(i)}>✕</button>
+          </div>
         ))}
-      </ul>
+      </div>
+      <button className="btn btn-ghost btn-xs btn-expand" onClick={addDriver}>
+        <span className="btn-plus" aria-hidden>＋</span>Add driver
+      </button>
+
       <div className="ep-foot">
         <span className="settings-sub">
-          Unchecked units follow prefix and company rules.
+          Empty rows are dropped on save.
         </span>
-        <button className="btn btn-primary" disabled={busy}
-          onClick={() => onSave([...picked])}>
-          {busy ? 'Saving…' : `Save (${picked.size} pinned)`}
+        <button className="btn btn-primary btn-expand"
+          disabled={busy || !label.trim()}
+          onClick={() => onSave(label.trim(), clean())}>
+          {busy ? 'Saving…' : 'Save team'}
         </button>
       </div>
     </div>
   )
 }
+

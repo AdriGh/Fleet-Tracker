@@ -109,6 +109,22 @@ def load_dvir(source) -> pd.DataFrame:
     return df
 
 
+# Columnas canonicas del dvir_df (las 5 obligatorias + las opcionales que usa
+# extract_defects). Sirve para construir el df desde el ELD sin un CSV.
+_DVIR_COLS = [
+    "Vehicle Name", "Trailer", "Author", "Signed At", "Status",
+    "Type", "Vehicle Defect Details", "Trailer Defect Details",
+    "Mechanic Notes",
+]
+
+
+def dvir_df_from_rows(rows: list[dict]) -> pd.DataFrame:
+    """Construye el dvir_df desde filas ya parseadas (p.ej. del import del
+    ELD), con las columnas garantizadas aunque `rows` venga vacio."""
+    df = pd.DataFrame(rows, columns=_DVIR_COLS)
+    return df.fillna("").astype(str)
+
+
 def load_activity(source) -> dict:
     """Devuelve {nombre_unidad: distancia_millas}."""
     try:
@@ -198,12 +214,16 @@ def _no_trip_group(group: dict) -> bool:
     return group["rows"][0].get("Pre-trip") == NO_PRETRIP_TEXT
 
 
-def build_report(dvir_df, activity, roster, min_miles, company, pretrip=None):
+def build_report(dvir_df, activity, roster, min_miles, company, pretrip=None,
+                 include_pretrip: bool = True):
     """Devuelve una lista de grupos. Cada grupo:
         {"truck_merge": bool, "rows": [row_dict, ...]}
 
     `pretrip`: {clave_de_nombre: {"pre", "post"}} de `core.pretrip` (logs de
     HoS); solo se usa el pre-trip. Si es None, todos quedan como NO PRE-TRIP.
+
+    `include_pretrip`: plantilla Standard (True) vs Legacy (False). En Legacy
+    se quita la columna Pre-trip del reporte (el viejo de DVIR + Activity).
     """
     pretrip = pretrip or {}
     # Lookup normalizado para resolver la distancia por camion sin que
@@ -297,7 +317,35 @@ def build_report(dvir_df, activity, roster, min_miles, company, pretrip=None):
     # último los NO DVIR. Cada bloque conserva el orden por unidad.
     top = [g for g in groups if not _no_trip_group(g)]
     bottom = [g for g in groups if _no_trip_group(g)]
-    return top + bottom + [g for _, g in nodvir]
+    result = top + bottom + [g for _, g in nodvir]
+    if not include_pretrip:                       # plantilla Legacy
+        for g in result:
+            for r in g["rows"]:
+                r.pop("Pre-trip", None)
+    return result
+
+
+# ----- Plantillas de reporte (que columnas / que inputs) -------------------
+REPORT_TEMPLATES = [
+    {"id": "standard", "name": "Standard (DVIR + Activity + Pre-trip)",
+     "pretrip": True},
+    {"id": "legacy", "name": "Legacy (DVIR + Activity)", "pretrip": False},
+]
+
+
+def template_pretrip(template_id: str) -> bool:
+    """True si la plantilla incluye la columna Pre-trip (default: si)."""
+    for t in REPORT_TEMPLATES:
+        if t["id"] == template_id:
+            return t["pretrip"]
+    return True
+
+
+def columns_for_groups(groups) -> list[str]:
+    """Columnas del reporte segun lo que traen las filas (Legacy = sin
+    Pre-trip). Se deriva de los datos, no hace falta guardar la plantilla."""
+    has_pt = any("Pre-trip" in r for g in groups for r in g["rows"])
+    return [c for c in COLUMNS if c != "Pre-trip" or has_pt]
 
 
 def report_stats(groups):

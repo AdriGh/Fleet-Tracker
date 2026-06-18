@@ -15,48 +15,26 @@ Cada region define a quien se copia (CC) en el aviso de NO DVIR.
 
 import re
 
-# Region -> lista de correos en copia (CC). Definido por el usuario.
-REGION_CC: dict[str, list[str]] = {
-    "CHASER": [
-        "neskar@chaserllc.com",
-        "Jfarach@chaserllc.com",
-        "chasersales@chaserllc.com",
-    ],
-    "MDW": [  # Chicago
-        "neskar@chaserllc.com",
-        "randrews@memphiscitycartage.com",
-        "Jfarach@chaserllc.com",
-    ],
-    "MEM": [  # Memphis
-        "neskar@chaserllc.com",
-        "Jfarach@chaserllc.com",
-        "mccidispatch@memphiscitycartage.com",
-        "amccammon@memphiscitycartage.com",
-    ],
-    "ATL": [  # Atlanta
-        "neskar@chaserllc.com",
-        "Jfarach@chaserllc.com",
-        "vross@memphiscitycartage.com",
-    ],
-    "SAV": [  # Savannah
-        "neskar@chaserllc.com",
-        "Jfarach@chaserllc.com",
-        "vross@memphiscitycartage.com",
-    ],
-    "MIA": [  # Miami
-        "neskar@chaserllc.com",
-        "Jfarach@chaserllc.com",
-        "rvictorero@memphiscitycartage.com",
-    ],
-}
+# Region -> lista de correos en copia (CC).
+#
+# INTENCIONALMENTE VACIO: no se versiona ningun correo real en el repo. El CC
+# se configura por org desde Settings (org_config `cc` / `always_cc`), que
+# REEMPLAZA este default. Sin esa config, no se agrega ningun CC.
+REGION_CC: dict[str, list[str]] = {}
 
-# Ryan Andrews va SIEMPRE en copia, en todas las terminales (contacto de
-# Safety del aviso). Se fusiona con el CC de cada region (sin duplicar).
-RYAN = "randrews@memphiscitycartage.com"
-_ALWAYS_CC: list[str] = [RYAN]
+# Correos que van SIEMPRE en copia. Vacio por defecto (se define por org).
+_ALWAYS_CC: list[str] = []
 
 # Prefijos de region reconocidos (los de MCC). CHASER no lleva prefijo.
 _MCC_REGIONS = {"MDW", "MEM", "ATL", "SAV", "MIA"}
+
+# CC GENERICO solo para el modo demo (sin org configurada): hace que los avisos
+# de la flota demo salgan como "notices" listos con su preview, en vez de caer
+# en "revisar" por falta de CC. No afecta instalaciones reales (gateado por
+# samsara._demo()).
+_DEMO_CC = {r: ["safety@summitfreight.com"]
+            for r in _MCC_REGIONS | {"CHASER"}}
+_DEMO_ALWAYS = ["maintenance@summitfreight.com"]
 
 
 def region_from_truck(truck) -> str | None:
@@ -91,10 +69,11 @@ def cc_for_region(region) -> list[str]:
     Fase G7: si org.local.json define `cc`/`always_cc`, esos mapas
     REEMPLAZAN a los hardcodeados (que quedan como default de fábrica).
     """
-    from . import org_config
+    from . import org_config, samsara
     cc_map, always = org_config.cc_override()
-    region_cc = cc_map if cc_map else REGION_CC
-    always_cc = always if always else _ALWAYS_CC
+    demo = not cc_map and samsara._demo()
+    region_cc = cc_map if cc_map else (_DEMO_CC if demo else REGION_CC)
+    always_cc = always if always else (_DEMO_ALWAYS if demo else _ALWAYS_CC)
     if not region or region not in region_cc:
         return []
     out: list[str] = []
