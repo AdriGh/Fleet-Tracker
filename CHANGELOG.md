@@ -7,6 +7,22 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.10.0] - 2026-06-18
+
+H7 (parte 3) — Rollout del Design System por pantalla (piloto: Defects).
+
+### Cambiado
+- **DefectsPage** adopta los componentes `ds/`: los 4 botones de acción
+  (Refresh con `loading`, Copy, Export CSV, Clear) → `ds/Button`; los 2
+  controles de filtro (rango de fechas, terminal) → `ds/Tabs`. Sin cambios de
+  comportamiento. Los selects/inputs inline, los pills con conteo embebido y
+  los chips de categoría se dejan para una pasada con verificación visual
+  (riesgo med/high según el análisis).
+
+### Notas
+- Primer screen del rollout `ds/` (low-risk: acciones→Button, filtros→Tabs);
+  pendiente eyeball visual antes de extender a Fleet / PM-DOT / Work Orders.
+
 ## [1.9.0] - 2026-06-18
 
 H7 (parte 2) — Cinemática: count-up en los KPIs + arranque de la adopción del

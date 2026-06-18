@@ -17,6 +17,7 @@ import Modal from '../components/Modal'
 import { type Kind } from '../truckZones'
 import { analyzeUnit, items, categoryOf, bodyOf } from '../defectGroups'
 import { useTerminals } from '../terminal'
+import { Button, Tabs } from '../components/ds'
 
 // Color de chip por categoría de defecto (las comunes; el resto, neutro).
 const CAT_TONE: Record<string, string> = {
@@ -389,22 +390,23 @@ export default function DefectsPage() {
           </p>
         </div>
         <div className="head-actions">
-          <button className="btn btn-ghost" onClick={refresh}
-            disabled={fetching} title="Refresh from Samsara">
-            <svg className={fetching ? 'spin' : ''} viewBox="0 0 24 24"
-              width="15" height="15" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
-            </svg>
+          <Button variant="ghost" onClick={refresh} loading={fetching}
+            disabled={fetching} title="Refresh from Samsara"
+            icon={
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                strokeLinejoin="round">
+                <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
+              </svg>
+            }>
             {fetching ? 'Refreshing…' : 'Refresh'}
-          </button>
-          <button className="btn btn-ghost" onClick={handleCopy}>
+          </Button>
+          <Button variant="ghost" onClick={handleCopy}>
             {copied ? 'Copied ✓' : 'Copy'}
-          </button>
-          <button className="btn btn-primary"
-            onClick={() => downloadCSV(tableMatrix)}>
+          </Button>
+          <Button variant="primary" onClick={() => downloadCSV(tableMatrix)}>
             Export CSV
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -413,13 +415,12 @@ export default function DefectsPage() {
       {/* Rango + filtros */}
       <div className="card">
         <div className="card-body filters-row">
-          <div className="company-tabs" role="tablist" aria-label="Date range">
-            {RANGES.map((r) => (
-              <button key={r.days}
-                className={`tab-btn ${rangeDays === r.days ? 'active' : ''}`}
-                onClick={() => setRangeDays(r.days)}>{r.label}</button>
-            ))}
-          </div>
+          <Tabs
+            aria-label="Date range"
+            tabs={RANGES.map((r) => ({ id: String(r.days), label: r.label }))}
+            value={String(rangeDays)}
+            onChange={(id) => setRangeDays(Number(id))}
+          />
           <span className="head-spacer" />
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">All statuses</option>
@@ -429,9 +430,7 @@ export default function DefectsPage() {
           <input className="cell-input" placeholder="Unit…"
             value={unit} onChange={(e) => setUnit(e.target.value)} />
           {hasFilter && (
-            <button className="btn btn-ghost" onClick={clearFilters}>
-              Clear
-            </button>
+            <Button variant="ghost" onClick={clearFilters}>Clear</Button>
           )}
         </div>
       </div>
@@ -526,15 +525,12 @@ export default function DefectsPage() {
           <span className="sub">{sortedRows.length} units</span>
           <span className="head-spacer" />
           {boardTerminals.length > 1 && (
-            <div className="company-tabs" role="tablist">
-              <button className={`tab-btn ${terminal === '' ? 'active' : ''}`}
-                onClick={() => setTerminal('')}>All terminals</button>
-              {boardTerminals.map((t) => (
-                <button key={t}
-                  className={`tab-btn ${terminal === t ? 'active' : ''}`}
-                  onClick={() => setTerminal(t)}>{labelOf(t)}</button>
-              ))}
-            </div>
+            <Tabs
+              tabs={[{ id: '', label: 'All terminals' },
+                ...boardTerminals.map((t) => ({ id: t, label: labelOf(t) }))]}
+              value={terminal}
+              onChange={setTerminal}
+            />
           )}
           <button className="btn btn-ghost export-btn"
             disabled={sortedRows.length === 0}
