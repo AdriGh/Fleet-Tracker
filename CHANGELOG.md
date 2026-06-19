@@ -7,6 +7,34 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.18.0] - 2026-06-19
+
+Cambios de la review en video (sobre v1.17): Cold Chain, PM/DOT, board DVIR y Work Orders.
+
+### Añadido
+- **Work Orders**: adjuntar la **factura original del taller** a una orden — subir,
+  **ver** (PDF inline) y **descargar** desde el drawer del WO (sección "Source
+  invoice"). Almacenamiento por `wo_id` en `backend/uploads/wo_invoices/` (sin
+  migración de DB); endpoints `POST/GET/DELETE /api/workorders/{id}/invoice-file`.
+  El WO expone `has_invoice_file`/`invoice_file_name`.
+- **Board DVIR**: botón para **borrar un reporte generado** de la lista "Recent
+  DVIRs" (con confirmación). Endpoint `DELETE /api/dvir/blocks/{id}` con borrado en
+  cascada de drivers/defectos.
+
+### Cambiado
+- **Cold Chain**: los valores de temperatura/combustible se **centran** (H+V) en su
+  columna; la columna **Fuel** se colorea por nivel (verde/ámbar/rojo).
+- **PM Tracker** y **DOT Inspections**: se eliminan las columnas **Driver** y
+  **Notes**; el texto de la tabla se **centra** (H+V); se unifica el tamaño de los
+  labels del panel de salud ("Most overdue"/"Next due" con "Fleet readiness").
+
+### Corregido
+- **Cold Chain**: las celdas de temperatura **en rango** ahora reciben su fondo
+  **verde** (`.rt-ok`) — antes solo se coloreaban los valores fuera de rango.
+
+### Diseño
+- Nuevo **DESIGN.md**: sistema de diseño formalizado para el foco Taller × Cold Chain.
+
 ## [1.17.0] - 2026-06-19
 
 H7 (parte 8) — Panel "Maintenance status" en el perfil de unidad.
