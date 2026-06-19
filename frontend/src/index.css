@@ -6913,6 +6913,88 @@ table.defects-table td {
 .up-card-sky { background: color-mix(in srgb, #0284c7 12%, var(--surface)); }
 .up-card-sky strong { color: color-mix(in srgb, #0284c7 60%, var(--text)); }
 
+/* Panel "Maintenance status": bajo las tarjetas resumen, rellena el espacio y
+   da la salud de PMs/componentes de un vistazo (misma identidad --st-*). */
+.up-status {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.up-status-main {
+  flex: 1 1 280px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.up-status-eyebrow {
+  font-size: 0.64rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.up-status-bar {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  gap: 2px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.up-status-seg { height: 100%; min-width: 3px; }
+.up-status-seg:first-child { border-radius: 999px 0 0 999px; }
+.up-status-seg:last-child { border-radius: 0 999px 999px 0; }
+.up-status-legend { display: flex; flex-wrap: wrap; gap: 6px 15px; }
+.up-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.up-status-chip i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+.up-status-chip b {
+  color: var(--text);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.up-status-hl {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 9px 15px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: var(--surface-2);
+  color: var(--text);
+}
+.up-status-hl.is-overdue {
+  background: color-mix(in srgb, var(--st-overdue) 13%, var(--surface));
+  color: var(--st-overdue-ink);
+}
+.up-status-hl.is-upcoming {
+  background: color-mix(in srgb, var(--st-upcoming) 14%, var(--surface));
+  color: var(--st-upcoming-ink);
+}
+.up-status-hl.is-ok {
+  background: color-mix(in srgb, var(--st-on-track) 13%, var(--surface));
+  color: var(--st-on-track-ink);
+}
+
 .up-tabs {
   display: flex;
   gap: 2px;
