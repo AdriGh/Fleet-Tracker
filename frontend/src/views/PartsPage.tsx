@@ -8,6 +8,7 @@ import {
   type Part, type PartInput, type Vendor, type VendorInput,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
+import { Button, Tabs } from '../components/ds'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
@@ -34,12 +35,12 @@ export default function PartsPage() {
 
       <div className="card">
         <div className="card-body filters-row">
-          <div className="company-tabs" role="tablist">
-            <button className={`tab-btn ${tab === 'parts' ? 'active' : ''}`}
-              onClick={() => setTab('parts')}>Parts</button>
-            <button className={`tab-btn ${tab === 'vendors' ? 'active' : ''}`}
-              onClick={() => setTab('vendors')}>Vendors</button>
-          </div>
+          <Tabs
+            tabs={[{ id: 'parts', label: 'Parts' },
+              { id: 'vendors', label: 'Vendors' }]}
+            value={tab}
+            onChange={(id) => setTab(id as Tab)}
+          />
         </div>
       </div>
 
@@ -102,13 +103,15 @@ function PartsTab() {
           <span className="head-spacer" />
           <input className="cell-input" placeholder="Search part, vendor…"
             value={q} onChange={(e) => setQ(e.target.value)} />
-          <button className="btn btn-primary" onClick={() => setAdding(true)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" width="16" height="16" strokeLinecap="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
+          <Button variant="primary" onClick={() => setAdding(true)}
+            icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" width="16" height="16" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            }>
             Add part
-          </button>
+          </Button>
         </div>
         <div className="card-body">
           {partsQ.isPending ? (
@@ -323,13 +326,15 @@ function VendorsTab() {
           <span className="head-spacer" />
           <input className="cell-input" placeholder="Search vendor…"
             value={q} onChange={(e) => setQ(e.target.value)} />
-          <button className="btn btn-primary" onClick={() => setAdding(true)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" width="16" height="16" strokeLinecap="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
+          <Button variant="primary" onClick={() => setAdding(true)}
+            icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" width="16" height="16" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            }>
             Add vendor
-          </button>
+          </Button>
         </div>
         <div className="card-body">
           {vendorsQ.isPending ? (

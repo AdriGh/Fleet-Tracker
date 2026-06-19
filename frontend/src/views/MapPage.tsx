@@ -15,6 +15,7 @@ import {
   type Poi, type PoiKind, type TrackVehicle,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
+import { Button } from '../components/ds'
 
 type Props = { theme: 'light' | 'dark' }
 
@@ -274,10 +275,9 @@ export default function MapPage({ theme }: Props) {
               ))}
             </div>
             {data.error && <p className="map-setup-err">{data.error}</p>}
-            <button className="btn btn-primary"
-              onClick={() => trackQuery.refetch()}>
+            <Button variant="primary" onClick={() => trackQuery.refetch()}>
               Check again
-            </button>
+            </Button>
           </div>
         </div>
       </div>

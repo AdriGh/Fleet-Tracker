@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import Logo from '../components/Logo'
 import { authSetup, saveOrg, setToken } from '../api'
 import { notifyErr } from '../toast'
+import { Button } from '../components/ds'
 
 // Primer arranque (fase G7): crea el admin, nombra la empresa y aplica
 // el acento de marca. Tres pasos, sin vuelta atrás destructiva.
@@ -144,10 +145,10 @@ export default function OnboardingWizard({ onDone }: Props) {
             )}
             {error && <p className="wiz-error">{error}</p>}
             <div className="wiz-actions">
-              <button className="btn btn-primary" disabled={!step1Valid || busy}
-                onClick={createAdmin}>
+              <Button variant="primary" disabled={!step1Valid || busy}
+                loading={busy} onClick={createAdmin}>
                 {busy ? 'Creating…' : 'Create account'}
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -190,14 +191,14 @@ export default function OnboardingWizard({ onDone }: Props) {
             </div>
             {error && <p className="wiz-error">{error}</p>}
             <div className="wiz-actions">
-              <button className="btn btn-ghost" disabled={busy}
+              <Button variant="ghost" disabled={busy}
                 onClick={() => setStep(2)}>
                 Skip
-              </button>
-              <button className="btn btn-primary" disabled={busy}
+              </Button>
+              <Button variant="primary" disabled={busy} loading={busy}
                 onClick={saveCompany}>
                 {busy ? 'Saving…' : 'Continue'}
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -217,9 +218,9 @@ export default function OnboardingWizard({ onDone }: Props) {
               light up on their own once data flows in.
             </p>
             <div className="wiz-actions">
-              <button className="btn btn-primary" onClick={onDone}>
+              <Button variant="primary" onClick={onDone}>
                 Go to the dashboard
-              </button>
+              </Button>
             </div>
           </div>
         )}
