@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fleet Tracker — Cold Chain</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --brand: #ff4438;
+    --accent: #ff4438;
+    --accent-2: #ff6a52;
+    --accent-strong: #ff5a4a;
+    --accent-soft: rgba(255, 68, 56, 0.15);
+    --header-bg: #e11900;
+    --header-fg: #ffffff;
+
+    --ui-danger: #fb7185;
+    --ui-danger-bg: rgba(251, 113, 133, 0.15);
+    --ui-success: #34d399;
+    --ui-success-bg: rgba(52, 211, 153, 0.15);
+    --ui-warn: #fbbf24;
+    --ui-warn-bg: rgba(251, 191, 36, 0.15);
+    --ui-info: #38bdf8;
+    --ui-info-bg: rgba(56, 189, 248, 0.15);
+
+    --st-overdue: #f87171;  --st-overdue-ink: #fca5a5;
+    --st-upcoming: #fbbf24; --st-upcoming-ink: #fcd34d;
+    --st-on-track: #34d399; --st-on-track-ink: #6ee7b7;
+    --st-never: #22d3ee;    --st-never-ink: #67e8f9;
+
+    --bg: #0a0a0b;
+    --surface: #161618;
+    --surface-2: #100f11;
+    --surface-3: #1e1e21;
+    --text: #f4f4f5;
+    --text-muted: #a1a1aa;
+    --border: #27272b;
+    --border-strong: #38383e;
+
+    --radius: 16px;
+    --radius-lg: 22px;
+    --radius-sm: 10px;
+    --radius-xs: 7px;
+    --radius-pill: 999px;
+    --radius-btn: 11px;
+
+    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+    --space-5: 22px; --space-6: 32px; --space-7: 48px;
+
+    --font: "Geist", "Inter", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    --font-display: "Space Grotesk", "Geist", system-ui, sans-serif;
+    --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --tracking-display: -0.02em;
+    --tracking-label: 0.12em;
+    --tracking-eyebrow: 0.16em;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --shadow-md: 0 20px 48px -18px rgba(0, 0, 0, 0.72), 0 2px 8px -4px rgba(0, 0, 0, 0.6);
+    --glow-accent: 0 2px 14px -2px rgba(255, 68, 56, 0.5);
+
+    --row-h: 36px;
+    --grain: 0.04;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    letter-spacing: var(--tracking-display);
+    text-wrap: balance;
+  }
+
+  /* filmic grain to break the flatness of the black */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 500;
+    pointer-events: none;
+    opacity: var(--grain);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 130px;
+  }
+
+  .tabular { font-variant-numeric: tabular-nums; }
+  .mono { font-family: var(--font-mono); }
+
+  /* ---------- App shell ---------- */
+  .app { display: flex; align-items: stretch; min-height: 100vh; }
+
+  .sidebar {
+    width: 250px;
+    flex: none;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 18px 14px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; padding: 4px 2px 18px; }
+  .brand-logo {
+    width: 44px; height: 44px; flex: none;
+    border-radius: 12px;
+    background: radial-gradient(120% 120% at 30% 20%, #2a1b1a, #0e0d0e);
+    border: 1px solid var(--border-strong);
+    display: grid; place-items: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,.5);
+  }
+  .brand-text { display: flex; flex-direction: column; line-height: 1.08; }
+  .brand-text strong { font-family: var(--font-display); font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+  .brand-text span { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 3px; }
+
+  .nav-group-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--text-muted); opacity: 0.6;
+    padding: 14px 11px 5px;
+  }
+  .nav-item {
+    border: none; background: none; color: var(--text-muted);
+    font-family: inherit; font-size: 14px; font-weight: 600;
+    display: flex; align-items: center; gap: 11px;
+    padding: 9px 11px; border-radius: 11px; text-align: left; width: 100%;
+  }
+  .nav-item svg { width: 18px; height: 18px; flex: none; }
+  .nav-item.active { background: var(--accent-soft); color: var(--accent); }
+  .nav-item .badge {
+    margin-left: auto; font-size: 10px; font-weight: 700;
+    background: var(--accent); color: #fff; min-width: 18px; height: 18px;
+    padding: 0 5px; border-radius: 999px; display: grid; place-items: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .sidebar-foot { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-muted); }
+  .dot-live { width: 8px; height: 8px; border-radius: 50%; background: var(--st-on-track); box-shadow: 0 0 0 3px rgba(52,211,153,.2); }
+
+  .main-area { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .container { width: 100%; padding: 30px 32px 56px; display: flex; flex-direction: column; gap: 20px; }
+
+  /* ---------- Page head ---------- */
+  .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .ph-left { display: flex; flex-direction: column; gap: 7px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.14em; color: var(--text-muted);
+  }
+  .eyebrow .chip-cold {
+    display: inline-flex; align-items: center; gap: 5px;
+    color: var(--ui-info); background: var(--ui-info-bg);
+    padding: 2px 8px; border-radius: 999px; letter-spacing: 0.08em;
+  }
+  .page-head h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.7px; line-height: 1.08; }
+  .page-sub { font-size: 13.5px; color: var(--text-muted); max-width: 62ch; }
+
+  .ph-right { display: flex; align-items: center; gap: 10px; }
+  .live-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+    color: var(--accent); background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    padding: 7px 12px; border-radius: 999px; text-transform: uppercase;
+  }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 0 var(--accent); animation: pulse 1.8s infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,68,56,.55); } 70% { box-shadow: 0 0 0 7px rgba(255,68,56,0); } 100% { box-shadow: 0 0 0 0 rgba(255,68,56,0); } }
+  .btn {
+    border: 1px solid var(--border-strong); border-radius: var(--radius-btn);
+    font-size: 13px; font-weight: 600; padding: 8px 14px;
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--surface); color: var(--text); font-family: inherit;
+  }
+  .btn svg { width: 15px; height: 15px; }
+  .btn-ghost { color: var(--text-muted); background: var(--surface-2); }
+
+  /* ---------- KPI row ---------- */
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .kpi {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 18px;
+    display: flex; flex-direction: column; gap: 10px;
+    position: relative; overflow: hidden;
+  }
+  .kpi-top { display: flex; align-items: center; justify-content: space-between; }
+  .kpi-label { font-size: 11.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .kpi-ico { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted); }
+  .kpi-ico svg { width: 16px; height: 16px; }
+  .kpi-val { font-family: var(--font-display); font-size: 2rem; font-weight: 700; letter-spacing: -0.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .kpi-val .unit { font-size: 0.95rem; font-weight: 600; color: var(--text-muted); margin-left: 3px; }
+  .kpi-foot { font-size: 11.5px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+  .kpi-foot .up { color: var(--st-on-track-ink); }
+  .kpi-foot .dn { color: var(--st-overdue-ink); }
+
+  .kpi.is-alarm { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, var(--surface)), var(--surface)); }
+  .kpi.is-alarm .kpi-ico { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent); }
+  .kpi.is-alarm .kpi-val { color: var(--accent); }
+  .kpi.is-alarm .kpi-label { color: var(--accent); }
+
+  /* fuel mini gauge */
+  .gauge { height: 5px; border-radius: 999px; background: var(--surface-3); overflow: hidden; margin-top: 2px; }
+  .gauge > i { display: block; height: 100%; border-radius: 999px; background: var(--st-upcoming); }
+
+  /* ---------- Layout: table + chart ---------- */
+  .cc-grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: 16px; align-items: start; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden;
+  }
+  .card-head {
+    display: flex; align-items: center; gap: 11px;
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+  }
+  .card-head h2 { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
+  .card-head .sub { font-size: 12px; color: var(--text-muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+  .card-head .updated-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--st-on-track); box-shadow: 0 0 6px var(--st-on-track); }
+
+  /* ---------- Reefer table ---------- */
+  .table-wrap { overflow-x: auto; }
+  table.reefer-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .reefer-table thead th {
+    position: sticky; top: 0;
+    background: var(--surface-2); color: var(--text-muted);
+    font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+    padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap;
+    text-align: left;
+  }
+  .reefer-table thead th.num { text-align: center; }
+  .reefer-table tbody td { padding: 0 12px; height: 52px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .reefer-table tbody tr:last-child td { border-bottom: none; }
+  .reefer-table tbody tr { transition: background .12s; }
+  .reefer-table tbody tr:hover { background: var(--accent-soft); }
+  .reefer-table tbody tr.is-alarm { background: color-mix(in srgb, var(--st-overdue) 6%, transparent); }
+  .reefer-table tbody tr.is-alarm:hover { background: color-mix(in srgb, var(--st-overdue) 10%, transparent); }
+
+  td.num, th.num { text-align: center; vertical-align: middle; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+
+  .reefer-unit { display: inline-flex; align-items: center; gap: 9px; }
+  .reefer-unit strong { font-family: var(--font-display); font-weight: 700; letter-spacing: -0.01em; font-size: 14px; }
+  .reefer-unit small { display: block; font-size: 10.5px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 1px; letter-spacing: -0.02em; }
+  .reefer-state { width: 9px; height: 9px; flex: none; border-radius: 50%; background: var(--text-muted); margin-top: 3px; align-self: flex-start; }
+  .reefer-state.st-on { background: var(--st-on-track); box-shadow: 0 0 7px color-mix(in srgb, var(--st-on-track) 60%, transparent); }
+  .reefer-state.st-off { background: var(--st-overdue); }
+  .reefer-ctrl-tag {
+    margin-left: 6px; font-size: 9px; font-weight: 800; letter-spacing: 0.04em;
+    padding: 1px 5px; border-radius: 5px;
+    background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent);
+    vertical-align: middle;
+  }
+
+  /* temp cells: in-range subtle green, out-of-range red, low fuel amber */
+  .rt-ok { color: var(--st-on-track-ink); font-weight: 700; background: color-mix(in srgb, var(--st-on-track) 11%, transparent); }
+  .rt-warn { color: var(--st-upcoming-ink); font-weight: 700; background: color-mix(in srgb, var(--st-upcoming) 12%, transparent); }
+  .rt-danger { color: var(--st-overdue-ink); font-weight: 700; background: color-mix(in srgb, var(--st-overdue) 16%, transparent); }
+  .rt-plain { color: var(--text); }
+
+  .mode-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);
+  }
+  .mode-pill.cool { color: var(--ui-info); background: var(--ui-info-bg); border-color: color-mix(in srgb, var(--ui-info) 30%, transparent); }
+  .mode-pill.defrost { color: var(--st-upcoming-ink); background: var(--ui-warn-bg); border-color: color-mix(in srgb, var(--st-upcoming) 30%, transparent); }
+  .mode-pill.off { color: var(--text-muted); }
+  .mode-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  .fuel-cell { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; min-width: 58px; }
+  .fuel-cell .fuel-bar { width: 52px; height: 4px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+  .fuel-cell .fuel-bar > i { display: block; height: 100%; border-radius: 999px; background: var(--st-on-track); }
+
+  .reefer-door { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: var(--surface-2); color: var(--text-muted); }
+  .reefer-door.open { background: var(--ui-danger-bg); color: var(--ui-danger); }
+
+  .reefer-alarms { display: inline-flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+  .reefer-alarm { font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums; padding: 2px 8px; border-radius: 7px; font-family: var(--font-mono); }
+  .reefer-alarm.sev-1 { background: var(--surface-2); color: var(--text-muted); }
+  .reefer-alarm.sev-2 { background: var(--ui-warn-bg); color: var(--st-upcoming-ink); }
+  .reefer-alarm.sev-3 { background: var(--ui-danger-bg); color: var(--ui-danger); }
+  .alarm-none { color: var(--text-muted); opacity: .55; }
+
+  .upd { font-size: 11.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+  .upd .ago { display: block; font-size: 10px; opacity: .7; }
+
+  /* ---------- Chart card ---------- */
+  .chart-card { display: flex; flex-direction: column; }
+  .chart-body { padding: 16px 18px 18px; }
+  .chart-unit { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .chart-unit .cu-name { font-family: var(--font-display); font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .chart-unit .cu-name small { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); font-weight: 400; }
+  .chart-unit .cu-set { font-size: 11.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .chart-unit .cu-set b { color: var(--text); font-family: var(--font-mono); }
+  .reefer-chart svg { width: 100%; height: auto; display: block; }
+  .rc-grid { stroke: var(--border); stroke-width: 1; }
+  .rc-axis { font-size: 10px; fill: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .rc-axis.y { text-anchor: end; }
+  .rc-axis.x { text-anchor: middle; }
+  .rc-band { fill: color-mix(in srgb, var(--st-on-track) 9%, transparent); }
+  .rc-set { fill: none; stroke: var(--text-muted); stroke-width: 1.4; stroke-dasharray: 5 4; }
+  .rc-supply { fill: none; stroke: #3b82f6; stroke-width: 1.8; opacity: 0.9; }
+  .rc-return { fill: none; stroke: var(--accent); stroke-width: 2.2; }
+  .rc-alarm-x { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; opacity: .65; }
+  .rc-alarm-label { font-size: 9px; fill: var(--accent); font-weight: 700; }
+  .rc-legend { display: flex; gap: 18px; margin-top: 12px; font-size: 12px; color: var(--text-muted); flex-wrap: wrap; }
+  .rc-legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .rc-dot { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+  .rc-d-return { background: var(--accent); }
+  .rc-d-supply { background: #3b82f6; }
+  .rc-d-set { background: var(--text-muted); height: 0; border-top: 1.6px dashed var(--text-muted); width: 14px; }
+
+  /* ---------- Moat callout ---------- */
+  .moat {
+    margin-top: 4px;
+    border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+    border-radius: var(--radius);
+    background:
+      radial-gradient(140% 140% at 0% 0%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 55%),
+      var(--surface);
+    padding: 16px 18px;
+    display: flex; align-items: center; gap: 16px;
+  }
+  .moat-ico { width: 42px; height: 42px; flex: none; border-radius: 12px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); display: grid; place-items: center; color: var(--accent); }
+  .moat-ico svg { width: 22px; height: 22px; }
+  .moat-body { flex: 1; min-width: 0; }
+  .moat-kicker { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.14em; color: var(--accent); }
+  .moat-title { font-family: var(--font-display); font-size: 16px; font-weight: 700; letter-spacing: -0.01em; margin-top: 3px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .moat-flow { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-muted); font-weight: 600; }
+  .moat-flow .node { color: var(--text); }
+  .moat-flow .arrow { color: var(--accent); }
+  .moat-sub { font-size: 12.5px; color: var(--text-muted); margin-top: 6px; max-width: 78ch; line-height: 1.45; }
+  .moat-wo {
+    flex: none; display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
+    border-left: 1px solid var(--border); padding-left: 16px;
+  }
+  .wo-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12px; font-weight: 700; font-family: var(--font-mono);
+    background: var(--surface-2); border: 1px solid var(--border);
+    padding: 6px 11px; border-radius: 9px; color: var(--text);
+  }
+  .wo-src {
+    font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--accent); background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    padding: 3px 8px; border-radius: 6px;
+  }
+  .moat-cta { font-size: 11.5px; color: var(--text-muted); }
+  .moat-cta b { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <path d="M3 13h11l3-4h3l1 4v4h-2" stroke="#ff4438" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="7" cy="18" r="2" stroke="#ff4438" stroke-width="2"/>
+          <circle cx="17.5" cy="18" r="2" stroke="#ff4438" stroke-width="2"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <strong>Fleet Tracker</strong>
+        <span>Shop · Cold Chain</span>
+      </div>
+    </div>
+
+    <div class="nav-group-label">Operations</div>
+    <button class="nav-item"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="2"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="2"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="2"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="2"/></svg>Dashboard</button>
+    <button class="nav-item"><svg viewBox="0 0 24 24" fill="none"><path d="M9 20l-5-2V6l5 2m0 12l6-2m-6 2V8m6 10l5 2V8l-5-2m0 12V6m0 0L9 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Live Map</button>
+    <button class="nav-item active"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2v20M5 8l-2 2 2 2M5 16l-2-2M19 8l2 2-2 2M19 16l2-2M8 12h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Cold Chain<span class="badge">2</span></button>
+
+    <div class="nav-group-label">Shop</div>
+    <button class="nav-item"><svg viewBox="0 0 24 24" fill="none"><path d="M14.7 6.3a4 4 0 015 5l-3 3 4 4-2 2-4-4-3 3a4 4 0 01-5-5l3 3 2-2-2-2 2-2 2 2 1-3z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>Work Orders</button>
+    <button class="nav-item"><svg viewBox="0 0 24 24" fill="none"><path d="M20 7l-8-4-8 4 8 4 8-4zM4 7v10l8 4 8-4V7M12 11v10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Parts &amp; PO</button>
+    <button class="nav-item"><svg viewBox="0 0 24 24" fill="none"><path d="M5 21V5a2 2 0 012-2h7l5 5v13a2 2 0 01-2 2H7a2 2 0 01-2-2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M14 3v5h5M9 13h6M9 17h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Invoices</button>
+
+    <div class="nav-group-label">Maintenance</div>
+    <button class="nav-item"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>PM / DOT</button>
+    <button class="nav-item"><svg viewBox="0 0 24 24" fill="none"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>DVIR</button>
+
+    <div class="sidebar-foot"><span class="dot-live"></span> Carrier Lynx · connected</div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main-area">
+    <div class="container">
+
+      <!-- Page head -->
+      <div class="page-head">
+        <div class="ph-left">
+          <div class="eyebrow">
+            <span class="chip-cold">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M12 2v20M4.5 7l15 10M19.5 7l-15 10" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+              Cold Chain
+            </span>
+            Reefer monitoring
+          </div>
+          <h1>Reefer fleet — live temperatures</h1>
+          <p class="page-sub">Two-way OEM telemetry across Carrier Lynx &amp; Thermo King. Every alarm severe enough to matter opens a Work Order automatically.</p>
+        </div>
+        <div class="ph-right">
+          <span class="live-pill"><span class="live-dot"></span> Live</span>
+          <button class="btn btn-ghost"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Export CSV</button>
+        </div>
+      </div>
+
+      <!-- KPI row -->
+      <div class="kpi-row">
+        <div class="kpi">
+          <div class="kpi-top">
+            <span class="kpi-label">Reefers reporting</span>
+            <span class="kpi-ico"><svg viewBox="0 0 24 24" fill="none"><path d="M4 9a2 2 0 012-2h9l4 4v4a2 2 0 01-2 2H6a2 2 0 01-2-2V9z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 7V5h5v2" stroke="currentColor" stroke-width="2"/></svg></span>
+          </div>
+          <div class="kpi-val tabular">6<span class="unit">/ 6</span></div>
+          <div class="kpi-foot"><span class="up">●</span> All units online · last 90s</div>
+        </div>
+
+        <div class="kpi is-alarm">
+          <div class="kpi-top">
+            <span class="kpi-label">Active alarms</span>
+            <span class="kpi-ico"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3l9 16H3l9-16z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 9v4m0 3h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
+          </div>
+          <div class="kpi-val tabular">2</div>
+          <div class="kpi-foot"><span class="dn">●</span> 1 high-temp · 1 door-open</div>
+        </div>
+
+        <div class="kpi">
+          <div class="kpi-top">
+            <span class="kpi-label">Cooling units on</span>
+            <span class="kpi-ico"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2v20M4.5 7l15 10M19.5 7l-15 10M12 2l-3 3m3-3l3 3M12 22l-3-3m3 3l3-3M2 8.5l4 1m-4 5l4-1M22 8.5l-4 1m4 5l-4-1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+          </div>
+          <div class="kpi-val tabular">5<span class="unit">/ 6</span></div>
+          <div class="kpi-foot"><span class="up">●</span> CF2255 in defrost cycle</div>
+        </div>
+
+        <div class="kpi">
+          <div class="kpi-top">
+            <span class="kpi-label">Avg reefer fuel</span>
+            <span class="kpi-ico"><svg viewBox="0 0 24 24" fill="none"><path d="M5 21V5a2 2 0 012-2h6a2 2 0 012 2v16M3 21h13M15 9h2.5A1.5 1.5 0 0119 10.5V17a2 2 0 002 2 2 2 0 002-2V8l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </div>
+          <div class="kpi-val tabular">45<span class="unit">%</span></div>
+          <div class="gauge"><i style="width:45%"></i></div>
+        </div>
+      </div>
+
+      <!-- Table + chart -->
+      <div class="cc-grid">
+        <!-- Reefer table -->
+        <section class="card">
+          <div class="card-head">
+            <span class="updated-dot"></span>
+            <h2>Reefers</h2>
+            <span class="sub">6 units · refreshed 12s ago</span>
+          </div>
+          <div class="table-wrap">
+            <table class="reefer-table">
+              <thead>
+                <tr>
+                  <th>Unit</th>
+                  <th class="num">Setpoint</th>
+                  <th class="num">Return</th>
+                  <th class="num">Supply</th>
+                  <th class="num">Ambient</th>
+                  <th>Mode</th>
+                  <th class="num">Fuel</th>
+                  <th>Door</th>
+                  <th>Alarms</th>
+                  <th>Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                <!-- Row 1 — in range -->
+                <tr>
+                  <td>
+                    <div class="reefer-unit">
+                      <span class="reefer-state st-on"></span>
+                      <span><strong>RF4187</strong><span class="reefer-ctrl-tag">CTRL</span><small>1HSDJAPR4 · Lynx</small></span>
+                    </div>
+                  </td>
+                  <td class="num rt-plain">-10.0°</td>
+                  <td class="num rt-ok">-9.4°</td>
+                  <td class="num rt-ok">-10.6°</td>
+                  <td class="num rt-plain">71.2°</td>
+                  <td><span class="mode-pill cool"><span class="mode-dot"></span>Cool</span></td>
+                  <td class="num"><div class="fuel-cell"><span>62%</span><span class="fuel-bar"><i style="width:62%"></i></span></div></td>
+                  <td><span class="reefer-door">Closed</span></td>
+                  <td><span class="alarm-none">—</span></td>
+                  <td><span class="upd">14:32:08<span class="ago">9s ago</span></span></td>
+                </tr>
+
+                <!-- Row 2 — OUT OF RANGE (red row + high-temp alarm) -->
+                <tr class="is-alarm">
+                  <td>
+                    <div class="reefer-unit">
+                      <span class="reefer-state st-on"></span>
+                      <span><strong>CI2244</strong><span class="reefer-ctrl-tag">CTRL</span><small>3AKJHHDR8 · Lynx</small></span>
+                    </div>
+                  </td>
+                  <td class="num rt-plain">34.0°</td>
+                  <td class="num rt-danger">48.6°</td>
+                  <td class="num rt-danger">44.1°</td>
+                  <td class="num rt-plain">88.7°</td>
+                  <td><span class="mode-pill cool"><span class="mode-dot"></span>Cool</span></td>
+                  <td class="num"><div class="fuel-cell"><span>51%</span><span class="fuel-bar"><i style="width:51%"></i></span></div></td>
+                  <td><span class="reefer-door">Closed</span></td>
+                  <td><div class="reefer-alarms"><span class="reefer-alarm sev-3">HIGH TEMP</span><span class="reefer-alarm sev-2">A127</span></div></td>
+                  <td><span class="upd">14:32:14<span class="ago">3s ago</span></span></td>
+                </tr>
+
+                <!-- Row 3 — in range -->
+                <tr>
+                  <td>
+                    <div class="reefer-unit">
+                      <span class="reefer-state st-on"></span>
+                      <span><strong>RF4192</strong><span class="reefer-ctrl-tag">CTRL</span><small>1FUJGLDR2 · Lynx</small></span>
+                    </div>
+                  </td>
+                  <td class="num rt-plain">36.0°</td>
+                  <td class="num rt-ok">36.8°</td>
+                  <td class="num rt-ok">34.9°</td>
+                  <td class="num rt-plain">84.0°</td>
+                  <td><span class="mode-pill cool"><span class="mode-dot"></span>Cool</span></td>
+                  <td class="num"><div class="fuel-cell"><span>58%</span><span class="fuel-bar"><i style="width:58%"></i></span></div></td>
+                  <td><span class="reefer-door">Closed</span></td>
+                  <td><span class="alarm-none">—</span></td>
+                  <td><span class="upd">14:32:05<span class="ago">12s ago</span></span></td>
+                </tr>
+
+                <!-- Row 4 — DOOR OPEN alarm + low fuel amber -->
+                <tr class="is-alarm">
+                  <td>
+                    <div class="reefer-unit">
+                      <span class="reefer-state st-on"></span>
+                      <span><strong>TK3308</strong><small>2NPRLN9X5 · Thermo King</small></span>
+                    </div>
+                  </td>
+                  <td class="num rt-plain">-20.0°</td>
+                  <td class="num rt-warn">-13.2°</td>
+                  <td class="num rt-ok">-19.7°</td>
+                  <td class="num rt-plain">79.5°</td>
+                  <td><span class="mode-pill cool"><span class="mode-dot"></span>Cool</span></td>
+                  <td class="num"><div class="fuel-cell rt-warn" style="background:transparent"><span style="color:var(--st-upcoming-ink);font-weight:700">14%</span><span class="fuel-bar"><i style="width:14%;background:var(--st-upcoming)"></i></span></div></td>
+                  <td><span class="reefer-door open">Open · 6m</span></td>
+                  <td><div class="reefer-alarms"><span class="reefer-alarm sev-3">DOOR OPEN</span><span class="reefer-alarm sev-1">LOW FUEL</span></div></td>
+                  <td><span class="upd">14:32:11<span class="ago">6s ago</span></span></td>
+                </tr>
+
+                <!-- Row 5 — defrost, off cooling -->
+                <tr>
+                  <td>
+                    <div class="reefer-unit">
+                      <span class="reefer-state st-on"></span>
+                      <span><strong>CF2255</strong><span class="reefer-ctrl-tag">CTRL</span><small>1XPBDP9X7 · Lynx</small></span>
+                    </div>
+                  </td>
+                  <td class="num rt-plain">34.0°</td>
+                  <td class="num rt-warn">39.7°</td>
+                  <td class="num rt-warn">41.2°</td>
+                  <td class="num rt-plain">86.3°</td>
+                  <td><span class="mode-pill defrost"><span class="mode-dot"></span>Defrost</span></td>
+                  <td class="num"><div class="fuel-cell"><span>49%</span><span class="fuel-bar"><i style="width:49%"></i></span></div></td>
+                  <td><span class="reefer-door">Closed</span></td>
+                  <td><div class="reefer-alarms"><span class="reefer-alarm sev-1">DEFROST</span></div></td>
+                  <td><span class="upd">14:31:58<span class="ago">19s ago</span></span></td>
+                </tr>
+
+                <!-- Row 6 — in range, aftermarket Traccar -->
+                <tr>
+                  <td>
+                    <div class="reefer-unit">
+                      <span class="reefer-state st-on"></span>
+                      <span><strong>RF4205</strong><small>3HSDZAPR1 · Traccar</small></span>
+                    </div>
+                  </td>
+                  <td class="num rt-plain">38.0°</td>
+                  <td class="num rt-ok">38.9°</td>
+                  <td class="num rt-ok">36.4°</td>
+                  <td class="num rt-plain">82.1°</td>
+                  <td><span class="mode-pill cool"><span class="mode-dot"></span>Cool</span></td>
+                  <td class="num"><div class="fuel-cell"><span>36%</span><span class="fuel-bar"><i style="width:36%"></i></span></div></td>
+                  <td><span class="reefer-door">Closed</span></td>
+                  <td><span class="alarm-none">—</span></td>
+                  <td><span class="upd">14:32:02<span class="ago">15s ago</span></span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Chart card -->
+        <section class="card chart-card">
+          <div class="card-head">
+            <h2>24h temperature</h2>
+            <span class="sub">CI2244 · °F</span>
+          </div>
+          <div class="chart-body">
+            <div class="chart-unit">
+              <span class="cu-name">CI2244 <small>3AKJHHDR8</small></span>
+              <span class="cu-set">setpoint <b>34.0°</b></span>
+            </div>
+            <div class="reefer-chart">
+              <svg viewBox="0 0 360 210" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="24 hour reefer temperature chart">
+                <!-- in-range band 30-40°F -->
+                <rect class="rc-band" x="40" y="78" width="306" height="40"/>
+                <!-- y gridlines -->
+                <line class="rc-grid" x1="40" y1="20"  x2="346" y2="20"/>
+                <line class="rc-grid" x1="40" y1="69"  x2="346" y2="69"/>
+                <line class="rc-grid" x1="40" y1="118" x2="346" y2="118"/>
+                <line class="rc-grid" x1="40" y1="167" x2="346" y2="167"/>
+                <!-- y labels -->
+                <text class="rc-axis y" x="34" y="24">50°</text>
+                <text class="rc-axis y" x="34" y="73">40°</text>
+                <text class="rc-axis y" x="34" y="122">30°</text>
+                <text class="rc-axis y" x="34" y="171">20°</text>
+                <!-- x labels -->
+                <text class="rc-axis x" x="40"  y="184">-24h</text>
+                <text class="rc-axis x" x="117" y="184">-18h</text>
+                <text class="rc-axis x" x="193" y="184">-12h</text>
+                <text class="rc-axis x" x="270" y="184">-6h</text>
+                <text class="rc-axis x" x="344" y="184">now</text>
+
+                <!-- alarm marker at high-temp excursion -->
+                <line class="rc-alarm-x" x1="312" y1="20" x2="312" y2="167"/>
+                <text class="rc-alarm-label" x="309" y="32" text-anchor="end">alarm</text>
+
+                <!-- setpoint dashed (34°F => y=99) -->
+                <line class="rc-set" x1="40" y1="99" x2="346" y2="99"/>
+
+                <!-- supply air (blue) — runs just below setpoint, ticks up at end -->
+                <path class="rc-supply" d="M40,107 L63,109 L86,104 L109,110 L132,106 L155,108 L178,105 L201,109 L224,104 L247,110 L270,106 L293,108 L312,99 L324,86 L346,78"/>
+
+                <!-- return air (accent/red) — stable in band then spikes through 40° into alarm -->
+                <path class="rc-return" d="M40,101 L63,98 L86,103 L109,97 L132,102 L155,99 L178,104 L201,98 L224,101 L247,96 L270,100 L293,95 L312,72 L324,52 L346,41"/>
+              </svg>
+            </div>
+            <div class="rc-legend">
+              <span><i class="rc-dot rc-d-return"></i> Return air</span>
+              <span><i class="rc-dot rc-d-supply"></i> Supply air</span>
+              <span><i class="rc-d-set"></i> Setpoint</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Moat callout -->
+      <div class="moat">
+        <div class="moat-ico">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M13 2L4.5 13.5H11l-1 8.5L19.5 10H13l0-8z" fill="currentColor"/></svg>
+        </div>
+        <div class="moat-body">
+          <div class="moat-kicker">The bridge nobody else has</div>
+          <div class="moat-title">
+            <span class="moat-flow"><span class="node">Reefer fault</span><span class="arrow">→</span><span class="node">auto Work Order</span></span>
+          </div>
+          <p class="moat-sub">CI2244 tripped <b style="color:var(--text)">HIGH TEMP (A127)</b> at 14:32 — Fleet Tracker opened a Work Order automatically with unit, fault code &amp; live context. Fullbay has the shop; Samsara has the reefer. Only Fleet Tracker connects both.</p>
+        </div>
+        <div class="moat-wo">
+          <span class="wo-chip">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" stroke="var(--st-on-track)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            WO-2041 opened
+          </span>
+          <span class="wo-src">from reefer fault</span>
+          <span class="moat-cta">Severity ≥ <b>High</b> · auto-WO on</span>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Unit profile — CF2255 · Fleet Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  /* ===== Tokens — copied from frontend/src/index.css [data-theme='dark'] ===== */
+  :root[data-theme='dark']{
+    --bg:#0a0a0b; --surface:#161618; --surface-2:#100f11; --surface-3:#1e1e21;
+    --text:#f4f4f5; --text-muted:#a1a1aa; --border:#27272b; --border-strong:#38383e;
+    --brand:#ff4438; --accent:#ff4438; --accent-2:#ff6a52; --accent-strong:#ff5a4a;
+    --accent-soft:rgba(255,68,56,0.15);
+    --ui-danger:#fb7185; --ui-danger-bg:rgba(251,113,133,0.15);
+    --ui-success:#34d399; --ui-success-bg:rgba(52,211,153,0.15);
+    --ui-warn:#fbbf24;    --ui-warn-bg:rgba(251,191,36,0.15);
+    --ui-info:#38bdf8;    --ui-info-bg:rgba(56,189,248,0.15);
+    --st-overdue:#f87171;  --st-overdue-ink:#fca5a5;
+    --st-upcoming:#fbbf24; --st-upcoming-ink:#fcd34d;
+    --st-on-track:#34d399; --st-on-track-ink:#6ee7b7;
+    --st-never:#22d3ee;    --st-never-ink:#67e8f9;
+    --truck-ok:#5a6b80; --truck-ok-stroke:#93a3b8;
+    --truck-has:#b23a30; --truck-has-stroke:#fb7185; --truck-chassis:#3a4453;
+    --radius:16px; --radius-lg:22px; --radius-sm:10px; --radius-xs:7px;
+    --radius-pill:999px; --radius-btn:11px;
+    --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px;
+    --space-5:22px; --space-6:32px; --space-7:48px;
+    --font:"Inter","Geist Variable",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    --font-display:"Space Grotesk","Inter",system-ui,sans-serif;
+    --font-mono:"Geist Mono",ui-monospace,"SF Mono",Menlo,monospace;
+    --shadow-sm:0 1px 2px rgba(0,0,0,0.5);
+    --shadow-md:0 20px 48px -18px rgba(0,0,0,0.72),0 2px 8px -4px rgba(0,0,0,0.6);
+    --grain:0.04;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:var(--font);
+    background:
+      radial-gradient(1200px 520px at 78% -8%, rgba(255,68,56,0.06), transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font-size:15px; line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    font-feature-settings:"cv01","ss01";
+  }
+  h1,h2,h3{font-family:var(--font-display); letter-spacing:-0.02em;}
+  .mono{font-family:var(--font-mono); font-variant-numeric:tabular-nums;}
+  .num{font-variant-numeric:tabular-nums;}
+
+  /* Film grain over the whole shell */
+  body::after{
+    content:""; position:fixed; inset:0; z-index:500; pointer-events:none;
+    opacity:var(--grain);
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size:130px;
+  }
+
+  /* ===== Shell ===== */
+  .app{display:flex; min-height:100%; align-items:stretch;}
+
+  /* ----- Sidebar ----- */
+  .sidebar{
+    width:240px; flex:none; background:var(--surface);
+    border-right:1px solid var(--border);
+    display:flex; flex-direction:column; gap:4px;
+    padding:18px 14px; position:sticky; top:0; height:100vh;
+  }
+  .brand{display:flex; align-items:center; gap:11px; padding:4px 4px 16px;}
+  .brand-logo{
+    width:42px; height:42px; flex:none; border-radius:12px;
+    background:linear-gradient(150deg,#1a1b1f,#0a0a0b);
+    border:1px solid var(--border-strong);
+    display:grid; place-items:center;
+    box-shadow:0 4px 12px -4px rgba(255,68,56,0.4);
+  }
+  .brand-text{display:flex; flex-direction:column; line-height:1.08; min-width:0;}
+  .brand-text strong{font-family:var(--font-display); font-size:17px; font-weight:700; letter-spacing:-0.02em;}
+  .brand-text span{font-size:9.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.14em; margin-top:3px;}
+  .nav-group-label{
+    font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.12em;
+    color:var(--text-muted); opacity:0.55; padding:14px 11px 6px;
+  }
+  .nav-item{
+    border:none; background:none; color:var(--text-muted);
+    font-family:inherit; font-size:13.5px; font-weight:600;
+    display:flex; align-items:center; gap:11px;
+    padding:9px 11px; border-radius:11px; text-align:left; width:100%;
+  }
+  .nav-item svg{width:17px; height:17px; flex:none;}
+  .nav-item.active{background:var(--accent-soft); color:var(--accent);}
+  .nav-item .count{
+    margin-left:auto; font-size:11px; font-weight:700;
+    background:var(--surface-3); color:var(--text-muted);
+    border:1px solid var(--border); padding:1px 7px; border-radius:999px;
+  }
+  .nav-item.active .count{background:var(--accent-soft); color:var(--accent); border-color:transparent;}
+  .sidebar-foot{
+    margin-top:auto; padding:14px 8px 2px; border-top:1px solid var(--border);
+    display:flex; align-items:center; gap:9px;
+  }
+  .avatar{
+    width:32px; height:32px; flex:none; border-radius:50%;
+    background:linear-gradient(140deg,#2a2c31,#161618);
+    border:1px solid var(--border-strong);
+    display:grid; place-items:center; font-size:12px; font-weight:700; color:var(--text);
+  }
+  .sidebar-foot .who{display:flex; flex-direction:column; line-height:1.2; min-width:0;}
+  .sidebar-foot .who strong{font-size:12.5px; font-weight:600;}
+  .sidebar-foot .who span{font-size:10.5px; color:var(--text-muted);}
+  .health-dot{width:7px; height:7px; border-radius:50%; background:var(--ui-success); box-shadow:0 0 0 3px rgba(52,211,153,0.18); margin-left:auto;}
+
+  /* ----- Main ----- */
+  .main{flex:1; min-width:0; display:flex; flex-direction:column;}
+  .topbar{
+    display:flex; align-items:center; gap:14px;
+    padding:14px 28px; border-bottom:1px solid var(--border);
+    background:rgba(16,15,17,0.6); backdrop-filter:blur(8px);
+    position:sticky; top:0; z-index:50;
+  }
+  .crumbs{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--text-muted);}
+  .crumbs a{color:var(--text-muted); text-decoration:none;}
+  .crumbs .sep{opacity:0.4;}
+  .crumbs .here{color:var(--text); font-weight:600;}
+  .topbar-spacer{flex:1;}
+  .search{
+    display:flex; align-items:center; gap:8px;
+    background:var(--surface-2); border:1px solid var(--border);
+    border-radius:10px; padding:7px 12px; width:240px; color:var(--text-muted); font-size:13px;
+  }
+  .search svg{width:15px; height:15px;}
+  .icon-btn{
+    width:34px; height:34px; border:1px solid var(--border); border-radius:9px;
+    background:var(--surface-2); color:var(--text-muted);
+    display:grid; place-items:center;
+  }
+  .icon-btn svg{width:17px; height:17px;}
+
+  .container{padding:24px 28px 56px; display:flex; flex-direction:column; gap:18px; max-width:1340px; width:100%; margin:0 auto;}
+
+  /* ===== Unit header ===== */
+  .unit-head{
+    background:
+      radial-gradient(700px 200px at 88% -40%, rgba(255,68,56,0.07), transparent 70%),
+      var(--surface);
+    border:1px solid var(--border); border-radius:var(--radius);
+    box-shadow:var(--shadow-sm); padding:20px 24px;
+    display:flex; align-items:flex-start; gap:22px; flex-wrap:wrap;
+  }
+  .unit-id{display:flex; align-items:center; gap:16px; min-width:0;}
+  .unit-mark{
+    width:58px; height:58px; flex:none; border-radius:14px;
+    background:linear-gradient(150deg,#1f2127,#121214);
+    border:1px solid var(--border-strong);
+    display:grid; place-items:center;
+    font-family:var(--font-display); font-weight:700; font-size:13px; color:var(--text-muted);
+    letter-spacing:0.04em;
+  }
+  .unit-mark svg{width:30px; height:30px; color:var(--truck-ok-stroke);}
+  .unit-title-wrap{display:flex; flex-direction:column; gap:7px; min-width:0;}
+  .unit-title-row{display:flex; align-items:center; gap:12px; flex-wrap:wrap;}
+  .unit-title{font-family:var(--font-display); font-size:30px; font-weight:700; letter-spacing:-0.03em; line-height:1;}
+  .unit-make{font-size:14px; color:var(--text-muted); font-weight:500;}
+  .unit-make b{color:var(--text); font-weight:600;}
+
+  .pill{
+    display:inline-flex; align-items:center; gap:7px;
+    border-radius:var(--radius-pill); padding:4px 11px;
+    font-size:11.5px; font-weight:600; letter-spacing:0.01em; white-space:nowrap;
+  }
+  .pill .pdot{width:7px; height:7px; border-radius:50%;}
+  .pill-inservice{
+    color:var(--st-on-track-ink);
+    background:color-mix(in srgb, var(--st-on-track) 16%, var(--surface));
+    border:1px solid color-mix(in srgb, var(--st-on-track) 34%, transparent);
+  }
+  .pill-inservice .pdot{background:var(--st-on-track); box-shadow:0 0 0 3px rgba(52,211,153,0.18);}
+
+  .unit-facts{
+    display:flex; gap:0; margin-left:auto; flex-wrap:wrap;
+    border:1px solid var(--border); border-radius:14px; overflow:hidden;
+    background:var(--surface-2);
+  }
+  .fact{padding:11px 18px; border-right:1px solid var(--border); display:flex; flex-direction:column; gap:3px; min-width:108px;}
+  .fact:last-child{border-right:none;}
+  .fact .k{font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-muted); font-weight:600;}
+  .fact .v{font-size:13.5px; font-weight:600; color:var(--text);}
+  .fact .v.mono{font-size:13px;}
+
+  /* ===== Tabs ===== */
+  .tabs{
+    display:flex; align-items:center; gap:4px;
+    border-bottom:1px solid var(--border); padding:0 2px;
+  }
+  .tab{
+    position:relative; border:none; background:none; color:var(--text-muted);
+    font-family:inherit; font-size:13.5px; font-weight:600;
+    padding:12px 16px 14px; display:flex; align-items:center; gap:8px;
+  }
+  .tab .tabcount{
+    font-size:10.5px; font-weight:700; padding:1px 6px; border-radius:999px;
+    background:var(--surface-3); color:var(--text-muted); border:1px solid var(--border);
+  }
+  .tab.active{color:var(--text);}
+  .tab.active::after{
+    content:""; position:absolute; left:10px; right:10px; bottom:-1px; height:2px;
+    background:var(--accent); border-radius:2px;
+  }
+  .tab.active .tabcount{background:var(--accent-soft); color:var(--accent); border-color:transparent;}
+  .tabs-right{margin-left:auto; display:flex; gap:8px; padding-right:2px;}
+  .btn{
+    border:1px solid var(--border-strong); border-radius:var(--radius-btn);
+    font-family:inherit; font-size:13px; font-weight:600;
+    padding:8px 14px; display:inline-flex; align-items:center; gap:8px;
+    background:var(--surface-2); color:var(--text);
+  }
+  .btn svg{width:15px; height:15px;}
+  .btn-primary{background:var(--accent); border-color:transparent; color:#fff; box-shadow:0 2px 10px -2px rgba(255,68,56,0.5);}
+
+  /* ===== Layout grid ===== */
+  .grid{display:grid; grid-template-columns:340px 1fr; gap:18px; align-items:start;}
+
+  .card{
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius); box-shadow:var(--shadow-sm); overflow:hidden;
+  }
+  .card-head{
+    display:flex; align-items:center; gap:10px;
+    padding:14px 18px; border-bottom:1px solid var(--border);
+  }
+  .card-head h2{font-size:14px; font-weight:700; letter-spacing:-0.01em;}
+  .card-head .sub{margin-left:auto; font-size:11.5px; color:var(--text-muted);}
+  .card-head .linkish{margin-left:auto; font-size:12px; color:var(--accent); font-weight:600; text-decoration:none;}
+  .card-body{padding:18px;}
+
+  /* ----- Left: truck diagram ----- */
+  .diagram-card .card-body{padding:18px 18px 14px;}
+  .truck-wrap{background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:14px 10px 6px;}
+  .truck-svg{width:100%; height:auto; display:block;}
+  .legend{
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    margin-top:12px; padding-top:12px; border-top:1px solid var(--border);
+    font-size:11px; color:var(--text-muted);
+  }
+  .legend .li{display:inline-flex; align-items:center; gap:6px;}
+  .legend .sw{width:11px; height:11px; border-radius:3px; border:1px solid;}
+  .sw-ok{background:color-mix(in srgb,var(--truck-ok) 60%, transparent); border-color:var(--truck-ok-stroke);}
+  .sw-has{background:color-mix(in srgb,var(--truck-has) 70%, transparent); border-color:var(--truck-has-stroke);}
+  .zone-note{
+    margin-top:12px; display:flex; align-items:flex-start; gap:10px;
+    background:var(--ui-danger-bg); border:1px solid color-mix(in srgb,var(--ui-danger) 40%, transparent);
+    border-radius:var(--radius-sm); padding:10px 12px;
+  }
+  .zone-note svg{width:16px; height:16px; color:var(--ui-danger); flex:none; margin-top:1px;}
+  .zone-note .zn-t{font-size:12px; line-height:1.45;}
+  .zone-note .zn-t b{color:var(--text); font-weight:600;}
+  .zone-note .zn-t span{color:var(--text-muted);}
+
+  /* ----- KPI tiles ----- */
+  .kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:12px;}
+  .kpi{
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius); padding:15px 16px; position:relative; overflow:hidden;
+  }
+  .kpi::before{content:""; position:absolute; left:0; top:14px; bottom:14px; width:3px; border-radius:0 3px 3px 0; background:var(--border-strong);}
+  .kpi.k-danger::before{background:var(--st-overdue);}
+  .kpi.k-warn::before{background:var(--st-upcoming);}
+  .kpi.k-ok::before{background:var(--st-on-track);}
+  .kpi.k-info::before{background:var(--st-never);}
+  .kpi .k-top{display:flex; align-items:center; justify-content:space-between; gap:8px;}
+  .kpi .k-label{font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); font-weight:600;}
+  .kpi .k-ico{width:30px; height:30px; border-radius:9px; display:grid; place-items:center;}
+  .kpi .k-ico svg{width:16px; height:16px;}
+  .k-danger .k-ico{background:var(--ui-danger-bg); color:var(--ui-danger);}
+  .k-warn .k-ico{background:var(--ui-warn-bg); color:var(--ui-warn);}
+  .k-ok .k-ico{background:var(--ui-success-bg); color:var(--ui-success);}
+  .k-info .k-ico{background:var(--ui-info-bg); color:var(--ui-info);}
+  .kpi .k-value{font-family:var(--font-display); font-size:30px; font-weight:700; letter-spacing:-0.02em; line-height:1.05; margin-top:14px; font-variant-numeric:tabular-nums;}
+  .kpi .k-value small{font-size:14px; font-weight:600; color:var(--text-muted); letter-spacing:0;}
+  .kpi .k-meta{font-size:11.5px; color:var(--text-muted); margin-top:5px;}
+  .kpi .k-meta b{font-weight:600;}
+  .k-danger .k-meta b{color:var(--st-overdue-ink);}
+  .k-warn .k-meta b{color:var(--st-upcoming-ink);}
+  .k-ok .k-meta b{color:var(--st-on-track-ink);}
+
+  /* ----- Open defects list ----- */
+  .stack{display:flex; flex-direction:column; gap:14px;}
+  .defect-row{
+    display:flex; align-items:center; gap:14px;
+    padding:13px 16px; border-bottom:1px solid var(--border);
+  }
+  .defect-row:last-child{border-bottom:none;}
+  .sev{width:4px; align-self:stretch; border-radius:3px; flex:none;}
+  .sev.critical{background:var(--st-overdue);}
+  .sev.major{background:var(--st-upcoming);}
+  .defect-main{min-width:0; flex:1;}
+  .defect-title{font-size:13.5px; font-weight:600; display:flex; align-items:center; gap:9px; flex-wrap:wrap;}
+  .chip{
+    font-size:10.5px; font-weight:600; padding:2px 8px; border-radius:999px;
+    background:var(--surface-3); color:var(--text-muted); border:1px solid var(--border);
+  }
+  .chip-cat{background:var(--ui-info-bg); color:var(--ui-info); border-color:transparent;}
+  .chip-reefer{background:var(--accent-soft); color:var(--accent); border-color:transparent;}
+  .defect-meta{font-size:11.5px; color:var(--text-muted); margin-top:4px; display:flex; gap:14px; flex-wrap:wrap;}
+  .defect-meta .mono{color:var(--text-muted);}
+  .sev-pill{
+    font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:999px; white-space:nowrap;
+  }
+  .sev-pill.critical{color:var(--st-overdue-ink); background:color-mix(in srgb,var(--st-overdue) 16%, var(--surface)); border:1px solid color-mix(in srgb,var(--st-overdue) 32%,transparent);}
+  .sev-pill.major{color:var(--st-upcoming-ink); background:color-mix(in srgb,var(--st-upcoming) 16%, var(--surface)); border:1px solid color-mix(in srgb,var(--st-upcoming) 32%,transparent);}
+  .row-go{width:28px; height:28px; border-radius:8px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-muted); display:grid; place-items:center; flex:none;}
+  .row-go svg{width:14px; height:14px;}
+
+  /* ----- PM components ----- */
+  .pm-list{display:flex; flex-direction:column;}
+  .pm-row{display:flex; align-items:center; gap:14px; padding:13px 16px; border-bottom:1px solid var(--border);}
+  .pm-row:last-child{border-bottom:none;}
+  .pm-rail{width:4px; align-self:stretch; border-radius:3px; flex:none;}
+  .pm-rail.overdue{background:var(--st-overdue);}
+  .pm-rail.upcoming{background:var(--st-upcoming);}
+  .pm-rail.ontrack{background:var(--st-on-track);}
+  .pm-name{width:172px; flex:none;}
+  .pm-name .t{font-size:13px; font-weight:600;}
+  .pm-name .s{font-size:11px; color:var(--text-muted); margin-top:2px;}
+  .pm-bar-wrap{flex:1; min-width:0;}
+  .pm-bar-top{display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); margin-bottom:6px;}
+  .pm-bar-top .due{font-weight:600;}
+  .pm-bar{height:7px; border-radius:999px; background:var(--surface-3); overflow:hidden;}
+  .pm-bar i{display:block; height:100%; border-radius:999px;}
+  .pm-bar.overdue i{background:var(--st-overdue);}
+  .pm-bar.upcoming i{background:var(--st-upcoming);}
+  .pm-bar.ontrack i{background:var(--st-on-track);}
+  .pm-status{width:118px; flex:none; text-align:right;}
+  .stpill{font-size:10.5px; font-weight:700; padding:3px 10px; border-radius:999px; white-space:nowrap;}
+  .stpill.overdue{color:var(--st-overdue-ink); background:color-mix(in srgb,var(--st-overdue) 16%, var(--surface)); border:1px solid color-mix(in srgb,var(--st-overdue) 32%,transparent);}
+  .stpill.upcoming{color:var(--st-upcoming-ink); background:color-mix(in srgb,var(--st-upcoming) 16%, var(--surface)); border:1px solid color-mix(in srgb,var(--st-upcoming) 32%,transparent);}
+  .stpill.ontrack{color:var(--st-on-track-ink); background:color-mix(in srgb,var(--st-on-track) 16%, var(--surface)); border:1px solid color-mix(in srgb,var(--st-on-track) 32%,transparent);}
+
+  /* ----- Work orders table ----- */
+  .wo-table{width:100%; border-collapse:collapse; font-size:13px;}
+  .wo-table thead th{
+    font-size:10.5px; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted);
+    font-weight:600; text-align:left; padding:0 16px 9px;
+  }
+  .wo-table thead th.r{text-align:right;}
+  .wo-table tbody td{padding:12px 16px; border-top:1px solid var(--border); vertical-align:middle;}
+  .wo-table tbody td.r{text-align:right;}
+  .wo-id{font-weight:600;}
+  .wo-id .src{display:inline-flex; margin-left:7px; font-size:9.5px; font-weight:700; letter-spacing:0.02em; padding:1px 6px; border-radius:5px; background:var(--accent-soft); color:var(--accent); text-transform:uppercase;}
+  .wo-desc{color:var(--text-muted); font-size:12px; margin-top:2px;}
+  .wo-cost{font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-weight:600;}
+  .wostat{font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:999px; white-space:nowrap;}
+  .wostat.completed{color:var(--st-on-track-ink); background:color-mix(in srgb,var(--st-on-track) 16%, var(--surface)); border:1px solid color-mix(in srgb,var(--st-on-track) 30%,transparent);}
+  .wostat.progress{color:var(--st-upcoming-ink); background:color-mix(in srgb,var(--st-upcoming) 16%, var(--surface)); border:1px solid color-mix(in srgb,var(--st-upcoming) 30%,transparent);}
+  .wostat.waiting{color:var(--st-never-ink); background:color-mix(in srgb,var(--st-never) 14%, var(--surface)); border:1px solid color-mix(in srgb,var(--st-never) 28%,transparent);}
+  .wo-table tbody tr:hover{background:var(--surface-2);}
+  .wo-foot{display:flex; align-items:center; justify-content:space-between; padding:13px 16px; border-top:1px solid var(--border); font-size:12px; color:var(--text-muted);}
+  .wo-foot b{color:var(--text); font-family:var(--font-mono); font-variant-numeric:tabular-nums;}
+
+  .two-col{display:grid; grid-template-columns:1fr; gap:18px;}
+  .right-col{display:flex; flex-direction:column; gap:18px;}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ===================== Sidebar ===================== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 17h11V7H3v10Z" stroke="#ff4438" stroke-width="1.6"/>
+          <path d="M14 10h4l3 3v4h-7v-7Z" stroke="#ff4438" stroke-width="1.6"/>
+          <circle cx="7" cy="18.5" r="2" fill="#0a0a0b" stroke="#ff4438" stroke-width="1.6"/>
+          <circle cx="17.5" cy="18.5" r="2" fill="#0a0a0b" stroke="#ff4438" stroke-width="1.6"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <strong>Fleet Tracker</strong>
+        <span>Shop &amp; Cold Chain</span>
+      </div>
+    </div>
+
+    <div class="nav-group-label">Operations</div>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      Dashboard
+    </button>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>
+      Live map
+    </button>
+
+    <div class="nav-group-label">Shop</div>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2-2 2.6-2.6Z"/></svg>
+      Work orders <span class="count">9</span>
+    </button>
+    <button class="nav-item active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.5" y="8" width="13" height="9" rx="1.4"/><path d="M15.5 11h4l2 2.5V17h-6"/><circle cx="6.5" cy="18" r="1.7"/><circle cx="17.5" cy="18" r="1.7"/></svg>
+      Units
+    </button>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+      PM / DOT
+    </button>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2v6l4 2"/><circle cx="12" cy="12" r="9"/></svg>
+      Cold chain
+    </button>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h9l3 3v15H6z"/><path d="M9 9h6M9 13h6M9 17h4"/></svg>
+      Parts &amp; PO
+    </button>
+
+    <div class="nav-group-label">Compliance</div>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      DVIR
+    </button>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m10.3 3.3-7 12A1.5 1.5 0 0 0 4.6 18h14.8a1.5 1.5 0 0 0 1.3-2.7l-7-12a1.5 1.5 0 0 0-2.6 0Z"/><path d="M12 9v4M12 16h.01"/></svg>
+      Defects <span class="count">23</span>
+    </button>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9"/></svg>
+      Drivers
+    </button>
+
+    <div class="sidebar-foot">
+      <div class="avatar">JD</div>
+      <div class="who">
+        <strong>Journey Dario</strong>
+        <span>Maintenance mgr</span>
+      </div>
+      <span class="health-dot" title="Connected"></span>
+    </div>
+  </aside>
+
+  <!-- ===================== Main ===================== -->
+  <main class="main">
+    <div class="topbar">
+      <div class="crumbs">
+        <a href="#">Units</a><span class="sep">/</span>
+        <a href="#">Tractors</a><span class="sep">/</span>
+        <span class="here">CF2255</span>
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        Search unit, VIN, plate…
+      </div>
+      <button class="icon-btn" title="Notifications">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+      </button>
+    </div>
+
+    <div class="container">
+
+      <!-- ===== Unit header ===== -->
+      <section class="unit-head">
+        <div class="unit-id">
+          <div class="unit-mark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="8" width="13" height="9" rx="1.4"/><path d="M15.5 11h4l2 2.5V17h-6"/><circle cx="6.5" cy="18" r="1.7"/><circle cx="17.5" cy="18" r="1.7"/></svg>
+          </div>
+          <div class="unit-title-wrap">
+            <div class="unit-title-row">
+              <span class="unit-title">CF2255</span>
+              <span class="pill pill-inservice"><span class="pdot"></span>In service · Active</span>
+            </div>
+            <div class="unit-make">2021 <b>Freightliner Cascadia</b> · Tractor (sleeper) · Detroit DD15</div>
+          </div>
+        </div>
+
+        <div class="unit-facts">
+          <div class="fact">
+            <span class="k">VIN</span>
+            <span class="v mono">3AKJHHDR2MSMV4471</span>
+          </div>
+          <div class="fact">
+            <span class="k">Plate</span>
+            <span class="v mono">TX&nbsp;7C4-8821</span>
+          </div>
+          <div class="fact">
+            <span class="k">Domicile</span>
+            <span class="v">Laredo, TX</span>
+          </div>
+          <div class="fact">
+            <span class="k">Assigned</span>
+            <span class="v">M. Reséndez</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Tabs ===== -->
+      <nav class="tabs">
+        <button class="tab active">Overview</button>
+        <button class="tab">Defects <span class="tabcount">2</span></button>
+        <button class="tab">PM</button>
+        <button class="tab">DVIR</button>
+        <button class="tab">Work orders <span class="tabcount">9</span></button>
+        <button class="tab">Specs</button>
+        <div class="tabs-right">
+          <button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>Export</button>
+          <button class="btn btn-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>New work order</button>
+        </div>
+      </nav>
+
+      <!-- ===== Body grid ===== -->
+      <div class="grid">
+
+        <!-- ----- Left column: truck diagram ----- -->
+        <div class="two-col">
+          <section class="card diagram-card">
+            <div class="card-head">
+              <h2>Unit map</h2>
+              <span class="sub">Side view · defect zones</span>
+            </div>
+            <div class="card-body">
+              <div class="truck-wrap">
+                <svg class="truck-svg" viewBox="0 0 400 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Side-view diagram of tractor CF2255">
+                  <!-- ground -->
+                  <line x1="14" y1="150" x2="386" y2="150" stroke="var(--border-strong)" stroke-width="1.5" stroke-dasharray="2 5"/>
+
+                  <!-- ===== CHASSIS / frame ===== -->
+                  <rect x="34" y="118" width="320" height="12" rx="3" fill="var(--truck-chassis)"/>
+
+                  <!-- ===== SLEEPER + CAB body ===== -->
+                  <!-- sleeper box -->
+                  <path d="M40 58 h150 a8 8 0 0 1 8 8 v52 h-166 v-52 a8 8 0 0 1 8 -8 Z"
+                        fill="var(--truck-ok)" stroke="var(--truck-ok-stroke)" stroke-width="2"/>
+                  <!-- cab front (slope + windshield) — GLASS zone highlighted (defect) -->
+                  <path d="M198 66 q4 -8 16 -8 l30 0 q12 0 20 12 l18 30 v18 h-104 v-52 Z"
+                        fill="var(--truck-ok)" stroke="var(--truck-ok-stroke)" stroke-width="2"/>
+
+                  <!-- windshield glass (DEFECT — red) -->
+                  <path d="M214 62 l24 0 q8 0 13 9 l11 19 h-50 q-2 -16 2 -28 Z"
+                        fill="var(--truck-has)" stroke="var(--truck-has-stroke)" stroke-width="2"/>
+                  <!-- defect ping on glass -->
+                  <circle cx="236" cy="74" r="13" fill="none" stroke="var(--truck-has-stroke)" stroke-width="1.4" opacity="0.5"/>
+                  <circle cx="236" cy="74" r="4" fill="var(--accent)"/>
+
+                  <!-- door seam on sleeper -->
+                  <line x1="118" y1="60" x2="118" y2="118" stroke="var(--truck-ok-stroke)" stroke-width="1.2" opacity="0.6"/>
+                  <!-- sleeper window -->
+                  <rect x="150" y="70" width="36" height="22" rx="3" fill="var(--surface-2)" stroke="var(--truck-ok-stroke)" stroke-width="1.4"/>
+                  <!-- side fairing -->
+                  <path d="M40 118 h300 v8 a4 4 0 0 1 -4 4 h-292 a4 4 0 0 1 -4 -4 Z" fill="var(--truck-ok)" stroke="var(--truck-ok-stroke)" stroke-width="1.6"/>
+
+                  <!-- bumper -->
+                  <rect x="296" y="112" width="14" height="22" rx="3" fill="var(--truck-chassis)" stroke="var(--truck-ok-stroke)" stroke-width="1.2"/>
+
+                  <!-- ===== Wheels ===== -->
+                  <!-- steer axle -->
+                  <circle cx="278" cy="132" r="20" fill="#0c0c0e" stroke="var(--truck-ok-stroke)" stroke-width="3"/>
+                  <circle cx="278" cy="132" r="8" fill="var(--surface-3)" stroke="var(--truck-ok-stroke)" stroke-width="1.5"/>
+                  <!-- drive axle group (tandem) -->
+                  <circle cx="92" cy="132" r="20" fill="#0c0c0e" stroke="var(--truck-ok-stroke)" stroke-width="3"/>
+                  <circle cx="92" cy="132" r="8" fill="var(--surface-3)" stroke="var(--truck-ok-stroke)" stroke-width="1.5"/>
+                  <circle cx="138" cy="132" r="20" fill="#0c0c0e" stroke="var(--truck-ok-stroke)" stroke-width="3"/>
+                  <circle cx="138" cy="132" r="8" fill="var(--surface-3)" stroke="var(--truck-ok-stroke)" stroke-width="1.5"/>
+
+                  <!-- ===== Zone labels (subtle) ===== -->
+                  <text x="240" y="50" text-anchor="middle" font-family="Geist Mono, monospace" font-size="8.5" fill="var(--truck-has-stroke)" font-weight="700">WINDSHIELD</text>
+                  <text x="115" y="50" text-anchor="middle" font-family="Geist Mono, monospace" font-size="8.5" fill="var(--text-muted)">SLEEPER / CAB</text>
+                  <text x="115" y="170" text-anchor="middle" font-family="Geist Mono, monospace" font-size="8.5" fill="var(--text-muted)">DRIVE TANDEM</text>
+                  <text x="278" y="170" text-anchor="middle" font-family="Geist Mono, monospace" font-size="8.5" fill="var(--text-muted)">STEER</text>
+                </svg>
+              </div>
+
+              <div class="legend">
+                <span class="li"><span class="sw sw-ok"></span> No open defect</span>
+                <span class="li"><span class="sw sw-has"></span> Open defect</span>
+              </div>
+
+              <div class="zone-note">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m10.3 3.3-7 12A1.5 1.5 0 0 0 4.6 18h14.8a1.5 1.5 0 0 0 1.3-2.7l-7-12a1.5 1.5 0 0 0-2.6 0Z"/><path d="M12 9v4M12 16h.01"/></svg>
+                <div class="zn-t"><b>Windshield / mirrors</b> — <span>cracked windshield flagged on DVIR, driver-side. Critical zone highlighted.</span></div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- ----- Right / main column ----- -->
+        <div class="right-col">
+
+          <!-- KPI tiles -->
+          <div class="kpis">
+            <div class="kpi k-danger">
+              <div class="k-top">
+                <span class="k-label">Open defects</span>
+                <span class="k-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m10.3 3.3-7 12A1.5 1.5 0 0 0 4.6 18h14.8a1.5 1.5 0 0 0 1.3-2.7l-7-12a1.5 1.5 0 0 0-2.6 0Z"/><path d="M12 9v4M12 16h.01"/></svg></span>
+              </div>
+              <div class="k-value num">2</div>
+              <div class="k-meta"><b>1 critical</b> · 1 major</div>
+            </div>
+
+            <div class="kpi k-warn">
+              <div class="k-top">
+                <span class="k-label">Next PM in</span>
+                <span class="k-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+              </div>
+              <div class="k-value num">1,600 <small>mi</small></div>
+              <div class="k-meta"><b>PM-A</b> due at 307,400 mi</div>
+            </div>
+
+            <div class="kpi k-ok">
+              <div class="k-top">
+                <span class="k-label">Last DVIR</span>
+                <span class="k-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+              </div>
+              <div class="k-value">Pass</div>
+              <div class="k-meta">2026-06-19 · 06:12 · pre-trip</div>
+            </div>
+
+            <div class="kpi k-info">
+              <div class="k-top">
+                <span class="k-label">Odometer</span>
+                <span class="k-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 14a4 4 0 1 0-4-4"/><path d="M12 14V9"/><path d="M3 19a9 9 0 1 1 18 0"/></svg></span>
+              </div>
+              <div class="k-value num">305,800 <small>mi</small></div>
+              <div class="k-meta">+612 mi this week · Samsara</div>
+            </div>
+          </div>
+
+          <!-- Open defects -->
+          <section class="card">
+            <div class="card-head">
+              <h2>Open defects</h2>
+              <a href="#" class="linkish">View all (2)</a>
+            </div>
+            <div class="pm-list">
+              <div class="defect-row">
+                <div class="sev critical"></div>
+                <div class="defect-main">
+                  <div class="defect-title">
+                    Windshield cracked — driver side, lower
+                    <span class="chip chip-cat">Windshield / mirrors</span>
+                  </div>
+                  <div class="defect-meta">
+                    <span>Reported <span class="mono">2026-06-18</span></span>
+                    <span>by M. Reséndez (DVIR)</span>
+                    <span class="mono">#DF-4471</span>
+                  </div>
+                </div>
+                <span class="sev-pill critical">Critical · out-of-service</span>
+                <button class="row-go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button>
+              </div>
+
+              <div class="defect-row">
+                <div class="sev major"></div>
+                <div class="defect-main">
+                  <div class="defect-title">
+                    APU low refrigerant — Carrier reefer fault A-061
+                    <span class="chip chip-cat">Air conditioner</span>
+                    <span class="chip chip-reefer">from reefer fault</span>
+                  </div>
+                  <div class="defect-meta">
+                    <span>Reported <span class="mono">2026-06-16</span></span>
+                    <span>auto · Carrier Lynx</span>
+                    <span class="mono">#DF-4458</span>
+                  </div>
+                </div>
+                <span class="sev-pill major">Major · monitor</span>
+                <button class="row-go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button>
+              </div>
+            </div>
+          </section>
+
+          <!-- PM components -->
+          <section class="card">
+            <div class="card-head">
+              <h2>PM components</h2>
+              <span class="sub">Interval · next due</span>
+            </div>
+            <div class="pm-list">
+
+              <div class="pm-row">
+                <div class="pm-rail overdue"></div>
+                <div class="pm-name">
+                  <div class="t">DOT annual inspection</div>
+                  <div class="s">Every 12 mo</div>
+                </div>
+                <div class="pm-bar-wrap">
+                  <div class="pm-bar-top"><span>Due 2026-05-30</span><span class="due">20 days overdue</span></div>
+                  <div class="pm-bar overdue"><i style="width:100%"></i></div>
+                </div>
+                <div class="pm-status"><span class="stpill overdue">Overdue</span></div>
+              </div>
+
+              <div class="pm-row">
+                <div class="pm-rail upcoming"></div>
+                <div class="pm-name">
+                  <div class="t">PM-A service</div>
+                  <div class="s">Every 15,000 mi</div>
+                </div>
+                <div class="pm-bar-wrap">
+                  <div class="pm-bar-top"><span>Last 290,800 mi</span><span class="due">1,600 mi to go</span></div>
+                  <div class="pm-bar upcoming"><i style="width:89%"></i></div>
+                </div>
+                <div class="pm-status"><span class="stpill upcoming">Upcoming</span></div>
+              </div>
+
+              <div class="pm-row">
+                <div class="pm-rail ontrack"></div>
+                <div class="pm-name">
+                  <div class="t">Oil &amp; filter (DD15)</div>
+                  <div class="s">Every 25,000 mi</div>
+                </div>
+                <div class="pm-bar-wrap">
+                  <div class="pm-bar-top"><span>Last 298,400 mi</span><span class="due">17,600 mi to go</span></div>
+                  <div class="pm-bar ontrack"><i style="width:30%"></i></div>
+                </div>
+                <div class="pm-status"><span class="stpill ontrack">On track</span></div>
+              </div>
+
+              <div class="pm-row">
+                <div class="pm-rail ontrack"></div>
+                <div class="pm-name">
+                  <div class="t">Brake adjustment</div>
+                  <div class="s">Every 6 mo</div>
+                </div>
+                <div class="pm-bar-wrap">
+                  <div class="pm-bar-top"><span>Last 2026-04-02</span><span class="due">Due 2026-10-02</span></div>
+                  <div class="pm-bar ontrack"><i style="width:42%"></i></div>
+                </div>
+                <div class="pm-status"><span class="stpill ontrack">On track</span></div>
+              </div>
+
+            </div>
+          </section>
+
+          <!-- Recent work orders -->
+          <section class="card">
+            <div class="card-head">
+              <h2>Recent work orders</h2>
+              <a href="#" class="linkish">View all (9)</a>
+            </div>
+            <table class="wo-table">
+              <thead>
+                <tr>
+                  <th>Work order</th>
+                  <th>Opened</th>
+                  <th>Status</th>
+                  <th class="r">Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <div class="wo-id">WO-2026-0418 <span class="src">from reefer</span></div>
+                    <div class="wo-desc">Carrier reefer fault A-061 · recharge refrigerant + leak test</div>
+                  </td>
+                  <td class="mono">2026-06-16</td>
+                  <td><span class="wostat waiting">Waiting parts</span></td>
+                  <td class="r"><span class="wo-cost">$612.40</span></td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="wo-id">WO-2026-0402</div>
+                    <div class="wo-desc">Windshield replacement · DOT-spec laminated glass</div>
+                  </td>
+                  <td class="mono">2026-06-18</td>
+                  <td><span class="wostat progress">In progress</span></td>
+                  <td class="r"><span class="wo-cost">$1,284.00</span></td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="wo-id">WO-2026-0361</div>
+                    <div class="wo-desc">PM-A service · oil, filters, multi-point inspection</div>
+                  </td>
+                  <td class="mono">2026-05-21</td>
+                  <td><span class="wostat completed">Completed</span></td>
+                  <td class="r"><span class="wo-cost">$948.75</span></td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="wo-id">WO-2026-0299</div>
+                    <div class="wo-desc">Steer tires (2) replaced · alignment check</div>
+                  </td>
+                  <td class="mono">2026-04-09</td>
+                  <td><span class="wostat completed">Completed</span></td>
+                  <td class="r"><span class="wo-cost">$1,732.18</span></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="wo-foot">
+              <span>Last 90 days · 4 of 9 work orders</span>
+              <span>Total <b>$4,577.33</b></span>
+            </div>
+          </section>
+
+        </div><!-- /right-col -->
+      </div><!-- /grid -->
+
+    </div><!-- /container -->
+  </main>
+</div>
+</body>
+</html>
