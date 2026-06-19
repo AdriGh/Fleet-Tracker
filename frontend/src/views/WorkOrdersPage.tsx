@@ -47,6 +47,45 @@ function findPart(parts: Part[], pn: string): Part | undefined {
   return k ? parts.find((p) => p.part_number.toLowerCase() === k) : undefined
 }
 
+// Input numérico que admite decimales mientras se escribe (review v1.18).
+// Bug previo: un <input type="number"> con onChange={Number(e.target.value)}
+// reseteaba "238." a 238 y "." a 0, así que el punto no se podía teclear.
+// Solución: el input es texto (inputMode="decimal"), se respalda con la
+// cadena CRUDA durante la edición y solo se parsea a número en cada cambio
+// válido; al perder foco se normaliza al número final.
+function DecimalInput({
+  value, onChange, className, title, placeholder,
+}: {
+  value: number
+  onChange: (n: number) => void
+  className?: string
+  title?: string
+  placeholder?: string
+}) {
+  // Cadena en edición: null = mostrar el número del padre (no se está editando).
+  const [raw, setRaw] = useState<string | null>(null)
+  const shown = raw ?? (value === 0 ? '' : String(value))
+  return (
+    <input
+      className={className}
+      type="text"
+      inputMode="decimal"
+      title={title}
+      placeholder={placeholder}
+      value={shown}
+      onChange={(e) => {
+        const t = e.target.value
+        // Permitir vacío, dígitos y UN punto (estados intermedios "238." o ".").
+        if (t !== '' && !/^\d*\.?\d*$/.test(t)) return
+        setRaw(t)
+        const n = parseFloat(t)
+        onChange(Number.isFinite(n) ? n : 0)
+      }}
+      onBlur={() => setRaw(null)}
+    />
+  )
+}
+
 // Datalist compartido de part numbers (el option muestra la descripción).
 function PartOptions({ id, parts }: { id: string; parts: Part[] }) {
   return (
@@ -358,6 +397,10 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
   // líneas extraídas (editables, H3b) se agregan al crear la orden.
   const [scanning, setScanning] = useState(false)
   const [scanName, setScanName] = useState('')
+  // Archivo escaneado original: se adjunta automáticamente a la WO al crearla
+  // (review v1.18) reusando POST /workorders/{id}/invoice-file, para que la
+  // sección "Source invoice" ya lo muestre sin subida manual.
+  const [scanFile, setScanFile] = useState<File | null>(null)
   const [scanLines, setScanLines] = useState<WoScanLine[]>([])
   const [dragOver, setDragOver] = useState(false)
   // Preview del documento al lado del form (H3b).
@@ -420,11 +463,14 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
       if (x.invoice_number) setInvoiceNum(x.invoice_number)
       if (x.mechanic) setMechanic(x.mechanic)
       setScanLines(x.lines)
+      // Guardar el File para adjuntarlo a la WO al crearla (FIX 2).
+      setScanFile(f)
       notifyOk('Document scanned',
         `${cs.length} complaint${cs.length === 1 ? '' : 's'}, ` +
         `${x.lines.length} line${x.lines.length === 1 ? '' : 's'} · ${r.model}`)
     } catch (e) {
       setScanName('')
+      setScanFile(null)
       notifyErr("Couldn't scan the document", e)
     } finally {
       setScanning(false)
@@ -513,6 +559,17 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
           qty: Number(ln.qty) || 1, unit_cost: Number(ln.unit_cost) || 0,
           part_number: ln.part_number ?? '',
         })
+      }
+
+      // FIX 2: si la WO viene de un escaneo, adjuntar el documento original a
+      // la orden PRIMARIA (la que lleva los costos) reusando el endpoint de
+      // factura. No bloquea la creación: un fallo solo avisa por toast.
+      if (scanFile) {
+        try {
+          await uploadWoInvoiceFile(primaryWo.id, scanFile)
+        } catch (e) {
+          notifyErr("Work order created, but couldn't attach the invoice", e)
+        }
       }
 
       // 2) Una orden por cada OTRA unidad (stub: complaint sin líneas, para
@@ -777,15 +834,14 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
               <input className="cell-input" value={ln.description}
                 placeholder="Description"
                 onChange={(e) => setLine(i, { description: e.target.value })} />
-              <input className="cell-input wo-line-n" type="number"
+              <DecimalInput className="cell-input wo-line-n"
                 title={ln.kind === 'part' ? 'Quantity' : 'Hours'}
                 value={ln.qty}
-                onChange={(e) => setLine(i, { qty: Number(e.target.value) })} />
-              <input className="cell-input wo-line-n" type="number"
+                onChange={(n) => setLine(i, { qty: n })} />
+              <DecimalInput className="cell-input wo-line-n"
                 title={ln.kind === 'part' ? 'Unit cost' : 'Hourly rate'}
                 value={ln.unit_cost}
-                onChange={(e) =>
-                  setLine(i, { unit_cost: Number(e.target.value) })} />
+                onChange={(n) => setLine(i, { unit_cost: n })} />
               <button className="mnt-icon" title="Remove line"
                 onClick={() => setScanLines(
                   scanLines.filter((_, j) => j !== i))}>

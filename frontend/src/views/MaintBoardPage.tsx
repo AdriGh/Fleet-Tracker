@@ -468,17 +468,17 @@ export default function MaintBoardPage({ kind }: Props) {
                             </span>
                           )}
                         </td>
-                        <td className="num">
-                          {kind === 'pm' ? (
-                            <MeterCell row={u} onSave={saveCurrent} />
-                          ) : (
+                        {kind === 'pm' ? (
+                          <MeterCell row={u} onSave={saveCurrent} />
+                        ) : (
+                          <td className="num">
                             <span className="mnt-meter">
                               {fmtMi(u.current_miles)}
                               {u.current_source &&
                                 <i className="mnt-src">{u.current_source}</i>}
                             </span>
-                          )}
-                        </td>
+                          </td>
+                        )}
                         {isEdit ? (
                           <>
                             <td className="num">
@@ -659,25 +659,29 @@ function MeterCell({ row, onSave }:
   const [val, setVal] = useState('')
   if (edit) {
     return (
-      <input
-        type="number" className="cell-input mnt-input" autoFocus
-        defaultValue={row.current_miles ?? ''}
-        placeholder="empty = Samsara"
-        onChange={(e) => setVal(e.target.value)}
-        onBlur={() => setEdit(false)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') { onSave(row, val); setEdit(false) }
-          if (e.key === 'Escape') setEdit(false)
-        }}
-      />
+      <td className="num">
+        <input
+          type="number" className="cell-input mnt-input" autoFocus
+          defaultValue={row.current_miles ?? ''}
+          placeholder="empty = Samsara"
+          onChange={(e) => setVal(e.target.value)}
+          onBlur={() => setEdit(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { onSave(row, val); setEdit(false) }
+            if (e.key === 'Escape') setEdit(false)
+          }}
+        />
+      </td>
     )
   }
   return (
-    <span className="mnt-meter mnt-editable" title="Edit current mileage"
+    <td className="num mnt-editable" title="Edit current mileage"
       onClick={() => { setVal(String(row.current_miles ?? '')); setEdit(true) }}>
-      {fmtMi(row.current_miles) || <span className="mnt-dash">set</span>}
-      {row.current_source && <i className="mnt-src">{row.current_source}</i>}
-    </span>
+      <span className="mnt-meter">
+        {fmtMi(row.current_miles) || <span className="mnt-dash">set</span>}
+        {row.current_source && <i className="mnt-src">{row.current_source}</i>}
+      </span>
+    </td>
   )
 }
 

@@ -128,7 +128,11 @@ the unit price, and it can be large (39 quarts of oil) or fractional
 (3.5 hours). qty = billed quantity (hours for labor). unit_cost = price
 per single unit/hour. total = the line total if printed. The math must
 hold: qty x unit_cost = total. Never default qty to 1 when the document
-shows a quantity. Skip taxes, shop supplies percentages, fees and totals.
+shows a quantity. part_number = the manufacturer or vendor part number
+printed for that part (often a column labeled PART #, PART NO, SKU, or an
+alphanumeric code next to the description, e.g. 23512595, DBL-7421);
+leave it empty for labor lines and when no part number is printed. Skip
+taxes, shop supplies percentages, fees and totals.
 
 Use null when a field is not in the document. Do not invent data.
 """
@@ -139,6 +143,10 @@ class WoLineExtract(BaseModel):
     description: str
     qty: float = 1
     unit_cost: float = 0
+    part_number: str = Field(
+        default="",
+        description="manufacturer/part number for a part line if printed "
+                    "(e.g. a SKU like 23512595); empty for labor")
     total: float | None = Field(
         default=None,
         description="line total if printed on the document")
