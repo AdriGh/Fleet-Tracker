@@ -7,6 +7,26 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.15.0] - 2026-06-19
+
+H7 (parte 6) — Rollout del Design System: Settings (tanda 2).
+
+### Cambiado
+- **Settings** adopta `ds/Button` en las 6 acciones limpias de
+  `.settings-actions`: Save changes, Save company, Save alert rules (las tres
+  con `loading`), Download template, y los dos **Open fleet board** (con el
+  glifo `⠿` como `icon`). Se mantienen sin tocar, a propósito: el **Upload CSV**
+  (es un `<label>` que envuelve un `<input type=file>`, no un botón), los
+  botones de guardar dentro de modales y las acciones inline de tablas
+  (Add/Edit/Delete, paginación, IntegrationCard, theme picker) — quedan para
+  una pasada con verificación visual por su layout/espaciado a medida.
+
+### Notas
+- Con esto, el rollout de header-actions/filtros del DS cubre todas las
+  pantallas. Pendiente de "wow" visual (no mecánico): adoptar la paleta `--st-*`
+  en Reefer (estado + desviación de temperatura) y un panel de estado bajo las
+  tarjetas de UnitProfile (rellenar espacio, estilo "Fleet readiness").
+
 ## [1.14.0] - 2026-06-19
 
 H7 (parte 5) — Rollout del Design System a las pantallas restantes (tanda 1).
