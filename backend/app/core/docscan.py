@@ -66,6 +66,12 @@ except ImportError:
     _HAS_PDFIUM = False
 
 try:
+    import fitz  # PyMuPDF — render de PDF a PNG para la visión local
+    _HAS_FITZ = True
+except ImportError:
+    _HAS_FITZ = False
+
+try:
     import boto3
     from botocore.exceptions import BotoCoreError, ClientError
     _HAS_BOTO = True
@@ -91,6 +97,8 @@ MAX_BYTES = 20 * 1024 * 1024          # 20 MB
 _PDF_PAGES = 3                        # páginas a leer/renderizar
 _MIN_TEXT = 200                       # chars para confiar en la capa de texto
 _OLLAMA_TIMEOUT = 300                 # un 7B local puede tardar 1-2 min
+_VISION_DPI = 170                     # DPI de render para la visión local
+_VISION_PAGES = 2                     # páginas a mandar por visión (1-2)
 
 _PROMPT = """\
 This document is a truck repair shop invoice, estimate, or repair order
@@ -121,18 +129,38 @@ Each complaint:
 - is_pm: true only if this job is a preventive maintenance service
   (full/wet service, oil change service, PM A/B).
 
-lines: every billed item across the whole invoice. kind "part" for
-parts/materials, "labor" for labor/diagnostic time. READ THE QUANTITY
-COLUMN CAREFULLY: many invoices print qty (often under QTY or EA) before
-the unit price, and it can be large (39 quarts of oil) or fractional
-(3.5 hours). qty = billed quantity (hours for labor). unit_cost = price
-per single unit/hour. total = the line total if printed. The math must
-hold: qty x unit_cost = total. Never default qty to 1 when the document
-shows a quantity. part_number = the manufacturer or vendor part number
-printed for that part (often a column labeled PART #, PART NO, SKU, or an
-alphanumeric code next to the description, e.g. 23512595, DBL-7421);
-leave it empty for labor lines and when no part number is printed. Skip
-taxes, shop supplies percentages, fees and totals.
+lines: this is the MOST IMPORTANT field. Return EVERY billed item row in
+the line-item table(s), one entry per row. Do NOT return an empty list:
+a repair invoice ALWAYS has at least one part or labor line. Look for a
+table with columns like DESCRIPTION, QTY/QUANTITY/EA, LIST PRICE,
+PRODUCT, LABOR, EXTENSION (or PRICE/AMOUNT/TOTAL). Each row with a
+description and a non-zero dollar amount is a line — include it.
+
+For each line:
+- kind: "part" for parts/materials/products, "labor" for labor, shop
+  time, diagnostic, hook-up, inspection or service-call rows. If a row
+  has a non-zero LABOR/SERVICE column it is "labor"; if it has a non-zero
+  PRODUCT/PARTS column it is "part". When unsure, use "part".
+- description: the item text from the row (e.g.
+  "c&a parking lot no start", "J-Pro Hook Up", "Oil filter").
+- qty: READ THE QUANTITY COLUMN CAREFULLY. It often comes (under QTY or
+  EA) BEFORE the unit price and can be large (39 quarts of oil) or
+  fractional (3.5 hours). qty = billed quantity (hours for labor). Never
+  default qty to 1 when the document shows a different quantity.
+- unit_cost: price per single unit or per hour (the LIST PRICE / unit
+  price column, not the extension).
+- total: the line total / EXTENSION if printed. The math must hold:
+  qty x unit_cost = total.
+- part_number: the manufacturer or vendor part number for a part (a
+  column labeled PART #, PART NO, SKU, or an alphanumeric code next to
+  the description, e.g. 23512595, DBL-7421). Leave it empty for labor
+  lines and when no part number is printed.
+
+Include rows even if their unit_cost is 0 but their extension/total is
+non-zero. SKIP only summary / non-item rows: Subtotal, Total, Tax,
+shop-supplies PERCENTAGE lines, fees, discounts, payments and balances.
+A flat "Shop Supplies" charge with a dollar amount IS a part line —
+include it.
 
 Use null when a field is not in the document. Do not invent data.
 """
@@ -332,6 +360,44 @@ def _pdf_images_b64(raw: bytes) -> list[str]:
         pil.save(buf, format="PNG")
         out.append(base64.standard_b64encode(buf.getvalue()).decode())
     return out
+
+
+def _pdf_vision_pngs(raw: bytes, pages: int = _VISION_PAGES,
+                     dpi: int = _VISION_DPI) -> list[str]:
+    """Renderiza las primeras `pages` páginas a PNG base64 a ~170 DPI para
+    la VISIÓN local. Los modelos de visión leen las tablas de partes/labor
+    mucho mejor desde la imagen que desde la capa de texto aplanada.
+
+    Usa PyMuPDF (fitz) que está en el env; cae a pypdfium2 si no está. La
+    matriz fitz escala 72->dpi (zoom = dpi/72)."""
+    if _HAS_FITZ:
+        doc = fitz.open(stream=raw, filetype="pdf")
+        try:
+            out: list[str] = []
+            zoom = dpi / 72.0
+            mat = fitz.Matrix(zoom, zoom)
+            for i in range(min(doc.page_count, pages)):
+                pix = doc.load_page(i).get_pixmap(matrix=mat, alpha=False)
+                out.append(base64.standard_b64encode(
+                    pix.tobytes("png")).decode())
+            if out:
+                return out
+        finally:
+            doc.close()
+    # Fallback: pypdfium2 (escala 2.0 ~= 144 DPI, suficiente para leer).
+    if _HAS_PDFIUM:
+        pdf = pdfium.PdfDocument(raw)
+        out = []
+        for i in range(min(len(pdf), pages)):
+            pil = pdf[i].render(scale=dpi / 72.0).to_pil()
+            buf = io.BytesIO()
+            pil.save(buf, format="PNG")
+            out.append(base64.standard_b64encode(buf.getvalue()).decode())
+        if out:
+            return out
+    raise ValueError(
+        "Could not render the PDF for the local vision model. Install "
+        "PyMuPDF (pip install pymupdf) or upload a photo instead.")
 
 
 def _normalize(extract: WoExtract, model: str,
@@ -765,15 +831,34 @@ def _scan_heuristic(text: str) -> dict:
 
 async def _scan_ollama(s: dict, raw: bytes, media_type: str,
                        pdf_text: str) -> dict:
-    """Proveedor local gratuito: Ollama con salida JSON-schema."""
+    """Proveedor local gratuito: Ollama (qwen2.5vl) con salida JSON-schema.
+
+    SIEMPRE manda IMÁGENES, no texto: el 7B de visión lee las tablas de
+    partes/labor mucho mejor desde el render de la página que desde la capa
+    de texto aplanada (que mezcla columnas y le hacía devolver lines: []).
+    El PDF se rasteriza a PNG (~170 DPI, 1-2 páginas) con PyMuPDF.
+
+    La capa de texto, si existe, se adjunta SOLO como pista de apoyo y se
+    usa para normalizar la marca de la cadena (Speedco/Love's), pero la
+    fuente de verdad para el modelo es la imagen."""
     images: list[str] = []
     prompt = _PROMPT
     if media_type == "application/pdf":
-        if len(pdf_text) >= _MIN_TEXT:
-            prompt = (_PROMPT
-                      + "\nThe document text follows:\n\n" + pdf_text)
-        else:
-            images = _pdf_images_b64(raw)
+        # Render a imagen para visión (camino principal). Si por lo que sea
+        # no se puede rasterizar y hay capa de texto, se cae a texto plano.
+        try:
+            images = _pdf_vision_pngs(raw)
+        except ValueError:
+            if len(pdf_text) >= _MIN_TEXT:
+                prompt = (_PROMPT
+                          + "\nThe document text follows:\n\n" + pdf_text)
+            else:
+                raise
+        # Con imagen NO se adjunta el volcado de texto: cada imagen ya cuesta
+        # ~1.5-2k tokens y sumarle el texto desbordaba el contexto (error 400
+        # 'exceeds available context') haciendo que el modelo devolviera
+        # lines: []. La imagen es la fuente de verdad para el layout de la
+        # tabla; el texto solo se usa abajo para normalizar la marca.
     else:
         images = [base64.standard_b64encode(raw).decode()]
 
@@ -785,7 +870,10 @@ async def _scan_ollama(s: dict, raw: bytes, media_type: str,
         "messages": [msg],
         "format": WoExtract.model_json_schema(),
         "stream": False,
-        "options": {"temperature": 0},
+        # num_ctx alto: el default de Ollama (~2k) truncaba los tokens de la
+        # imagen y el modelo perdía la tabla de líneas. 8192 cubre 1-2 páginas
+        # renderizadas + el prompt + el schema con margen.
+        "options": {"temperature": 0, "num_ctx": 8192},
     }
     try:
         async with httpx.AsyncClient(timeout=_OLLAMA_TIMEOUT) as client:
