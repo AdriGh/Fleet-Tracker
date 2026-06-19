@@ -7,6 +7,29 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.13.0] - 2026-06-19
+
+H7 — Identidad de color por status en PM/DOT y panel de salud de la flota.
+
+### Añadido
+- **Panel "Fleet readiness"** bajo las tarjetas de status (columna izquierda):
+  crece para igualar la altura del donut (elimina el espacio vacío que quedaba
+  a su lado). Muestra el % de unidades en regla (animado con CountUp), una barra
+  apilada con la distribución de status y dos chips de acción — *Most overdue*
+  (unidad con el `to_due` más negativo) y *Next due* (la más próxima a vencer).
+  Aplica a PM y DOT (comparten `MaintBoardPage`).
+
+### Cambiado
+- **Filas de la tabla tintadas por status**: Overdue = rojo, On track = verde,
+  Upcoming = amarillo pato, Never performed = celeste oscuro. Fondo muy tenue
+  (≤8%, vía `color-mix` sobre `--surface` para adaptarse a dark) + riel lateral
+  del color en la 1.ª celda — sin sacrificar el contraste del texto.
+- **Identidad de color unificada por status** (un color = un status en toda la
+  pantalla): nuevas variables `--st-*` / `--st-*-ink` claras y oscuras. El donut,
+  las tarjetas, las barras y las píldoras de estado (`.mnt-status`,
+  `.mnt-status-pill`) ahora usan la misma paleta; `Upcoming` pasa de ámbar a
+  amarillo pato y `Never performed` de gris a celeste oscuro.
+
 ## [1.12.0] - 2026-06-19
 
 H7 — Fix del donut de estado (PM + DOT) y rediseño de su leyenda.
