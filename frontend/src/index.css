@@ -5558,9 +5558,9 @@ table.defects-table td {
 .wo-srcinv {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
-  padding-top: 12px;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 16px;
   border-top: 1px solid var(--border);
 }
 /* Etiqueta estilo .ud-field pero como bloque (no envuelve un input) */
@@ -5571,24 +5571,121 @@ table.defects-table td {
   text-transform: uppercase;
   color: var(--text-muted);
 }
-.wo-srcinv-row {
+
+/* Card prominente con miniatura del documento (review v1.20,
+   /high-end-visual-design). Bandeja anidada: shell tintado de acento +
+   nucleo con la miniatura real de la 1a pagina. */
+.wo-srcinv-card {
+  display: flex;
+  gap: 14px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.wo-srcinv-thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 96px;
+  height: 124px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1),
+    box-shadow 0.5s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.wo-srcinv-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+}
+.wo-srcinv-thumb:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: var(--shadow-md);
+}
+.wo-srcinv-thumb:active { transform: translateY(-1px) scale(1); }
+.wo-srcinv-thumb-ph {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--text-muted);
+}
+.wo-srcinv-thumb-ph svg { width: 30px; height: 30px; }
+.wo-srcinv-thumb-badge {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  background: var(--accent);
+  color: #fff;
+}
+.wo-srcinv-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+}
+.wo-srcinv-eyebrow {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 .wo-srcinv-name {
-  font-size: 0.86rem;
+  font-size: 0.92rem;
   font-weight: 600;
   color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
+  word-break: break-word;
+  line-height: 1.3;
 }
-.wo-srcinv-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.wo-srcinv-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
 .wo-srcinv-hint { margin: 0; font-size: 0.78rem; }
+
+/* Empty-state: drop zone prominente */
+.wo-srcinv-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 22px 16px;
+  border: 1.5px dashed
+    color-mix(in srgb, var(--accent) 32%, var(--border-strong));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface-2));
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.3s ease, background 0.3s ease,
+    transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.wo-srcinv-drop:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.wo-srcinv-drop:active { transform: scale(0.99); }
+.wo-srcinv-drop svg { width: 26px; height: 26px; color: var(--accent); }
+.wo-srcinv-drop-t { font-size: 0.9rem; font-weight: 700; color: var(--text); }
+.wo-srcinv-drop-s { font-size: 0.76rem; }
 
 /* Líneas */
 .wo-lines { width: 100%; border-collapse: collapse; font-size: 0.84rem; }

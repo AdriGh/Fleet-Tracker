@@ -5,7 +5,8 @@ import {
 } from '@tanstack/react-query'
 import {
   addWoLine, createWorkOrder, deleteWoInvoiceFile, deleteWoLine,
-  deleteWorkOrder, downloadWoInvoiceFile, getOrg, getUnitOdometer,
+  deleteWorkOrder, downloadWoInvoiceFile, fetchWoInvoiceThumbUrl,
+  getOrg, getUnitOdometer,
   getWorkOrder, listFleet, listParts, listWorkOrders, patchWorkOrder,
   scanWoDocument, sendWoInvoice, uploadWoInvoiceFile, viewWoInvoiceFile,
   type NotifyChannel, type Part, type WorkOrder, type WoPriority,
@@ -934,6 +935,22 @@ export function WoDrawer({ woId, mechanics, onClose }: {
   // Factura original adjunta (review v1.17): subir/ver/descargar/quitar.
   const invFileRef = useRef<HTMLInputElement | null>(null)
   const [invBusy, setInvBusy] = useState(false)
+  // Miniatura de la factura (1a pagina renderizada) para el drawer.
+  const [invThumb, setInvThumb] = useState<string | null>(null)
+
+  // Carga la miniatura de la factura (auth -> blob) cuando hay una adjunta.
+  useEffect(() => {
+    let alive = true
+    let url: string | null = null
+    if (wo?.has_invoice_file) {
+      fetchWoInvoiceThumbUrl(wo.id)
+        .then((u) => { if (alive) { url = u; setInvThumb(u) } })
+        .catch(() => { if (alive) setInvThumb(null) })
+    } else {
+      setInvThumb(null)
+    }
+    return () => { alive = false; if (url) URL.revokeObjectURL(url) }
+  }, [wo?.id, wo?.has_invoice_file, wo?.invoice_file_name])
 
   // Prefill del destinatario con el email de Bill-To de la empresa.
   useEffect(() => {
@@ -1358,44 +1375,76 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                   <div className="wo-srcinv">
                     <span className="ud-field-label">Source invoice</span>
                     {wo.has_invoice_file ? (
-                      <div className="wo-srcinv-row">
-                        <span className="wo-srcinv-name" title={
-                          wo.invoice_file_name ?? ''}>
-                          {wo.invoice_file_name}
-                        </span>
-                        <div className="wo-srcinv-actions">
-                          <Button variant="ghost" size="sm" disabled={invBusy}
-                            onClick={() => viewWoInvoiceFile(wo.id)
-                              .catch((e) => notifyErr("Couldn't open", e))}>
-                            View
-                          </Button>
-                          <Button variant="ghost" size="sm" disabled={invBusy}
-                            onClick={() => downloadWoInvoiceFile(
-                              wo.id, wo.invoice_file_name ?? `invoice-${wo.id}`)
-                              .catch((e) => notifyErr("Couldn't download", e))}>
-                            Download
-                          </Button>
-                          <Button variant="ghost" size="sm" loading={invBusy}
-                            className="up-danger"
-                            onClick={removeInvoiceFile}>
-                            Remove
-                          </Button>
+                      <div className="wo-srcinv-card">
+                        <button type="button" className="wo-srcinv-thumb"
+                          title="View invoice" disabled={invBusy}
+                          onClick={() => viewWoInvoiceFile(wo.id)
+                            .catch((e) => notifyErr("Couldn't open", e))}>
+                          {invThumb ? (
+                            <img src={invThumb} alt="Invoice preview" />
+                          ) : (
+                            <span className="wo-srcinv-thumb-ph">
+                              <svg viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" strokeWidth="1.6"
+                                strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+                                <path d="M14 3v5h5M9 13h6M9 17h6" />
+                              </svg>
+                            </span>
+                          )}
+                          <span className="wo-srcinv-thumb-badge">
+                            {(wo.invoice_file_name?.split('.').pop() || 'DOC')
+                              .toUpperCase()}
+                          </span>
+                        </button>
+                        <div className="wo-srcinv-body">
+                          <span className="wo-srcinv-eyebrow">
+                            Attached document
+                          </span>
+                          <span className="wo-srcinv-name" title={
+                            wo.invoice_file_name ?? ''}>
+                            {wo.invoice_file_name}
+                          </span>
+                          <div className="wo-srcinv-actions">
+                            <Button variant="primary" size="sm"
+                              disabled={invBusy}
+                              onClick={() => viewWoInvoiceFile(wo.id)
+                                .catch((e) => notifyErr("Couldn't open", e))}>
+                              View
+                            </Button>
+                            <Button variant="ghost" size="sm" disabled={invBusy}
+                              onClick={() => downloadWoInvoiceFile(
+                                wo.id, wo.invoice_file_name ?? `invoice-${wo.id}`)
+                                .catch((e) => notifyErr("Couldn't download", e))}>
+                              Download
+                            </Button>
+                            <Button variant="ghost" size="sm" loading={invBusy}
+                              className="up-danger" onClick={removeInvoiceFile}>
+                              Remove
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     ) : (
-                      <Button variant="ghost" size="sm" loading={invBusy}
+                      <button type="button" className="wo-srcinv-drop"
+                        disabled={invBusy}
                         onClick={() => invFileRef.current?.click()}>
-                        Upload invoice
-                      </Button>
+                        <svg viewBox="0 0 24 24" fill="none"
+                          stroke="currentColor" strokeWidth="1.6"
+                          strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M12 16V4M7 9l5-5 5 5" />
+                          <path d="M5 20h14" />
+                        </svg>
+                        <span className="wo-srcinv-drop-t">Attach invoice</span>
+                        <span className="wo-srcinv-drop-s">
+                          PDF or photo of the original shop invoice
+                        </span>
+                      </button>
                     )}
                     <input ref={invFileRef} type="file" hidden
                       accept=".pdf,image/*"
                       onChange={(e) =>
                         uploadInvoiceFile(e.target.files?.[0])} />
-                    <p className="ud-muted wo-srcinv-hint">
-                      Attach the original shop invoice PDF (or photo) this
-                      work order came from.
-                    </p>
                   </div>
                 </section>
 

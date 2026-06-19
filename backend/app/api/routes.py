@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 import httpx
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from .. import __version__, config, db
 from pydantic import BaseModel
@@ -628,6 +628,21 @@ def wo_invoice_file_download(wo_id: int):
     # en vez de forzar la descarga (el frontend decide ver vs descargar).
     return FileResponse(path, filename=filename,
                         content_disposition_type="inline")
+
+
+@router.get("/workorders/{wo_id}/invoice-file/thumb")
+def wo_invoice_file_thumb(wo_id: int):
+    """Miniatura PNG de la factura para el drawer (PDF -> 1a pagina).
+    404 si no hay factura o si no se puede rasterizar."""
+    try:
+        t = wo_invoices.thumb(wo_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Thumbnail unavailable")
+    if t is None:
+        raise HTTPException(status_code=404, detail="Invoice file not found")
+    data, mime = t
+    return Response(content=data, media_type=mime,
+                    headers={"Cache-Control": "no-store"})
 
 
 @router.delete("/workorders/{wo_id}/invoice-file")
