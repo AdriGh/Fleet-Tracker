@@ -7,6 +7,20 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.17.0] - 2026-06-19
+
+H7 (parte 8) — Panel "Maintenance status" en el perfil de unidad.
+
+### Añadido
+- **UnitProfile**: nuevo panel entre las tarjetas resumen y las pestañas que
+  rellena el espacio vacío y refuerza la jerarquía. Muestra la salud de
+  PMs/componentes de la unidad de un vistazo: una **barra apilada** con la
+  distribución de status (paleta `--st-*`), una **leyenda** con el conteo por
+  status, y un **chip de acción** con lo más urgente — el componente vencido por
+  mayor margen (rojo) o el próximo a vencer (amarillo), o "All components on
+  track" (verde) si no hay nada pendiente. Solo aparece si la unidad tiene
+  campañas/componentes cargados.
+
 ## [1.16.0] - 2026-06-19
 
 H7 (parte 7) — Cohesión de color: Cold Chain (Reefer) adopta la paleta `--st-*`.

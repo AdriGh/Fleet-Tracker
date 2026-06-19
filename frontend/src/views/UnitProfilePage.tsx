@@ -29,6 +29,17 @@ const CAMP_STATUS: Record<string, { label: string; cls: string }> = {
   tracked: { label: 'Tracked', cls: 's-on_track' },
 }
 
+// Buckets visuales para el panel de salud de la unidad (misma identidad de
+// color --st-* que PM/DOT). El orden es de más a menos urgente.
+const STATUS_BUCKETS: { cls: string; label: string; token: string }[] = [
+  { cls: 's-overdue', label: 'Overdue', token: '--st-overdue' },
+  { cls: 's-upcoming', label: 'Upcoming', token: '--st-upcoming' },
+  { cls: 's-on_track', label: 'On track', token: '--st-on-track' },
+  { cls: 's-never', label: 'Never', token: '--st-never' },
+]
+const dueUnitOf = (c: UnitCampaign) =>
+  c.due === 'miles' ? 'mi' : c.due === 'days' ? 'days' : ''
+
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 const fmtMi = (n: number | null | undefined) =>
@@ -80,6 +91,30 @@ export default function UnitProfilePage({ unit, onClose }: {
       Date.now() - 365 * 86400_000)
     .reduce((s, w) => s + w.total, 0)
   const pmCamp = campQ.data?.campaigns.find((c) => c.key === 'pm')
+
+  // ----- Panel "Maintenance status" (bajo las tarjetas resumen) -----
+  const camps = campQ.data?.campaigns ?? []
+  const campCounts = useMemo(() => {
+    const c: Record<string, number> = {}
+    for (const k of camps) {
+      const cls = CAMP_STATUS[k.status]?.cls ?? 's-never'
+      c[cls] = (c[cls] ?? 0) + 1
+    }
+    return c
+  }, [campQ.data])
+  // Acción más urgente: el componente vencido por más margen; si ninguno,
+  // el más próximo a vencer.
+  const urgent = useMemo(() => {
+    const byDue = (a: UnitCampaign, b: UnitCampaign) =>
+      (a.to_due as number) - (b.to_due as number)
+    const od = camps.filter((c) =>
+      CAMP_STATUS[c.status]?.cls === 's-overdue' && c.to_due != null).sort(byDue)
+    if (od[0]) return { camp: od[0], overdue: true }
+    const soon = camps.filter((c) =>
+      CAMP_STATUS[c.status]?.cls === 's-upcoming' && c.to_due != null).sort(byDue)
+    if (soon[0]) return { camp: soon[0], overdue: false }
+    return null
+  }, [campQ.data])
 
   function refreshAll() {
     qc.invalidateQueries({ queryKey: ['unit-campaigns', unit] })
@@ -139,6 +174,45 @@ export default function UnitProfilePage({ unit, onClose }: {
           </span>
         </div>
       </div>
+
+      {camps.length > 0 && (
+        <div className="up-status">
+          <div className="up-status-main">
+            <span className="up-status-eyebrow">Maintenance status</span>
+            <div className="up-status-bar" role="img"
+              aria-label="Component status distribution">
+              {STATUS_BUCKETS.map((b) => campCounts[b.cls] ? (
+                <span key={b.cls} className="up-status-seg"
+                  style={{
+                    width: `${(campCounts[b.cls] / camps.length) * 100}%`,
+                    background: `var(${b.token})`,
+                  }}
+                  title={`${b.label}: ${campCounts[b.cls]}`} />
+              ) : null)}
+            </div>
+            <div className="up-status-legend">
+              {STATUS_BUCKETS.map((b) => campCounts[b.cls] ? (
+                <span key={b.cls} className="up-status-chip">
+                  <i style={{ background: `var(${b.token})` }} />
+                  <b>{campCounts[b.cls]}</b> {b.label}
+                </span>
+              ) : null)}
+            </div>
+          </div>
+          {urgent ? (
+            <span className={`up-status-hl ${urgent.overdue
+              ? 'is-overdue' : 'is-upcoming'}`}>
+              {urgent.overdue
+                ? `${urgent.camp.label} · overdue by ${fmtMi(
+                    Math.abs(urgent.camp.to_due as number))} ${dueUnitOf(urgent.camp)}`
+                : `Next: ${urgent.camp.label} · ${fmtMi(
+                    urgent.camp.to_due as number)} ${dueUnitOf(urgent.camp)}`}
+            </span>
+          ) : (
+            <span className="up-status-hl is-ok">All components on track</span>
+          )}
+        </div>
+      )}
 
       <div className="up-tabs" role="tablist">
         {TABS.map((t) => (
