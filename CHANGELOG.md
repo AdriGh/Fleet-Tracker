@@ -7,6 +7,20 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.21.0] - 2026-06-19
+
+Review: la factura del WO se muestra como miniatura en una sección destacada.
+
+### Cambiado
+- **WO · Source invoice**: la factura adjunta ahora se muestra como **miniatura
+  real** (render de la 1ª página del PDF / la imagen propia) dentro de una **card
+  anidada más grande y destacada** (tinte de acento, miniatura con elevación al
+  hover y easing custom). Clic en la miniatura abre el documento. El empty-state
+  pasó a una drop-zone prominente. Endpoint nuevo
+  `GET /api/workorders/{id}/invoice-file/thumb` (PNG, reusa el render de docscan).
+  Aplicado /high-end-visual-design adaptado al dashboard denso (tokens reales, no
+  estética de landing).
+
 ## [1.20.0] - 2026-06-19
 
 Ronda 3 de la review: el escaneo de facturas ahora extrae las líneas.

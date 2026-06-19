@@ -1106,6 +1106,14 @@ async function fetchWoInvoiceBlobUrl(woId: number): Promise<string> {
   return URL.createObjectURL(await res.blob())
 }
 
+// Miniatura (PNG de la 1a pagina) para el thumbnail del drawer; tambien
+// auth-protegida, asi que se baja por fetch+blob (un <img src> daria 401).
+export async function fetchWoInvoiceThumbUrl(woId: number): Promise<string> {
+  const res = await fetch(`/api/workorders/${woId}/invoice-file/thumb`)
+  if (!res.ok) throw new Error(await readError(res))
+  return URL.createObjectURL(await res.blob())
+}
+
 export async function viewWoInvoiceFile(woId: number): Promise<void> {
   const url = await fetchWoInvoiceBlobUrl(woId)
   window.open(url, '_blank', 'noopener')

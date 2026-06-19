@@ -87,6 +87,31 @@ def file_path(wo_id: int) -> tuple[Path, str] | None:
     return p, (file_name(wo_id) or f"invoice-{wo_id}")
 
 
+def thumb(wo_id: int) -> tuple[bytes, str] | None:
+    """Miniatura para el drawer: PDF -> PNG de la 1a pagina; imagen -> el
+    archivo tal cual. None si no hay factura. Puede lanzar si el PDF no se
+    puede rasterizar (el caller lo traduce a 404)."""
+    p = _bin_path(wo_id)
+    if not p.is_file():
+        return None
+    try:
+        meta = json.loads(_meta_path(wo_id).read_text(encoding="utf-8"))
+        ext = (meta.get("ext") or "").lower()
+    except (OSError, ValueError):
+        ext = p.suffix.lower()
+    data = p.read_bytes()
+    if ext == ".pdf":
+        import base64
+        from . import docscan
+        pngs = docscan._pdf_vision_pngs(data, pages=1, dpi=110)
+        return base64.b64decode(pngs[0]), "image/png"
+    mime = {
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+        ".webp": "image/webp", ".heic": "image/heic",
+    }.get(ext, "application/octet-stream")
+    return data, mime
+
+
 def delete_file(wo_id: int) -> bool:
     """Elimina el binario y su sidecar. True si había algo que borrar."""
     p = _bin_path(wo_id)
