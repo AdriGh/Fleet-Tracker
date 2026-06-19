@@ -5292,13 +5292,26 @@ table.defects-table td {
   border-radius: 50%;
   background: var(--text-muted);
 }
-.reefer-state.st-on { background: var(--ui-success); box-shadow: 0 0 7px rgba(34,197,94,.5); }
-.reefer-state.st-off { background: var(--ui-danger); }
+/* Estado del reefer + desviación de temperatura usan la MISMA identidad de
+   color que PM/DOT (--st-*): On=verde, Off=rojo; ok/warn/danger = on-track/
+   upcoming/overdue. El valor de temperatura usa el tono -ink (legible) y las
+   celdas warn/danger llevan un tinte translúcido para que salten a la vista. */
+.reefer-state.st-on {
+  background: var(--st-on-track);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--st-on-track) 50%, transparent);
+}
+.reefer-state.st-off { background: var(--st-overdue); }
 
 .reefer-table tbody tr { cursor: pointer; }
-.reefer-table .rt-ok { color: var(--ui-success); font-weight: 700; }
-.reefer-table .rt-warn { color: #d97706; font-weight: 700; }
-.reefer-table .rt-danger { color: var(--ui-danger); font-weight: 700; }
+.reefer-table .rt-ok { color: var(--st-on-track-ink); font-weight: 700; }
+.reefer-table .rt-warn {
+  color: var(--st-upcoming-ink); font-weight: 700;
+  background: color-mix(in srgb, var(--st-upcoming) 12%, transparent);
+}
+.reefer-table .rt-danger {
+  color: var(--st-overdue-ink); font-weight: 700;
+  background: color-mix(in srgb, var(--st-overdue) 12%, transparent);
+}
 
 .reefer-door {
   font-size: 0.74rem;

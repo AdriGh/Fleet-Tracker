@@ -7,6 +7,20 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.16.0] - 2026-06-19
+
+H7 (parte 7) — Cohesión de color: Cold Chain (Reefer) adopta la paleta `--st-*`.
+
+### Cambiado
+- **Estado del reefer y desviación de temperatura** ahora usan la MISMA
+  identidad de color que PM/DOT: el punto de estado On = verde (`--st-on-track`)
+  con glow del mismo tono, Off = rojo (`--st-overdue`); los valores de
+  temperatura ok/warn/danger usan los tonos `--st-*-ink` (legibles) en vez de
+  `--ui-*`/ámbar suelto.
+- **Las celdas warn/danger** de temperatura (y combustible bajo) llevan ahora un
+  **tinte translúcido** (`color-mix … 12%`) para que las desviaciones salten a
+  la vista — antes solo cambiaban el color del texto.
+
 ## [1.15.0] - 2026-06-19
 
 H7 (parte 6) — Rollout del Design System: Settings (tanda 2).
