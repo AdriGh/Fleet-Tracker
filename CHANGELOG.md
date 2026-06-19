@@ -7,6 +7,22 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.12.0] - 2026-06-19
+
+H7 — Fix del donut de estado (PM + DOT) y rediseño de su leyenda.
+
+### Arreglado
+- **El arco resaltado en hover ya no se corta**: el segmento engrosaba (+5px)
+  y su borde se salía del `viewBox` del SVG; ahora el radio reserva ese
+  espacio. `.mnt-donut .card-body` pasa a `overflow: visible`.
+
+### Cambiado
+- **Leyenda del donut rediseñada y responsive** (PM y DOT comparten el
+  componente): cada fila es un grid `[punto] [label 1fr] [valor] [% chip]` — el
+  label crece y llena el hueco (con ellipsis, no se desborda) y el % pasa a ser
+  un chip-pill. Medidas en `rem`/`%` en vez de px; el donut escala con el
+  contenedor (`width:100%` + `max-width` + `aspect-ratio`) en vez de tamaño fijo.
+
 ## [1.11.0] - 2026-06-18
 
 H7 (parte 4) — Rollout del Design System a las pantallas operativas.

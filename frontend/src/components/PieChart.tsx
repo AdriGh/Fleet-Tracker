@@ -14,8 +14,11 @@ export default function PieChart(
 ) {
   const [hover, setHover] = useState<number | null>(null)
   const total = data.reduce((s, d) => s + d.value, 0)
+  const HOVER_GROW = 5
   const stroke = Math.round(size * 0.17)
-  const r = (size - stroke) / 2
+  // El radio deja sitio para el engrosamiento del arco en hover (+HOVER_GROW):
+  // si no, el segmento resaltado se sale del viewBox y se ve "cortado".
+  const r = (size - stroke) / 2 - HOVER_GROW / 2 - 2
   const C = 2 * Math.PI * r
   const c = size / 2
 
@@ -33,7 +36,8 @@ export default function PieChart(
 
   return (
     <div className="piechart">
-      <div className="pie-donut" style={{ width: size, height: size }}>
+      <div className="pie-donut"
+        style={{ width: '100%', maxWidth: size, aspectRatio: '1 / 1' }}>
         <svg viewBox={`0 0 ${size} ${size}`} className="pie-svg" role="img"
           aria-label="PM status distribution">
           <g transform={`rotate(-90 ${c} ${c})`}>
@@ -42,7 +46,7 @@ export default function PieChart(
             {arcs.map((s) => (
               <circle key={s.i} cx={c} cy={c} r={r} fill="none"
                 stroke={s.color}
-                strokeWidth={hover === s.i ? stroke + 5 : stroke}
+                strokeWidth={hover === s.i ? stroke + HOVER_GROW : stroke}
                 strokeDasharray={`${s.arc} ${C - s.arc}`}
                 strokeDashoffset={-s.offset}
                 strokeLinecap="butt"
