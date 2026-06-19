@@ -25,7 +25,7 @@ from ..core import (
     sms_service,
     teams,
     telegram_notify, terminals, thermoking, tms, traccar, tracking,
-    unit_settings, unitdocs, vin_decode, wo_invoice, workorders,
+    unit_settings, unitdocs, vin_decode, wo_invoice, wo_invoices, workorders,
 )
 from ..core import notice_templates
 from ..core.contacts import name_key
@@ -594,6 +594,47 @@ def wo_add_line(wo_id: int, body: WoLineIn):
     if wo is None:
         raise HTTPException(status_code=404, detail="WO not found")
     return wo
+
+
+# ----- Factura original adjunta por WO (review v1.17, estilo SquareRigger) ---
+# Almacenamiento por archivo (core/wo_invoices), SIN columna en la DB. El
+# middleware ya exige maint.edit para POST/DELETE bajo /api/workorders; el GET
+# es lectura (auth basta). Espeja las rutas de unitdocs (FileResponse, scope).
+
+@router.post("/workorders/{wo_id}/invoice-file")
+async def wo_invoice_file_upload(wo_id: int,
+                                 file: UploadFile = File(...)):
+    """Sube (o reemplaza) la factura original del taller de la WO."""
+    if workorders.get_wo(wo_id) is None:
+        raise HTTPException(status_code=404, detail="WO not found")
+    raw = await file.read()
+    try:
+        result = wo_invoices.save_file(
+            wo_id, file.filename or "invoice", raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return result
+
+
+@router.get("/workorders/{wo_id}/invoice-file")
+def wo_invoice_file_download(wo_id: int):
+    """Devuelve la factura original. Inline-viewable (el PDF abre en el
+    navegador); el nombre original se preserva para la descarga."""
+    found = wo_invoices.file_path(wo_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="Invoice file not found")
+    path, filename = found
+    # content_disposition_type="inline" => el navegador muestra el PDF/imagen
+    # en vez de forzar la descarga (el frontend decide ver vs descargar).
+    return FileResponse(path, filename=filename,
+                        content_disposition_type="inline")
+
+
+@router.delete("/workorders/{wo_id}/invoice-file")
+def wo_invoice_file_delete(wo_id: int):
+    if not wo_invoices.delete_file(wo_id):
+        raise HTTPException(status_code=404, detail="Invoice file not found")
+    return {"ok": True}
 
 
 @router.post("/workorders/{wo_id}/send")
@@ -1796,6 +1837,14 @@ def dvir_block(block_id: int):
     # de los datos guardados.
     block["columns"] = engine.columns_for_groups(block["groups"])
     return block
+
+
+@router.delete("/dvir/blocks/{block_id}")
+def dvir_block_delete(block_id: int):
+    """Borra un bloque DVIR generado del board."""
+    if not db.delete_block(block_id):
+        raise HTTPException(404, "Block not found.")
+    return {"ok": True}
 
 
 @router.get("/dvir/blocks/{block_id}/download")

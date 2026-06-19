@@ -829,3 +829,15 @@ def get_block(block_id):
             "fleet_safe_pct": block.fleet_safe_pct,
             "groups": json.loads(block.groups_json),
         }
+
+
+def delete_block(block_id):
+    """Borra un bloque DVIR generado (cascada a drivers + defectos).
+    Devuelve True si existia."""
+    with SessionLocal() as session:
+        block = session.get(ReportBlock, block_id)
+        if block is None:
+            return False
+        session.delete(block)
+        session.commit()
+        return True

@@ -27,6 +27,14 @@ function devTone(u: ReeferUnit): string {
   return 'danger'
 }
 
+// Fuel: alto = verde (ok), bajo = ámbar/rojo.
+function fuelTone(v: number | null): string {
+  if (v == null) return ''
+  if (v < 15) return 'danger'
+  if (v < 25) return 'warn'
+  return 'ok'
+}
+
 function fmtT(v: number | null): string {
   return v == null ? '—' : `${v.toFixed(1)}°F`
 }
@@ -400,7 +408,7 @@ export default function ReeferPage() {
                         <td className="num mono">{fmtT(u.supply_f)}</td>
                         <td className="num mono">{fmtT(u.ambient_f)}</td>
                         <td>{u.run_mode || '—'}</td>
-                        <td className={`num mono ${u.fuel_pct != null && u.fuel_pct < 25 ? 'rt-warn' : ''}`}>
+                        <td className={`num mono rt-${fuelTone(u.fuel_pct)}`}>
                           {u.fuel_pct != null ? `${u.fuel_pct}%` : '—'}
                         </td>
                         <td>
