@@ -7,6 +7,7 @@ import UnitDrawer from '../components/UnitDrawer'
 import IconButton from '../components/IconButton'
 import AddUnitModal from '../components/AddUnitModal'
 import { useTerminals } from '../terminal'
+import { Button, Tabs } from '../components/ds'
 
 type SortKey = 'unit' | 'open'
 type Cell = string | number
@@ -136,22 +137,24 @@ export default function FleetPage({ onOpenUnit }: {
           </p>
         </div>
         <div className="head-actions">
-          <button className="btn btn-ghost" onClick={() => fleetQuery.refetch()}
-            disabled={fetching} title="Refresh">
-            <svg className={fetching ? 'spin' : ''} viewBox="0 0 24 24"
-              width="15" height="15" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
-            </svg>
+          <Button variant="ghost" onClick={() => fleetQuery.refetch()}
+            loading={fetching} disabled={fetching} title="Refresh"
+            icon={
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                strokeLinejoin="round">
+                <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
+              </svg>
+            }>
             {fetching ? 'Refreshing…' : 'Refresh'}
-          </button>
-          <button className="btn btn-ghost" disabled={sorted.length === 0}
+          </Button>
+          <Button variant="ghost" disabled={sorted.length === 0}
             onClick={() => downloadCSV(matrix)}>
             Export CSV
-          </button>
-          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
+          </Button>
+          <Button variant="primary" onClick={() => setShowAdd(true)}>
             + Add Unit
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -188,37 +191,34 @@ export default function FleetPage({ onOpenUnit }: {
       {/* Filtros */}
       <div className="card">
         <div className="card-body filters-row">
-          <div className="company-tabs" role="tablist">
-            <button className={`tab-btn ${type === '' ? 'active' : ''}`}
-              onClick={() => setType('')}>All</button>
-            <button className={`tab-btn ${type === 'truck' ? 'active' : ''}`}
-              onClick={() => setType('truck')}>Trucks</button>
-            <button className={`tab-btn ${type === 'trailer' ? 'active' : ''}`}
-              onClick={() => setType('trailer')}>Trailers</button>
-            <button className={`tab-btn ${type === 'chassis' ? 'active' : ''}`}
-              onClick={() => setType('chassis')}>Chassis</button>
-          </div>
+          <Tabs
+            tabs={[
+              { id: '', label: 'All' },
+              { id: 'truck', label: 'Trucks' },
+              { id: 'trailer', label: 'Trailers' },
+              { id: 'chassis', label: 'Chassis' },
+            ]}
+            value={type}
+            onChange={(id) => setType(id as typeof type)}
+          />
           {terminals.length > 1 && (
-            <div className="company-tabs" role="tablist">
-              <button className={`tab-btn ${terminal === '' ? 'active' : ''}`}
-                onClick={() => setTerminal('')}>All terminals</button>
-              {terminals.map((t) => (
-                <button key={t}
-                  className={`tab-btn ${terminal === t ? 'active' : ''}`}
-                  onClick={() => setTerminal(t)}>{labelOf(t)}</button>
-              ))}
-            </div>
+            <Tabs
+              tabs={[{ id: '', label: 'All terminals' },
+                ...terminals.map((t) => ({ id: t, label: labelOf(t) }))]}
+              value={terminal}
+              onChange={setTerminal}
+            />
           )}
           <span className="head-spacer" />
           <input className="cell-input" placeholder="Unit, VIN, plate, make…"
             value={q} onChange={(e) => setQ(e.target.value)} />
           {hasFilter && (
-            <button className="btn btn-ghost"
+            <Button variant="ghost"
               onClick={() => {
                 setCompany(''); setType(''); setTerminal(''); setQ('')
               }}>
               Clear
-            </button>
+            </Button>
           )}
         </div>
       </div>
