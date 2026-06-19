@@ -13,6 +13,7 @@ import {
 import { notifyOk, notifyErr } from '../toast'
 import { useTerminals } from '../terminal'
 import { usePerms } from '../perms'
+import { Button, Tabs } from '../components/ds'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
@@ -129,14 +130,15 @@ export default function WorkOrdersPage() {
         </div>
         <div className="head-actions">
           {can('maint.edit') && (
-            <button className="btn btn-primary"
-              onClick={() => setCreating(true)}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                strokeWidth="2" width="17" height="17" strokeLinecap="round">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
+            <Button variant="primary" onClick={() => setCreating(true)}
+              icon={
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2" width="17" height="17" strokeLinecap="round">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              }>
               New work order
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -165,31 +167,20 @@ export default function WorkOrdersPage() {
 
       <div className="card">
         <div className="card-body filters-row">
-          <div className="company-tabs" role="tablist">
-            <button className={`tab-btn ${statusFilter === '' ? 'active' : ''}`}
-              onClick={() => setStatusFilter('')}>All</button>
-            {PIPELINE.map((s) => (
-              <button key={s}
-                className={`tab-btn ${statusFilter === s ? 'active' : ''}`}
-                onClick={() => setStatusFilter(s)}>
-                {STATUS_META[s].label}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            tabs={[{ id: '', label: 'All' },
+              ...PIPELINE.map((s) => ({ id: s, label: STATUS_META[s].label }))]}
+            value={statusFilter}
+            onChange={(id) => setStatusFilter(id as typeof statusFilter)}
+          />
           {woTerminals.length > 1 && (
-            <div className="company-tabs" role="tablist"
-              aria-label="Terminal">
-              <button
-                className={`tab-btn ${terminal === '' ? 'active' : ''}`}
-                onClick={() => setTerminal('')}>All terminals</button>
-              {woTerminals.map((t) => (
-                <button key={t}
-                  className={`tab-btn ${terminal === t ? 'active' : ''}`}
-                  onClick={() => setTerminal(terminal === t ? '' : t)}>
-                  {labelOf(t)}
-                </button>
-              ))}
-            </div>
+            <Tabs
+              aria-label="Terminal"
+              tabs={[{ id: '', label: 'All terminals' },
+                ...woTerminals.map((t) => ({ id: t, label: labelOf(t) }))]}
+              value={terminal}
+              onChange={(id) => setTerminal(terminal === id ? '' : id)}
+            />
           )}
           <span className="head-spacer" />
           <input className="cell-input" placeholder="Unit, title, mechanic, WO#…"

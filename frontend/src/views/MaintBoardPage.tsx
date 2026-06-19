@@ -14,6 +14,7 @@ import {
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 import { useTerminals } from '../terminal'
+import { Button, Tabs } from '../components/ds'
 import MaintReport from '../components/MaintReport'
 import Modal from '../components/Modal'
 import PieChart from '../components/PieChart'
@@ -240,26 +241,32 @@ export default function MaintBoardPage({ kind }: Props) {
           <p className="page-sub">{meta.sub}</p>
         </div>
         <div className="head-actions">
-          <button className="btn btn-ghost" onClick={() => query.refetch()}>
-            <svg viewBox="0 0 24 24" {...STROKE}
-              className={query.isFetching ? 'spin' : ''}>
-              <path d="M20 11a8 8 0 1 0-2.3 6.3M20 5v6h-6" />
-            </svg>
+          <Button variant="ghost" onClick={() => query.refetch()}
+            loading={query.isFetching}
+            icon={
+              <svg viewBox="0 0 24 24" {...STROKE}>
+                <path d="M20 11a8 8 0 1 0-2.3 6.3M20 5v6h-6" />
+              </svg>
+            }>
             Refresh
-          </button>
-          <button className="btn btn-ghost" disabled={units.length === 0}
-            onClick={() => setReportOpen(true)} title="Download PDF report">
-            <svg viewBox="0 0 24 24" {...STROKE}>
-              <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
-            </svg>
+          </Button>
+          <Button variant="ghost" disabled={units.length === 0}
+            onClick={() => setReportOpen(true)} title="Download PDF report"
+            icon={
+              <svg viewBox="0 0 24 24" {...STROKE}>
+                <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+              </svg>
+            }>
             Export PDF
-          </button>
-          <button className="btn btn-primary" onClick={() => setAddOpen(true)}>
-            <svg viewBox="0 0 24 24" {...STROKE}>
-              <path d="M12 5v14M5 12h14" />
-            </svg>
+          </Button>
+          <Button variant="primary" onClick={() => setAddOpen(true)}
+            icon={
+              <svg viewBox="0 0 24 24" {...STROKE}>
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            }>
             {meta.add}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -277,9 +284,9 @@ export default function MaintBoardPage({ kind }: Props) {
               ? 'Drop the Fullbay fleet export at backend/pm.local.csv or add a PM manually.'
               : `Add the first DOT inspection with the ${meta.add} button.`}
           </p>
-          <button className="btn btn-primary" onClick={() => setAddOpen(true)}>
+          <Button variant="primary" onClick={() => setAddOpen(true)}>
             {meta.add}
-          </button>
+          </Button>
         </div></div>
       ) : (
         <>
@@ -287,18 +294,12 @@ export default function MaintBoardPage({ kind }: Props) {
           {boardTerminals.length > 1 && (
             <div className="card">
               <div className="card-body filters-row">
-                <div className="company-tabs" role="tablist">
-                  <button
-                    className={`tab-btn ${terminal === '' ? 'active' : ''}`}
-                    onClick={() => setTerminal('')}>All terminals</button>
-                  {boardTerminals.map((t) => (
-                    <button key={t}
-                      className={`tab-btn ${terminal === t ? 'active' : ''}`}
-                      onClick={() => setTerminal(terminal === t ? '' : t)}>
-                      {labelOf(t)}
-                    </button>
-                  ))}
-                </div>
+                <Tabs
+                  tabs={[{ id: '', label: 'All terminals' },
+                    ...boardTerminals.map((t) => ({ id: t, label: labelOf(t) }))]}
+                  value={terminal}
+                  onChange={(id) => setTerminal(terminal === id ? '' : id)}
+                />
               </div>
             </div>
           )}

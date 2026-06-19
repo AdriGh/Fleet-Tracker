@@ -7,6 +7,19 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.11.0] - 2026-06-18
+
+H7 (parte 4) — Rollout del Design System a las pantallas operativas.
+
+### Cambiado
+- **Fleet, Work Orders y PM/DOT (MaintBoard)** adoptan los componentes `ds/`:
+  los botones de header (Refresh con `loading`, Export, Add/New) → `ds/Button`;
+  los controles de filtro (tipo, estado, terminal) → `ds/Tabs` (conservando el
+  toggle-off de terminal donde existía). Sin cambios de comportamiento.
+- Pendiente (pasada con verificación visual): selects/inputs inline, pills de
+  estado con conteo, chips de categoría y los botones `.btn-xs` dentro de
+  tablas / drawers / modales.
+
 ## [1.10.0] - 2026-06-18
 
 H7 (parte 3) — Rollout del Design System por pantalla (piloto: Defects).
