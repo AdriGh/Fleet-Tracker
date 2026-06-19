@@ -33,6 +33,15 @@
   --ui-info: #0ea5e9;
   --ui-info-bg: rgba(14, 165, 233, 0.12);
 
+  /* Identidad de status de mantenimiento (PM/DOT): un color = un status
+     en TODA la pantalla (donut, tarjetas, riel de fila, píldora). El fondo
+     tintado se calcula con color-mix sobre --surface para adaptarse al tema.
+     --*-ink = color de texto de la píldora (oscuro, legible sobre el tinte). */
+  --st-overdue: #dc2626;  --st-overdue-ink: #b91c1c;
+  --st-upcoming: #d99a00; --st-upcoming-ink: #8a6200;   /* amarillo pato */
+  --st-on-track: #16a34a; --st-on-track-ink: #15803d;
+  --st-never: #0891b2;    --st-never-ink: #0e6f8a;       /* celeste oscuro */
+
   /* Diagrama del camión (carrocería metálica neutra + defecto rojo) */
   --truck-ok: #c4cedb;
   --truck-ok-stroke: #8fa0b3;
@@ -147,6 +156,12 @@
   --ui-warn-bg: rgba(251, 191, 36, 0.15);
   --ui-info: #38bdf8;
   --ui-info-bg: rgba(56, 189, 248, 0.15);
+
+  /* Status de mantenimiento, versión clara para fondo oscuro. */
+  --st-overdue: #f87171;  --st-overdue-ink: #fca5a5;
+  --st-upcoming: #fbbf24; --st-upcoming-ink: #fcd34d;
+  --st-on-track: #34d399; --st-on-track-ink: #6ee7b7;
+  --st-never: #22d3ee;    --st-never-ink: #67e8f9;
 
   --truck-ok: #5a6b80;
   --truck-ok-stroke: #93a3b8;
@@ -6126,7 +6141,15 @@ table.defects-table td {
   grid-template-columns: minmax(0, 1fr) 340px;
   gap: 14px;
   margin-bottom: 16px;
-  align-items: start;
+  align-items: stretch;
+}
+/* Columna izquierda: tarjetas arriba + panel de salud que crece para
+   igualar la altura del donut (que ya no deje espacio vacío al lado). */
+.mnt-left {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
 }
 .mnt-cards {
   display: grid;
@@ -6192,6 +6215,92 @@ table.defects-table td {
   border-radius: 999px;
   transition: width 0.5s var(--ease-out-soft);
 }
+
+/* ----- Panel "Fleet readiness" (rellena la columna izquierda) ----- */
+.mnt-health { flex: 1 1 auto; min-height: 0; display: flex; }
+.mnt-health .card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 18px 20px;
+}
+.mnt-health-score { display: flex; flex-direction: column; gap: 4px; }
+.mnt-health-eyebrow {
+  font-size: 0.66rem;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.mnt-health-pct {
+  font-family: var(--font-display);
+  font-size: 3rem;
+  font-weight: 750;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.mnt-health-note { font-size: 0.82rem; color: var(--text-muted); }
+.mnt-health-bar {
+  display: flex;
+  width: 100%;
+  height: 12px;
+  gap: 2px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.mnt-health-seg {
+  height: 100%;
+  min-width: 2px;
+  transition: width 0.6s var(--ease-out-soft);
+}
+.mnt-health-seg:first-child { border-radius: 999px 0 0 999px; }
+.mnt-health-seg:last-child { border-radius: 0 999px 999px 0; }
+.mnt-health-chips {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.mnt-hl {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 11px 13px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.mnt-hl-k {
+  font-size: 0.64rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.mnt-hl-v { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.mnt-hl-v strong {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.mnt-hl-v em {
+  font-style: normal;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.mnt-hl-worst .mnt-hl-v em { color: var(--st-overdue-ink); }
+.mnt-hl-none {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
 .mnt-donut .card-body {
   display: flex;
   justify-content: center;
@@ -6260,6 +6369,46 @@ table.defects-table td {
 .mnt-table th.num, .mnt-table td.num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* Tinte de fila por status: fondo muy tenue (≤8%) para no perder contraste
+   del texto + riel lateral del color del status en la 1.ª celda. El tinte
+   se calcula con color-mix sobre --surface, así se adapta a dark. */
+.mnt-table tbody tr.s-overdue {
+  background: color-mix(in srgb, var(--st-overdue) 7%, var(--surface));
+}
+.mnt-table tbody tr.s-upcoming {
+  background: color-mix(in srgb, var(--st-upcoming) 8%, var(--surface));
+}
+.mnt-table tbody tr.s-on_track {
+  background: color-mix(in srgb, var(--st-on-track) 6%, var(--surface));
+}
+.mnt-table tbody tr.s-never {
+  background: color-mix(in srgb, var(--st-never) 7%, var(--surface));
+}
+.mnt-table tbody tr.s-overdue:hover {
+  background: color-mix(in srgb, var(--st-overdue) 14%, var(--surface));
+}
+.mnt-table tbody tr.s-upcoming:hover {
+  background: color-mix(in srgb, var(--st-upcoming) 15%, var(--surface));
+}
+.mnt-table tbody tr.s-on_track:hover {
+  background: color-mix(in srgb, var(--st-on-track) 12%, var(--surface));
+}
+.mnt-table tbody tr.s-never:hover {
+  background: color-mix(in srgb, var(--st-never) 14%, var(--surface));
+}
+.mnt-table tbody tr.s-overdue > td:first-child {
+  box-shadow: inset 3px 0 0 var(--st-overdue);
+}
+.mnt-table tbody tr.s-upcoming > td:first-child {
+  box-shadow: inset 3px 0 0 var(--st-upcoming);
+}
+.mnt-table tbody tr.s-on_track > td:first-child {
+  box-shadow: inset 3px 0 0 var(--st-on-track);
+}
+.mnt-table tbody tr.s-never > td:first-child {
+  box-shadow: inset 3px 0 0 var(--st-never);
 }
 
 .mnt-unit { position: relative; min-width: 150px; }
@@ -6369,13 +6518,20 @@ table.defects-table td {
 }
 .mnt-status:hover { filter: brightness(0.96); }
 .mnt-status.s-on_track {
-  background: var(--ui-success-bg); color: var(--ui-success);
+  background: color-mix(in srgb, var(--st-on-track) 15%, var(--surface));
+  color: var(--st-on-track-ink);
 }
 .mnt-status.s-upcoming {
-  background: var(--ui-warn-bg); color: var(--ui-warn);
+  background: color-mix(in srgb, var(--st-upcoming) 16%, var(--surface));
+  color: var(--st-upcoming-ink);
 }
 .mnt-status.s-overdue {
-  background: var(--ui-danger-bg); color: var(--ui-danger);
+  background: color-mix(in srgb, var(--st-overdue) 14%, var(--surface));
+  color: var(--st-overdue-ink);
+}
+.mnt-status.s-never {
+  background: color-mix(in srgb, var(--st-never) 15%, var(--surface));
+  color: var(--st-never-ink);
 }
 .mnt-status.s-in_shop {
   background: var(--ui-info-bg); color: var(--ui-info);
@@ -6456,6 +6612,9 @@ table.defects-table td {
 
 @media (max-width: 1020px) {
   .mnt-overview { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .mnt-health-chips { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   .mnt-table tbody tr { animation: none; }
@@ -6802,15 +6961,21 @@ table.defects-table td {
   color: var(--text-muted);
 }
 .mnt-status-pill.s-on_track {
-  background: var(--ui-success-bg); color: var(--ui-success);
+  background: color-mix(in srgb, var(--st-on-track) 15%, var(--surface));
+  color: var(--st-on-track-ink);
 }
 .mnt-status-pill.s-upcoming {
-  background: var(--ui-warn-bg); color: var(--ui-warn);
+  background: color-mix(in srgb, var(--st-upcoming) 16%, var(--surface));
+  color: var(--st-upcoming-ink);
 }
 .mnt-status-pill.s-overdue {
-  background: var(--ui-danger-bg); color: var(--ui-danger);
+  background: color-mix(in srgb, var(--st-overdue) 14%, var(--surface));
+  color: var(--st-overdue-ink);
 }
-.mnt-status-pill.s-never { background: var(--surface-2); color: var(--text-muted); }
+.mnt-status-pill.s-never {
+  background: color-mix(in srgb, var(--st-never) 15%, var(--surface));
+  color: var(--st-never-ink);
+}
 
 .up-camp-grid {
   display: grid;

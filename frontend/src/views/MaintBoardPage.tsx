@@ -18,6 +18,7 @@ import { Button, Tabs } from '../components/ds'
 import MaintReport from '../components/MaintReport'
 import Modal from '../components/Modal'
 import PieChart from '../components/PieChart'
+import CountUp from '../components/CountUp'
 import Skeleton from '../components/Skeleton'
 
 type Props = { kind: MaintKind }
@@ -41,9 +42,9 @@ const KIND_META: Record<MaintKind, {
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
   on_track: { label: 'On track', color: '#16a34a' },
-  upcoming: { label: 'Upcoming', color: '#d97706' },
+  upcoming: { label: 'Upcoming', color: '#d99a00' },   // amarillo pato
   overdue: { label: 'Overdue', color: '#dc2626' },
-  never: { label: 'Never performed', color: '#71717a' },
+  never: { label: 'Never performed', color: '#0891b2' },  // celeste oscuro
   no_meter: { label: 'No odometer', color: '#a1a1aa' },
   out_of_service: { label: 'Out of service', color: '#52525b' },
   in_shop: { label: 'In shop', color: '#2563eb' },
@@ -232,6 +233,22 @@ export default function MaintBoardPage({ kind }: Props) {
 
   const total = units.length
 
+  // ----- Panel "Fleet readiness" (rellena la columna izq. junto al donut) -----
+  // Readiness = unidades que NO están vencidas ni sin servicio realizado.
+  const readyN = Math.max(0, total - (counts.overdue ?? 0) - (counts.never ?? 0))
+  const readyPct = total ? Math.round((readyN / total) * 100) : 0
+  const dueUnit = kind === 'pm' ? 'mi' : 'days'
+  // Unidad más vencida (to_due más negativo) y la próxima a vencer (menor +).
+  const worst = useMemo(() =>
+    units.filter((u) => u.status === 'overdue' && u.to_due != null)
+      .sort((a, b) => (a.to_due as number) - (b.to_due as number))[0] ?? null,
+    [units])
+  const nextDue = useMemo(() =>
+    units.filter((u) => u.to_due != null && (u.to_due as number) >= 0 &&
+      (u.status === 'upcoming' || u.status === 'on_track'))
+      .sort((a, b) => (a.to_due as number) - (b.to_due as number))[0] ?? null,
+    [units])
+
   return (
     <div className="page page-wide">
       {query.isFetching && <div className="loadbar" aria-hidden="true" />}
@@ -306,6 +323,7 @@ export default function MaintBoardPage({ kind }: Props) {
 
           {/* ----- Resumen: tarjetas por status + donut ----- */}
           <div className="mnt-overview">
+            <div className="mnt-left">
             <div className="mnt-cards">
               <button
                 className={`mnt-card ${statusFilter === null ? 'on' : ''}`}
@@ -339,6 +357,58 @@ export default function MaintBoardPage({ kind }: Props) {
                 )
               })}
             </div>
+
+            {/* Panel de salud de la flota: ocupa el espacio bajo las tarjetas */}
+            <div className="card mnt-health">
+              <div className="card-body">
+                <div className="mnt-health-score">
+                  <span className="mnt-health-eyebrow">Fleet readiness</span>
+                  <span className="mnt-health-pct">
+                    <CountUp value={readyPct} />%
+                  </span>
+                  <span className="mnt-health-note">
+                    {readyN} of {total} {total === 1 ? 'unit' : 'units'} on schedule
+                  </span>
+                </div>
+                <div className="mnt-health-bar" role="img"
+                  aria-label={`${meta.noun} status distribution`}>
+                  {pieData.map((s) => (
+                    <span key={s.label} className="mnt-health-seg"
+                      style={{
+                        width: total ? `${(s.value / total) * 100}%` : '0%',
+                        background: s.color,
+                      }}
+                      title={`${s.label}: ${s.value}`} />
+                  ))}
+                </div>
+                <div className="mnt-health-chips">
+                  <div className="mnt-hl mnt-hl-worst">
+                    <span className="mnt-hl-k">Most overdue</span>
+                    {worst ? (
+                      <span className="mnt-hl-v">
+                        <strong>{worst.unit}</strong>
+                        <em>-{fmtMi(Math.abs(worst.to_due as number))} {dueUnit}</em>
+                      </span>
+                    ) : (
+                      <span className="mnt-hl-none">None — all current</span>
+                    )}
+                  </div>
+                  <div className="mnt-hl mnt-hl-next">
+                    <span className="mnt-hl-k">Next due</span>
+                    {nextDue ? (
+                      <span className="mnt-hl-v">
+                        <strong>{nextDue.unit}</strong>
+                        <em>{fmtMi(nextDue.to_due as number)} {dueUnit}</em>
+                      </span>
+                    ) : (
+                      <span className="mnt-hl-none">—</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+            </div>
+
             <div className="card mnt-donut">
               <div className="card-head"><h2>{meta.noun} status</h2></div>
               <div className="card-body">
@@ -390,7 +460,7 @@ export default function MaintBoardPage({ kind }: Props) {
                       Math.min(1, u.to_due / (kind === 'pm'
                         ? data.interval_miles : data.interval_days)))
                     return (
-                      <tr key={u.unit}
+                      <tr key={u.unit} className={`s-${u.status}`}
                         style={{ animationDelay: `${Math.min(i, 14) * 28}ms` }}>
                         <td className={`mnt-unit ${isConfirmed ? 'is-confirmed' : ''}`}>
                           <strong>{u.unit}</strong>
