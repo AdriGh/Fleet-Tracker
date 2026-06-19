@@ -1654,6 +1654,12 @@ td.cell-bad {
   border-color: var(--border);
 }
 
+.dl-del:hover {
+  color: var(--ui-danger);
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
 .dl-btn svg {
   width: 15px;
   height: 15px;
@@ -5303,7 +5309,14 @@ table.defects-table td {
 .reefer-state.st-off { background: var(--st-overdue); }
 
 .reefer-table tbody tr { cursor: pointer; }
-.reefer-table .rt-ok { color: var(--st-on-track-ink); font-weight: 700; }
+.reefer-table .rt-ok {
+  color: var(--st-on-track-ink); font-weight: 700;
+  background: color-mix(in srgb, var(--st-on-track) 12%, transparent);
+}
+/* Valores de temperatura/fuel centrados (H+V) en su columna */
+.reefer-table td.num, .reefer-table th.num {
+  text-align: center; vertical-align: middle;
+}
 .reefer-table .rt-warn {
   color: var(--st-upcoming-ink); font-weight: 700;
   background: color-mix(in srgb, var(--st-upcoming) 12%, transparent);
@@ -5540,6 +5553,42 @@ table.defects-table td {
   grid-template-columns: 1fr 130px;
   gap: 10px;
 }
+
+/* Factura original adjunta (review v1.17): sección Source invoice del drawer */
+.wo-srcinv {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+/* Etiqueta estilo .ud-field pero como bloque (no envuelve un input) */
+.wo-srcinv .ud-field-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.wo-srcinv-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.wo-srcinv-name {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.wo-srcinv-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.wo-srcinv-hint { margin: 0; font-size: 0.78rem; }
 
 /* Líneas */
 .wo-lines { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
@@ -6287,9 +6336,9 @@ table.defects-table td {
   border: 1px solid var(--border);
 }
 .mnt-hl-k {
-  font-size: 0.64rem;
+  font-size: 0.66rem;
   font-weight: 650;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
@@ -6361,7 +6410,7 @@ table.defects-table td {
 .mnt-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
 .mnt-table th {
   padding: 9px 12px;
-  text-align: left;
+  text-align: center;
   font-size: 0.68rem;
   font-weight: 650;
   letter-spacing: 0.05em;
@@ -6374,13 +6423,14 @@ table.defects-table td {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
+  text-align: center;
 }
 .mnt-table tbody tr {
   animation: ft-row-in 0.38s var(--ease-out-soft) both;
 }
 .mnt-table tbody tr:hover { background: var(--surface-2); }
 .mnt-table th.num, .mnt-table td.num {
-  text-align: right;
+  text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
@@ -6495,7 +6545,7 @@ table.defects-table td {
 .mnt-due {
   display: inline-flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
   gap: 3px;
   font-weight: 600;
 }

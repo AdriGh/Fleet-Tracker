@@ -4,9 +4,10 @@ import {
   keepPreviousData, useQuery, useQueryClient,
 } from '@tanstack/react-query'
 import {
-  addWoLine, createWorkOrder, deleteWoLine, deleteWorkOrder,
-  getOrg, getUnitOdometer, getWorkOrder, listFleet, listParts,
-  listWorkOrders, patchWorkOrder, scanWoDocument, sendWoInvoice,
+  addWoLine, createWorkOrder, deleteWoInvoiceFile, deleteWoLine,
+  deleteWorkOrder, downloadWoInvoiceFile, getOrg, getUnitOdometer,
+  getWorkOrder, listFleet, listParts, listWorkOrders, patchWorkOrder,
+  scanWoDocument, sendWoInvoice, uploadWoInvoiceFile, viewWoInvoiceFile,
   type NotifyChannel, type Part, type WorkOrder, type WoPriority,
   type WoScanLine, type WoStatus,
 } from '../api'
@@ -858,6 +859,9 @@ export function WoDrawer({ woId, mechanics, onClose }: {
   const [chEmail, setChEmail] = useState(true)
   const [chSms, setChSms] = useState(false)
   const [sending, setSending] = useState(false)
+  // Factura original adjunta (review v1.17): subir/ver/descargar/quitar.
+  const invFileRef = useRef<HTMLInputElement | null>(null)
+  const [invBusy, setInvBusy] = useState(false)
 
   // Prefill del destinatario con el email de Bill-To de la empresa.
   useEffect(() => {
@@ -957,6 +961,45 @@ export function WoDrawer({ woId, mechanics, onClose }: {
       refreshWo(await patchWorkOrder(wo.id, patch))
     } catch (e) {
       notifyErr('Could not save', e)
+    }
+  }
+
+  // Factura original adjunta (review v1.17, estilo SquareRigger): subir
+  // reemplaza la existente; ver abre en pestaña; descargar baja con su
+  // nombre original. Refresca el WO para reflejar has_invoice_file.
+  async function uploadInvoiceFile(file: File | undefined) {
+    if (!wo || !file) return
+    setInvBusy(true)
+    try {
+      const r = await uploadWoInvoiceFile(wo.id, file)
+      qc.setQueryData<WorkOrder>(['workorder', wo.id], (prev) =>
+        prev ? { ...prev, has_invoice_file: true,
+                 invoice_file_name: r.invoice_file_name } : prev)
+      qc.invalidateQueries({ queryKey: ['workorders'] })
+      notifyOk('Invoice attached', r.invoice_file_name)
+    } catch (e) {
+      notifyErr("Couldn't upload invoice", e)
+    } finally {
+      setInvBusy(false)
+      if (invFileRef.current) invFileRef.current.value = ''
+    }
+  }
+
+  async function removeInvoiceFile() {
+    if (!wo) return
+    if (!window.confirm('Remove the attached invoice?')) return
+    setInvBusy(true)
+    try {
+      await deleteWoInvoiceFile(wo.id)
+      qc.setQueryData<WorkOrder>(['workorder', wo.id], (prev) =>
+        prev ? { ...prev, has_invoice_file: false,
+                 invoice_file_name: null } : prev)
+      qc.invalidateQueries({ queryKey: ['workorders'] })
+      notifyOk('Invoice removed')
+    } catch (e) {
+      notifyErr("Couldn't remove invoice", e)
+    } finally {
+      setInvBusy(false)
     }
   }
 
@@ -1237,6 +1280,51 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                       Settings, Company
                     </p>
                   )}
+                  {/* Factura original adjunta (review v1.17): el PDF/imagen
+                      del taller que dio origen a la WO. Ver/Descargar/Quitar
+                      o subir uno (reemplaza). Estilo SquareRigger. */}
+                  <div className="wo-srcinv">
+                    <span className="ud-field-label">Source invoice</span>
+                    {wo.has_invoice_file ? (
+                      <div className="wo-srcinv-row">
+                        <span className="wo-srcinv-name" title={
+                          wo.invoice_file_name ?? ''}>
+                          {wo.invoice_file_name}
+                        </span>
+                        <div className="wo-srcinv-actions">
+                          <Button variant="ghost" size="sm" disabled={invBusy}
+                            onClick={() => viewWoInvoiceFile(wo.id)
+                              .catch((e) => notifyErr("Couldn't open", e))}>
+                            View
+                          </Button>
+                          <Button variant="ghost" size="sm" disabled={invBusy}
+                            onClick={() => downloadWoInvoiceFile(
+                              wo.id, wo.invoice_file_name ?? `invoice-${wo.id}`)
+                              .catch((e) => notifyErr("Couldn't download", e))}>
+                            Download
+                          </Button>
+                          <Button variant="ghost" size="sm" loading={invBusy}
+                            className="up-danger"
+                            onClick={removeInvoiceFile}>
+                            Remove
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button variant="ghost" size="sm" loading={invBusy}
+                        onClick={() => invFileRef.current?.click()}>
+                        Upload invoice
+                      </Button>
+                    )}
+                    <input ref={invFileRef} type="file" hidden
+                      accept=".pdf,image/*"
+                      onChange={(e) =>
+                        uploadInvoiceFile(e.target.files?.[0])} />
+                    <p className="ud-muted wo-srcinv-hint">
+                      Attach the original shop invoice PDF (or photo) this
+                      work order came from.
+                    </p>
+                  </div>
                 </section>
 
                 {/* Líneas: partes + labor */}

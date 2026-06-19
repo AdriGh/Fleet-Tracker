@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  deleteBlock,
   getBlock,
   getTrends,
   missingDrivers,
@@ -92,6 +93,23 @@ export default function DvirPage() {
     missingQuery.refetch()
     summaryQuery.refetch()
     trendsQuery.refetch()
+  }
+
+  async function handleDelete(id: number) {
+    if (!window.confirm('Delete this DVIR report? This cannot be undone.')) {
+      return
+    }
+    try {
+      await deleteBlock(id)
+      if (selected?.id === id) setSelected(null)
+      qc.invalidateQueries({ queryKey: ['recent-blocks'] })
+      qc.invalidateQueries({ queryKey: ['month-summary'] })
+      qc.invalidateQueries({ queryKey: ['trends'] })
+      qc.invalidateQueries({ queryKey: ['missing-drivers'] })
+      notifyOk('Report deleted')
+    } catch (e) {
+      notifyErr('Could not delete', e)
+    }
   }
 
   async function copyDay() {
@@ -196,6 +214,7 @@ export default function DvirPage() {
                 sort={sort}
                 onSort={setSort}
                 onSelect={selectBlock}
+                onDelete={handleDelete}
                 selectedId={selected?.id ?? null}
               />
             )}

@@ -219,6 +219,11 @@ export async function getBlock(id: number): Promise<BlockDetail> {
   return res.json()
 }
 
+export async function deleteBlock(id: number): Promise<void> {
+  const res = await fetch(`/api/dvir/blocks/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
 // --- Defectos ---------------------------------------------------------
 
 export interface Defect {
@@ -934,6 +939,10 @@ export interface WorkOrder {
   po_number: string
   authorizer: string
   shop_invoice: string        // nº de invoice del TALLER externo (del escaneo)
+  // Factura original adjunta (review v1.17): el documento PDF/imagen que dio
+  // origen a la WO. Campos calculados en el backend desde el archivo en disco.
+  has_invoice_file: boolean
+  invoice_file_name: string | null
   total: number
   n_lines: number
   lines?: WoLine[]
@@ -1060,6 +1069,54 @@ export async function downloadUnitDoc(
   const res = await fetch(`/api/units/docs/${id}/download`)
   if (!res.ok) throw new Error(await readError(res))
   const url = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// --- Factura original adjunta por WO (review v1.17, estilo SquareRigger) ---
+
+// Sube (o reemplaza) la factura original del taller de la WO.
+export async function uploadWoInvoiceFile(
+  woId: number, file: File,
+): Promise<{ has_invoice_file: boolean; invoice_file_name: string }> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const res = await fetch(`/api/workorders/${woId}/invoice-file`, {
+    method: 'POST', body: fd,
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function deleteWoInvoiceFile(woId: number): Promise<void> {
+  const res = await fetch(`/api/workorders/${woId}/invoice-file`,
+    { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+// La factura es auth-protegida (el middleware exige token), así que un
+// <a href>/window.open directo daría 401: se baja por fetch (con Bearer) y
+// blob. open=true abre en pestaña nueva (ver); open=false fuerza descarga.
+async function fetchWoInvoiceBlobUrl(woId: number): Promise<string> {
+  const res = await fetch(`/api/workorders/${woId}/invoice-file`)
+  if (!res.ok) throw new Error(await readError(res))
+  return URL.createObjectURL(await res.blob())
+}
+
+export async function viewWoInvoiceFile(woId: number): Promise<void> {
+  const url = await fetchWoInvoiceBlobUrl(woId)
+  window.open(url, '_blank', 'noopener')
+  // El object URL queda vivo para que la pestaña lo muestre; se libera tarde.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
+export async function downloadWoInvoiceFile(
+  woId: number, filename: string,
+): Promise<void> {
+  const url = await fetchWoInvoiceBlobUrl(woId)
   const a = document.createElement('a')
   a.href = url
   a.download = filename

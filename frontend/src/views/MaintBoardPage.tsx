@@ -150,7 +150,6 @@ export default function MaintBoardPage({ kind }: Props) {
     return units.filter((u) =>
       (!statusFilter || u.status === statusFilter) &&
       (!s || u.unit.toLowerCase().includes(s) ||
-        u.driver.toLowerCase().includes(s) ||
         u.model.toLowerCase().includes(s)))
   }, [units, statusFilter, q])
 
@@ -438,7 +437,6 @@ export default function MaintBoardPage({ kind }: Props) {
                 <thead>
                   <tr>
                     <th>Unit</th>
-                    <th>Driver</th>
                     <th className="num">Current meter</th>
                     <th className="num">Last {meta.noun}</th>
                     <th className="num">Miles</th>
@@ -447,7 +445,6 @@ export default function MaintBoardPage({ kind }: Props) {
                       {kind === 'pm' ? 'Miles to due' : 'Days to due'}
                     </th>
                     <th>Status</th>
-                    <th>Notes</th>
                     <th aria-label="Actions" />
                   </tr>
                 </thead>
@@ -471,7 +468,6 @@ export default function MaintBoardPage({ kind }: Props) {
                             </span>
                           )}
                         </td>
-                        <td className="mnt-driver">{u.driver}</td>
                         <td className="num">
                           {kind === 'pm' ? (
                             <MeterCell row={u} onSave={saveCurrent} />
@@ -577,7 +573,6 @@ export default function MaintBoardPage({ kind }: Props) {
                             </select>
                           )}
                         </td>
-                        <td className="mnt-notes" title={u.notes}>{u.notes}</td>
                         <td className="mnt-actions">
                           <button className="mnt-icon" title={`Edit last ${meta.noun}`}
                             onClick={() => (isEdit ? setEditing(null) : startEdit(u))}>

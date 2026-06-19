@@ -55,7 +55,11 @@ def _line_dict(ln: WorkOrderLine) -> dict:
 
 
 def _wo_dict(wo: WorkOrder, with_lines: bool = False) -> dict:
+    from . import wo_invoices            # import diferido (orden de carga)
     total = round(sum(ln.qty * ln.unit_cost for ln in wo.lines), 2)
+    # Factura original adjunta: campos calculados desde el archivo en disco
+    # (NO hay columna en la DB; el almacenamiento es por archivo).
+    inv_name = wo_invoices.file_name(wo.id)
     out = {
         "id": wo.id,
         "created_at": wo.created_at.isoformat(),
@@ -82,6 +86,8 @@ def _wo_dict(wo: WorkOrder, with_lines: bool = False) -> dict:
         "po_number": wo.po_number or "",
         "authorizer": wo.authorizer or "",
         "shop_invoice": wo.shop_invoice or "",
+        "has_invoice_file": inv_name is not None,
+        "invoice_file_name": inv_name,
         "total": total,
         "n_lines": len(wo.lines),
     }
