@@ -7,6 +7,25 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.19.0] - 2026-06-19
+
+Ronda 2 de la review en video (sobre v1.18): Work Orders y PM/DOT.
+
+### Añadido
+- **WO · escaneo IA**: las líneas extraídas del documento ahora incluyen el
+  **número de parte** (PART #/SKU) cuando está impreso — alimenta el reporte de
+  gasto por parte/categoría.
+- **WO · Source invoice**: al crear un WO desde un documento escaneado, el
+  **archivo original se adjunta automáticamente** (la sección ya lo muestra, sin
+  subida manual); se conserva el botón de subida para WOs no escaneados.
+
+### Corregido
+- **WO · Parts & Labor**: el campo de monto **ya admite decimales** — antes,
+  teclear un punto reseteaba el valor a 0 (nuevo `DecimalInput`).
+- **PM Tracker / DOT Inspections**: la celda **Current meter** es ahora
+  editable/con resaltado en **toda la celda** (como "Last PM"), no solo sobre el
+  número.
+
 ## [1.18.0] - 2026-06-19
 
 Cambios de la review en video (sobre v1.17): Cold Chain, PM/DOT, board DVIR y Work Orders.
