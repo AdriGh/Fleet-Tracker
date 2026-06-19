@@ -20,6 +20,7 @@ import { useTerminals } from '../terminal'
 import { useTeams } from '../teams'
 import FleetBoard from '../components/FleetBoard'
 import { notifyOk, notifyErr } from '../toast'
+import { Button } from '../components/ds'
 import Skeleton from '../components/Skeleton'
 import Modal from '../components/Modal'
 import RosterPage from './RosterPage'
@@ -369,10 +370,10 @@ export default function SettingsPage(
                 </div>
 
                 <div className="settings-actions">
-                  <button className="btn btn-primary btn-expand" onClick={save}
+                  <Button variant="primary" onClick={save} loading={saving}
                     disabled={!dirty || saving}>
                     {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save changes'}
-                  </button>
+                  </Button>
                 </div>
               </>
             )}
@@ -741,10 +742,9 @@ function CompaniesCard() {
                 <code>terminal</code> column.
               </p>
               <div className="settings-actions" style={{ gap: 8 }}>
-                <button className="btn btn-ghost btn-expand"
-                  onClick={downloadTemplate}>
+                <Button variant="ghost" onClick={downloadTemplate}>
                   Download template
-                </button>
+                </Button>
                 <label className="btn btn-primary btn-expand"
                   style={{ cursor: importing ? 'default' : 'pointer' }}>
                   {importing ? 'Importing…' : 'Upload CSV'}
@@ -1090,10 +1090,10 @@ function CompanyCard() {
               ))}
 
               <div className="settings-actions">
-                <button className="btn btn-primary btn-expand" onClick={save}
+                <Button variant="primary" onClick={save} loading={saving}
                   disabled={!dirty || saving}>
                   {saving ? 'Saving…' : 'Save company'}
-                </button>
+                </Button>
               </div>
             </>
           )}
@@ -1465,10 +1465,10 @@ function AlertsCard() {
               </div>
 
               <div className="settings-actions">
-                <button className="btn btn-primary btn-expand" onClick={save}
+                <Button variant="primary" onClick={save} loading={saving}
                   disabled={!dirty || saving}>
                   {saving ? 'Saving…' : 'Save alert rules'}
-                </button>
+                </Button>
               </div>
             </>
           )}
@@ -1968,11 +1968,11 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
           </p>
 
           <div className="settings-actions" style={{ marginBottom: 12 }}>
-            <button className="btn btn-primary btn-expand"
-              onClick={() => setBoard({ focus: null })}>
-              <span className="btn-plus" aria-hidden>⠿</span>
+            <Button variant="primary"
+              onClick={() => setBoard({ focus: null })}
+              icon={<span className="btn-plus" aria-hidden>⠿</span>}>
               Open fleet board
-            </button>
+            </Button>
           </div>
 
           <table className="defects-table users-table">
@@ -2228,11 +2228,11 @@ function TeamsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
 
           {teams.length > 0 && (
             <div className="settings-actions" style={{ marginBottom: 12 }}>
-              <button className="btn btn-primary btn-expand"
-                onClick={() => setBoard({ focus: null })}>
-                <span className="btn-plus" aria-hidden>⠿</span>
+              <Button variant="primary"
+                onClick={() => setBoard({ focus: null })}
+                icon={<span className="btn-plus" aria-hidden>⠿</span>}>
                 Open fleet board
-              </button>
+              </Button>
             </div>
           )}
 
