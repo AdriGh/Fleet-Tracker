@@ -6919,6 +6919,17 @@ table.defects-table td {
   color: var(--text-muted);
   text-align: right;
 }
+/* Pista de empty-state cuando el escaneo no detecta líneas (H3c). */
+.wo-scan-empty {
+  margin: 2px 0 0;
+  padding: 9px 11px;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
 @media (prefers-reduced-motion: reduce) {
   .wo-scan.is-busy { animation: none; }
   .wo-scan-line { animation: none; }

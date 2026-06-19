@@ -7,6 +7,29 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.20.0] - 2026-06-19
+
+Ronda 3 de la review: el escaneo de facturas ahora extrae las líneas.
+
+### Corregido
+- **WO · escaneo IA (Ollama local)**: el escáner ahora **extrae los renglones de
+  partes/labor** del invoice. Causa raíz doble: (1) enviaba el PDF como texto
+  plano en vez de imagen al modelo de visión, y (2) faltaba `num_ctx` (el
+  contexto default de Ollama truncaba los tokens de la imagen → 0 líneas igual).
+  Ahora rasteriza el PDF a PNG (pypdfium2/PyMuPDF, ~170 DPI, 1-2 páginas), lo
+  envía como visión y sube `num_ctx` a 8192. Verificado en una factura real:
+  0 → 4 líneas.
+
+### Añadido
+- **WO · modal de escaneo**: cuando el escaneo no detecta líneas, un aviso inline
+  sugiere agregarlas a mano o configurar un proveedor más fuerte (Anthropic) en
+  Settings.
+
+### Nota
+- El modelo local de 7B acierta montos/cantidades pero a veces confunde
+  part/labor (corregible en el form antes de crear). Para precisión total,
+  configurar el proveedor **Anthropic** en docscan.
+
 ## [1.19.0] - 2026-06-19
 
 Ronda 2 de la review en video (sobre v1.18): Work Orders y PM/DOT.

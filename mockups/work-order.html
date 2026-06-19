@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Work Order #3 · CF2255 — Fleet Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  /* ===== Tokens (from frontend/src/index.css — dark theme) ===== */
+  :root {
+    --bg: #0a0a0b;
+    --surface: #161618;
+    --surface-2: #100f11;
+    --surface-3: #1e1e21;
+    --text: #f4f4f5;
+    --text-muted: #a1a1aa;
+    --border: #27272b;
+    --border-strong: #38383e;
+
+    --accent: #ff4438;
+    --accent-2: #ff6a52;
+    --accent-strong: #ff5a4a;
+    --accent-soft: rgba(255, 68, 56, 0.15);
+
+    --ui-danger: #fb7185;
+    --ui-danger-bg: rgba(251, 113, 133, 0.15);
+    --ui-success: #34d399;
+    --ui-success-bg: rgba(52, 211, 153, 0.15);
+    --ui-warn: #fbbf24;
+    --ui-warn-bg: rgba(251, 191, 36, 0.15);
+    --ui-info: #38bdf8;
+    --ui-info-bg: rgba(56, 189, 248, 0.15);
+
+    --st-overdue: #f87171;  --st-overdue-ink: #fca5a5;
+    --st-upcoming: #fbbf24; --st-upcoming-ink: #fcd34d;
+    --st-on-track: #34d399; --st-on-track-ink: #6ee7b7;
+    --st-never: #22d3ee;    --st-never-ink: #67e8f9;
+
+    --radius: 16px;
+    --radius-lg: 22px;
+    --radius-sm: 10px;
+    --radius-xs: 7px;
+    --radius-pill: 999px;
+    --radius-btn: 11px;
+
+    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+    --space-5: 22px; --space-6: 32px; --space-7: 48px;
+
+    --font: "Geist", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-display: "Space Grotesk", "Geist", system-ui, sans-serif;
+    --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --fs-micro: 10px; --fs-tiny: 11.5px; --fs-small: 13px; --fs-body: 15px;
+    --fs-h3: 15.5px; --fs-h2: 18px;
+
+    --tracking-label: 0.12em; --tracking-eyebrow: 0.16em;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --shadow-md: 0 20px 48px -18px rgba(0, 0, 0, 0.72), 0 2px 8px -4px rgba(0, 0, 0, 0.6);
+    --glow-accent: 0 2px 14px -2px rgba(255, 68, 56, 0.55);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    font-size: var(--fs-body);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* Subtle film grain over the black (token --grain 0.04 in dark) */
+  body::after {
+    content: "";
+    position: fixed; inset: 0; z-index: 500;
+    pointer-events: none; opacity: 0.04;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 130px;
+  }
+
+  h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.02em; }
+
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ===== Shell ===== */
+  .shell { display: flex; min-height: 100vh; }
+
+  /* ----- Sidebar ----- */
+  .sidebar {
+    width: 250px; flex: none;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 18px 14px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; padding: 4px 4px 18px; }
+  .brand-logo {
+    width: 42px; height: 42px; flex: none; border-radius: 12px;
+    background: radial-gradient(120% 120% at 30% 20%, #2a1310, #121013);
+    border: 1px solid var(--border-strong);
+    display: grid; place-items: center;
+    box-shadow: 0 4px 10px rgba(225, 25, 0, 0.20);
+  }
+  .brand-logo svg { width: 24px; height: 24px; }
+  .brand-text { display: flex; flex-direction: column; line-height: 1.1; }
+  .brand-text strong { font-family: var(--font-display); font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+  .brand-text span { font-size: 9.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.14em; margin-top: 3px; }
+
+  .nav-group-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--text-muted); opacity: 0.6;
+    padding: 14px 11px 6px;
+  }
+  .nav-item {
+    border: none; background: none; color: var(--text-muted);
+    font-family: inherit; font-size: 13.5px; font-weight: 600;
+    display: flex; align-items: center; gap: 11px;
+    padding: 9px 11px; border-radius: 11px; text-align: left; width: 100%;
+  }
+  .nav-item svg { width: 17px; height: 17px; flex: none; }
+  .nav-item.active { background: var(--accent-soft); color: var(--accent); }
+  .nav-item .count {
+    margin-left: auto; font-size: 10.5px; font-weight: 700;
+    background: var(--surface-3); color: var(--text-muted);
+    padding: 1px 7px; border-radius: 999px;
+  }
+  .nav-item.active .count { background: var(--accent); color: #fff; }
+
+  .sidebar-foot { margin-top: auto; border-top: 1px solid var(--border); padding-top: 12px; display: flex; align-items: center; gap: 8px; }
+  .foot-avatar { width: 30px; height: 30px; border-radius: 50%; background: linear-gradient(135deg, #2d2d33, #18181b); border: 1px solid var(--border-strong); display: grid; place-items: center; font-size: 11px; font-weight: 700; color: var(--text); flex: none; }
+  .foot-meta { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+  .foot-meta strong { font-size: 12.5px; font-weight: 600; }
+  .foot-meta span { font-size: 10.5px; color: var(--text-muted); }
+  .health-dot { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--ui-success); box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18); flex: none; }
+
+  /* ----- Main ----- */
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+  .topbar {
+    display: flex; align-items: center; gap: 14px;
+    padding: 16px 32px; border-bottom: 1px solid var(--border);
+    background: rgba(16, 15, 17, 0.6);
+  }
+  .crumbs { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-muted); }
+  .crumbs a { color: var(--text-muted); text-decoration: none; }
+  .crumbs .sep { opacity: 0.4; }
+  .crumbs .here { color: var(--text); font-weight: 600; }
+  .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+  .container { padding: 26px 32px 60px; display: flex; flex-direction: column; gap: 18px; max-width: 1280px; width: 100%; }
+
+  /* ===== Buttons ===== */
+  .btn {
+    border: 1px solid var(--border-strong); border-radius: var(--radius-btn);
+    background: var(--surface-3); color: var(--text);
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    padding: 8px 14px; display: inline-flex; align-items: center; gap: 8px;
+  }
+  .btn svg { width: 15px; height: 15px; }
+  .btn.ghost { background: transparent; }
+  .btn.primary {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+    box-shadow: var(--glow-accent);
+  }
+  .btn.icon { padding: 8px; width: 34px; height: 34px; justify-content: center; }
+
+  /* ===== Header card ===== */
+  .wo-header {
+    background:
+      radial-gradient(900px circle at 92% -40%, rgba(255, 68, 56, 0.08), transparent 60%),
+      var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    padding: 22px 24px 20px;
+  }
+  .wo-title-row { display: flex; align-items: flex-start; gap: 16px; }
+  .wo-title-main { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+  .wo-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); }
+  .wo-title { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .wo-title h1 { font-size: 25px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.05; }
+  .wo-title .unit-link { color: var(--accent-2); }
+
+  .badge-reefer {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: var(--accent-soft); color: var(--accent);
+    border: 1px solid rgba(255, 68, 56, 0.4);
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 5px 10px 5px 8px; border-radius: var(--radius-pill);
+  }
+  .badge-reefer svg { width: 13px; height: 13px; }
+  .badge-reefer .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgba(255, 68, 56, 0.25); }
+
+  .wo-fault-note {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--text-muted); margin-top: 1px;
+  }
+  .wo-fault-note .code { color: var(--ui-info); font-weight: 600; }
+
+  .wo-title-right { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 9px; flex: none; }
+  .wo-amount-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); }
+  .wo-amount { font-family: var(--font-display); font-size: 30px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .wo-amount .cur { color: var(--text-muted); font-weight: 500; font-size: 19px; margin-right: 2px; }
+
+  /* ===== Pipeline ===== */
+  .pipeline {
+    display: grid; grid-template-columns: repeat(6, 1fr);
+    gap: 0; margin-top: 22px;
+    border: 1px solid var(--border); border-radius: 12px;
+    background: var(--surface-2); overflow: hidden;
+  }
+  .pl-step {
+    position: relative; padding: 12px 14px 13px;
+    display: flex; flex-direction: column; gap: 7px;
+    border-right: 1px solid var(--border);
+  }
+  .pl-step:last-child { border-right: none; }
+  .pl-top { display: flex; align-items: center; gap: 9px; }
+  .pl-node {
+    width: 22px; height: 22px; flex: none; border-radius: 50%;
+    display: grid; place-items: center; font-size: 11px; font-weight: 700;
+    background: var(--surface-3); color: var(--text-muted);
+    border: 1px solid var(--border-strong);
+  }
+  .pl-node svg { width: 12px; height: 12px; }
+  .pl-step.done .pl-node { background: rgba(52, 211, 153, 0.14); border-color: rgba(52, 211, 153, 0.4); color: var(--ui-success); }
+  .pl-step.active .pl-node { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: var(--glow-accent); }
+  .pl-label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+  .pl-step.done .pl-label { color: var(--text); }
+  .pl-step.active .pl-label { color: var(--text); font-weight: 700; }
+  .pl-meta { font-size: 10.5px; color: var(--text-muted); padding-left: 31px; }
+  .pl-step.active .pl-meta { color: var(--accent-2); font-weight: 600; }
+  .pl-step.active::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+    background: var(--accent);
+  }
+  .pl-step.upcoming { opacity: 0.6; }
+
+  /* ===== Meta chips ===== */
+  .meta-row {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px;
+    padding-top: 18px; border-top: 1px solid var(--border);
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius-pill); padding: 6px 13px 6px 11px;
+  }
+  .chip svg { width: 14px; height: 14px; color: var(--text-muted); flex: none; }
+  .chip .k { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+  .chip .v { font-size: 12.5px; font-weight: 600; color: var(--text); }
+  .chip .v.mono { font-size: 12px; }
+
+  /* ===== Layout grid ===== */
+  .grid { display: grid; grid-template-columns: 1fr 360px; gap: 18px; align-items: start; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden;
+  }
+  .card-head { display: flex; align-items: center; gap: 11px; padding: 15px 20px; border-bottom: 1px solid var(--border); }
+  .card-head h2 { font-size: var(--fs-h3); font-weight: 700; }
+  .card-head .head-ico { width: 28px; height: 28px; flex: none; border-radius: 8px; background: var(--surface-3); display: grid; place-items: center; color: var(--text-muted); }
+  .card-head .head-ico svg { width: 15px; height: 15px; }
+  .card-head .sub { margin-left: auto; font-size: 11.5px; color: var(--text-muted); }
+
+  /* ===== Complaint ===== */
+  .complaint { display: flex; gap: 13px; align-items: flex-start; padding: 16px 20px; }
+  .complaint-rail { width: 3px; align-self: stretch; border-radius: 3px; background: var(--accent); flex: none; }
+  .complaint-body { display: flex; flex-direction: column; gap: 4px; }
+  .complaint-k { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); }
+  .complaint-v { font-size: 14px; font-weight: 600; color: var(--text); }
+  .complaint-sub { font-size: 12.5px; color: var(--text-muted); }
+
+  /* ===== Parts & Labor table ===== */
+  .pl-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .pl-table thead th {
+    background: var(--surface-2); color: var(--text-muted);
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    text-align: left; padding: 9px 16px; border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  .pl-table thead th.r { text-align: right; }
+  .pl-table tbody td { padding: 11px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .pl-table tbody tr:last-child td { border-bottom: none; }
+  .pl-table tbody td.r { text-align: right; font-variant-numeric: tabular-nums; }
+  .pl-table tbody tr:hover { background: rgba(255, 68, 56, 0.04); }
+
+  .type-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 3px 9px 3px 7px; border-radius: var(--radius-pill); white-space: nowrap;
+  }
+  .type-pill .d { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .type-pill.part { background: var(--ui-info-bg); color: var(--ui-info); }
+  .type-pill.part .d { background: var(--ui-info); }
+  .type-pill.labor { background: var(--ui-warn-bg); color: var(--ui-warn); }
+  .type-pill.labor .d { background: var(--ui-warn); }
+
+  .desc { font-weight: 600; color: var(--text); }
+  .desc small { display: block; font-weight: 400; color: var(--text-muted); font-size: 11.5px; margin-top: 2px; }
+  .partno { color: var(--text-muted); }
+  .qtyrate { color: var(--text-muted); white-space: nowrap; }
+  .qtyrate b { color: var(--text); font-weight: 600; }
+  .amt { font-weight: 600; color: var(--text); }
+
+  .pl-table tfoot td { padding: 9px 16px; border-top: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+  .pl-table tfoot .lbl { text-align: right; color: var(--text-muted); font-size: 12px; font-weight: 600; }
+  .pl-table tfoot .val { text-align: right; font-weight: 600; width: 130px; }
+  .pl-table tfoot tr.subtle td { border-top: 1px solid var(--border); background: var(--surface-2); }
+  .pl-table tfoot tr.total td { background: var(--surface-2); border-top: 1px solid var(--border-strong); }
+  .pl-table tfoot tr.total .lbl { color: var(--text); font-size: 12.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+  .pl-table tfoot tr.total .val { font-family: var(--font-display); font-size: 18px; font-weight: 700; }
+  .pl-table tfoot tr.total .val .cur { color: var(--text-muted); font-weight: 500; font-size: 13px; }
+
+  /* ===== Right column ===== */
+  .side-col { display: flex; flex-direction: column; gap: 18px; }
+
+  /* Source invoice */
+  .invoice-body { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .doc-row { display: flex; gap: 13px; align-items: center; }
+  .doc-thumb {
+    width: 62px; height: 80px; flex: none; border-radius: var(--radius-xs);
+    background: #f4f4f0; border: 1px solid var(--border-strong);
+    position: relative; overflow: hidden; box-shadow: var(--shadow-md);
+  }
+  .doc-thumb .corner { position: absolute; top: 0; right: 0; width: 16px; height: 16px; background: linear-gradient(225deg, #d4d4cc 50%, transparent 50%); }
+  .doc-thumb .lines { position: absolute; inset: 9px 8px; display: flex; flex-direction: column; gap: 3.5px; }
+  .doc-thumb .lines i { display: block; height: 2.5px; border-radius: 2px; background: #c9c9c2; }
+  .doc-thumb .lines i.title { height: 4px; width: 70%; background: #9a9a92; margin-bottom: 2px; }
+  .doc-thumb .lines i.short { width: 55%; }
+  .doc-thumb .lines i.med { width: 80%; }
+  .doc-thumb .pdf-tag {
+    position: absolute; bottom: 6px; left: 6px;
+    font-family: var(--font-mono); font-size: 7.5px; font-weight: 700; letter-spacing: 0.05em;
+    color: #fff; background: var(--accent); padding: 1px 5px; border-radius: 3px;
+  }
+  .doc-meta { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .doc-name { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--text); word-break: break-all; }
+  .doc-attrs { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-muted); }
+  .doc-attrs .sep { opacity: 0.4; }
+  .doc-scanned {
+    display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--ui-success); background: var(--ui-success-bg);
+    padding: 3px 8px; border-radius: var(--radius-pill);
+  }
+  .doc-scanned svg { width: 11px; height: 11px; }
+  .doc-actions { display: flex; gap: 9px; }
+  .doc-actions .btn { flex: 1; justify-content: center; }
+
+  /* Authorizer / detail list */
+  .kv-list { display: flex; flex-direction: column; }
+  .kv-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 16px; border-bottom: 1px solid var(--border); }
+  .kv-row:last-child { border-bottom: none; }
+  .kv-k { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 9px; }
+  .kv-k svg { width: 14px; height: 14px; color: var(--text-muted); }
+  .kv-v { font-size: 12.5px; font-weight: 600; color: var(--text); text-align: right; }
+  .kv-v.mono { font-size: 12px; }
+  .person { display: inline-flex; align-items: center; gap: 8px; }
+  .person .av { width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg, #2d2d33, #18181b); border: 1px solid var(--border-strong); display: grid; place-items: center; font-size: 9.5px; font-weight: 700; color: var(--text); }
+
+  /* Notes */
+  .notes-body { padding: 16px; display: flex; flex-direction: column; gap: 13px; }
+  .note { display: flex; gap: 11px; }
+  .note .av { width: 28px; height: 28px; flex: none; border-radius: 50%; background: linear-gradient(135deg, #2d2d33, #18181b); border: 1px solid var(--border-strong); display: grid; place-items: center; font-size: 10.5px; font-weight: 700; color: var(--text); }
+  .note .av.system { background: var(--accent-soft); border-color: rgba(255,68,56,0.35); color: var(--accent); }
+  .note-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .note-head { display: flex; align-items: baseline; gap: 8px; }
+  .note-author { font-size: 12.5px; font-weight: 600; }
+  .note-author .tag { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); background: var(--accent-soft); padding: 1px 6px; border-radius: 999px; margin-left: 2px; }
+  .note-time { font-size: 10.5px; color: var(--text-muted); }
+  .note-text { font-size: 12.5px; color: var(--text-muted); line-height: 1.5; }
+  .note-text code { font-family: var(--font-mono); font-size: 11.5px; color: var(--ui-info); background: var(--ui-info-bg); padding: 1px 5px; border-radius: 4px; }
+  .note-input { display: flex; gap: 9px; align-items: center; padding-top: 11px; border-top: 1px solid var(--border); }
+  .note-input .field { flex: 1; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 12px; font-size: 12.5px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <!-- ===== Sidebar ===== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M3 16h11l3-4h4v4" stroke="#ff4438" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="7" cy="18" r="2" fill="#ff4438"/>
+          <circle cx="18" cy="18" r="2" fill="#ff4438"/>
+          <path d="M3 9h8" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <strong>Fleet Tracker</strong>
+        <span>Shop &middot; Cold Chain</span>
+      </div>
+    </div>
+
+    <div class="nav-group-label">Shop</div>
+    <button class="nav-item active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4l-6 6 3 3 6-6a4 4 0 0 0 5.4-5.4l-2.6 2.6-2-2 2.6-2.6z"/></svg>
+      Work Orders <span class="count">12</span>
+    </button>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Parts &amp; PO
+    </button>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13l2 2 4-4"/></svg>
+      Invoice Scanner
+    </button>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 18 9 6l4 8 2-4 4 8"/></svg>
+      Units
+    </button>
+
+    <div class="nav-group-label">Cold Chain</div>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M5 7l7-5 7 5M5 17l7 5 7-5M2 12h20"/></svg>
+      Reefers <span class="count">2</span>
+    </button>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="3"/><path d="M12 2a8 8 0 0 0-8 8c0 5.4 8 12 8 12s8-6.6 8-12a8 8 0 0 0-8-8z"/></svg>
+      Live Map
+    </button>
+
+    <div class="nav-group-label">Maintenance</div>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="9"/></svg>
+      PM / DOT
+    </button>
+    <button class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      DVIR
+    </button>
+
+    <div class="sidebar-foot">
+      <div class="foot-avatar">MR</div>
+      <div class="foot-meta">
+        <strong>M. Rivas</strong>
+        <span>Shop Manager</span>
+      </div>
+      <span class="health-dot" title="Samsara connected"></span>
+    </div>
+  </aside>
+
+  <!-- ===== Main ===== -->
+  <div class="main">
+    <div class="topbar">
+      <nav class="crumbs">
+        <a href="#">Work Orders</a>
+        <span class="sep">/</span>
+        <a href="#">Open</a>
+        <span class="sep">/</span>
+        <span class="here">WO #3 &middot; CF2255</span>
+      </nav>
+      <div class="topbar-actions">
+        <button class="btn ghost">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></svg>
+          Share
+        </button>
+        <button class="btn ghost">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>
+          Print
+        </button>
+        <button class="btn primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
+          Mark complete
+        </button>
+      </div>
+    </div>
+
+    <div class="container">
+      <!-- ===== Header card ===== -->
+      <section class="wo-header">
+        <div class="wo-title-row">
+          <div class="wo-title-main">
+            <div class="wo-eyebrow">Work Order</div>
+            <div class="wo-title">
+              <h1>WO&nbsp;#3 &middot; <span class="unit-link">CF2255</span></h1>
+              <span class="badge-reefer">
+                <span class="dot"></span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M4 8l8-6 8 6M4 16l8 6 8-6M2 12h20"/></svg>
+                From reefer fault
+              </span>
+            </div>
+            <div class="wo-fault-note">
+              Auto-created from Carrier Lynx alarm
+              <span class="code">AL52 &middot; LOW REFRIGERANT</span>
+              on trailer RF8841
+            </div>
+          </div>
+          <div class="wo-title-right">
+            <div class="wo-amount-label">Total</div>
+            <div class="wo-amount"><span class="cur">$</span><span class="num">250.73</span></div>
+          </div>
+        </div>
+
+        <!-- Pipeline -->
+        <div class="pipeline">
+          <div class="pl-step done">
+            <div class="pl-top">
+              <span class="pl-node"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></span>
+              <span class="pl-label">Open</span>
+            </div>
+            <div class="pl-meta">06-11 · 14:08</div>
+          </div>
+          <div class="pl-step done">
+            <div class="pl-top">
+              <span class="pl-node"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></span>
+              <span class="pl-label">Assigned</span>
+            </div>
+            <div class="pl-meta">L. Cordero</div>
+          </div>
+          <div class="pl-step active">
+            <div class="pl-top">
+              <span class="pl-node">3</span>
+              <span class="pl-label">In progress</span>
+            </div>
+            <div class="pl-meta">Since 06-12</div>
+          </div>
+          <div class="pl-step upcoming">
+            <div class="pl-top">
+              <span class="pl-node">4</span>
+              <span class="pl-label">Waiting parts</span>
+            </div>
+            <div class="pl-meta">—</div>
+          </div>
+          <div class="pl-step upcoming">
+            <div class="pl-top">
+              <span class="pl-node">5</span>
+              <span class="pl-label">Completed</span>
+            </div>
+            <div class="pl-meta">—</div>
+          </div>
+          <div class="pl-step upcoming">
+            <div class="pl-top">
+              <span class="pl-node">6</span>
+              <span class="pl-label">Invoiced</span>
+            </div>
+            <div class="pl-meta">—</div>
+          </div>
+        </div>
+
+        <!-- Meta chips -->
+        <div class="meta-row">
+          <div class="chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+            <span class="k">Unit</span><span class="v mono">CF2255</span>
+          </div>
+          <div class="chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/></svg>
+            <span class="k">Shop</span><span class="v">Speedco · Palestine, AR</span>
+          </div>
+          <div class="chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+            <span class="k">Shop Inv #</span><span class="v mono">4010007293</span>
+          </div>
+          <div class="chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>
+            <span class="k">PO #</span><span class="v mono">PO-22517</span>
+          </div>
+          <div class="chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>
+            <span class="k">Technician</span><span class="v">L. Cordero</span>
+          </div>
+          <div class="chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            <span class="k">Authorizer</span><span class="v">M. Rivas</span>
+          </div>
+          <div class="chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            <span class="k">Service date</span><span class="v mono">2026-06-12</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== Body grid ===== -->
+      <div class="grid">
+        <!-- LEFT -->
+        <div class="left-col" style="display:flex;flex-direction:column;gap:18px;">
+          <!-- Complaint -->
+          <section class="card">
+            <div class="card-head">
+              <span class="head-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>
+              <h2>Complaint</h2>
+              <span class="sub">Reported at intake</span>
+            </div>
+            <div class="complaint">
+              <div class="complaint-rail"></div>
+              <div class="complaint-body">
+                <span class="complaint-k">Mechanical / Other</span>
+                <span class="complaint-v">No start in parking lot.</span>
+                <span class="complaint-sub">Driver reported tractor would not crank after the reefer alarm; towed to Speedco. Odometer at intake <span class="mono" style="color:var(--text);">412,889 mi</span> · VIN <span class="mono" style="color:var(--text);">3AKJHHDR8MSMM1422</span>.</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- Parts & Labor -->
+          <section class="card">
+            <div class="card-head">
+              <span class="head-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.09A1.65 1.65 0 0 0 10.5 3.09V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9z"/></svg></span>
+              <h2>Parts &amp; Labor</h2>
+              <span class="sub">5 line items · 4.5 hrs labor</span>
+            </div>
+            <table class="pl-table">
+              <thead>
+                <tr>
+                  <th style="width:88px;">Item</th>
+                  <th>Description</th>
+                  <th style="width:150px;">Part #</th>
+                  <th class="r" style="width:150px;">Qty × Rate</th>
+                  <th class="r" style="width:110px;">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="type-pill part"><span class="d"></span>Part</span></td>
+                  <td><span class="desc">Steer tire — 11R22.5 16PR<small>Continental HSR2, road service mount</small></span></td>
+                  <td class="mono partno">CTL-05684210000</td>
+                  <td class="r qtyrate"><b>1</b> × $86.40</td>
+                  <td class="r amt mono">$86.40</td>
+                </tr>
+                <tr>
+                  <td><span class="type-pill part"><span class="d"></span>Part</span></td>
+                  <td><span class="desc">Engine oil — 15W-40 CK-4<small>Bulk dispense, drain &amp; fill</small></span></td>
+                  <td class="mono partno">SHL-550045128</td>
+                  <td class="r qtyrate"><b>11</b> qt × $4.85</td>
+                  <td class="r amt mono">$53.35</td>
+                </tr>
+                <tr>
+                  <td><span class="type-pill part"><span class="d"></span>Part</span></td>
+                  <td><span class="desc">Shop supplies &amp; disposal<small>Rags, cleaner, used-oil fee</small></span></td>
+                  <td class="mono partno">SUP-MISC</td>
+                  <td class="r qtyrate"><b>1</b> × $12.50</td>
+                  <td class="r amt mono">$12.50</td>
+                </tr>
+                <tr>
+                  <td><span class="type-pill labor"><span class="d"></span>Labor</span></td>
+                  <td><span class="desc">Diagnose no-start condition<small>Tech L. Cordero · starter/battery test</small></span></td>
+                  <td class="mono partno">LBR-DIAG</td>
+                  <td class="r qtyrate"><b>1.5</b> hr × $42.00</td>
+                  <td class="r amt mono">$63.00</td>
+                </tr>
+                <tr>
+                  <td><span class="type-pill labor"><span class="d"></span>Labor</span></td>
+                  <td><span class="desc">Reefer refrigerant top-off &amp; PM<small>Tech L. Cordero · clears Lynx AL52</small></span></td>
+                  <td class="mono partno">LBR-RFR</td>
+                  <td class="r qtyrate"><b>0.82</b> hr × $42.00</td>
+                  <td class="r amt mono">$34.48</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr class="subtle">
+                  <td colspan="3"></td>
+                  <td class="lbl">Parts</td>
+                  <td class="val mono">$152.25</td>
+                </tr>
+                <tr class="subtle">
+                  <td colspan="3"></td>
+                  <td class="lbl">Labor</td>
+                  <td class="val mono">$97.48</td>
+                </tr>
+                <tr class="subtle">
+                  <td colspan="3"></td>
+                  <td class="lbl">Tax (1%)</td>
+                  <td class="val mono">$1.00</td>
+                </tr>
+                <tr class="total">
+                  <td colspan="3"></td>
+                  <td class="lbl">Total</td>
+                  <td class="val"><span class="cur">$</span>250.73</td>
+                </tr>
+              </tfoot>
+            </table>
+          </section>
+        </div>
+
+        <!-- RIGHT -->
+        <div class="side-col">
+          <!-- Source invoice -->
+          <section class="card">
+            <div class="card-head">
+              <span class="head-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+              <h2>Source invoice</h2>
+            </div>
+            <div class="invoice-body">
+              <div class="doc-row">
+                <div class="doc-thumb">
+                  <div class="corner"></div>
+                  <div class="lines">
+                    <i class="title"></i>
+                    <i class="med"></i>
+                    <i></i>
+                    <i class="short"></i>
+                    <i></i>
+                    <i class="med"></i>
+                    <i class="short"></i>
+                    <i></i>
+                    <i class="med"></i>
+                  </div>
+                  <span class="pdf-tag">PDF</span>
+                </div>
+                <div class="doc-meta">
+                  <span class="doc-scanned">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
+                    AI-scanned
+                  </span>
+                  <span class="doc-name">WO_Priced_4010007293.PDF</span>
+                  <div class="doc-attrs">
+                    <span>1 page</span><span class="sep">·</span><span class="num">248 KB</span><span class="sep">·</span><span>06-12</span>
+                  </div>
+                </div>
+              </div>
+              <div class="doc-actions">
+                <button class="btn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                  View
+                </button>
+                <button class="btn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+                  Download
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <!-- Authorization / details -->
+          <section class="card">
+            <div class="card-head">
+              <span class="head-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 1.66-4 6-9 6s-9-4.34-9-6 4-6 9-6 9 4.34 9 6z"/></svg></span>
+              <h2>Authorization</h2>
+            </div>
+            <div class="kv-list">
+              <div class="kv-row">
+                <span class="kv-k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>Authorized by</span>
+                <span class="kv-v"><span class="person"><span class="av">MR</span>M. Rivas</span></span>
+              </div>
+              <div class="kv-row">
+                <span class="kv-k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.2 4.2l2.8 2.8M17 17l2.8 2.8M1 12h4M19 12h4"/></svg>Technician</span>
+                <span class="kv-v"><span class="person"><span class="av">LC</span>L. Cordero</span></span>
+              </div>
+              <div class="kv-row">
+                <span class="kv-k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Authorized</span>
+                <span class="kv-v mono">2026-06-12</span>
+              </div>
+              <div class="kv-row">
+                <span class="kv-k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>PO #</span>
+                <span class="kv-v mono">PO-22517</span>
+              </div>
+              <div class="kv-row">
+                <span class="kv-k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M4 8l8-6 8 6M4 16l8 6 8-6"/></svg>Source</span>
+                <span class="kv-v" style="color:var(--accent);">Reefer fault → WO</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- Notes -->
+          <section class="card">
+            <div class="card-head">
+              <span class="head-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+              <h2>Notes</h2>
+              <span class="sub">3</span>
+            </div>
+            <div class="notes-body">
+              <div class="note">
+                <div class="av system">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M4 8l8-6 8 6M4 16l8 6 8-6"/></svg>
+                </div>
+                <div class="note-body">
+                  <div class="note-head">
+                    <span class="note-author">Fleet Tracker<span class="tag">System</span></span>
+                    <span class="note-time">06-11 · 14:08</span>
+                  </div>
+                  <div class="note-text">Work order auto-created from Carrier Lynx alarm <code>AL52</code> on trailer RF8841. Severity ≥ warning. Linked to unit CF2255.</div>
+                </div>
+              </div>
+              <div class="note">
+                <div class="av">LC</div>
+                <div class="note-body">
+                  <div class="note-head">
+                    <span class="note-author">L. Cordero</span>
+                    <span class="note-time">06-12 · 09:21</span>
+                  </div>
+                  <div class="note-text">Battery tested good, starter solenoid intermittent — cleaned grounds, cranked OK. Reefer down 0.4 lb refrigerant, topped off and cleared the code.</div>
+                </div>
+              </div>
+              <div class="note">
+                <div class="av">MR</div>
+                <div class="note-body">
+                  <div class="note-head">
+                    <span class="note-author">M. Rivas</span>
+                    <span class="note-time">06-12 · 10:05</span>
+                  </div>
+                  <div class="note-text">Approved labor &amp; parts against PO-22517. Hold invoicing until Speedco priced copy is reconciled.</div>
+                </div>
+              </div>
+              <div class="note-input">
+                <div class="field">Add a note…</div>
+                <button class="btn primary icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></svg>
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

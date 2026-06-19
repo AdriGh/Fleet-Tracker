@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fleet Tracker — Maintenance Command</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root[data-theme='dark']{
+  --bg:#0a0a0b; --surface:#161618; --surface-2:#100f11; --surface-3:#1e1e21;
+  --text:#f4f4f5; --text-muted:#a1a1aa;
+  --border:#27272b; --border-strong:#38383e;
+  --brand:#ff4438; --accent:#ff4438; --accent-2:#ff6a52; --accent-strong:#ff5a4a;
+  --accent-soft:rgba(255,68,56,0.15);
+  --ui-danger:#fb7185; --ui-danger-bg:rgba(251,113,133,0.15);
+  --ui-success:#34d399; --ui-success-bg:rgba(52,211,153,0.15);
+  --ui-warn:#fbbf24; --ui-warn-bg:rgba(251,191,36,0.15);
+  --ui-info:#38bdf8; --ui-info-bg:rgba(56,189,248,0.15);
+  --st-overdue:#f87171; --st-overdue-ink:#fca5a5;
+  --st-upcoming:#fbbf24; --st-upcoming-ink:#fcd34d;
+  --st-on-track:#34d399; --st-on-track-ink:#6ee7b7;
+  --st-never:#22d3ee; --st-never-ink:#67e8f9;
+  --radius:16px; --radius-lg:22px; --radius-sm:10px; --radius-xs:7px; --radius-pill:999px; --radius-btn:11px;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:22px; --space-6:32px; --space-7:48px;
+  --font:"Geist","Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-display:"Space Grotesk","Geist",system-ui,sans-serif;
+  --font-mono:"Geist Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --fs-micro:10px; --fs-tiny:11.5px; --fs-small:13px; --fs-body:15px;
+  --fs-h3:15.5px; --fs-h2:18px; --fs-stat:1.7rem; --fs-h1:1.9rem;
+  --row-h:38px; --cell-pad-y:8px; --cell-pad-x:12px; --grid-gap:14px; --kpi-pad:16px;
+  --shadow-sm:0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md:0 20px 48px -18px rgba(0,0,0,0.72),0 2px 8px -4px rgba(0,0,0,0.6);
+  --tracking-display:-0.02em; --tracking-tight:-0.03em; --tracking-eyebrow:0.16em;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;}
+body{
+  font-family:var(--font); background:var(--bg); color:var(--text);
+  font-size:15px; line-height:1.5; -webkit-font-smoothing:antialiased;
+}
+.num{font-variant-numeric:tabular-nums;}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums;}
+h1,h2,h3{font-family:var(--font-display);letter-spacing:var(--tracking-display);}
+
+/* film grain over the dark cockpit */
+body::after{
+  content:""; position:fixed; inset:0; z-index:500; pointer-events:none; opacity:.04;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size:130px;
+}
+
+/* ===== Shell ===== */
+.app{min-height:100%;display:flex;align-items:stretch;}
+
+/* Sidebar */
+.sidebar{
+  width:240px; flex:none; background:var(--surface); border-right:1px solid var(--border);
+  display:flex; flex-direction:column; gap:6px; padding:18px 14px;
+  position:sticky; top:0; height:100vh;
+}
+.brand{display:flex;align-items:center;gap:12px;padding:4px 2px 20px;}
+.brand-logo{
+  width:42px;height:42px;flex:none;border-radius:12px;display:grid;place-items:center;
+  background:linear-gradient(150deg,#1c1c1f,#0f0f10);border:1px solid var(--border-strong);
+  box-shadow:0 4px 12px -4px rgba(0,0,0,.6);position:relative;
+}
+.brand-logo svg{width:24px;height:24px;}
+.brand-text{display:flex;flex-direction:column;line-height:1.08;min-width:0;}
+.brand-text strong{font-family:var(--font-display);font-size:18px;font-weight:700;letter-spacing:-.02em;}
+.brand-text span{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.14em;margin-top:3px;}
+.nav{display:flex;flex-direction:column;gap:3px;}
+.nav-group-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--text-muted);opacity:.6;padding:14px 11px 6px;}
+.nav-item{
+  border:none;background:none;color:var(--text-muted);font-family:inherit;font-size:14px;font-weight:600;
+  display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:11px;text-align:left;width:100%;
+  transition:background .15s,color .15s;
+}
+.nav-item:hover{background:var(--surface-2);color:var(--text);}
+.nav-item.active{background:var(--accent-soft);color:var(--accent);}
+.nav-ico{width:18px;height:18px;flex:none;display:grid;place-items:center;}
+.nav-ico svg{width:18px;height:18px;}
+.nav-badge{margin-left:auto;font-size:10.5px;font-weight:700;font-variant-numeric:tabular-nums;
+  background:var(--accent-soft);color:var(--accent);padding:1px 7px;border-radius:999px;}
+.sidebar-foot{margin-top:auto;display:flex;flex-direction:column;gap:9px;padding:14px 8px 2px;border-top:1px solid var(--border);}
+.foot-user{display:flex;align-items:center;gap:10px;}
+.foot-avatar{width:32px;height:32px;border-radius:50%;flex:none;display:grid;place-items:center;
+  background:linear-gradient(145deg,#2a2a2e,#1a1a1c);border:1px solid var(--border-strong);
+  font-family:var(--font-display);font-weight:700;font-size:12px;color:var(--text);}
+.foot-user-meta{display:flex;flex-direction:column;line-height:1.2;min-width:0;}
+.foot-user-meta strong{font-size:12.5px;font-weight:600;}
+.foot-user-meta span{font-size:10.5px;color:var(--text-muted);}
+.health{font-size:11.5px;color:var(--text-muted);display:flex;align-items:center;gap:7px;}
+.dot{width:8px;height:8px;border-radius:50%;background:#10b981;box-shadow:0 0 0 3px rgba(16,185,129,.22);}
+
+/* Main */
+.main-area{flex:1;min-width:0;display:flex;flex-direction:column;}
+.topbar{
+  display:flex;align-items:center;gap:16px;padding:18px 32px;border-bottom:1px solid var(--border);
+  background:rgba(10,10,11,.7);backdrop-filter:blur(8px);position:sticky;top:0;z-index:50;
+}
+.crumb{font-size:var(--fs-tiny);color:var(--text-muted);text-transform:uppercase;letter-spacing:.14em;font-weight:600;}
+.crumb b{color:var(--text);}
+.topbar h1{font-size:1.55rem;font-weight:700;letter-spacing:-.03em;line-height:1;}
+.top-head{display:flex;flex-direction:column;gap:5px;}
+.live-pill{
+  display:inline-flex;align-items:center;gap:7px;font-size:var(--fs-tiny);font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--accent);background:var(--accent-soft);border:1px solid rgba(255,68,56,.3);
+  padding:5px 11px;border-radius:999px;
+}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 0 rgba(255,68,56,.6);animation:pulse 2s infinite;}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,68,56,.55);}70%{box-shadow:0 0 0 7px rgba(255,68,56,0);}100%{box-shadow:0 0 0 0 rgba(255,68,56,0);}}
+.top-spacer{flex:1;}
+.search{
+  display:flex;align-items:center;gap:9px;background:var(--surface-2);border:1px solid var(--border);
+  border-radius:11px;padding:8px 13px;width:280px;color:var(--text-muted);font-size:13px;
+}
+.search svg{width:16px;height:16px;flex:none;}
+.search .kbd{margin-left:auto;font-size:10px;font-family:var(--font-mono);background:var(--surface-3);
+  border:1px solid var(--border);border-radius:5px;padding:1px 6px;}
+.btn{
+  border:none;border-radius:11px;font-family:inherit;font-size:14px;font-weight:600;padding:9px 16px;
+  display:inline-flex;align-items:center;gap:8px;transition:background .15s,box-shadow .15s,transform .05s;
+}
+.btn svg{width:16px;height:16px;}
+.btn-primary{background:var(--accent);color:#fff;box-shadow:0 2px 10px -2px rgba(255,68,56,.5);}
+.btn-primary:hover{background:var(--accent-strong);box-shadow:0 6px 18px -4px rgba(255,68,56,.6);}
+.btn-ghost{background:var(--surface-2);color:var(--text);border:1px solid var(--border);}
+.btn-ghost:hover{background:var(--surface-3);}
+
+.canvas{padding:22px 32px 56px;display:flex;flex-direction:column;gap:18px;}
+
+/* ===== KPI row ===== */
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:var(--grid-gap);}
+.kpi{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:var(--kpi-pad);display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;
+  box-shadow:var(--shadow-sm);
+}
+.kpi-top{display:flex;align-items:center;justify-content:space-between;}
+.kpi-label{font-size:var(--fs-tiny);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);}
+.kpi-ico{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:var(--surface-2);border:1px solid var(--border);color:var(--text-muted);}
+.kpi-ico svg{width:16px;height:16px;}
+.kpi-num{font-family:var(--font-display);font-size:var(--fs-stat);font-weight:700;letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums;}
+.kpi-foot{display:flex;align-items:center;gap:6px;font-size:var(--fs-tiny);color:var(--text-muted);}
+.delta{display:inline-flex;align-items:center;gap:3px;font-weight:700;font-variant-numeric:tabular-nums;}
+.delta svg{width:11px;height:11px;}
+.delta.up{color:var(--ui-success);}
+.delta.down{color:var(--ui-danger);}
+.delta.warn{color:var(--ui-warn);}
+.kpi.alert .kpi-num{color:var(--accent);}
+.kpi.alert .kpi-ico{background:var(--accent-soft);border-color:rgba(255,68,56,.3);color:var(--accent);}
+.kpi.alert::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);}
+.kpi.danger .kpi-num{color:var(--st-overdue);}
+.kpi.danger .kpi-ico{background:var(--ui-danger-bg);color:var(--st-overdue);border-color:rgba(248,113,113,.3);}
+.kpi.danger::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--st-overdue);}
+
+/* ===== Grid ===== */
+.grid{display:grid;grid-template-columns:1.65fr 1fr;gap:var(--grid-gap);}
+.col{display:flex;flex-direction:column;gap:var(--grid-gap);}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-sm);overflow:hidden;}
+.card-head{display:flex;align-items:center;gap:11px;padding:14px 18px;border-bottom:1px solid var(--border);}
+.card-head h2{font-size:var(--fs-h3);font-weight:700;}
+.card-head .count{font-size:var(--fs-tiny);font-weight:600;color:var(--text-muted);background:var(--surface-2);border:1px solid var(--border);padding:2px 8px;border-radius:999px;font-variant-numeric:tabular-nums;}
+.card-head .spacer{flex:1;}
+.card-link{font-size:var(--fs-small);font-weight:600;color:var(--accent);text-decoration:none;display:inline-flex;align-items:center;gap:4px;}
+.card-link svg{width:13px;height:13px;}
+.head-ico{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:var(--surface-2);border:1px solid var(--border);color:var(--text-muted);}
+.head-ico svg{width:15px;height:15px;}
+
+/* Work orders table */
+table.wo{width:100%;border-collapse:collapse;font-size:var(--fs-small);}
+table.wo thead th{
+  position:sticky;top:0;background:var(--surface-2);color:var(--text-muted);font-weight:600;
+  font-size:var(--fs-tiny);text-transform:uppercase;letter-spacing:.05em;text-align:left;
+  padding:9px var(--cell-pad-x);border-bottom:1px solid var(--border);white-space:nowrap;
+}
+table.wo thead th.r{text-align:right;}
+table.wo tbody td{padding:var(--cell-pad-y) var(--cell-pad-x);border-bottom:1px solid var(--border);vertical-align:middle;}
+table.wo tbody tr{transition:background .12s;}
+table.wo tbody tr:hover{background:var(--accent-soft);}
+table.wo tbody tr:last-child td{border-bottom:none;}
+.wo-id{font-family:var(--font-mono);font-weight:600;font-size:12.5px;color:var(--text);}
+.unit-cell{display:flex;flex-direction:column;line-height:1.25;}
+.unit-code{font-weight:700;font-size:13px;letter-spacing:-.01em;}
+.unit-sub{font-family:var(--font-mono);font-size:var(--fs-micro);color:var(--text-muted);letter-spacing:.02em;}
+.wo-title{display:flex;align-items:center;gap:8px;font-weight:500;}
+.src-badge{
+  display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.04em;color:var(--accent);background:var(--accent-soft);border:1px solid rgba(255,68,56,.35);
+  padding:2px 6px;border-radius:6px;white-space:nowrap;
+}
+.src-badge svg{width:10px;height:10px;}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-tiny);font-weight:600;padding:3px 10px;border-radius:999px;white-space:nowrap;}
+.pill .pdot{width:6px;height:6px;border-radius:50%;}
+.pill.open{color:var(--st-never-ink);background:color-mix(in srgb,var(--st-never) 16%,var(--surface));}
+.pill.open .pdot{background:var(--st-never);}
+.pill.prog{color:var(--st-upcoming-ink);background:color-mix(in srgb,var(--st-upcoming) 16%,var(--surface));}
+.pill.prog .pdot{background:var(--st-upcoming);}
+.pill.parts{color:var(--st-overdue-ink);background:color-mix(in srgb,var(--st-overdue) 16%,var(--surface));}
+.pill.parts .pdot{background:var(--st-overdue);}
+.pill.done{color:var(--st-on-track-ink);background:color-mix(in srgb,var(--st-on-track) 16%,var(--surface));}
+.pill.done .pdot{background:var(--st-on-track);}
+.cell-money{font-family:var(--font-mono);font-weight:600;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap;}
+.cell-age{font-family:var(--font-mono);font-variant-numeric:tabular-nums;color:var(--text-muted);text-align:right;white-space:nowrap;}
+.cell-age.hot{color:var(--st-overdue);font-weight:600;}
+
+/* PM urgency list */
+.pm-list{display:flex;flex-direction:column;}
+.pm-row{
+  display:grid;grid-template-columns:1fr auto;gap:6px 12px;align-items:center;
+  padding:11px 16px 11px 18px;border-bottom:1px solid var(--border);position:relative;
+}
+.pm-row:last-child{border-bottom:none;}
+.pm-row::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;}
+.pm-row.overdue::before{background:var(--st-overdue);}
+.pm-row.upcoming::before{background:var(--st-upcoming);}
+.pm-row.ontrack::before{background:var(--st-on-track);}
+.pm-unit{display:flex;flex-direction:column;line-height:1.25;}
+.pm-unit strong{font-size:13px;font-weight:700;}
+.pm-unit span{font-size:var(--fs-tiny);color:var(--text-muted);}
+.pm-status{justify-self:end;}
+.spill{display:inline-flex;align-items:center;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:2px 8px;border-radius:999px;}
+.spill.overdue{color:var(--st-overdue-ink);background:color-mix(in srgb,var(--st-overdue) 18%,var(--surface));}
+.spill.upcoming{color:var(--st-upcoming-ink);background:color-mix(in srgb,var(--st-upcoming) 18%,var(--surface));}
+.spill.ontrack{color:var(--st-on-track-ink);background:color-mix(in srgb,var(--st-on-track) 18%,var(--surface));}
+.pm-bar-wrap{grid-column:1 / -1;display:flex;align-items:center;gap:10px;margin-top:1px;}
+.pm-bar{flex:1;height:4px;border-radius:999px;background:var(--surface-3);overflow:hidden;}
+.pm-bar i{display:block;height:100%;border-radius:999px;}
+.pm-row.overdue .pm-bar i{background:var(--st-overdue);}
+.pm-row.upcoming .pm-bar i{background:var(--st-upcoming);}
+.pm-row.ontrack .pm-bar i{background:var(--st-on-track);}
+.pm-miles{font-family:var(--font-mono);font-size:var(--fs-tiny);font-variant-numeric:tabular-nums;color:var(--text-muted);white-space:nowrap;}
+.pm-miles b{color:var(--text);}
+.pm-miles.over b{color:var(--st-overdue);}
+
+/* Cold chain strip */
+.cc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px;}
+.cc-chip{
+  background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px 13px;
+  display:flex;flex-direction:column;gap:9px;position:relative;overflow:hidden;
+}
+.cc-chip.alarm{border-color:rgba(255,68,56,.45);background:color-mix(in srgb,var(--accent) 8%,var(--surface-2));}
+.cc-chip.alarm::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);}
+.cc-top{display:flex;align-items:center;justify-content:space-between;}
+.cc-unit{font-weight:700;font-size:13px;letter-spacing:-.01em;}
+.cc-mode{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);background:var(--surface-3);padding:2px 7px;border-radius:6px;}
+.cc-chip.alarm .cc-mode{color:#fff;background:var(--accent);}
+.cc-temps{display:flex;align-items:baseline;gap:14px;}
+.cc-temp{display:flex;flex-direction:column;gap:2px;}
+.cc-temp .lab{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);}
+.cc-temp .val{font-family:var(--font-mono);font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1;}
+.cc-chip.alarm .cc-temp .val.ret{color:var(--accent);}
+.cc-foot{display:flex;align-items:center;gap:6px;font-size:var(--fs-micro);color:var(--text-muted);font-family:var(--font-mono);}
+.cc-spark{display:flex;align-items:flex-end;gap:2px;height:18px;margin-left:auto;}
+.cc-spark i{width:3px;border-radius:1px;background:var(--st-on-track);opacity:.5;}
+.cc-chip.alarm .cc-spark i{background:var(--accent);}
+.cc-alarm-tag{display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--accent);}
+.cc-alarm-tag svg{width:11px;height:11px;}
+
+/* Activity feed */
+.feed{display:flex;flex-direction:column;padding:6px 0;}
+.feed-item{display:flex;gap:12px;padding:11px 16px;position:relative;}
+.feed-item:not(:last-child)::before{content:"";position:absolute;left:27px;top:34px;bottom:-4px;width:1.5px;background:var(--border);}
+.feed-ico{width:26px;height:26px;flex:none;border-radius:8px;display:grid;place-items:center;border:1px solid var(--border);background:var(--surface-2);color:var(--text-muted);z-index:1;}
+.feed-ico svg{width:14px;height:14px;}
+.feed-ico.accent{background:var(--accent-soft);border-color:rgba(255,68,56,.35);color:var(--accent);}
+.feed-ico.ok{background:var(--ui-success-bg);border-color:rgba(52,211,153,.3);color:var(--ui-success);}
+.feed-ico.info{background:var(--ui-info-bg);border-color:rgba(56,189,248,.3);color:var(--ui-info);}
+.feed-body{display:flex;flex-direction:column;gap:3px;min-width:0;padding-top:1px;}
+.feed-title{font-size:var(--fs-small);line-height:1.35;}
+.feed-title b{font-weight:700;}
+.feed-title .mono{font-size:12px;}
+.feed-meta{display:flex;align-items:center;gap:8px;font-size:var(--fs-tiny);color:var(--text-muted);}
+.feed-meta .mtag{font-weight:600;color:var(--text);}
+.feed-src{display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--accent);background:var(--accent-soft);border:1px solid rgba(255,68,56,.3);padding:1px 6px;border-radius:5px;}
+.feed-src svg{width:10px;height:10px;}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#ff4438" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M8 18h6M4 18H3V7h11v11M14 9h4l3 4v5h-3"/></svg>
+      </div>
+      <div class="brand-text">
+        <strong>Fleet Tracker</strong>
+        <span>MCCI Logistics</span>
+      </div>
+    </div>
+
+    <div class="nav-group-label">Shop</div>
+    <nav class="nav">
+      <button class="nav-item active"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg></span><span>Dashboard</span></button>
+      <button class="nav-item"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4l-6 6 2 2 6-6a4 4 0 0 0 5.4-5.4l-2.3 2.3-2-2 2.3-2.3z"/></svg></span><span>Work Orders</span><span class="nav-badge">7</span></button>
+      <button class="nav-item"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7L12 12l8.7-5M12 22V12"/></svg></span><span>Parts &amp; PO</span></button>
+      <button class="nav-item"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></svg></span><span>Invoice Scan</span></button>
+      <button class="nav-item"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span><span>PM &amp; DOT</span></button>
+    </nav>
+
+    <div class="nav-group-label">Cold Chain</div>
+    <nav class="nav">
+      <button class="nav-item"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M4.9 4.9l14.2 14.2M2 12h20M4.9 19.1L19.1 4.9"/></svg></span><span>Reefers</span><span class="nav-badge">2</span></button>
+      <button class="nav-item"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg></span><span>Live Map</span></button>
+    </nav>
+
+    <div class="nav-group-label">Compliance</div>
+    <nav class="nav">
+      <button class="nav-item"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span><span>DVIR</span></button>
+      <button class="nav-item"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span>Driver Compliance</span></button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="foot-user">
+        <div class="foot-avatar">RM</div>
+        <div class="foot-user-meta">
+          <strong>R. Mendez</strong>
+          <span>Maintenance Mgr</span>
+        </div>
+      </div>
+      <div class="health"><span class="dot"></span> Samsara &amp; Lynx connected</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main-area">
+    <header class="topbar">
+      <div class="top-head">
+        <div class="crumb">Shop · <b>Maintenance Command</b></div>
+        <h1>Maintenance Command</h1>
+      </div>
+      <span class="live-pill"><span class="live-dot"></span> Live</span>
+      <div class="top-spacer"></div>
+      <div class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <span>Search unit, WO, VIN…</span>
+        <span class="kbd">⌘K</span>
+      </div>
+      <button class="btn btn-ghost"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>Filters</button>
+      <button class="btn btn-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>New Work Order</button>
+    </header>
+
+    <div class="canvas">
+
+      <!-- KPI row -->
+      <section class="kpis">
+        <div class="kpi alert">
+          <div class="kpi-top">
+            <span class="kpi-label">Open work orders</span>
+            <span class="kpi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4l-6 6 2 2 6-6a4 4 0 0 0 5.4-5.4l-2.3 2.3-2-2 2.3-2.3z"/></svg></span>
+          </div>
+          <div class="kpi-num">7</div>
+          <div class="kpi-foot"><span class="delta down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>2</span> vs. yesterday</div>
+        </div>
+        <div class="kpi danger">
+          <div class="kpi-top">
+            <span class="kpi-label">PM overdue</span>
+            <span class="kpi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+          </div>
+          <div class="kpi-num">3</div>
+          <div class="kpi-foot"><span class="delta warn">CF2255 worst</span> · 4,120 mi over</div>
+        </div>
+        <div class="kpi danger">
+          <div class="kpi-top">
+            <span class="kpi-label">Reefers in alarm</span>
+            <span class="kpi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg></span>
+          </div>
+          <div class="kpi-num">2</div>
+          <div class="kpi-foot"><span class="delta down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>1</span> auto-WO opened</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-top">
+            <span class="kpi-label">Parts on order</span>
+            <span class="kpi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7 12 12l8.7-5"/></svg></span>
+          </div>
+          <div class="kpi-num">12</div>
+          <div class="kpi-foot"><span class="delta up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>4</span> arriving today</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-top">
+            <span class="kpi-label">Fleet SAFE %</span>
+            <span class="kpi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></span>
+          </div>
+          <div class="kpi-num">96.2<span style="font-size:1rem;color:var(--text-muted);font-weight:600;">%</span></div>
+          <div class="kpi-foot"><span class="delta up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>0.8</span> · 49 of 51 units</div>
+        </div>
+      </section>
+
+      <!-- Main grid -->
+      <div class="grid">
+
+        <!-- LEFT column -->
+        <div class="col">
+          <!-- Work Orders table -->
+          <section class="card">
+            <div class="card-head">
+              <span class="head-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4l-6 6 2 2 6-6a4 4 0 0 0 5.4-5.4l-2.3 2.3-2-2 2.3-2.3z"/></svg></span>
+              <h2>Open Work Orders</h2>
+              <span class="count">7 active</span>
+              <span class="spacer"></span>
+              <a class="card-link" href="#">View all <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></a>
+            </div>
+            <table class="wo">
+              <thead>
+                <tr>
+                  <th>WO#</th>
+                  <th>Unit</th>
+                  <th>Title</th>
+                  <th>Status</th>
+                  <th class="r">Total</th>
+                  <th class="r">Age</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="wo-id">WO-4471</span></td>
+                  <td><div class="unit-cell"><span class="unit-code">CF2255</span><span class="unit-sub">1FUJGLDR9CLBP4471</span></div></td>
+                  <td><div class="wo-title">Reefer alarm — low refrigerant <span class="src-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M4.9 4.9l14.2 14.2M2 12h20"/></svg>from reefer fault</span></div></td>
+                  <td><span class="pill prog"><span class="pdot"></span>In progress</span></td>
+                  <td class="cell-money">$1,284.50</td>
+                  <td class="cell-age hot">6h</td>
+                </tr>
+                <tr>
+                  <td><span class="wo-id">WO-4470</span></td>
+                  <td><div class="unit-cell"><span class="unit-code">CI2244</span><span class="unit-sub">3AKJHHDR8KSLP2244</span></div></td>
+                  <td><div class="wo-title">Brake chamber replace — rear axle</div></td>
+                  <td><span class="pill parts"><span class="pdot"></span>Waiting parts</span></td>
+                  <td class="cell-money">$2,940.00</td>
+                  <td class="cell-age">1d</td>
+                </tr>
+                <tr>
+                  <td><span class="wo-id">WO-4468</span></td>
+                  <td><div class="unit-cell"><span class="unit-code">TR8819</span><span class="unit-sub">1XKWDB0X57J218819</span></div></td>
+                  <td><div class="wo-title">PM-A service — 25k interval</div></td>
+                  <td><span class="pill open"><span class="pdot"></span>Open</span></td>
+                  <td class="cell-money">$385.00</td>
+                  <td class="cell-age">1d</td>
+                </tr>
+                <tr>
+                  <td><span class="wo-id">WO-4465</span></td>
+                  <td><div class="unit-cell"><span class="unit-code">CF2261</span><span class="unit-sub">1FUJGLDR4DLBP2261</span></div></td>
+                  <td><div class="wo-title">Reefer alarm — high discharge temp <span class="src-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M4.9 4.9l14.2 14.2M2 12h20"/></svg>from reefer fault</span></div></td>
+                  <td><span class="pill prog"><span class="pdot"></span>In progress</span></td>
+                  <td class="cell-money">$642.75</td>
+                  <td class="cell-age">2d</td>
+                </tr>
+                <tr>
+                  <td><span class="wo-id">WO-4462</span></td>
+                  <td><div class="unit-cell"><span class="unit-code">DV1107</span><span class="unit-sub">2T3WFREV0LW011107</span></div></td>
+                  <td><div class="wo-title">DPF regen fault — aftertreatment</div></td>
+                  <td><span class="pill parts"><span class="pdot"></span>Waiting parts</span></td>
+                  <td class="cell-money">$1,815.20</td>
+                  <td class="cell-age hot">3d</td>
+                </tr>
+                <tr>
+                  <td><span class="wo-id">WO-4459</span></td>
+                  <td><div class="unit-cell"><span class="unit-code">CI2238</span><span class="unit-sub">3AKJHHDR2HSLP2238</span></div></td>
+                  <td><div class="wo-title">Steer tire replace — DOT defect</div></td>
+                  <td><span class="pill open"><span class="pdot"></span>Open</span></td>
+                  <td class="cell-money">$928.00</td>
+                  <td class="cell-age">3d</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <!-- Cold chain strip -->
+          <section class="card">
+            <div class="card-head">
+              <span class="head-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M4.9 4.9l14.2 14.2M2 12h20M4.9 19.1 19.1 4.9"/></svg></span>
+              <h2>Cold Chain</h2>
+              <span class="count">4 reefers live</span>
+              <span class="spacer"></span>
+              <a class="card-link" href="#">Open monitor <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></a>
+            </div>
+            <div class="cc-grid">
+              <div class="cc-chip alarm">
+                <div class="cc-top"><span class="cc-unit">CF2255</span><span class="cc-mode">Alarm</span></div>
+                <div class="cc-temps">
+                  <div class="cc-temp"><span class="lab">Setpoint</span><span class="val">-10°F</span></div>
+                  <div class="cc-temp"><span class="lab">Return</span><span class="val ret">+18°F</span></div>
+                  <div class="cc-spark"><i style="height:30%"></i><i style="height:42%"></i><i style="height:55%"></i><i style="height:70%"></i><i style="height:88%"></i><i style="height:100%"></i></div>
+                </div>
+                <div class="cc-foot"><span class="cc-alarm-tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>28°F over · Code AL-204</span></div>
+              </div>
+              <div class="cc-chip">
+                <div class="cc-top"><span class="cc-unit">CF2261</span><span class="cc-mode">Cool</span></div>
+                <div class="cc-temps">
+                  <div class="cc-temp"><span class="lab">Setpoint</span><span class="val">34°F</span></div>
+                  <div class="cc-temp"><span class="lab">Return</span><span class="val">35°F</span></div>
+                  <div class="cc-spark"><i style="height:60%"></i><i style="height:55%"></i><i style="height:58%"></i><i style="height:52%"></i><i style="height:56%"></i><i style="height:54%"></i></div>
+                </div>
+                <div class="cc-foot">In range · supply 33°F · Lynx</div>
+              </div>
+              <div class="cc-chip">
+                <div class="cc-top"><span class="cc-unit">CF2247</span><span class="cc-mode">Cool</span></div>
+                <div class="cc-temps">
+                  <div class="cc-temp"><span class="lab">Setpoint</span><span class="val">-10°F</span></div>
+                  <div class="cc-temp"><span class="lab">Return</span><span class="val">-9°F</span></div>
+                  <div class="cc-spark"><i style="height:50%"></i><i style="height:54%"></i><i style="height:48%"></i><i style="height:52%"></i><i style="height:50%"></i><i style="height:53%"></i></div>
+                </div>
+                <div class="cc-foot">In range · supply -11°F · TK</div>
+              </div>
+              <div class="cc-chip">
+                <div class="cc-top"><span class="cc-unit">CF2270</span><span class="cc-mode">Defrost</span></div>
+                <div class="cc-temps">
+                  <div class="cc-temp"><span class="lab">Setpoint</span><span class="val">28°F</span></div>
+                  <div class="cc-temp"><span class="lab">Return</span><span class="val">31°F</span></div>
+                  <div class="cc-spark"><i style="height:62%"></i><i style="height:70%"></i><i style="height:66%"></i><i style="height:72%"></i><i style="height:68%"></i><i style="height:64%"></i></div>
+                </div>
+                <div class="cc-foot">Defrost cycle · 6 min left · Lynx</div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- RIGHT column -->
+        <div class="col">
+          <!-- PM urgency -->
+          <section class="card">
+            <div class="card-head">
+              <span class="head-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
+              <h2>PM Urgency</h2>
+              <span class="count">3 overdue</span>
+            </div>
+            <div class="pm-list">
+              <div class="pm-row overdue">
+                <div class="pm-unit"><strong>CF2255</strong><span>PM-B · 50k mi interval</span></div>
+                <div class="pm-status"><span class="spill overdue">Overdue</span></div>
+                <div class="pm-bar-wrap">
+                  <div class="pm-bar"><i style="width:100%"></i></div>
+                  <span class="pm-miles over"><b>−4,120</b> mi</span>
+                </div>
+              </div>
+              <div class="pm-row overdue">
+                <div class="pm-unit"><strong>CI2244</strong><span>DOT annual inspection</span></div>
+                <div class="pm-status"><span class="spill overdue">Overdue</span></div>
+                <div class="pm-bar-wrap">
+                  <div class="pm-bar"><i style="width:100%"></i></div>
+                  <span class="pm-miles over"><b>−11</b> days</span>
+                </div>
+              </div>
+              <div class="pm-row overdue">
+                <div class="pm-unit"><strong>DV1107</strong><span>PM-A · 25k mi interval</span></div>
+                <div class="pm-status"><span class="spill overdue">Overdue</span></div>
+                <div class="pm-bar-wrap">
+                  <div class="pm-bar"><i style="width:100%"></i></div>
+                  <span class="pm-miles over"><b>−890</b> mi</span>
+                </div>
+              </div>
+              <div class="pm-row upcoming">
+                <div class="pm-unit"><strong>TR8819</strong><span>PM-A · 25k mi interval</span></div>
+                <div class="pm-status"><span class="spill upcoming">Upcoming</span></div>
+                <div class="pm-bar-wrap">
+                  <div class="pm-bar"><i style="width:82%"></i></div>
+                  <span class="pm-miles"><b>1,340</b> mi</span>
+                </div>
+              </div>
+              <div class="pm-row upcoming">
+                <div class="pm-unit"><strong>CI2238</strong><span>DOT annual inspection</span></div>
+                <div class="pm-status"><span class="spill upcoming">Upcoming</span></div>
+                <div class="pm-bar-wrap">
+                  <div class="pm-bar"><i style="width:74%"></i></div>
+                  <span class="pm-miles"><b>9</b> days</span>
+                </div>
+              </div>
+              <div class="pm-row ontrack">
+                <div class="pm-unit"><strong>CF2261</strong><span>PM-B · 50k mi interval</span></div>
+                <div class="pm-status"><span class="spill ontrack">On track</span></div>
+                <div class="pm-bar-wrap">
+                  <div class="pm-bar"><i style="width:38%"></i></div>
+                  <span class="pm-miles"><b>14,600</b> mi</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Recent activity -->
+          <section class="card">
+            <div class="card-head">
+              <span class="head-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+              <h2>Recent Activity</h2>
+              <span class="spacer"></span>
+              <a class="card-link" href="#">All events <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></a>
+            </div>
+            <div class="feed">
+              <div class="feed-item">
+                <span class="feed-ico accent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M4.9 4.9l14.2 14.2M2 12h20"/></svg></span>
+                <div class="feed-body">
+                  <div class="feed-title"><b>WO-4471</b> auto-created on <b>CF2255</b> — reefer low refrigerant <span class="feed-src"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20"/></svg>reefer fault</span></div>
+                  <div class="feed-meta"><span class="mtag">Carrier Lynx</span> · code AL-204 · 6 min ago</div>
+                </div>
+              </div>
+              <div class="feed-item">
+                <span class="feed-ico ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <div class="feed-body">
+                  <div class="feed-title">PM-A completed on <b>CF2247</b> — 25k service, <span class="mono">298,440 mi</span></div>
+                  <div class="feed-meta"><span class="mtag">L. Soto</span> · WO-4456 closed · 42 min ago</div>
+                </div>
+              </div>
+              <div class="feed-item">
+                <span class="feed-ico info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+                <div class="feed-body">
+                  <div class="feed-title">DVIR defect resolved on <b>CI2238</b> — steer tire tread depth</div>
+                  <div class="feed-meta"><span class="mtag">J. Ramirez</span> · marked safe · 1h 15m ago</div>
+                </div>
+              </div>
+              <div class="feed-item">
+                <span class="feed-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7 12 12l8.7-5"/></svg></span>
+                <div class="feed-body">
+                  <div class="feed-title">PO-2087 received — brake chambers ×2 for <b>CI2244</b>, <span class="mono">$612.00</span></div>
+                  <div class="feed-meta"><span class="mtag">FinditParts</span> · 2h ago</div>
+                </div>
+              </div>
+              <div class="feed-item">
+                <span class="feed-ico info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+                <div class="feed-body">
+                  <div class="feed-title">Invoice scanned — Lone Star Diesel, parsed to WO-4462, <span class="mono">$1,815.20</span></div>
+                  <div class="feed-meta"><span class="mtag">AI scan</span> · 9 line items matched · 3h ago</div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

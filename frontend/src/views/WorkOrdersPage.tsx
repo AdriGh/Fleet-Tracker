@@ -402,6 +402,10 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
   // sección "Source invoice" ya lo muestre sin subida manual.
   const [scanFile, setScanFile] = useState<File | null>(null)
   const [scanLines, setScanLines] = useState<WoScanLine[]>([])
+  // Un escaneo corrió pero NO devolvió líneas: distingue el estado vacío
+  // inicial (aún no se escaneó nada) del escaneo que no detectó ítems, para
+  // mostrar la pista bajo el editor de Parts & Labor.
+  const [scannedNoLines, setScannedNoLines] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   // Preview del documento al lado del form (H3b).
   const [preview, setPreview] = useState<{ url: string; pdf: boolean } | null>(null)
@@ -463,6 +467,8 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
       if (x.invoice_number) setInvoiceNum(x.invoice_number)
       if (x.mechanic) setMechanic(x.mechanic)
       setScanLines(x.lines)
+      // Pista de empty-state: el escaneo terminó pero sin líneas.
+      setScannedNoLines(x.lines.length === 0)
       // Guardar el File para adjuntarlo a la WO al crearla (FIX 2).
       setScanFile(f)
       notifyOk('Document scanned',
@@ -471,6 +477,7 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
     } catch (e) {
       setScanName('')
       setScanFile(null)
+      setScannedNoLines(false)
       notifyErr("Couldn't scan the document", e)
     } finally {
       setScanning(false)
@@ -811,9 +818,12 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
           <div className="wo-lines-edit-head">
             <span>Parts &amp; labor</span>
             <button className="btn btn-ghost btn-xs"
-              onClick={() => setScanLines([...scanLines, {
-                kind: 'part', description: '', qty: 1, unit_cost: 0,
-              }])}>
+              onClick={() => {
+                setScannedNoLines(false)
+                setScanLines([...scanLines, {
+                  kind: 'part', description: '', qty: 1, unit_cost: 0,
+                }])
+              }}>
               + Add line
             </button>
           </div>
@@ -852,6 +862,12 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
               </button>
             </div>
           ))}
+          {scannedNoLines && scanLines.length === 0 && (
+            <p className="wo-scan-empty">
+              No line items detected from the scan — add them manually below,
+              or configure a stronger scan provider (Anthropic) in Settings.
+            </p>
+          )}
           <PartOptions id="wo-catalog-parts" parts={catalog} />
           {scanLines.length > 0 && (
             <span className="wo-scan-total">
