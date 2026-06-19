@@ -24,6 +24,7 @@ import RecentBlocks from '../components/RecentBlocks'
 import SafeDonut from '../components/SafeDonut'
 import Skeleton from '../components/Skeleton'
 import TrendsChart from '../components/TrendsChart'
+import { Button } from '../components/ds'
 
 const EMPTY_MISSING: MissingResponse = { month: null, drivers: [] }
 const EMPTY_SUMMARY: MonthSummary = {
@@ -131,31 +132,37 @@ export default function DvirPage() {
           </p>
         </div>
         <div className="head-actions">
-          <button className="btn btn-ghost" onClick={refresh}
-            disabled={fetching} title="Refresh">
-            <svg className={fetching ? 'spin' : ''} viewBox="0 0 24 24"
-              width="15" height="15" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
-            </svg>
+          <Button variant="ghost" onClick={refresh} loading={fetching}
+            title="Refresh"
+            icon={
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                strokeLinejoin="round">
+                <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
+              </svg>
+            }>
             {fetching ? 'Refreshing…' : 'Refresh'}
-          </button>
-          <button className="btn btn-ghost" onClick={() => setEldOpen(true)}
-            title="Importar DVIR + actividad desde el ELD (beta)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" width="16" height="16" strokeLinecap="round"
-              strokeLinejoin="round">
-              <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
-            </svg>
+          </Button>
+          <Button variant="ghost" onClick={() => setEldOpen(true)}
+            title="Importar DVIR + actividad desde el ELD (beta)"
+            icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" width="16" height="16" strokeLinecap="round"
+                strokeLinejoin="round">
+                <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+              </svg>
+            }>
             Import from ELD
-          </button>
-          <button className="btn btn-primary" onClick={() => setModalOpen(true)}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" width="17" height="17" strokeLinecap="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
+          </Button>
+          <Button variant="primary" onClick={() => setModalOpen(true)}
+            icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" width="17" height="17" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            }>
             Create DVIR Report
-          </button>
+          </Button>
         </div>
       </div>
 

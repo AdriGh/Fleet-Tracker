@@ -7,6 +7,22 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.14.0] - 2026-06-19
+
+H7 (parte 5) — Rollout del Design System a las pantallas restantes (tanda 1).
+
+### Cambiado
+- **Drivers, DVIR, Cold Chain (Reefer), Parts, Roster, Onboarding y Map**
+  adoptan los componentes `ds/`: botones de acción de header (Refresh/Sync/
+  Export/Save/Create/Add… con `loading` e `icon` donde aplica) → `ds/Button`;
+  los controles de filtro segmentado (Parts: parts/vendors; Roster: empresa)
+  → `ds/Tabs`. Sin cambios de comportamiento.
+- Pendiente para la próxima tanda: **Settings** (≈7 acciones limpias de
+  `.settings-actions`) y los items diferidos (selects/inputs inline, botones
+  `.btn-xs` dentro de tablas/drawers/modales). **UnitProfile** se deja como
+  está: sus pestañas son nav de sección con subrayado (paradigma distinto del
+  segmentado), no un filtro — se abordará en una pasada de polish dedicada.
+
 ## [1.13.0] - 2026-06-19
 
 H7 — Identidad de color por status en PM/DOT y panel de salud de la flota.

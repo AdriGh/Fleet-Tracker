@@ -6,6 +6,7 @@ import {
 } from '../api'
 import { usePerms } from '../perms'
 import { notifyErr, notifyOk } from '../toast'
+import { Button } from '../components/ds'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 
@@ -246,9 +247,9 @@ export default function ReeferPage() {
                 <code key={s}>{s}</code>
               ))}
             </div>
-            <button className="btn btn-primary" onClick={() => q.refetch()}>
+            <Button variant="primary" onClick={() => q.refetch()}>
               Check again
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -290,14 +291,14 @@ export default function ReeferPage() {
               LIVE · TRACCAR
             </span>
           )}
-          <button className="btn btn-ghost" onClick={() => q.refetch()}
-            disabled={q.isFetching}>
+          <Button variant="ghost" onClick={() => q.refetch()}
+            loading={q.isFetching}>
             {q.isFetching ? 'Refreshing…' : 'Refresh'}
-          </button>
-          <button className="btn btn-primary" disabled={!units.length}
+          </Button>
+          <Button variant="primary" disabled={!units.length}
             onClick={() => exportCsv(units)}>
             Export CSV
-          </button>
+          </Button>
         </div>
       </div>
 

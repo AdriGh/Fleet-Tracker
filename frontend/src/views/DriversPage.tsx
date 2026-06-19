@@ -5,6 +5,7 @@ import {
   type TmsDriverRow,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
+import { Button } from '../components/ds'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 
@@ -268,14 +269,13 @@ function DriverProfile({ driver, onBack }: {
         </div>
         <div className="head-actions">
           {dirty && (
-            <button className="btn btn-primary" onClick={save}
-              disabled={saving}>
+            <Button variant="primary" onClick={save} loading={saving}>
               {saving ? 'Saving…' : 'Save profile'}
-            </button>
+            </Button>
           )}
-          <button className="btn btn-ghost" onClick={onBack}>
+          <Button variant="ghost" onClick={onBack}>
             ← Back to list
-          </button>
+          </Button>
         </div>
       </div>
 

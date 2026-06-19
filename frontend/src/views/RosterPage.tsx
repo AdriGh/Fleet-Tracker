@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { listRoster, setDriverEmail, syncDriverContacts } from '../api'
 import { notifyOk, notifyErr } from '../toast'
+import { Button, Tabs } from '../components/ds'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 
@@ -141,14 +142,14 @@ export default function RosterPage({ embedded = false }: Props) {
   const actions = (
     <div className="head-actions">
       {syncMsg && <span className="sync-msg">{syncMsg}</span>}
-      <button
-        className={`btn btn-ghost ${masked ? '' : 'revealed'}`}
+      <Button
+        variant="ghost"
+        className={masked ? '' : 'revealed'}
         onClick={() => setMasked((m) => !m)}
         title={masked
           ? 'Reveal emails, phones and licenses'
           : 'Mask sensitive data'}
-      >
-        {masked ? (
+        icon={masked ? (
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
             stroke="currentColor" strokeWidth="2" strokeLinecap="round"
             strokeLinejoin="round">
@@ -162,33 +163,37 @@ export default function RosterPage({ embedded = false }: Props) {
             <path d="M3 3l18 18M10.6 10.6a3 3 0 0 0 4.2 4.2" />
             <path d="M9.9 4.2A10.9 10.9 0 0 1 12 4c6 0 10 7 10 7a18 18 0 0 1-2.2 3.2M6.1 6.1A17.9 17.9 0 0 0 2 11s4 7 10 7a10.7 10.7 0 0 0 4-.8" />
           </svg>
-        )}
+        )}>
         {masked ? 'Reveal' : 'Mask'}
-      </button>
-      <button className="btn btn-ghost" onClick={sync} disabled={syncing}
-        title="Pull driver emails from the Driver info sheet">
-        <svg className={syncing ? 'spin' : ''} viewBox="0 0 24 24"
-          width="15" height="15" fill="none" stroke="currentColor"
-          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
-        </svg>
+      </Button>
+      <Button variant="ghost" onClick={sync} loading={syncing}
+        title="Pull driver emails from the Driver info sheet"
+        icon={
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+            strokeLinejoin="round">
+            <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
+          </svg>
+        }>
         {syncing ? 'Syncing…' : 'Sync emails'}
-      </button>
-      <button className="btn btn-ghost" onClick={() => rosterQuery.refetch()}
-        disabled={fetching} title="Refresh">
-        <svg className={fetching ? 'spin' : ''} viewBox="0 0 24 24"
-          width="15" height="15" fill="none" stroke="currentColor"
-          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
-        </svg>
+      </Button>
+      <Button variant="ghost" onClick={() => rosterQuery.refetch()}
+        loading={fetching} title="Refresh"
+        icon={
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+            strokeLinejoin="round">
+            <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
+          </svg>
+        }>
         {fetching ? 'Refreshing…' : 'Refresh'}
-      </button>
-      <button className="btn btn-primary"
+      </Button>
+      <Button variant="primary"
         disabled={filtered.length === 0 || masked}
         title={masked ? 'Reveal first to export personal data' : undefined}
         onClick={() => downloadCSV(matrix)}>
         Export CSV
-      </button>
+      </Button>
     </div>
   )
 
@@ -208,14 +213,13 @@ export default function RosterPage({ embedded = false }: Props) {
 
   const filterBlock = (
     <div className="filters-row">
-      <div className="company-tabs" role="tablist">
-        <button className={`tab-btn ${company === 'CHASER' ? 'active' : ''}`}
-          onClick={() => setCompany('CHASER')}>Company A</button>
-        <button className={`tab-btn ${company === 'MCC' ? 'active' : ''}`}
-          onClick={() => setCompany('MCC')}>Company B</button>
-        <button className={`tab-btn ${company === '' ? 'active' : ''}`}
-          onClick={() => setCompany('')}>All</button>
-      </div>
+      <Tabs
+        tabs={[{ id: 'CHASER', label: 'Company A' },
+          { id: 'MCC', label: 'Company B' },
+          { id: '', label: 'All' }]}
+        value={company}
+        onChange={setCompany}
+      />
       <span className="head-spacer" />
       <input className="cell-input" placeholder="Name, phone, license…"
         value={q} onChange={(e) => setQ(e.target.value)} />
