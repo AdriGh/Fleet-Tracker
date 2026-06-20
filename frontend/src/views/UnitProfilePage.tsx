@@ -3,12 +3,15 @@
 import { useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  addMaintRecord, deleteUnitDoc, deleteWorkOrder, downloadUnitDoc,
-  getUnitCampaigns, listFleet, listUnitDocs, listWorkOrders,
-  toggleUnitCampaign, uploadUnitDocs,
+  addMaintRecord, decodeVin, deleteUnitDoc, deleteWorkOrder, downloadUnitDoc,
+  getReefer, getUnitCampaigns, listFleet, listOpenDefects, listUnitDocs,
+  listWorkOrders, toggleUnitCampaign, uploadUnitDocs,
   type MaintKind, type UnitCampaign, type WorkOrder, type WoStatus,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
+import { analyzeUnit } from '../defectGroups'
+import type { Kind } from '../truckZones'
+import TruckDiagram from '../components/TruckDiagram'
 import { PIPELINE, STATUS_META, WoDrawer } from './WorkOrdersPage'
 
 type Tab = 'campaigns' | 'active' | 'history' | 'docs'
@@ -82,6 +85,39 @@ export default function UnitProfilePage({ unit, onClose }: {
     queryKey: ['unit-docs', unit],
     queryFn: () => listUnitDocs(unit),
   })
+
+  // Defectos ABIERTOS de esta unidad: alimentan el diagrama por zonas (rojo =
+  // con defecto). Misma fuente que DefectsPage, filtrada por unidad.
+  const defectsQ = useQuery({
+    queryKey: ['unit-open-defects', unit],
+    queryFn: listOpenDefects,
+  })
+  // Reefer en vivo (solo se usa el mini de cadena de frío si esta unidad
+  // aparece en el feed del reefer). No bloquea el resto del perfil.
+  const reeferQ = useQuery({ queryKey: ['reefer'], queryFn: getReefer })
+  // Motor: no es un campo persistido del asset; se decodifica del VIN bajo
+  // demanda (vPIC / Smart Fill). Solo se muestra si el VIN existe y resuelve.
+  const vinQ = useQuery({
+    queryKey: ['vin-decode', info?.vin],
+    queryFn: () => decodeVin(info!.vin),
+    enabled: !!info?.vin,
+    staleTime: 24 * 3600_000,
+  })
+
+  // Tipo físico de la unidad para el diagrama (camión vs tráiler).
+  const kind: Kind = (info?.kind ?? info?.unit_type) === 'trailer'
+    ? 'trailer' : 'truck'
+  // Zonas con defecto, derivadas de los defectos abiertos REALES de la unidad.
+  const { zones, defectGroups } = useMemo(() => {
+    const recs = (defectsQ.data ?? []).filter((d) => d.unit === unit)
+    const { groups, zones } = analyzeUnit(recs, kind)
+    return { zones, defectGroups: groups }
+  }, [defectsQ.data, unit, kind])
+  // Reefer de esta unidad (match por número de unidad), si el feed lo trae.
+  const reefer = useMemo(
+    () => (reeferQ.data?.units ?? []).find((u) => u.unit === unit),
+    [reeferQ.data, unit])
+  const engine = vinQ.data?.ok ? vinQ.data.engine : undefined
 
   const wos = wosQ.data?.workorders ?? []
   const active = wos.filter((w) => w.status !== 'invoiced')
@@ -213,6 +249,159 @@ export default function UnitProfilePage({ unit, onClose }: {
           )}
         </div>
       )}
+
+      {/* Banda de resumen (estilo mockup aprobado): diagrama por zonas +
+          datos rápidos reales. Rellena el espacio vacío sobre los tabs sin
+          duplicar nada de los tabs (PM/servicios/adjuntos siguen abajo). */}
+      <div className="up-overview">
+        <div className="up-ov-left">
+          <section className="card up-diagram-card">
+            <div className="card-head">
+              <h2>Unit map — defect zones</h2>
+              <span className="sub">
+                {kind === 'trailer' ? 'Trailer' : 'Truck'} · {unit}
+              </span>
+            </div>
+            <div className="card-body up-diagram-body">
+              <TruckDiagram zones={zones} kind={kind} />
+              <p className="up-diagram-cap">
+                Schematic of <b>this unit</b> ({unit})
+                {info?.model ? <> · <b>{info.model}</b></> : null}
+                {' '}— red zones have an open defect, green are clear.
+              </p>
+              {defectGroups.length > 0 ? (
+                <div className="up-zone-note">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth="1.8" strokeLinecap="round"
+                    strokeLinejoin="round">
+                    <path d="m10.3 3.3-7 12A1.5 1.5 0 0 0 4.6 18h14.8a1.5 1.5 0 0 0 1.3-2.7l-7-12a1.5 1.5 0 0 0-2.6 0Z" />
+                    <path d="M12 9v4M12 16h.01" />
+                  </svg>
+                  <span className="up-zone-t">
+                    <b>{defectGroups.length} open defect
+                      {defectGroups.length > 1 ? 's' : ''}</b>
+                    {' '}— highest: {defectGroups[0].category}
+                    {defectGroups[0].body ? ` · ${defectGroups[0].body}` : ''}
+                  </span>
+                </div>
+              ) : (
+                <p className="up-diagram-clear">No open defects on this unit.</p>
+              )}
+            </div>
+          </section>
+
+          {/* Mini de cadena de frío: SOLO si el feed del reefer trae esta
+              unidad (datos reales). Si no, se omite por completo. */}
+          {reefer && (
+            <section className="card up-reefer-card">
+              <div className="card-head">
+                <h2>Cold chain</h2>
+                <span className="sub">
+                  {reefer.source ? `${reefer.source} · ` : ''}
+                  {reefer.demo ? 'demo' : 'live'}
+                </span>
+              </div>
+              <div className="up-reefer-body">
+                <div className="up-reefer-top">
+                  <div className="up-reefer-temp num">
+                    {reefer.return_f != null
+                      ? <>{reefer.return_f.toFixed(1)}<small>°F</small></>
+                      : '—'}
+                  </div>
+                  <div className="up-reefer-set">
+                    <div className="k">Setpoint</div>
+                    <div className="v num">
+                      {reefer.setpoint_f != null
+                        ? `${reefer.setpoint_f.toFixed(1)} °F` : '—'}
+                    </div>
+                  </div>
+                </div>
+                <div className="up-reefer-meta">
+                  {reefer.run_mode && (
+                    <span className="mode">
+                      <span className="pdot" />{reefer.run_mode}
+                      {reefer.state ? ` · ${reefer.state}` : ''}
+                    </span>
+                  )}
+                  {reefer.fuel_pct != null && (
+                    <>
+                      <span className="dot-sep">·</span>
+                      <span>Fuel {reefer.fuel_pct}%</span>
+                    </>
+                  )}
+                  {reefer.door && (
+                    <>
+                      <span className="dot-sep">·</span>
+                      <span>Door {reefer.door}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
+        </div>
+
+        <section className="card up-facts-card">
+          <div className="card-head"><h2>Quick facts</h2></div>
+          <div className="up-spec-list">
+            {(info?.year || info?.make || info?.model) && (
+              <div className="up-spec-row">
+                <span className="k">Make / model</span>
+                <span className="v">
+                  {[info?.year, info?.make, info?.model]
+                    .filter(Boolean).join(' ')}
+                </span>
+              </div>
+            )}
+            {engine && (
+              <div className="up-spec-row">
+                <span className="k">Engine</span>
+                <span className="v">{engine}</span>
+              </div>
+            )}
+            {info?.vin && (
+              <div className="up-spec-row">
+                <span className="k">VIN</span>
+                <span className="v mono">{info.vin}</span>
+              </div>
+            )}
+            {info?.plate && (
+              <div className="up-spec-row">
+                <span className="k">Plate</span>
+                <span className="v mono">{info.plate}</span>
+              </div>
+            )}
+            {info?.company && (
+              <div className="up-spec-row">
+                <span className="k">Company</span>
+                <span className="v">{info.company}</span>
+              </div>
+            )}
+            <div className="up-spec-row">
+              <span className="k">Current odometer</span>
+              <span className="v mono">
+                {campQ.data?.current_miles != null
+                  ? `${fmtMi(campQ.data.current_miles)} mi`
+                  : '—'}
+                {campQ.data?.current_source && (
+                  <em className="up-spec-src">{campQ.data.current_source}</em>
+                )}
+              </span>
+            </div>
+            <div className="up-spec-row">
+              <span className="k">Open defects</span>
+              <span className={`v ${(info?.open_defects ?? 0) > 0
+                ? 'is-bad' : 'is-ok'}`}>
+                {info?.open_defects ?? 0}
+              </span>
+            </div>
+            <div className="up-spec-row">
+              <span className="k">Last DVIR</span>
+              <span className="v">{dateOf(info?.last_dvir ?? null) || '—'}</span>
+            </div>
+          </div>
+        </section>
+      </div>
 
       <div className="up-tabs" role="tablist">
         {TABS.map((t) => (

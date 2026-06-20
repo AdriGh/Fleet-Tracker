@@ -41,6 +41,92 @@ const PRIORITY_META: Record<WoPriority, { label: string; cls: string }> = {
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 const dateOf = (iso: string | null) => (iso ? iso.slice(0, 10) : '—')
+// Fecha + hora corta (MM-DD · HH:MM) para la línea de tiempo de actividad.
+const stampOf = (iso: string | null) => {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} · `
+    + `${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+// --- Increment C: diagnóstico de falla de reefer -------------------------
+// El puente reefer→WO (backend core/reefer_wo.py) NO guarda telemetría en
+// columnas: incrusta el snapshot capturado al disparar la alarma DENTRO del
+// texto del complaint, en un formato estable:
+//   "Code <X>: <desc>."
+//   "Operator action: <act>."
+//   "Snapshot: setpoint N°F, return N°F, mode <m>."
+//   "[rf:<X>]"
+// Esto parsea ESE texto real (sin inventar datos). Solo se usa para WOs con
+// source==='reefer'; si un campo no está en el complaint, se omite la celda.
+type FaultDiag = {
+  code?: string
+  desc?: string
+  action?: string
+  source?: string
+  cells: { k: string; v: string; u?: string }[]
+}
+function parseReeferFault(complaint: string): FaultDiag | null {
+  const text = complaint || ''
+  const diag: FaultDiag = { cells: [] }
+  const code = text.match(/\[rf:([^\]]+)\]/)
+    || text.match(/\bCode\s+([^\s:]+)/i)
+  if (code) diag.code = code[1].trim()
+  const desc = text.match(/\bCode\s+[^\s:]+:\s*([^\n.]+)/i)
+  if (desc) diag.desc = desc[1].trim()
+  const action = text.match(/Operator action:\s*([^\n.]+)/i)
+  if (action) diag.action = action[1].trim()
+  const src = text.match(/\(([^)]+)\)\.?\s*\n/) // "...on UNIT (lynx)."
+  if (src) diag.source = src[1].trim()
+  // Celdas del snapshot: solo las realmente presentes en el texto.
+  const setp = text.match(/setpoint\s+(-?[\d.]+)\s*°?F/i)
+  if (setp) diag.cells.push({ k: 'Setpoint', v: setp[1], u: '°F' })
+  const ret = text.match(/return\s+(-?[\d.]+)\s*°?F/i)
+  if (ret) diag.cells.push({ k: 'Return air', v: ret[1], u: '°F' })
+  const sup = text.match(/(?:supply|discharge)\s+(-?[\d.]+)\s*°?F/i)
+  if (sup) diag.cells.push({ k: 'Supply', v: sup[1], u: '°F' })
+  const mode = text.match(/mode\s+([A-Za-z0-9_-]+)/i)
+  if (mode) diag.cells.push({ k: 'Run mode', v: mode[1] })
+  // Solo vale la pena la tarjeta si hay código o al menos una celda real.
+  return (diag.code || diag.cells.length) ? diag : null
+}
+
+// Línea de tiempo de actividad: SOLO hitos reales del ciclo de vida del WO
+// (timestamps que el registro ya tiene). No hay tabla de eventos/auditoría
+// por-WO en el backend, así que NO se fabrica un trail multi-actor.
+type WoEvent = { when: string; label: string; sub?: string; tone: string }
+function woTimeline(wo: WorkOrder): WoEvent[] {
+  const ev: WoEvent[] = []
+  if (wo.created_at) {
+    ev.push({
+      when: wo.created_at,
+      label: wo.source === 'reefer' ? 'Opened from reefer fault'
+        : wo.source === 'defect' ? 'Opened from defect'
+          : wo.source === 'scan' ? 'Opened from scanned invoice'
+            : 'Work order opened',
+      tone: wo.source === 'reefer' ? 'accent' : 'info',
+    })
+  }
+  if (wo.service_date) {
+    ev.push({ when: wo.service_date, label: 'Service date', tone: 'info' })
+  }
+  if (wo.closed_at) {
+    ev.push({ when: wo.closed_at, label: 'Marked completed', tone: 'ok' })
+  }
+  if (wo.invoiced_at) {
+    ev.push({
+      when: wo.invoiced_at,
+      label: 'Invoiced',
+      sub: wo.invoice_number ? `#${wo.invoice_number}` : undefined,
+      tone: 'accent',
+    })
+  }
+  // Orden cronológico estable por fecha.
+  return ev.sort((a, b) =>
+    new Date(a.when).getTime() - new Date(b.when).getTime())
+}
 
 // Catálogo de partes (H3): busca una parte por número exacto.
 function findPart(parts: Part[], pn: string): Part | undefined {
@@ -917,6 +1003,15 @@ export function WoDrawer({ woId, mechanics, onClose }: {
   const unitInfo = useMemo(
     () => (fleetQ.data ?? []).find((u) => u.unit === wo?.unit),
     [fleetQ.data, wo?.unit])
+  // Increment C: diagnóstico de la falla del reefer parseado del complaint
+  // real (solo WOs nacidas de un fault). Si no hay datos, queda null y la
+  // tarjeta se omite — sin inventar telemetría.
+  const faultDiag = useMemo(
+    () => (wo?.source === 'reefer'
+      ? parseReeferFault(wo.complaint) : null),
+    [wo?.source, wo?.complaint])
+  // Increment C: hitos reales del ciclo de vida (timestamps del WO).
+  const timeline = useMemo(() => (wo ? woTimeline(wo) : []), [wo])
   const [lineKind, setLineKind] = useState<'part' | 'labor'>('part')
   const [linePart, setLinePart] = useState('')
   const [lineDesc, setLineDesc] = useState('')
@@ -1448,6 +1543,65 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                   </div>
                 </section>
 
+                {/* Increment C: diagnóstico de la falla (solo WOs de reefer
+                    con telemetría real capturada en el complaint; si nada se
+                    parsea, faultDiag es null y la sección no se renderiza —
+                    sin datos inventados). */}
+                {faultDiag && (
+                  <section className="ud-sec">
+                    <h3>
+                      <svg viewBox="0 0 24 24" width="15" height="15"
+                        fill="none" stroke="currentColor" strokeWidth="2"
+                        strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                      </svg>
+                      Fault diagnostics
+                      {faultDiag.source && (
+                        <span className="wo-diag-src">{faultDiag.source}</span>
+                      )}
+                    </h3>
+                    {faultDiag.cells.length > 0 && (
+                      <div className="wo-diag-grid">
+                        {faultDiag.cells.map((c) => (
+                          <div className="wo-diag-cell" key={c.k}>
+                            <span className="wo-diag-k">{c.k}</span>
+                            <span className="wo-diag-v mono">
+                              {c.v}{c.u && <span className="wo-diag-u">{c.u}</span>}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(faultDiag.code || faultDiag.desc) && (
+                      <div className="wo-diag-foot">
+                        <svg viewBox="0 0 24 24" width="15" height="15"
+                          fill="none" stroke="currentColor" strokeWidth="2"
+                          strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+                          <path d="M12 9v4M12 17h.01" />
+                        </svg>
+                        <span>
+                          {faultDiag.code && (
+                            <span className="wo-diag-code mono">
+                              {faultDiag.code}
+                            </span>
+                          )}
+                          {faultDiag.desc && (
+                            <span className="wo-diag-desc">
+                              {' '}{faultDiag.desc}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    {faultDiag.action && (
+                      <p className="ud-muted wo-diag-action">
+                        Operator action: {faultDiag.action}
+                      </p>
+                    )}
+                  </section>
+                )}
+
                 {/* Líneas: partes + labor */}
                 <section className="ud-sec">
                   <h3>
@@ -1524,6 +1678,41 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                     <strong>{money(wo.total)}</strong>
                   </div>
                 </section>
+
+                {/* Increment C: línea de tiempo de actividad. SOLO hitos
+                    reales del ciclo de vida (timestamps que el WO ya tiene);
+                    no hay tabla de auditoría por-WO, así que no se fabrica un
+                    trail por-actor como en el mockup. */}
+                {timeline.length > 0 && (
+                  <section className="ud-sec">
+                    <h3>
+                      <svg viewBox="0 0 24 24" width="15" height="15"
+                        fill="none" stroke="currentColor" strokeWidth="2"
+                        strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 8v4l3 2" />
+                        <circle cx="12" cy="12" r="9" />
+                      </svg>
+                      Activity
+                      <span className="ud-count">{timeline.length}</span>
+                    </h3>
+                    <ol className="wo-timeline">
+                      {timeline.map((e, i) => (
+                        <li className="wo-tl-row" key={`${e.label}-${i}`}>
+                          <span className={`wo-tl-dot t-${e.tone}`} />
+                          <span className="wo-tl-when mono">
+                            {stampOf(e.when)}
+                          </span>
+                          <span className="wo-tl-text">
+                            {e.label}
+                            {e.sub && (
+                              <span className="wo-tl-sub mono">{e.sub}</span>
+                            )}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                )}
 
                 <section className="ud-sec">
                   <h3>Notes</h3>
