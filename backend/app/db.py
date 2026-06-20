@@ -339,8 +339,12 @@ class Vendor(OrgScoped, Base):
 class Part(OrgScoped, Base):
     """Parte del catálogo (fase H3, pestaña Parts estilo Fullbay). Costo
     INTERNO (lo que paga el taller; sin markup — decisión del usuario).
-    `on_hand` es un conteo manual de inventario (sin auto-decremento aún).
-    Se reusa al cargar líneas de una work order."""
+    Inventario (fase Inventory): `on_hand` es la existencia cacheada, que
+    se actualiza junto con cada movimiento (part_stock_movement); ya no es
+    un conteo solo manual: las WO al facturar la consumen y las PO al
+    recibir la reponen. `reorder_point` es el umbral de re-pedido: si
+    on_hand <= reorder_point (con reorder_point > 0), la parte sale en la
+    lista de low-stock. Se reusa al cargar líneas de una work order."""
     __tablename__ = "part"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -351,9 +355,36 @@ class Part(OrgScoped, Base):
     vendor_id: Mapped[int | None] = mapped_column(
         ForeignKey("vendor.id"), nullable=True)
     on_hand: Mapped[float] = mapped_column(Float, default=0.0)
+    # Inventory: umbral de re-pedido (0 = sin seguimiento de low-stock).
+    reorder_point: Mapped[float] = mapped_column(Float, default=0.0)
     notes: Mapped[str] = mapped_column(String(300), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class PartStockMovement(OrgScoped, Base):
+    """Movimiento de inventario de una parte (fase Inventory): el LIBRO
+    auditable de cada cambio de existencia. `on_hand` en Part es el cache;
+    esta tabla es la fuente de verdad de POR QUÉ cambió.
+
+    `delta` suma (recepción de PO) o resta (consumo de WO / ajuste). `reason`:
+        po_receive  -> +stock al pasar una PO a 'received'
+        wo_consume  -> -stock al FACTURAR una WO (línea kind=part)
+        manual      -> ajuste manual del usuario
+    `ref_type`/`ref_id` identifican el origen exacto (p.ej. ref_type='po_line',
+    ref_id=42). El triple (reason, ref_type, ref_id) es ÚNICO por org: así
+    re-correr una transición (toggle de status ida y vuelta) NO duplica el
+    movimiento (guard de idempotencia en core/inventory.adjust). org-scoped."""
+    __tablename__ = "part_stock_movement"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    part_number: Mapped[str] = mapped_column(String(60), index=True)
+    delta: Mapped[float] = mapped_column(Float, default=0.0)
+    reason: Mapped[str] = mapped_column(String(16), index=True)
+    ref_type: Mapped[str] = mapped_column(String(20), default="")
+    ref_id: Mapped[str] = mapped_column(String(40), default="")
+    note: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
 class PurchaseOrder(OrgScoped, Base):
@@ -576,6 +607,14 @@ def _migrate() -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE work_order_line "
                 "ADD COLUMN part_number VARCHAR(60) DEFAULT ''")
+        # Inventory: la tabla `part` ya existe, así que create_all NO le agrega
+        # `reorder_point`; se agrega a mano. (`on_hand` ya existía.) La tabla
+        # nueva part_stock_movement sí la crea create_all (tabla faltante).
+        part_cols = {r[1] for r in conn.exec_driver_sql(
+            "PRAGMA table_info(part)").fetchall()}
+        if "reorder_point" not in part_cols:
+            conn.exec_driver_sql(
+                "ALTER TABLE part ADD COLUMN reorder_point FLOAT DEFAULT 0")
         # H6 fase 3: cada fila pertenece a una organizacion (tenant). El
         # usuario y las 11 tablas de datos llevan org_id; las DBs viejas no
         # tienen la columna, asi que se agrega y se backfillea a 'default'.
@@ -584,7 +623,8 @@ def _migrate() -> None:
         for table in ("user", "report_block", "block_driver", "defect",
                       "work_order", "work_order_line", "tms_driver",
                       "alert_event", "unit_doc", "maint_record", "vendor",
-                      "part", "purchase_order", "po_line"):
+                      "part", "part_stock_movement", "purchase_order",
+                      "po_line"):
             cols = {r[1] for r in conn.exec_driver_sql(
                 f'PRAGMA table_info("{table}")').fetchall()}
             if "org_id" not in cols:

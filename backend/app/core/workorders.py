@@ -224,7 +224,27 @@ def update_wo(wo_id: int, fields: dict) -> dict | None:
                 wo.invoiced_at = None
 
         wo.updated_at = datetime.now()
+        # Capturar (line_id, part_number, qty) de las líneas de PARTE con
+        # part_number conocido ANTES de cerrar la sesión, para alimentar el
+        # hook de inventario (las líneas son lazy y el WO sale del scope).
+        is_invoiced = wo.invoiced_at is not None
+        consume_lines = [
+            (ln.id, ln.part_number, ln.qty) for ln in wo.lines
+            if ln.kind == "part" and (ln.part_number or "").strip()
+        ] if is_invoiced else []
         session.commit()
+
+        # Hook de inventario (fase Inventory): al FACTURAR (invoiced) se
+        # consume el stock de cada línea de parte con part_number conocido.
+        # Idempotente vía el guard (reason, ref_type, ref_id) en
+        # inventory.adjust: re-facturar (o des-facturar y re-facturar) NO
+        # duplica el descuento. Fuera del flush: adjust abre su sesión.
+        if is_invoiced:
+            from . import inventory
+            for line_id, pn, qty in consume_lines:
+                inventory.adjust(pn, -float(qty or 0), "wo_consume",
+                                 ref_type="wo_line", ref_id=line_id,
+                                 note=f"WO #{wo.id} invoiced")
 
         # Hook PM: WO de PM que llegó a completed (o más) con millaje ->
         # el PM tracker registra el servicio sin pasar por el CSV.

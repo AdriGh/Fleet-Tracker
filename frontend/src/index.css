@@ -8161,3 +8161,130 @@ iframe.wo-preview { border: 1px solid var(--border); }
   flex-wrap: wrap;
 }
 .wo-tl-sub { font-size: 0.72rem; color: var(--text-muted); }
+
+/* ===== Parts Inventory (stock, reorder, low-stock, ajuste) ===========
+   Reusa tokens existentes: --ui-warn/-bg (bajo stock), --ui-success
+   (entradas), --ui-danger (salidas), superficies/bordes neutros. Sin
+   colores nuevos. */
+
+/* Hint debajo de un campo del modal (versión standalone para .ud-field). */
+.field-hint {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* KPI "Low stock" clickable: el botón es transparente y deja que el
+   StatCard interno mande; al activarse marca el borde con --ui-warn. */
+.kpi-card-btn {
+  display: block;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition: transform var(--dur-fast, 0.15s) ease;
+}
+.kpi-card-btn > .stat-card { width: 100%; height: 100%; }
+.kpi-card-btn:hover { transform: translateY(-1px); }
+.kpi-card-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.kpi-card-btn.is-active > .stat-card {
+  border-color: var(--ui-warn);
+  box-shadow: inset 0 0 0 1px var(--ui-warn);
+}
+
+/* Chip de filtro activo "Low stock only" en el header del catálogo. */
+.low-filter-chip {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  margin-left: 10px;
+  border-radius: var(--radius-pill, 999px);
+  border: 1px solid var(--ui-warn);
+  background: var(--ui-warn-bg);
+  color: var(--ui-warn);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.low-filter-chip:hover { filter: brightness(1.05); }
+
+/* Píldora "Low" en la celda On hand (ámbar, no rojo crudo). */
+.oh-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  justify-content: flex-end;
+}
+.low-pill {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--ui-warn-bg);
+  color: var(--ui-warn);
+  border: 1px solid color-mix(in srgb, var(--ui-warn) 35%, transparent);
+}
+/* Riel ámbar sutil en filas bajo reorden (un status = un color, §2/§5). */
+.defects-table tbody tr.row-low td:first-child {
+  box-shadow: inset 3px 0 0 var(--ui-warn);
+}
+
+/* Ajuste de stock: lectura grande de On hand + acciones +/-. */
+.adj-onhand {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 10px);
+  background: var(--surface-2);
+}
+.adj-onhand-label {
+  font-size: var(--fs-tiny, 11.5px);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.adj-onhand-val {
+  font-family: var(--font-display, inherit);
+  font-size: var(--fs-stat, 1.7rem);
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.adj-onhand-ro {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.adj-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+/* El "− Remove" se tiñe de peligro solo en hover (acción que resta stock). */
+.adj-actions .btn-ghost:hover {
+  border-color: var(--ui-danger);
+  color: var(--ui-danger);
+}
+
+/* Bitácora de movimientos dentro del modal (scroll si crece). */
+.adj-log h3 {
+  font-size: var(--fs-h3, 15.5px);
+  margin: 0 0 8px;
+}
+.adj-log-wrap { max-height: 220px; overflow-y: auto; }
+.adj-delta.is-pos { color: var(--ui-success); font-weight: 700; }
+.adj-delta.is-neg { color: var(--ui-danger); font-weight: 700; }
