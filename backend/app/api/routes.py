@@ -19,7 +19,7 @@ from fastapi import Header
 from ..core import (
     alerts, app_config, auth, batch, companies, docscan, driver_contacts,
     engine,
-    excel, integrations_admin, local_config, lynx, mailer, maint,
+    excel, integrations_admin, inventory, local_config, lynx, mailer, maint,
     manual_units, media_host, notify_service, open_defects, org_config,
     parts, parts_marketplace, permissions, pm, pois, pretrip, providers,
     purchasing, reefer,
@@ -776,6 +776,42 @@ def parts_delete(part_id: int):
     if not parts.delete_part(part_id):
         raise HTTPException(status_code=404, detail="Part not found")
     return {"ok": True}
+
+
+# ----- Inventario de partes (fase Inventory) -------------------------------
+# Stock auditable: el cache on_hand vive en Part (sale en /parts); el libro de
+# movimientos en part_stock_movement. Las WO al facturar consumen y las PO al
+# recibir reponen (hooks en core/workorders + core/purchasing). Aquí: ajuste
+# manual + listas de lectura. Scopes: el ajuste (POST bajo /api/parts) ya exige
+# maint.edit vía _scope_for; los GET son lectura (basta estar autenticado).
+
+class StockAdjustIn(BaseModel):
+    part_number: str
+    delta: float                  # +suma / -resta sobre la existencia
+    note: str = ""
+
+
+@router.get("/parts/low-stock")
+def parts_low_stock():
+    """Partes en o por debajo de su reorder_point (con reorder_point > 0)."""
+    return {"parts": inventory.low_stock_list()}
+
+
+@router.get("/parts/{part_number}/movements")
+def parts_movements(part_number: str):
+    """Libro de movimientos de inventario de una parte (recientes primero)."""
+    return {"part_number": part_number,
+            "movements": inventory.movements(part_number)}
+
+
+@router.post("/parts/adjust")
+def parts_adjust(body: StockAdjustIn):
+    """Ajuste manual de existencia (reason='manual'). `delta` puede ser
+    negativo (merma/corrección) o positivo (conteo físico, hallazgo)."""
+    try:
+        return inventory.manual_adjust(body.part_number, body.delta, body.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 # ----- Marketplace de partes (scaffold, Increment B) -----------------------

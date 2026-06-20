@@ -111,6 +111,7 @@ def _part_dict(p: Part, vendor_name: str = "") -> dict:
         "vendor_id": p.vendor_id,
         "vendor_name": vendor_name,
         "on_hand": p.on_hand,
+        "reorder_point": p.reorder_point,
         "notes": p.notes,
     }
 
@@ -190,6 +191,11 @@ def _apply_part(p: Part, data: dict) -> None:
     if "on_hand" in data:
         try:
             p.on_hand = float(data["on_hand"] or 0)
+        except (TypeError, ValueError):
+            pass
+    if "reorder_point" in data:
+        try:
+            p.reorder_point = max(0.0, float(data["reorder_point"] or 0))
         except (TypeError, ValueError):
             pass
     if "vendor_id" in data:

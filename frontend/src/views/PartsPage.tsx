@@ -4,8 +4,10 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  deletePart, deleteVendor, listParts, listVendors, savePart, saveVendor,
-  type Part, type PartInput, type Vendor, type VendorInput,
+  adjustPartStock, deletePart, deleteVendor, listPartMovements,
+  listParts, listVendors, savePart, saveVendor,
+  type Part, type PartInput, type StockMovement, type Vendor,
+  type VendorInput,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 import { Button, Tabs } from '../components/ds'
@@ -14,6 +16,18 @@ import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 import PurchaseOrdersPage, { QuickBuyButton } from './PurchaseOrdersPage'
 import MarketplacePanel from './MarketplacePanel'
+
+// ¿La parte está en/bajo su punto de reorden? (solo cuenta si reorder_point > 0)
+function isLow(p: { on_hand: number; reorder_point: number }): boolean {
+  return p.reorder_point > 0 && p.on_hand <= p.reorder_point
+}
+
+const fmtDate = (iso: string) => (iso ? iso.slice(0, 16).replace('T', ' ') : '—')
+const STOCK_REASON_LABEL: Record<string, string> = {
+  po_receive: 'PO received',
+  wo_consume: 'WO consumed',
+  manual: 'Manual',
+}
 
 type Tab = 'parts' | 'vendors' | 'pos' | 'marketplace'
 
@@ -63,25 +77,37 @@ function PartsTab() {
   const partsQ = useQuery({ queryKey: ['parts'], queryFn: listParts })
   const vendorsQ = useQuery({ queryKey: ['vendors'], queryFn: listVendors })
   const [q, setQ] = useState('')
+  const [lowOnly, setLowOnly] = useState(false)   // segmento "solo bajo stock"
   const [editing, setEditing] = useState<Part | null>(null)
   const [adding, setAdding] = useState(false)
+  const [adjusting, setAdjusting] = useState<Part | null>(null)
 
   const parts = partsQ.data?.parts ?? []
   const usage = partsQ.data?.usage ?? {}
   const vendors = vendorsQ.data ?? []
 
+  const lowCount = useMemo(() => parts.filter(isLow).length, [parts])
+
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
-    if (!s) return parts
-    return parts.filter((p) =>
+    let rows = parts
+    if (lowOnly) rows = rows.filter(isLow)
+    if (!s) return rows
+    return rows.filter((p) =>
       p.part_number.toLowerCase().includes(s) ||
       p.description.toLowerCase().includes(s) ||
       p.category.toLowerCase().includes(s) ||
       p.vendor_name.toLowerCase().includes(s))
-  }, [parts, q])
+  }, [parts, q, lowOnly])
 
   const totalValue = useMemo(
     () => parts.reduce((s, p) => s + p.cost * (p.on_hand || 0), 0), [parts])
+
+  // Refresca el catálogo: on_hand/reorder y, derivado de ahí, el KPI de bajo
+  // stock y el filtro se recalculan solos (invalidación → refetch de 'parts').
+  function refreshInventory() {
+    qc.invalidateQueries({ queryKey: ['parts'] })
+  }
 
   async function remove(p: Part) {
     if (!window.confirm(`Delete part ${p.part_number}?`)) return
@@ -103,11 +129,30 @@ function PartsTab() {
           value={(partsQ.data?.categories ?? []).length} tone="default" />
         <StatCard label="Inventory value" value={money(totalValue)}
           tone="accent" />
+        {/* KPI de bajo stock: clic = filtra el catálogo a esas partes. */}
+        <button type="button"
+          className={`kpi-card-btn${lowOnly ? ' is-active' : ''}`}
+          onClick={() => setLowOnly((v) => !v)}
+          title={lowCount
+            ? 'Show only parts at/under reorder point'
+            : 'No parts under reorder point'}>
+          <StatCard label="Low stock" value={lowCount}
+            sub={lowOnly ? 'filter on · click to clear'
+              : lowCount ? 'click to filter' : 'all stocked'}
+            tone={lowCount ? 'warn' : 'ok'} />
+        </button>
       </div>
 
       <section className="card">
         <div className="card-head">
           <h2>Parts catalog</h2>
+          {lowOnly && (
+            <button type="button" className="low-filter-chip"
+              onClick={() => setLowOnly(false)}
+              title="Clear low-stock filter">
+              Low stock only · clear ✕
+            </button>
+          )}
           <span className="head-spacer" />
           <input className="cell-input" placeholder="Search part, vendor…"
             value={q} onChange={(e) => setQ(e.target.value)} />
@@ -133,6 +178,19 @@ function PartsTab() {
                 Add the first part
               </button>
             </div>
+          ) : filtered.length === 0 ? (
+            <div className="empty mini">
+              <p>
+                {lowOnly
+                  ? 'No parts are at or under their reorder point. Nice — fully stocked.'
+                  : 'No parts match your search.'}
+              </p>
+              {lowOnly && (
+                <button className="btn btn-ghost" onClick={() => setLowOnly(false)}>
+                  Show all parts
+                </button>
+              )}
+            </div>
           ) : (
             <div className="table-wrap">
               <table className="defects-table">
@@ -144,13 +202,17 @@ function PartsTab() {
                     <th className="num">Cost</th>
                     <th>Vendor</th>
                     <th className="num">On hand</th>
+                    <th className="num">Reorder</th>
                     <th className="num">Used</th>
                     <th aria-label="Actions" />
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((p) => (
-                    <tr key={p.id} onClick={() => setEditing(p)}>
+                  {filtered.map((p) => {
+                    const low = isLow(p)
+                    return (
+                    <tr key={p.id} className={low ? 'row-low' : undefined}
+                      onClick={() => setEditing(p)}>
                       <td className="mono"><strong>{p.part_number}</strong></td>
                       <td>{p.description || <span className="muted">—</span>}</td>
                       <td>{p.category
@@ -158,7 +220,17 @@ function PartsTab() {
                         : <span className="muted">—</span>}</td>
                       <td className="num mono">{money(p.cost)}</td>
                       <td>{p.vendor_name || <span className="muted">—</span>}</td>
-                      <td className="num">{p.on_hand || 0}</td>
+                      <td className="num">
+                        <span className="oh-cell">
+                          {p.on_hand || 0}
+                          {low && <span className="low-pill">Low</span>}
+                        </span>
+                      </td>
+                      <td className="num">
+                        {p.reorder_point > 0
+                          ? p.reorder_point
+                          : <span className="muted">—</span>}
+                      </td>
                       <td className="num">
                         {usage[p.part_number]
                           ? <span className="wo-pm-tag">{usage[p.part_number]}×</span>
@@ -166,14 +238,22 @@ function PartsTab() {
                       </td>
                       <td className="num parts-row-actions"
                         onClick={(e) => e.stopPropagation()}>
+                        <button className="btn btn-ghost btn-xs"
+                          title={`Adjust stock for ${p.part_number}`}
+                          onClick={() => setAdjusting(p)}>
+                          Adjust
+                        </button>
                         <QuickBuyButton part={p}
-                          onBought={() =>
-                            qc.invalidateQueries({ queryKey: ['purchase-orders'] })} />
+                          onBought={() => {
+                            qc.invalidateQueries({ queryKey: ['purchase-orders'] })
+                            refreshInventory()
+                          }} />
                         <button className="icon-x" title="Delete part"
                           onClick={() => remove(p)}>✕</button>
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -187,10 +267,155 @@ function PartsTab() {
           onClose={() => { setAdding(false); setEditing(null) }}
           onSaved={() => {
             setAdding(false); setEditing(null)
-            qc.invalidateQueries({ queryKey: ['parts'] })
+            refreshInventory()
           }} />
       )}
+
+      {adjusting && (
+        <AdjustStockModal part={adjusting}
+          onClose={() => setAdjusting(null)}
+          onAdjusted={refreshInventory} />
+      )}
     </>
+  )
+}
+
+// ----- Ajuste manual de stock + bitácora ----------------------------------
+// Modal por parte: aplica un delta (+/-) con nota y muestra los movimientos
+// recientes (auditoría). El refresh es por invalidación de query (optimista
+// vía refetch), siguiendo el patrón TanStack del resto de la página.
+function AdjustStockModal({ part, onClose, onAdjusted }: {
+  part: Part
+  onClose: () => void
+  onAdjusted: () => void
+}) {
+  const [delta, setDelta] = useState('')
+  const [note, setNote] = useState('')
+  const [onHand, setOnHand] = useState(part.on_hand || 0)
+  const [saving, setSaving] = useState(false)
+
+  // Bitácora de movimientos (más reciente primero).
+  const movesQ = useQuery({
+    queryKey: ['part-movements', part.part_number],
+    queryFn: () => listPartMovements(part.part_number),
+  })
+  const moves: StockMovement[] = movesQ.data ?? []
+
+  // Resultado previsto del ajuste (para mostrar "→ N" antes de aplicar).
+  const d = Number(delta)
+  const preview = Number.isFinite(d) && delta.trim() !== '' ? onHand + d : null
+
+  async function apply(sign: 1 | -1) {
+    const mag = Math.abs(Number(delta))
+    if (!mag || !Number.isFinite(mag)) {
+      notifyErr('Enter a quantity', 'Type how many units to add or remove')
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await adjustPartStock(part.part_number, sign * mag, note.trim())
+      setOnHand(res.on_hand)
+      setDelta(''); setNote('')
+      notifyOk('Stock adjusted',
+        `${part.part_number} · ${sign > 0 ? '+' : '−'}${mag} → ${res.on_hand}`)
+      onAdjusted()
+      movesQ.refetch()
+    } catch (e) {
+      notifyErr("Couldn't adjust stock", e)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal title={`Adjust stock · ${part.part_number}`} width={560}
+      onClose={onClose}>
+      <div className="wo-form">
+        <div className="adj-onhand">
+          <span className="adj-onhand-label">On hand</span>
+          <span className="adj-onhand-val mono">{onHand}</span>
+          {part.reorder_point > 0 && (
+            <span className="adj-onhand-ro">
+              reorder at {part.reorder_point}
+              {isLow({ on_hand: onHand, reorder_point: part.reorder_point }) &&
+                <span className="low-pill">Low</span>}
+            </span>
+          )}
+        </div>
+
+        <div className="wo-form-row">
+          <label className="ud-field">
+            <span>Quantity</span>
+            <input className="cell-input" type="number" min="0" step="1"
+              autoFocus value={delta} placeholder="e.g. 5"
+              onChange={(e) => setDelta(e.target.value)} />
+          </label>
+          <label className="ud-field">
+            <span>New on hand</span>
+            <input className="cell-input" value={preview ?? onHand} disabled
+              title="Preview of on hand after a +quantity adjust" />
+          </label>
+        </div>
+        <label className="ud-field">
+          <span>Note (optional)</span>
+          <input className="cell-input" value={note}
+            placeholder="Cycle count, found in bin, damaged…"
+            onChange={(e) => setNote(e.target.value)} />
+        </label>
+
+        <div className="adj-actions">
+          <button className="btn btn-ghost" onClick={() => apply(-1)}
+            disabled={saving} title="Remove from stock">− Remove</button>
+          <button className="btn btn-primary" onClick={() => apply(1)}
+            disabled={saving} title="Add to stock">+ Add</button>
+        </div>
+
+        <section className="ud-sec adj-log">
+          <h3>Recent movements</h3>
+          {movesQ.isPending ? (
+            <div className="skel-rows">
+              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} h={28} />)}
+            </div>
+          ) : moves.length === 0 ? (
+            <p className="muted">No movements yet for this part.</p>
+          ) : (
+            <div className="table-wrap adj-log-wrap">
+              <table className="defects-table">
+                <thead>
+                  <tr>
+                    <th>When</th>
+                    <th>Reason</th>
+                    <th className="num">Δ</th>
+                    <th>Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {moves.map((m) => (
+                    <tr key={m.id}>
+                      <td className="muted mono">{fmtDate(m.created_at)}</td>
+                      <td>
+                        <span className="intg-chip">
+                          {STOCK_REASON_LABEL[m.reason] ?? m.reason}
+                        </span>
+                      </td>
+                      <td className={`num mono adj-delta ${
+                        m.delta < 0 ? 'is-neg' : 'is-pos'}`}>
+                        {m.delta > 0 ? `+${m.delta}` : m.delta}
+                      </td>
+                      <td>{m.note || <span className="muted">—</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <div className="settings-actions">
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
@@ -209,6 +434,7 @@ function PartModal({ part, vendors, categories, onClose, onSaved }: {
     cost: part?.cost ?? 0,
     vendor_id: part?.vendor_id ?? null,
     on_hand: part?.on_hand ?? 0,
+    reorder_point: part?.reorder_point ?? 0,
     notes: part?.notes ?? '',
   }))
   const [saving, setSaving] = useState(false)
@@ -270,6 +496,17 @@ function PartModal({ part, vendors, categories, onClose, onSaved }: {
               onChange={(e) => set({ on_hand: Number(e.target.value) })} />
           </label>
         </div>
+        <label className="ud-field">
+          <span>Reorder point</span>
+          <input className="cell-input" type="number" min="0"
+            value={f.reorder_point ?? 0}
+            placeholder="0 = no low-stock alert"
+            onChange={(e) => set({ reorder_point: Number(e.target.value) })} />
+          <small className="field-hint">
+            Flags this part as <strong>Low</strong> when on hand drops to or
+            below this number. Leave 0 to disable the alert.
+          </small>
+        </label>
         <label className="ud-field">
           <span>Vendor</span>
           <select className="cell-input" value={f.vendor_id ?? ''}

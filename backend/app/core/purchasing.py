@@ -113,15 +113,35 @@ def update_po(po_id: int, fields: dict) -> dict | None:
             po.vendor = str(fields["vendor"]).strip()[:120]
         if "notes" in fields:
             po.notes = str(fields["notes"]).strip()
+        received_now = False
         if "status" in fields:
             target = str(fields["status"])
             if target not in STATUSES:
                 raise ValueError(f"invalid status: {target}")
+            received_now = target == "received"
             po.status = target
         po.updated_at = datetime.now()
         _recalc_total(po)
+        # Capturar (line_id, part_number, qty) ANTES de cerrar la sesión, para
+        # alimentar el hook de inventario sin re-consultar (las líneas son
+        # lazy y la PO sale del scope al salir del with).
+        recv_lines = [(ln.id, ln.part_number, ln.qty) for ln in po.lines
+                      if (ln.part_number or "").strip()] if received_now else []
         session.commit()
-        return _po_dict(po, with_lines=True)
+        result = _po_dict(po, with_lines=True)
+
+    # Hook de inventario (fase Inventory): al pasar a 'received' se repone el
+    # stock de cada línea con part_number conocido. Idempotente vía el guard de
+    # (reason, ref_type, ref_id) en inventory.adjust: re-pasar a received (o
+    # ir y volver de estado) NO duplica el conteo. Fuera del with: adjust abre
+    # su propia sesión.
+    if received_now:
+        from . import inventory
+        for line_id, pn, qty in recv_lines:
+            inventory.adjust(pn, float(qty or 0), "po_receive",
+                             ref_type="po_line", ref_id=line_id,
+                             note=f"PO #{po_id} received")
+    return result
 
 
 def add_line(po_id: int, part_number: str, description: str,

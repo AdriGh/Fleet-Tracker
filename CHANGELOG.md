@@ -7,6 +7,21 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.25.0] - 2026-06-19
+
+Inventory de partes — stock, reorder point y movimientos auditables (rework).
+
+### Añadido
+- **Inventory de partes**: `on_hand` + `reorder_point` por parte, con **log de
+  movimientos** (`part_stock_movement`) auditable e **idempotente**. **Hooks**:
+  PO → received **suma** stock; WO → invoiced **resta** las partes consumidas
+  (guard por (reason, ref) → sin doble conteo al alternar estados). **Low-stock**
+  (on_hand ≤ reorder_point) con pill "Low" en el catálogo + KPI/filtro y botón
+  **QuickBuy** de reposición. **Ajuste manual** de stock con preview + historial
+  de movimientos. Endpoints `POST /api/parts/adjust`, `GET /api/parts/low-stock`,
+  `GET /api/parts/{pn}/movements`; el catálogo muestra On hand / Reorder. Columnas
+  migradas vía `_migrate()` (ALTER TABLE en SQLite, no solo create_all).
+
 ## [1.24.0] - 2026-06-19
 
 Paso 3 · C — rediseños aprobados aplicados a las pantallas reales (quirúrgico,

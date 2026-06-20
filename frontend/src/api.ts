@@ -1947,6 +1947,7 @@ export interface Part {
   vendor_id: number | null
   vendor_name: string
   on_hand: number
+  reorder_point: number   // punto de reorden; ≤ on_hand → "Low" (0 = sin alerta)
   notes: string
 }
 
@@ -2007,6 +2008,73 @@ export async function savePart(
 export async function deletePart(id: number): Promise<void> {
   const res = await fetch(`/api/parts/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(await readError(res))
+}
+
+// --- Inventario de partes (stock, reorder, movimientos) ------------------
+// Stock auditable: cada cambio de on_hand genera un movimiento. El backend
+// aplica los movimientos referenciados de forma idempotente (PO recibida,
+// WO facturada); los ajustes manuales siempre se aplican.
+
+// Razón del movimiento: alta por PO recibida, consumo por WO facturada, o
+// ajuste manual desde este catálogo.
+export type StockReason = 'po_receive' | 'wo_consume' | 'manual'
+
+export interface StockMovement {
+  id: number
+  part_number: string
+  delta: number             // +/- (positivo = entra, negativo = sale)
+  reason: StockReason
+  ref_type: string          // 'po_line' | 'wo_line' | '' (manual)
+  ref_id: number | null
+  note: string
+  created_at: string
+}
+
+// Parte por debajo (o en) su punto de reorden — vista compacta para reponer.
+export interface LowStockPart {
+  id: number
+  part_number: string
+  description: string
+  category: string
+  on_hand: number
+  reorder_point: number
+  vendor_id: number | null
+}
+
+export interface AdjustResult {
+  applied: boolean
+  movement: StockMovement | null
+  on_hand: number
+}
+
+// Ajuste manual de stock (delta +/-). Requiere maint.edit en el backend.
+export async function adjustPartStock(
+  partNumber: string, delta: number, note: string,
+): Promise<AdjustResult> {
+  const res = await fetch('/api/parts/adjust', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ part_number: partNumber, delta, note }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// Partes en/bajo su punto de reorden (solo reorder_point > 0).
+export async function listLowStock(): Promise<LowStockPart[]> {
+  const res = await fetch('/api/parts/low-stock')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()).parts as LowStockPart[]
+}
+
+// Bitácora de movimientos de una parte (más reciente primero).
+export async function listPartMovements(
+  partNumber: string,
+): Promise<StockMovement[]> {
+  const res = await fetch(
+    `/api/parts/${encodeURIComponent(partNumber)}/movements`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()).movements as StockMovement[]
 }
 
 // --- Purchase Orders / QuickBuy (Increment B) ----------------------------
