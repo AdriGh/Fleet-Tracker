@@ -129,7 +129,7 @@ body::after{
 .btn-ghost{background:var(--surface-2);color:var(--text);border:1px solid var(--border);}
 .btn-ghost:hover{background:var(--surface-3);}
 
-.canvas{padding:22px 32px 56px;display:flex;flex-direction:column;gap:18px;}
+.canvas{padding:22px 32px 28px;display:flex;flex-direction:column;gap:18px;flex:1;min-height:0;}
 
 /* ===== KPI row ===== */
 .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:var(--grid-gap);}
@@ -157,8 +157,11 @@ body::after{
 .kpi.danger::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--st-overdue);}
 
 /* ===== Grid ===== */
-.grid{display:grid;grid-template-columns:1.65fr 1fr;gap:var(--grid-gap);}
-.col{display:flex;flex-direction:column;gap:var(--grid-gap);}
+.grid{display:grid;grid-template-columns:1.65fr 1fr;gap:var(--grid-gap);flex:1;min-height:0;align-items:stretch;}
+.col{display:flex;flex-direction:column;gap:var(--grid-gap);min-height:0;}
+/* last card in each column grows so columns end on the same baseline — no dead gap */
+.col > .card:last-child{flex:1;display:flex;flex-direction:column;}
+.col > .card:last-child > .card-head{flex:none;}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-sm);overflow:hidden;}
 .card-head{display:flex;align-items:center;gap:11px;padding:14px 18px;border-bottom:1px solid var(--border);}
 .card-head h2{font-size:var(--fs-h3);font-weight:700;}
@@ -236,10 +239,10 @@ table.wo tbody tr:last-child td{border-bottom:none;}
 .pm-miles.over b{color:var(--st-overdue);}
 
 /* Cold chain strip */
-.cc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px;}
+.cc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px;flex:1;align-content:stretch;}
 .cc-chip{
-  background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px 13px;
-  display:flex;flex-direction:column;gap:9px;position:relative;overflow:hidden;
+  background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:13px 14px;
+  display:flex;flex-direction:column;gap:11px;position:relative;overflow:hidden;justify-content:center;
 }
 .cc-chip.alarm{border-color:rgba(255,68,56,.45);background:color-mix(in srgb,var(--accent) 8%,var(--surface-2));}
 .cc-chip.alarm::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);}
@@ -260,7 +263,7 @@ table.wo tbody tr:last-child td{border-bottom:none;}
 .cc-alarm-tag svg{width:11px;height:11px;}
 
 /* Activity feed */
-.feed{display:flex;flex-direction:column;padding:6px 0;}
+.feed{display:flex;flex-direction:column;padding:6px 0;flex:1;}
 .feed-item{display:flex;gap:12px;padding:11px 16px;position:relative;}
 .feed-item:not(:last-child)::before{content:"";position:absolute;left:27px;top:34px;bottom:-4px;width:1.5px;background:var(--border);}
 .feed-ico{width:26px;height:26px;flex:none;border-radius:8px;display:grid;place-items:center;border:1px solid var(--border);background:var(--surface-2);color:var(--text-muted);z-index:1;}
@@ -276,6 +279,12 @@ table.wo tbody tr:last-child td{border-bottom:none;}
 .feed-meta .mtag{font-weight:600;color:var(--text);}
 .feed-src{display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--accent);background:var(--accent-soft);border:1px solid rgba(255,68,56,.3);padding:1px 6px;border-radius:5px;}
 .feed-src svg{width:10px;height:10px;}
+.feed-foot{margin-top:auto;display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--border);background:var(--surface-2);font-size:var(--fs-tiny);color:var(--text-muted);}
+.feed-foot .fdot{width:6px;height:6px;border-radius:50%;background:var(--ui-success);box-shadow:0 0 0 3px rgba(52,211,153,.18);flex:none;}
+.feed-foot b{color:var(--text);font-variant-numeric:tabular-nums;font-weight:700;}
+.feed-foot .spacer{flex:1;}
+.feed-foot a{color:var(--accent);font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:3px;}
+.feed-foot a svg{width:12px;height:12px;}
 </style>
 </head>
 <body>
@@ -622,6 +631,25 @@ table.wo tbody tr:last-child td{border-bottom:none;}
                   <div class="feed-title">Invoice scanned — Lone Star Diesel, parsed to WO-4462, <span class="mono">$1,815.20</span></div>
                   <div class="feed-meta"><span class="mtag">AI scan</span> · 9 line items matched · 3h ago</div>
                 </div>
+              </div>
+              <div class="feed-item">
+                <span class="feed-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
+                <div class="feed-body">
+                  <div class="feed-title">PM-A scheduled on <b>TR8819</b> — due in <span class="mono">1,340 mi</span>, bay 3 reserved</div>
+                  <div class="feed-meta"><span class="mtag">R. Mendez</span> · WO-4468 opened · 4h ago</div>
+                </div>
+              </div>
+              <div class="feed-item">
+                <span class="feed-ico ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <div class="feed-body">
+                  <div class="feed-title">DOT annual inspection passed on <b>CF2270</b> — no defects logged</div>
+                  <div class="feed-meta"><span class="mtag">M. Alvarez</span> · cert filed · 5h ago</div>
+                </div>
+              </div>
+              <div class="feed-foot">
+                <span class="fdot"></span> <span><b>7</b> of <b>142</b> events today</span>
+                <span class="spacer"></span>
+                <a href="#">Open activity log <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></a>
               </div>
             </div>
           </section>

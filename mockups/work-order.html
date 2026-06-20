@@ -379,6 +379,56 @@
   .note-text code { font-family: var(--font-mono); font-size: 11.5px; color: var(--ui-info); background: var(--ui-info-bg); padding: 1px 5px; border-radius: 4px; }
   .note-input { display: flex; gap: 9px; align-items: center; padding-top: 11px; border-top: 1px solid var(--border); }
   .note-input .field { flex: 1; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 12px; font-size: 12.5px; color: var(--text-muted); }
+
+  /* ===== Fault diagnostics (left col) ===== */
+  .diag-body { padding: 16px 20px 18px; }
+  .diag-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .diag-cell {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 11px 13px;
+    display: flex; flex-direction: column; gap: 5px;
+  }
+  .diag-k { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+  .diag-v { font-family: var(--font-display); font-size: 19px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--text); }
+  .diag-v .u { font-size: 11px; font-weight: 500; color: var(--text-muted); margin-left: 2px; }
+  .diag-v.warn { color: var(--ui-warn); }
+  .diag-v.ok { color: var(--ui-success); }
+  .diag-foot {
+    display: flex; align-items: center; gap: 9px; margin-top: 13px;
+    padding: 10px 13px; border-radius: var(--radius-sm);
+    background: var(--accent-soft); border: 1px solid rgba(255, 68, 56, 0.35);
+    font-size: 12px; color: var(--text);
+  }
+  .diag-foot svg { width: 15px; height: 15px; color: var(--accent); flex: none; }
+  .diag-foot .code { font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; color: var(--accent); }
+  .diag-foot .when { margin-left: auto; font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+  /* ===== Activity audit footer (full width) ===== */
+  .audit-body { padding: 6px 0 4px; }
+  .audit-row {
+    display: grid; grid-template-columns: 150px 26px 1fr auto;
+    align-items: center; gap: 14px;
+    padding: 11px 20px; border-bottom: 1px solid var(--border);
+  }
+  .audit-row:last-child { border-bottom: none; }
+  .audit-when { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .audit-ico {
+    width: 26px; height: 26px; border-radius: 7px; flex: none;
+    display: grid; place-items: center; background: var(--surface-3); color: var(--text-muted);
+  }
+  .audit-ico svg { width: 14px; height: 14px; }
+  .audit-ico.accent { background: var(--accent-soft); color: var(--accent); border: 1px solid rgba(255,68,56,0.3); }
+  .audit-ico.ok { background: var(--ui-success-bg); color: var(--ui-success); }
+  .audit-ico.info { background: var(--ui-info-bg); color: var(--ui-info); }
+  .audit-text { font-size: 12.5px; color: var(--text); min-width: 0; }
+  .audit-text b { font-weight: 600; }
+  .audit-text .mono { font-size: 11.5px; color: var(--text-muted); }
+  .audit-who {
+    display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+    font-size: 11.5px; color: var(--text-muted);
+  }
+  .audit-who .av { width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(135deg, #2d2d33, #18181b); border: 1px solid var(--border-strong); display: grid; place-items: center; font-size: 8.5px; font-weight: 700; color: var(--text); }
+  .audit-who .av.sys { background: var(--accent-soft); border-color: rgba(255,68,56,0.35); color: var(--accent); }
 </style>
 </head>
 <body>
@@ -678,6 +728,56 @@
               </tfoot>
             </table>
           </section>
+
+          <!-- Fault diagnostics -->
+          <section class="card">
+            <div class="card-head">
+              <span class="head-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
+              <h2>Fault diagnostics</h2>
+              <span class="sub">Carrier Lynx · at alarm</span>
+            </div>
+            <div class="diag-body">
+              <div class="diag-grid">
+                <div class="diag-cell">
+                  <span class="diag-k">Setpoint</span>
+                  <span class="diag-v">-10<span class="u">°F</span></span>
+                </div>
+                <div class="diag-cell">
+                  <span class="diag-k">Return air</span>
+                  <span class="diag-v warn">+14<span class="u">°F</span></span>
+                </div>
+                <div class="diag-cell">
+                  <span class="diag-k">Discharge</span>
+                  <span class="diag-v">-2<span class="u">°F</span></span>
+                </div>
+                <div class="diag-cell">
+                  <span class="diag-k">Suction psi</span>
+                  <span class="diag-v warn">9.4<span class="u">psi</span></span>
+                </div>
+                <div class="diag-cell">
+                  <span class="diag-k">Refrigerant</span>
+                  <span class="diag-v warn">−0.4<span class="u">lb</span></span>
+                </div>
+                <div class="diag-cell">
+                  <span class="diag-k">Engine hrs</span>
+                  <span class="diag-v">18,402<span class="u">h</span></span>
+                </div>
+                <div class="diag-cell">
+                  <span class="diag-k">Fuel</span>
+                  <span class="diag-v">62<span class="u">%</span></span>
+                </div>
+                <div class="diag-cell">
+                  <span class="diag-k">Post-repair</span>
+                  <span class="diag-v ok">Clear</span>
+                </div>
+              </div>
+              <div class="diag-foot">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+                <span>Alarm <span class="code">AL52 · LOW REFRIGERANT</span> on trailer RF8841</span>
+                <span class="when">Cleared 06-12 · 09:31</span>
+              </div>
+            </div>
+          </section>
         </div>
 
         <!-- RIGHT -->
@@ -809,6 +909,53 @@
           </section>
         </div>
       </div>
+
+      <!-- ===== Activity / audit trail (full width) ===== -->
+      <section class="card">
+        <div class="card-head">
+          <span class="head-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg></span>
+          <h2>Activity</h2>
+          <span class="sub">Audit trail · 6 events</span>
+        </div>
+        <div class="audit-body">
+          <div class="audit-row">
+            <span class="audit-when">06-11 · 14:08</span>
+            <span class="audit-ico accent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M4 8l8-6 8 6M4 16l8 6 8-6"/></svg></span>
+            <span class="audit-text"><b>Work order opened</b> — auto-created from reefer alarm <span class="mono">AL52</span> on RF8841</span>
+            <span class="audit-who"><span class="av sys">FT</span>Fleet Tracker</span>
+          </div>
+          <div class="audit-row">
+            <span class="audit-when">06-11 · 14:12</span>
+            <span class="audit-ico info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg></span>
+            <span class="audit-text"><b>Assigned</b> to technician L. Cordero · routed to <span class="mono">Speedco · Palestine, AR</span></span>
+            <span class="audit-who"><span class="av">MR</span>M. Rivas</span>
+          </div>
+          <div class="audit-row">
+            <span class="audit-when">06-12 · 09:21</span>
+            <span class="audit-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.09A1.65 1.65 0 0 0 10.5 3.09V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9z"/></svg></span>
+            <span class="audit-text"><b>Diagnosed</b> no-start — grounds cleaned, reefer topped off, code cleared</span>
+            <span class="audit-who"><span class="av">LC</span>L. Cordero</span>
+          </div>
+          <div class="audit-row">
+            <span class="audit-when">06-12 · 09:48</span>
+            <span class="audit-ico info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13l2 2 4-4"/></svg></span>
+            <span class="audit-text"><b>Invoice scanned</b> — <span class="mono">WO_Priced_4010007293.PDF</span> · 5 line items auto-filled</span>
+            <span class="audit-who"><span class="av sys">FT</span>Fleet Tracker</span>
+          </div>
+          <div class="audit-row">
+            <span class="audit-when">06-12 · 10:05</span>
+            <span class="audit-ico ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+            <span class="audit-text"><b>Authorized</b> labor &amp; parts against <span class="mono">PO-22517</span> · total $250.73</span>
+            <span class="audit-who"><span class="av">MR</span>M. Rivas</span>
+          </div>
+          <div class="audit-row">
+            <span class="audit-when">06-12 · 11:30</span>
+            <span class="audit-ico accent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="9"/></svg></span>
+            <span class="audit-text"><b>In progress</b> — holding invoicing until Speedco priced copy is reconciled</span>
+            <span class="audit-who"><span class="av">LC</span>L. Cordero</span>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 </div>

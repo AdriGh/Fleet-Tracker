@@ -75,7 +75,6 @@
     font-size: 15px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
-    min-height: 100vh;
   }
 
   h1, h2, h3 {
@@ -101,6 +100,8 @@
 
   /* ---------- App shell ---------- */
   .app { display: flex; align-items: stretch; min-height: 100vh; }
+  /* sidebar runs the full document height so it never leaves a short rail */
+  .sidebar { align-self: stretch; }
 
   .sidebar {
     width: 250px;
@@ -213,7 +214,8 @@
   .gauge > i { display: block; height: 100%; border-radius: 999px; background: var(--st-upcoming); }
 
   /* ---------- Layout: table + chart ---------- */
-  .cc-grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: 16px; align-items: start; }
+  .cc-grid { display: grid; grid-template-columns: 1.55fr 1fr; gap: 16px; align-items: stretch; }
+  .cc-grid > .card { height: 100%; }
 
   .card {
     background: var(--surface); border: 1px solid var(--border);
@@ -296,6 +298,43 @@
   /* ---------- Chart card ---------- */
   .chart-card { display: flex; flex-direction: column; }
   .chart-body { padding: 16px 18px 18px; }
+  /* the events block grows to absorb any leftover column height so the
+     right card always matches the reefers table — no short panel */
+  .chart-events { flex: 1 1 auto; display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+  .ce-section { padding: 13px 18px; border-bottom: 1px solid var(--border); }
+  .ce-section:last-child { border-bottom: none; flex: 1 1 auto; }
+  .ce-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted);
+  }
+  .ce-head .ce-ico { width: 14px; height: 14px; flex: none; }
+  .ce-head .ce-count {
+    margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
+    color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border);
+    padding: 1px 7px; border-radius: 999px; letter-spacing: 0;
+  }
+  .ce-list { display: flex; flex-direction: column; gap: 8px; }
+  .ce-row { display: flex; align-items: center; gap: 11px; }
+  .ce-rail { width: 3px; align-self: stretch; flex: none; border-radius: 999px; background: var(--border-strong); min-height: 30px; }
+  .ce-row.sev-high .ce-rail { background: var(--st-overdue); }
+  .ce-row.sev-warn .ce-rail { background: var(--st-upcoming); }
+  .ce-row.sev-info .ce-rail { background: var(--ui-info); }
+  .ce-main { min-width: 0; flex: 1; }
+  .ce-unit { font-family: var(--font-display); font-weight: 700; font-size: 12.5px; letter-spacing: -0.01em; display: inline-flex; align-items: center; gap: 7px; }
+  .ce-unit .ce-fault { font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--st-overdue-ink); }
+  .ce-unit .ce-fault.warn { color: var(--st-upcoming-ink); }
+  .ce-meta { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+  .ce-meta b { color: var(--text); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .ce-time { margin-left: auto; flex: none; text-align: right; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .ce-time .ce-dur { display: block; font-size: 10px; opacity: .7; }
+  .ce-peak {
+    flex: none; font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+    font-variant-numeric: tabular-nums; padding: 3px 9px; border-radius: 7px;
+  }
+  .ce-peak.high { color: var(--st-overdue-ink); background: color-mix(in srgb, var(--st-overdue) 16%, transparent); }
+  .ce-peak.warn { color: var(--st-upcoming-ink); background: color-mix(in srgb, var(--st-upcoming) 14%, transparent); }
+  .ce-empty { font-size: 11.5px; color: var(--text-muted); opacity: .6; display: flex; align-items: center; gap: 7px; }
+  .ce-empty .ok-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--st-on-track); box-shadow: 0 0 6px var(--st-on-track); }
   .chart-unit { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
   .chart-unit .cu-name { font-family: var(--font-display); font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 8px; }
   .chart-unit .cu-name small { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); font-weight: 400; }
@@ -357,6 +396,34 @@
   }
   .moat-cta { font-size: 11.5px; color: var(--text-muted); }
   .moat-cta b { color: var(--accent); }
+
+  /* ---------- Per-reefer 24h sparklines (fills the bottom) ---------- */
+  .spark-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; }
+  .spark {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 13px 14px 12px;
+    display: flex; flex-direction: column; gap: 9px;
+    position: relative; overflow: hidden;
+  }
+  .spark.is-alarm { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, var(--surface)), var(--surface)); }
+  .spark-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  .spark-id { display: flex; flex-direction: column; min-width: 0; }
+  .spark-id strong { font-family: var(--font-display); font-weight: 700; font-size: 13.5px; letter-spacing: -0.01em; }
+  .spark-id small { font-size: 9.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+  .spark-state { width: 8px; height: 8px; flex: none; border-radius: 50%; margin-top: 4px; background: var(--st-on-track); box-shadow: 0 0 6px color-mix(in srgb, var(--st-on-track) 60%, transparent); }
+  .spark-state.alarm { background: var(--st-overdue); box-shadow: 0 0 6px color-mix(in srgb, var(--st-overdue) 65%, transparent); }
+  .spark svg { width: 100%; height: 44px; display: block; }
+  .spk-band { fill: color-mix(in srgb, var(--st-on-track) 10%, transparent); }
+  .spk-line { fill: none; stroke: var(--accent); stroke-width: 2; }
+  .spk-line.ok { stroke: var(--st-on-track); }
+  .spk-set { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 3 3; opacity: .55; }
+  .spk-fill { opacity: .12; }
+  .spark-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+  .spark-foot .now { font-family: var(--font-mono); font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .spark-foot .now.ok { color: var(--st-on-track-ink); }
+  .spark-foot .now.warn { color: var(--st-upcoming-ink); }
+  .spark-foot .now.danger { color: var(--st-overdue-ink); }
+  .spark-foot .set { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
@@ -652,6 +719,90 @@
               <span><i class="rc-d-set"></i> Setpoint</span>
             </div>
           </div>
+
+          <!-- Events: fills the rest of the column so the card matches the table height -->
+          <div class="chart-events">
+            <!-- Temperature excursions log -->
+            <div class="ce-section">
+              <div class="ce-head">
+                <svg class="ce-ico" viewBox="0 0 24 24" fill="none"><path d="M12 3l9 16H3l9-16z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 9v4m0 3h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                Temperature excursions
+                <span class="ce-count">3 · 24h</span>
+              </div>
+              <div class="ce-list">
+                <div class="ce-row sev-high">
+                  <span class="ce-rail"></span>
+                  <div class="ce-main">
+                    <div class="ce-unit">CI2244 <span class="ce-fault">A127 HIGH&nbsp;TEMP</span></div>
+                    <div class="ce-meta">Return above <b>+10°</b> band · WO-2041 opened</div>
+                  </div>
+                  <span class="ce-peak high">48.6°</span>
+                  <span class="ce-time">14:32<span class="ce-dur">ongoing</span></span>
+                </div>
+                <div class="ce-row sev-warn">
+                  <span class="ce-rail"></span>
+                  <div class="ce-main">
+                    <div class="ce-unit">CF2255 <span class="ce-fault warn">DEFROST DRIFT</span></div>
+                    <div class="ce-meta">Brief rise during defrost · auto-cleared</div>
+                  </div>
+                  <span class="ce-peak warn">41.2°</span>
+                  <span class="ce-time">13:18<span class="ce-dur">11m</span></span>
+                </div>
+                <div class="ce-row sev-warn">
+                  <span class="ce-rail"></span>
+                  <div class="ce-main">
+                    <div class="ce-unit">TK3308 <span class="ce-fault warn">SETPOINT MISS</span></div>
+                    <div class="ce-meta">Return +6.8° over setpoint · recovered</div>
+                  </div>
+                  <span class="ce-peak warn">-13.2°</span>
+                  <span class="ce-time">09:47<span class="ce-dur">22m</span></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Door-open events -->
+            <div class="ce-section">
+              <div class="ce-head">
+                <svg class="ce-ico" viewBox="0 0 24 24" fill="none"><path d="M3 21h12V3H8L3 6v15zM15 21h6V8l-6-2M9 12h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Door-open events
+                <span class="ce-count">4 · 24h</span>
+              </div>
+              <div class="ce-list">
+                <div class="ce-row sev-high">
+                  <span class="ce-rail"></span>
+                  <div class="ce-main">
+                    <div class="ce-unit">TK3308</div>
+                    <div class="ce-meta">Open now · threshold <b>5m</b> exceeded</div>
+                  </div>
+                  <span class="ce-time">14:26<span class="ce-dur">6m open</span></span>
+                </div>
+                <div class="ce-row sev-info">
+                  <span class="ce-rail"></span>
+                  <div class="ce-main">
+                    <div class="ce-unit">RF4187</div>
+                    <div class="ce-meta">Dock load · Bay 4 · within window</div>
+                  </div>
+                  <span class="ce-time">12:09<span class="ce-dur">3m 40s</span></span>
+                </div>
+                <div class="ce-row sev-info">
+                  <span class="ce-rail"></span>
+                  <div class="ce-main">
+                    <div class="ce-unit">RF4192</div>
+                    <div class="ce-meta">Delivery stop · Whole Foods #218</div>
+                  </div>
+                  <span class="ce-time">10:54<span class="ce-dur">2m 12s</span></span>
+                </div>
+                <div class="ce-row sev-info">
+                  <span class="ce-rail"></span>
+                  <div class="ce-main">
+                    <div class="ce-unit">RF4205</div>
+                    <div class="ce-meta">Delivery stop · Sysco DC</div>
+                  </div>
+                  <span class="ce-time">08:31<span class="ce-dur">4m 58s</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
       </div>
 
@@ -674,6 +825,98 @@
           </span>
           <span class="wo-src">from reefer fault</span>
           <span class="moat-cta">Severity ≥ <b>High</b> · auto-WO on</span>
+        </div>
+      </div>
+
+      <!-- Per-reefer 24h sparklines -->
+      <div class="card-head" style="border:none;padding:4px 2px 0">
+        <span class="updated-dot"></span>
+        <h2 style="font-size:14px">Last 24h · all units</h2>
+        <span class="sub">return air vs in-range band</span>
+      </div>
+      <div class="spark-grid">
+        <!-- RF4187 — in range -->
+        <div class="spark">
+          <div class="spark-top">
+            <div class="spark-id"><strong>RF4187</strong><small>Lynx · Cool</small></div>
+            <span class="spark-state"></span>
+          </div>
+          <svg viewBox="0 0 140 44" preserveAspectRatio="none">
+            <rect class="spk-band" x="0" y="14" width="140" height="16"/>
+            <line class="spk-set" x1="0" y1="24" x2="140" y2="24"/>
+            <path class="spk-line ok" d="M0,23 L17,21 L34,24 L51,22 L68,25 L85,21 L102,24 L119,22 L140,23"/>
+          </svg>
+          <div class="spark-foot"><span class="now ok">-9.4°</span><span class="set">set -10.0°</span></div>
+        </div>
+
+        <!-- CI2244 — ALARM, spiking out of band -->
+        <div class="spark is-alarm">
+          <div class="spark-top">
+            <div class="spark-id"><strong>CI2244</strong><small>Lynx · High temp</small></div>
+            <span class="spark-state alarm"></span>
+          </div>
+          <svg viewBox="0 0 140 44" preserveAspectRatio="none">
+            <rect class="spk-band" x="0" y="14" width="140" height="16"/>
+            <line class="spk-set" x1="0" y1="22" x2="140" y2="22"/>
+            <path class="spk-line" d="M0,23 L17,22 L34,24 L51,21 L68,23 L85,22 L102,20 L119,12 L140,3"/>
+          </svg>
+          <div class="spark-foot"><span class="now danger">48.6°</span><span class="set">set 34.0°</span></div>
+        </div>
+
+        <!-- RF4192 — in range -->
+        <div class="spark">
+          <div class="spark-top">
+            <div class="spark-id"><strong>RF4192</strong><small>Lynx · Cool</small></div>
+            <span class="spark-state"></span>
+          </div>
+          <svg viewBox="0 0 140 44" preserveAspectRatio="none">
+            <rect class="spk-band" x="0" y="14" width="140" height="16"/>
+            <line class="spk-set" x1="0" y1="22" x2="140" y2="22"/>
+            <path class="spk-line ok" d="M0,22 L17,24 L34,21 L51,23 L68,20 L85,23 L102,21 L119,24 L140,22"/>
+          </svg>
+          <div class="spark-foot"><span class="now ok">36.8°</span><span class="set">set 36.0°</span></div>
+        </div>
+
+        <!-- TK3308 — door-open dip + recovery -->
+        <div class="spark is-alarm">
+          <div class="spark-top">
+            <div class="spark-id"><strong>TK3308</strong><small>T.King · Door</small></div>
+            <span class="spark-state alarm"></span>
+          </div>
+          <svg viewBox="0 0 140 44" preserveAspectRatio="none">
+            <rect class="spk-band" x="0" y="14" width="140" height="16"/>
+            <line class="spk-set" x1="0" y1="26" x2="140" y2="26"/>
+            <path class="spk-line" d="M0,26 L17,25 L34,27 L51,25 L68,26 L85,24 L102,25 L119,16 L140,10"/>
+          </svg>
+          <div class="spark-foot"><span class="now warn">-13.2°</span><span class="set">set -20.0°</span></div>
+        </div>
+
+        <!-- CF2255 — defrost bump -->
+        <div class="spark">
+          <div class="spark-top">
+            <div class="spark-id"><strong>CF2255</strong><small>Lynx · Defrost</small></div>
+            <span class="spark-state"></span>
+          </div>
+          <svg viewBox="0 0 140 44" preserveAspectRatio="none">
+            <rect class="spk-band" x="0" y="14" width="140" height="16"/>
+            <line class="spk-set" x1="0" y1="22" x2="140" y2="22"/>
+            <path class="spk-line" d="M0,22 L17,23 L34,21 L51,23 L68,14 L85,10 L102,16 L119,22 L140,18"/>
+          </svg>
+          <div class="spark-foot"><span class="now warn">39.7°</span><span class="set">set 34.0°</span></div>
+        </div>
+
+        <!-- RF4205 — in range -->
+        <div class="spark">
+          <div class="spark-top">
+            <div class="spark-id"><strong>RF4205</strong><small>Traccar · Cool</small></div>
+            <span class="spark-state"></span>
+          </div>
+          <svg viewBox="0 0 140 44" preserveAspectRatio="none">
+            <rect class="spk-band" x="0" y="14" width="140" height="16"/>
+            <line class="spk-set" x1="0" y1="22" x2="140" y2="22"/>
+            <path class="spk-line ok" d="M0,23 L17,21 L34,24 L51,22 L68,23 L85,21 L102,23 L119,22 L140,21"/>
+          </svg>
+          <div class="spark-foot"><span class="now ok">38.9°</span><span class="set">set 38.0°</span></div>
         </div>
       </div>
 
