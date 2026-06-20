@@ -33,4 +33,28 @@ async def decode(vin: str) -> dict:
         msg = str(res.get("ErrorText") or "").strip() or "VIN no reconocido"
         return {"ok": False, "error": msg}
     return {"ok": True, "vin": vin, "year": year, "make": make,
-            "model": model}
+            "model": model, "body": _body(res), "engine": _engine(res)}
+
+
+def _body(res: dict) -> str:
+    """Tipo de carroceria (p.ej. 'Truck-Tractor'), solo para mostrar."""
+    return str(res.get("BodyClass") or "").strip()
+
+
+def _engine(res: dict) -> str:
+    """Resumen legible del motor: '12.8L · 6 cyl · Diesel' (solo display)."""
+    disp = str(res.get("DisplacementL") or "").strip()
+    cyl = str(res.get("EngineCylinders") or "").strip()
+    fuel = str(res.get("FuelTypePrimary") or "").strip()
+    parts: list[str] = []
+    if disp:
+        # Redondea a 1 decimal y agrega la "L" (vPIC da "12.8000000000").
+        try:
+            parts.append(f"{float(disp):.1f}L")
+        except ValueError:
+            parts.append(disp)
+    if cyl:
+        parts.append(f"{cyl} cyl")
+    if fuel:
+        parts.append(fuel)
+    return " · ".join(parts)

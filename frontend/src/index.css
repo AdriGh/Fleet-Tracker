@@ -7433,6 +7433,17 @@ iframe.wo-preview { border: 1px solid var(--border); }
   grid-template-columns: 78px 92px 1fr 58px 76px 26px;
 }
 .wo-line-row-cat .cell-input:disabled { opacity: 0.45; }
+/* Increment B: línea de Purchase Order (part# | desc | qty | cost | acción) */
+.po-line-row {
+  grid-template-columns: 96px 1fr 58px 80px auto;
+}
+/* QuickBuy + borrar en la celda de acciones del catálogo de Parts */
+.parts-row-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
 
 @media (max-width: 1000px) {
   .wo-modal-grid { grid-template-columns: 1fr; }

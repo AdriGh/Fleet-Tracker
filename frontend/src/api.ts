@@ -433,6 +433,8 @@ export interface VinDecode {
   year?: string
   make?: string
   model?: string
+  body?: string
+  engine?: string
   error?: string
 }
 
@@ -2005,6 +2007,148 @@ export async function savePart(
 export async function deletePart(id: number): Promise<void> {
   const res = await fetch(`/api/parts/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(await readError(res))
+}
+
+// --- Purchase Orders / QuickBuy (Increment B) ----------------------------
+// Órdenes de compra de partes a un vendor. Espeja el cliente de work orders.
+
+export type POStatus = 'draft' | 'ordered' | 'received'
+
+export interface POLine {
+  id: number
+  part_number: string
+  description: string
+  qty: number
+  unit_cost: number
+  total: number
+}
+
+export interface PurchaseOrder {
+  id: number
+  created_at: string
+  updated_at: string
+  vendor: string
+  status: POStatus
+  notes: string
+  total: number
+  n_lines: number
+  lines?: POLine[]
+}
+
+export interface POStats {
+  draft: number
+  ordered: number
+  received: number
+  open_value: number   // total de las POs no recibidas
+}
+
+// Línea de entrada al crear/agregar (sin id ni total: los pone el backend).
+export interface POLineInput {
+  part_number?: string
+  description?: string
+  qty?: number
+  unit_cost?: number
+}
+
+export async function listPurchaseOrders(
+  status = '',
+): Promise<{ purchase_orders: PurchaseOrder[]; stats: POStats }> {
+  const qs = new URLSearchParams()
+  if (status) qs.set('status', status)
+  const res = await fetch(`/api/purchase-orders?${qs}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function getPurchaseOrder(id: number): Promise<PurchaseOrder> {
+  const res = await fetch(`/api/purchase-orders/${id}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function createPurchaseOrder(body: {
+  vendor?: string; notes?: string; lines?: POLineInput[]
+}): Promise<PurchaseOrder> {
+  const res = await fetch('/api/purchase-orders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function patchPurchaseOrder(
+  id: number, patch: { vendor?: string; notes?: string; status?: POStatus },
+): Promise<PurchaseOrder> {
+  const res = await fetch(`/api/purchase-orders/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function deletePurchaseOrder(id: number): Promise<void> {
+  const res = await fetch(`/api/purchase-orders/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+export async function addPoLine(
+  id: number, line: POLineInput,
+): Promise<PurchaseOrder> {
+  const res = await fetch(`/api/purchase-orders/${id}/lines`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(line),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function deletePoLine(
+  id: number, lineId: number,
+): Promise<PurchaseOrder> {
+  const res = await fetch(`/api/purchase-orders/${id}/lines/${lineId}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// --- Marketplace de partes (scaffold, Increment B) -----------------------
+// Búsqueda en un marketplace externo (FindItParts/PartsTech). Mientras no
+// haya cuenta de API conectada, el backend devuelve datos demo (mock) y
+// `configured: false` — la UI muestra el banner de "Demo data". Un resultado
+// puede alimentar una línea de QuickBuy/PO. Conectar el real es trabajo de
+// backend (un adapter en core/parts_marketplace.py); el frente no cambia.
+
+export type PartAvailability =
+  'in_stock' | 'limited' | 'backorder' | 'special_order'
+
+export interface MarketplaceResult {
+  part_number: string
+  description: string
+  brand: string
+  price: number            // unitario (USD); 0 = sin precio público
+  availability: PartAvailability | string
+  vendor: string           // distribuidor/tienda que la vende
+}
+
+export interface MarketplaceSearchResponse {
+  configured: boolean      // false = datos demo (sin API conectada)
+  provider: string         // 'mock' | 'finditparts' | 'partstech'
+  results: MarketplaceResult[]
+}
+
+export async function searchMarketplace(
+  q: string, limit = 20,
+): Promise<MarketplaceSearchResponse> {
+  const qs = new URLSearchParams({ q, limit: String(limit) })
+  const res = await fetch(`/api/parts/marketplace/search?${qs}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as MarketplaceSearchResponse
 }
 
 // --- Reports & Analytics: gasto del taller (fase H8) ---------------------

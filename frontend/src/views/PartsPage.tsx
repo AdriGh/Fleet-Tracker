@@ -12,8 +12,10 @@ import { Button, Tabs } from '../components/ds'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
+import PurchaseOrdersPage, { QuickBuyButton } from './PurchaseOrdersPage'
+import MarketplacePanel from './MarketplacePanel'
 
-type Tab = 'parts' | 'vendors'
+type Tab = 'parts' | 'vendors' | 'pos' | 'marketplace'
 
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
@@ -27,8 +29,9 @@ export default function PartsPage() {
         <div>
           <h1>Parts &amp; Vendors</h1>
           <p className="page-sub">
-            Shop catalog: parts with internal cost and the vendors you buy
-            them from. Reused when building work orders.
+            Shop catalog: parts with internal cost, the vendors you buy them
+            from, purchase orders, and a marketplace search. Reused when
+            building work orders.
           </p>
         </div>
       </div>
@@ -37,14 +40,19 @@ export default function PartsPage() {
         <div className="card-body filters-row">
           <Tabs
             tabs={[{ id: 'parts', label: 'Parts' },
-              { id: 'vendors', label: 'Vendors' }]}
+              { id: 'vendors', label: 'Vendors' },
+              { id: 'pos', label: 'Purchase Orders' },
+              { id: 'marketplace', label: 'Marketplace' }]}
             value={tab}
             onChange={(id) => setTab(id as Tab)}
           />
         </div>
       </div>
 
-      {tab === 'parts' ? <PartsTab /> : <VendorsTab />}
+      {tab === 'parts' && <PartsTab />}
+      {tab === 'vendors' && <VendorsTab />}
+      {tab === 'pos' && <PurchaseOrdersPage />}
+      {tab === 'marketplace' && <MarketplacePanel />}
     </div>
   )
 }
@@ -156,7 +164,11 @@ function PartsTab() {
                           ? <span className="wo-pm-tag">{usage[p.part_number]}×</span>
                           : <span className="muted">—</span>}
                       </td>
-                      <td className="num" onClick={(e) => e.stopPropagation()}>
+                      <td className="num parts-row-actions"
+                        onClick={(e) => e.stopPropagation()}>
+                        <QuickBuyButton part={p}
+                          onBought={() =>
+                            qc.invalidateQueries({ queryKey: ['purchase-orders'] })} />
                         <button className="icon-x" title="Delete part"
                           onClick={() => remove(p)}>✕</button>
                       </td>
