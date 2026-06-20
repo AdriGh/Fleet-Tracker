@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getReefer, getReeferHistory, reeferCommand, setReeferSetpoint,
@@ -142,6 +142,83 @@ function HistoryRow({ unitId }: { unitId: string }) {
   return <ReeferChart points={q.data.points} />
 }
 
+// ----- Sparkline 24 h por unidad (return air vs setpoint) ----------------
+// Usa el MISMO endpoint y la MISMA clave de caché que el chart de fila
+// (getReeferHistory / ['reefer-history', id]); no es una fuente nueva ni
+// inventada. Pinta la última ventana de 24 h de return air y la línea de
+// setpoint; el tono ahora/now sale de la desviación real del último punto.
+function Sparkline({ unit }: { unit: ReeferUnit }) {
+  const q = useQuery({
+    queryKey: ['reefer-history', unit.id],
+    queryFn: () => getReeferHistory(unit.id, 24),
+    staleTime: 60_000,
+  })
+  const W = 150
+  const H = 42
+
+  const pts = q.data?.points ?? []
+  const returns = pts
+    .map((p) => p.return_f)
+    .filter((v): v is number => v != null)
+  const setpoints = pts
+    .map((p) => p.setpoint_f)
+    .filter((v): v is number => v != null)
+  const lastReturn = returns.length ? returns[returns.length - 1] : unit.return_f
+  const setNow = setpoints.length
+    ? setpoints[setpoints.length - 1] : unit.setpoint_f
+
+  // Tono del valor actual = misma lógica de desviación que la tabla.
+  const tone = devTone(unit) || 'ok'
+  const alarmed = unit.alarms.some((a) => a.severity >= 3) || unit.door === 'Open'
+
+  let body: ReactNode
+  if (q.isPending) {
+    body = <Skeleton h={H} />
+  } else if (returns.length < 2) {
+    body = <div className="spark-na">No 24h history</div>
+  } else {
+    const all = [...returns, ...setpoints]
+    const min = Math.min(...all)
+    const max = Math.max(...all)
+    const span = Math.max(1, max - min)
+    const x = (i: number, n: number) => (i / Math.max(1, n - 1)) * W
+    const y = (v: number) => H - 3 - ((v - min) / span) * (H - 6)
+    const retLine = pts
+      .map((p, i) => (p.return_f == null
+        ? null : `${x(i, pts.length)},${y(p.return_f)}`))
+      .filter(Boolean)
+      .join(' ')
+    const setY = setNow != null ? y(setNow) : null
+    body = (
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+        className="spark-svg" aria-hidden="true">
+        {setY != null && (
+          <line x1={0} x2={W} y1={setY} y2={setY} className="spk-set" />
+        )}
+        <polyline points={retLine}
+          className={`spk-line ${tone === 'ok' ? 'ok' : tone === 'warn' ? 'warn' : 'danger'}`} />
+      </svg>
+    )
+  }
+
+  return (
+    <div className={`spark${alarmed ? ' is-alarm' : ''}`}>
+      <div className="spark-top">
+        <div className="spark-id">
+          <strong>{unit.unit}</strong>
+          <small>{(unit.run_mode || unit.state || '—')}</small>
+        </div>
+        <span className={`spark-state st-${unit.state.toLowerCase() || 'na'}${alarmed ? ' alarm' : ''}`} />
+      </div>
+      {body}
+      <div className="spark-foot">
+        <span className={`now rt-${tone}`}>{fmtT(lastReturn)}</span>
+        <span className="set">set {fmtT(setNow)}</span>
+      </div>
+    </div>
+  )
+}
+
 // ----- Control remoto OEM (Carrier Lynx, two-way) ------------------------
 // Solo se renderiza para unidades 'lynx-' con tier >= Monitor and Control
 // (u.can_control) y rol con scope fleet.edit. El backend re-gatea ambos.
@@ -223,8 +300,28 @@ export default function ReeferPage() {
       .filter((v): v is number => v != null)
     const avgFuel = fuels.length
       ? Math.round(fuels.reduce((a, b) => a + b, 0) / fuels.length) : null
-    return { reporting: units.length, alarms, cooling, avgFuel }
+    // Desglose de alarmas activas a partir de datos reales (alarms[] + door):
+    // unidades con puerta abierta, con cualquier alarma severa (sev 3) y con
+    // combustible bajo (<15%). Alimenta el subtítulo del KPI "Active alarms".
+    const doorsOpen = units.filter((u) => u.door === 'Open').length
+    const critical = units.filter(
+      (u) => u.alarms.some((a) => a.severity >= 3)).length
+    const lowFuel = units.filter(
+      (u) => u.fuel_pct != null && u.fuel_pct < 15).length
+    return {
+      reporting: units.length, alarms, cooling, avgFuel,
+      doorsOpen, critical, lowFuel,
+    }
   }, [units])
+
+  // Subtítulo del KPI de alarmas: solo partes con conteo real (>0).
+  const alarmBreakdown = useMemo(() => {
+    const parts: string[] = []
+    if (kpis.critical) parts.push(`${kpis.critical} critical`)
+    if (kpis.doorsOpen) parts.push(`${kpis.doorsOpen} door-open`)
+    if (kpis.lowFuel) parts.push(`${kpis.lowFuel} low-fuel`)
+    return parts.length ? parts.join(' · ') : 'all in range'
+  }, [kpis])
 
   // ----- Empty state: falta el scope -----
   if (data && !data.available) {
@@ -339,6 +436,7 @@ export default function ReeferPage() {
           <StatCard label="Reefers reporting" value={kpis.reporting}
             tone="info" />
           <StatCard label="Active alarms" value={kpis.alarms}
+            sub={alarmBreakdown}
             tone={kpis.alarms ? 'danger' : 'ok'} />
           <StatCard label="Cooling units on" value={kpis.cooling}
             sub={`of ${kpis.reporting}`} tone="ok" />
@@ -451,6 +549,26 @@ export default function ReeferPage() {
           )}
         </div>
       </section>
+
+      {/* "Últimas 24 h · todas las unidades" — rejilla de sparklines que
+          rellena el espacio inferior. Cada tarjeta usa el endpoint real
+          getReeferHistory (misma caché que el chart de fila); sin datos
+          inventados. Solo se muestra con unidades reportando. */}
+      {!q.isPending && units.length > 0 && (
+        <section className="card">
+          <div className="card-head">
+            <h2>Last 24h · all units</h2>
+            <span className="sub">return air vs setpoint</span>
+          </div>
+          <div className="card-body">
+            <div className="spark-grid">
+              {units.map((u) => (
+                <Sparkline key={u.id} unit={u} />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   )
 }

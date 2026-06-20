@@ -3484,6 +3484,170 @@ td.dur-high {
 .dash-grid > .card,
 .dash-shortcut { animation: ft-fade-up 0.32s ease both; }
 
+/* ---- Tablero inferior del dashboard: WO abiertas + cold chain ---- */
+.dash-ops {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.dash-ops.has-cc { grid-template-columns: 2fr 1fr; }
+@media (max-width: 920px) {
+  .dash-ops.has-cc { grid-template-columns: 1fr; }
+}
+.dash-ops > .card { animation: ft-fade-up 0.32s ease both; }
+.dash-count {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+.dash-count + .btn-link { margin-left: 8px; }
+
+/* Mini-tabla de WO abiertas */
+.dash-wo-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.dash-wo-table thead th {
+  text-align: left;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.dash-wo-table thead th.r { text-align: right; }
+.dash-wo-table tbody td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.dash-wo-table tbody tr:last-child td { border-bottom: none; }
+.dash-wo-table tbody tr { cursor: pointer; transition: background 0.12s ease; }
+.dash-wo-table tbody tr:hover { background: var(--surface-2); }
+.dash-wo-id {
+  font-family: var(--font-mono, var(--font-display));
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.dash-wo-title { width: 100%; }
+.dash-wo-title-txt {
+  display: inline-block;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.dash-src-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-soft);
+  padding: 1px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.dash-src-badge.is-defect { color: var(--ui-warn); background: var(--ui-warn-bg); border-color: var(--ui-warn-bg); }
+.dash-src-badge.is-pm { color: var(--ui-info); background: var(--ui-info-bg); border-color: var(--ui-info-bg); }
+.dash-wo-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.dash-wo-pill.is-open { color: var(--ui-info); background: var(--ui-info-bg); }
+.dash-wo-pill.is-prog { color: var(--ui-warn); background: var(--ui-warn-bg); }
+.dash-wo-pill.is-done { color: var(--ui-success); background: var(--ui-success-bg); }
+.dash-wo-pill.is-parts {
+  margin-left: 6px;
+  color: var(--ui-danger);
+  background: var(--ui-danger-bg);
+}
+.dash-wo-total {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Mini-strip de cold chain (solo en vivo) */
+.dash-cc-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 1180px) { .dash-cc-grid { grid-template-columns: 1fr; } }
+.dash-cc-chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 10px);
+  padding: 11px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.dash-cc-chip:hover { border-color: var(--border-strong); }
+.dash-cc-chip.is-alarm {
+  border-color: var(--ui-danger);
+  background: var(--ui-danger-bg);
+}
+.dash-cc-chip.is-alarm::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--ui-danger);
+}
+.dash-cc-top { display: flex; align-items: center; justify-content: space-between; }
+.dash-cc-mode {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  background: var(--surface-3);
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+.dash-cc-chip.is-alarm .dash-cc-mode { color: #fff; background: var(--ui-danger); }
+.dash-cc-temps { display: flex; align-items: baseline; gap: 16px; }
+.dash-cc-temp { display: flex; flex-direction: column; gap: 2px; }
+.dash-cc-temp .lab {
+  font-size: 0.58rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.dash-cc-temp .val {
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.dash-cc-temp .val.ret { color: var(--ui-danger); }
+
 .defects-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5449,6 +5613,101 @@ table.defects-table td {
 .rctl-btn { padding: 6px 12px; font-size: 0.78rem; }
 .rctl-spacer { flex: 1 1 auto; min-width: 8px; }
 
+/* Rejilla de sparklines "Last 24h · all units" (fase H, increment C).
+   Datos reales del endpoint getReeferHistory; rellena el espacio inferior
+   con una vista compacta multi-unidad de return air vs setpoint. Reusa los
+   tokens existentes (--st-*, --surface*, --accent) y la misma identidad de
+   color que la tabla (rt-ok/warn/danger). */
+.spark-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.spark {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 11px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.spark.is-alarm {
+  border-color: color-mix(in srgb, var(--st-overdue) 45%, var(--border));
+  background: color-mix(in srgb, var(--st-overdue) 6%, var(--surface-2));
+}
+.spark-top {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 8px;
+}
+.spark-id { display: flex; flex-direction: column; min-width: 0; }
+.spark-id strong {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.86rem;
+  letter-spacing: -0.01em;
+}
+.spark-id small {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 2px;
+}
+.spark-state {
+  width: 8px; height: 8px; flex: none;
+  border-radius: 50%;
+  margin-top: 3px;
+  background: var(--text-muted);
+}
+.spark-state.st-on {
+  background: var(--st-on-track);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--st-on-track) 55%, transparent);
+}
+.spark-state.st-off { background: var(--st-overdue); }
+.spark-state.alarm {
+  background: var(--st-overdue);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--st-overdue) 60%, transparent);
+}
+.spark-svg { width: 100%; height: 42px; display: block; }
+.spk-set {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.55;
+}
+.spk-line { fill: none; stroke-width: 2; }
+.spk-line.ok { stroke: var(--st-on-track); }
+.spk-line.warn { stroke: var(--st-upcoming); }
+.spk-line.danger { stroke: var(--st-overdue); }
+.spark-na {
+  height: 42px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+.spark-foot {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 6px;
+}
+.spark-foot .now {
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: transparent;
+}
+.spark-foot .now.rt-ok { color: var(--st-on-track-ink); }
+.spark-foot .now.rt-warn { color: var(--st-upcoming-ink); }
+.spark-foot .now.rt-danger { color: var(--st-overdue-ink); }
+.spark-foot .set {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ==================================================================
    Work Orders (fase G5) — pipeline, líneas parte/labor, drawer
    ================================================================== */
@@ -7352,6 +7611,157 @@ table.defects-table td {
 }
 .wo-invnum { margin-top: 8px; }
 
+/* ------------------------------------------------------------------
+   Banda de resumen del perfil (mockup unit-profile aprobado):
+   columna izq = diagrama por zonas (+ cold-chain si aplica),
+   columna der = datos rápidos reales. Rellena el hueco sobre los tabs.
+   ------------------------------------------------------------------ */
+.up-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+.up-ov-left { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+.up-diagram-body { display: flex; flex-direction: column; gap: 10px; }
+.up-diagram-cap {
+  text-align: center;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.up-diagram-cap b { color: var(--text); font-weight: 600; }
+.up-diagram-clear {
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--st-on-track-ink);
+}
+.up-zone-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--ui-danger) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--ui-danger) 38%, transparent);
+}
+.up-zone-note svg {
+  width: 16px; height: 16px; flex: none; margin-top: 1px;
+  color: var(--ui-danger);
+}
+.up-zone-t { font-size: 0.78rem; line-height: 1.45; color: var(--text-muted); }
+.up-zone-t b { color: var(--text); font-weight: 600; }
+
+/* Datos rápidos: lista clave/valor compacta */
+.up-facts-card { align-self: stretch; }
+.up-spec-list { display: flex; flex-direction: column; }
+.up-spec-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.up-spec-row:last-child { border-bottom: none; }
+.up-spec-row .k {
+  flex: none;
+  width: 130px;
+  font-size: 0.66rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.up-spec-row .v {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.up-spec-row .v.mono { font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.up-spec-row .v.is-ok { color: var(--st-on-track-ink); }
+.up-spec-row .v.is-bad { color: var(--st-overdue-ink); }
+.up-spec-src {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+/* Mini de cadena de frío (reefer) */
+.up-reefer-body {
+  padding: 14px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+.up-reefer-top { display: flex; align-items: center; gap: 14px; }
+.up-reefer-temp {
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.up-reefer-temp small {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.up-reefer-set { margin-left: auto; text-align: right; }
+.up-reefer-set .k {
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.up-reefer-set .v {
+  font-size: 0.86rem;
+  font-weight: 600;
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.up-reefer-meta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+.up-reefer-meta .mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--st-on-track-ink);
+}
+.up-reefer-meta .mode .pdot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--st-on-track);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-on-track) 22%, transparent);
+}
+.up-reefer-meta .dot-sep { opacity: 0.45; }
+
+@media (max-width: 1000px) {
+  .up-overview { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 900px) {
   .up-cards { grid-template-columns: 1fr; }
   .up-camp-grid { grid-template-columns: 1fr 1fr; }
@@ -7628,3 +8038,126 @@ iframe.wo-preview { border: 1px solid var(--border); }
 @media (prefers-reduced-motion: reduce) {
   .rp-bar-fill { animation: none; }
 }
+
+/* ===== Increment C: WO drawer — Fault diagnostics + Activity timeline =====
+   Datos reales: la tarjeta de diagnóstico parsea la telemetría capturada en
+   el complaint del WO de reefer; la línea de tiempo usa solo timestamps del
+   propio WO. Tokens del sistema (var(--...)), tema dark heredado. */
+
+/* Fuente del fault (lynx/thermoking/traccar) junto al título de la sección */
+.wo-diag-src {
+  margin-left: auto;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+}
+/* Rejilla de celdas de telemetría (solo las realmente parseadas) */
+.wo-diag-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+}
+.wo-diag-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.wo-diag-k {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.wo-diag-v {
+  font-size: 1.18rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.wo-diag-u {
+  margin-left: 2px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+/* Pie: código + descripción de la alarma (acento, mismo lenguaje que el
+   badge "from reefer fault") */
+.wo-diag-foot {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 10px;
+  padding: 10px 13px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  font-size: 0.8rem;
+  color: var(--text);
+}
+.wo-diag-foot svg { color: var(--accent); flex-shrink: 0; }
+.wo-diag-code { font-weight: 700; color: var(--accent); }
+.wo-diag-desc { color: var(--text); }
+.wo-diag-action { margin-top: 8px; font-size: 0.78rem; }
+
+/* Línea de tiempo de actividad: hitos reales del ciclo de vida del WO */
+.wo-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+.wo-tl-row {
+  display: grid;
+  grid-template-columns: 14px 96px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.wo-tl-row:last-child { border-bottom: none; }
+.wo-tl-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  justify-self: center;
+}
+.wo-tl-dot.t-accent {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.wo-tl-dot.t-ok {
+  background: var(--ui-success);
+  box-shadow: 0 0 0 3px var(--ui-success-bg);
+}
+.wo-tl-dot.t-info {
+  background: var(--ui-info);
+  box-shadow: 0 0 0 3px var(--ui-info-bg);
+}
+.wo-tl-when {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.wo-tl-text {
+  font-size: 0.82rem;
+  color: var(--text);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.wo-tl-sub { font-size: 0.72rem; color: var(--text-muted); }

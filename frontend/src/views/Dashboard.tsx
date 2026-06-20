@@ -2,16 +2,19 @@ import { useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ackAlertEvents,
+  getReefer,
   getTrends,
   listAlertEvents,
   listFleet,
   listOpenDefects,
   listPM,
+  listWorkOrders,
   missingDrivers,
   monthSummary,
   recentBlocks,
   type FleetUnit,
   type PMUnit,
+  type WorkOrder,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 import SafeDonut from '../components/SafeDonut'
@@ -21,6 +24,23 @@ import TrendsChart from '../components/TrendsChart'
 import { Button, StatCard } from '../components/ds'
 
 const UPCOMING_MILES = 5500
+
+// Etiquetas de estado de WO en el mini-tablero del dashboard. Mismo léxico
+// que WorkOrdersPage (STATUS_META) para no divergir.
+const WO_STATUS_META: Record<string, { label: string; cls: string }> = {
+  open: { label: 'Open', cls: 'is-open' },
+  assigned: { label: 'Assigned', cls: 'is-open' },
+  in_progress: { label: 'In progress', cls: 'is-prog' },
+  completed: { label: 'Completed', cls: 'is-done' },
+  invoiced: { label: 'Invoiced', cls: 'is-done' },
+}
+
+function money(n: number): string {
+  return n.toLocaleString('en-US', {
+    style: 'currency', currency: 'USD',
+    minimumFractionDigits: 0, maximumFractionDigits: 0,
+  })
+}
 
 type Props = {
   onNavigate: (section: string) => void
@@ -101,6 +121,13 @@ export default function Dashboard({ onNavigate }: Props) {
     queryFn: () => listAlertEvents(8),
     refetchInterval: 60_000,
   })
+  // Reusa la MISMA caché que WorkOrdersPage (['workorders', status]) y
+  // ReeferPage (['reefer']): no son fuentes nuevas, solo lecturas extra.
+  const woQ = useQuery({
+    queryKey: ['workorders', 'open'],
+    queryFn: () => listWorkOrders('open'),
+  })
+  const reeferQ = useQuery({ queryKey: ['reefer'], queryFn: getReefer })
 
   const alertEvents = alertsQ.data ?? []
   const unacked = alertEvents.filter((e) => !e.acked).length
@@ -117,7 +144,8 @@ export default function Dashboard({ onNavigate }: Props) {
 
   const fetching =
     summaryQ.isFetching || openQ.isFetching || pmQ.isFetching ||
-    fleetQ.isFetching || trendsQ.isFetching
+    fleetQ.isFetching || trendsQ.isFetching ||
+    woQ.isFetching || reeferQ.isFetching
 
   // --- Defectos abiertos ---
   const openDefects = openQ.data ?? []
@@ -159,6 +187,34 @@ export default function Dashboard({ onNavigate }: Props) {
     return { active: active.length, ...by }
   }, [fleet])
 
+  // --- Work orders abiertas (mini-tablero) ---
+  // Top 6 por antigüedad (más viejas primero). El badge "from reefer fault"
+  // es real: lo marca el backend con source='reefer' al auto-abrir la WO.
+  const openWorkOrders: WorkOrder[] = useMemo(() => {
+    const list = woQ.data?.workorders ?? []
+    return [...list]
+      .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+      .slice(0, 6)
+  }, [woQ.data])
+  const woStats = woQ.data?.stats
+
+  // --- Cold chain (reefers en vivo) ---
+  // SOLO datos en vivo: si la respuesta es demo o no hay fuente real, se
+  // omite el panel (no se inyectan reefers ficticios en la app real).
+  const reeferLive = !!reeferQ.data?.available && !reeferQ.data?.demo
+  const reeferUnits = useMemo(() => {
+    if (!reeferLive) return []
+    const units = reeferQ.data?.units ?? []
+    // Alarmas primero (severidad alta), luego el resto; máximo 4 chips.
+    return [...units]
+      .sort((a, b) => {
+        const sa = Math.max(0, ...a.alarms.map((x) => Number(x.severity) || 0))
+        const sb = Math.max(0, ...b.alarms.map((x) => Number(x.severity) || 0))
+        return sb - sa
+      })
+      .slice(0, 4)
+  }, [reeferLive, reeferQ.data])
+
   const summary = summaryQ.data
   const missing = missingQ.data?.drivers ?? []
   const recent = recentQ.data ?? []
@@ -184,6 +240,7 @@ export default function Dashboard({ onNavigate }: Props) {
             onClick={() => {
               summaryQ.refetch(); openQ.refetch(); pmQ.refetch()
               fleetQ.refetch(); trendsQ.refetch(); missingQ.refetch()
+              woQ.refetch(); reeferQ.refetch()
             }}
             loading={fetching}
             disabled={fetching}
@@ -411,6 +468,127 @@ export default function Dashboard({ onNavigate }: Props) {
             )}
           </div>
         </section>
+      </div>
+
+      {/* Tablero inferior: WO abiertas (+ cold chain en vivo si lo hay).
+          Llena la banda vacía bajo el grid sin datos inventados. */}
+      <div className={`dash-ops ${reeferLive && reeferUnits.length ? 'has-cc' : ''}`}>
+        {/* Work orders abiertas */}
+        <section className="card dash-wo">
+          <div className="card-head">
+            <h2>Open work orders</h2>
+            {woStats ? (
+              <span className="dash-count">{woStats.open} open</span>
+            ) : null}
+            <button className="btn-link" onClick={() => onNavigate('workorders')}>
+              View all →
+            </button>
+          </div>
+          <div className="card-body">
+            {woQ.isPending ? (
+              <div className="skel-rows">
+                {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} h={34} />)}
+              </div>
+            ) : openWorkOrders.length === 0 ? (
+              <div className="empty mini"><p>No open work orders.</p></div>
+            ) : (
+              <table className="dash-wo-table">
+                <thead>
+                  <tr>
+                    <th>WO</th>
+                    <th>Unit</th>
+                    <th>Title</th>
+                    <th>Status</th>
+                    <th className="r">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {openWorkOrders.map((w) => {
+                    const st = WO_STATUS_META[w.status] ?? WO_STATUS_META.open
+                    return (
+                      <tr key={w.id} onClick={() => onNavigate('workorders')}>
+                        <td><span className="dash-wo-id">#{w.id}</span></td>
+                        <td><span className="dash-list-code">{w.unit}</span></td>
+                        <td className="dash-wo-title">
+                          <span className="dash-wo-title-txt" title={w.title}>
+                            {w.title}
+                          </span>
+                          {w.is_pm && <span className="dash-src-badge is-pm">PM</span>}
+                          {w.source === 'reefer' && (
+                            <span className="dash-src-badge">from reefer fault</span>
+                          )}
+                          {w.source === 'defect' && (
+                            <span className="dash-src-badge is-defect">from defect</span>
+                          )}
+                        </td>
+                        <td>
+                          <span className={`dash-wo-pill ${st.cls}`}>
+                            {st.label}
+                          </span>
+                          {w.waiting_parts && (
+                            <span className="dash-wo-pill is-parts" title="Waiting for parts">
+                              parts
+                            </span>
+                          )}
+                        </td>
+                        <td className="dash-wo-total">
+                          {w.total ? money(w.total) : '—'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+
+        {/* Cold chain (solo con fuente de reefer EN VIVO) */}
+        {reeferLive && reeferUnits.length > 0 && (
+          <section className="card dash-cc">
+            <div className="card-head">
+              <h2>Cold chain</h2>
+              <span className="dash-count">{reeferUnits.length} live</span>
+              <button className="btn-link" onClick={() => onNavigate('coldchain')}>
+                Monitor →
+              </button>
+            </div>
+            <div className="card-body">
+              <div className="dash-cc-grid">
+                {reeferUnits.map((u) => {
+                  const sev = Math.max(0, ...u.alarms.map((x) => Number(x.severity) || 0))
+                  const alarm = sev >= 2
+                  return (
+                    <div key={u.id}
+                      className={`dash-cc-chip ${alarm ? 'is-alarm' : ''}`}
+                      onClick={() => onNavigate('coldchain')}>
+                      <div className="dash-cc-top">
+                        <span className="dash-list-code">{u.unit}</span>
+                        <span className="dash-cc-mode">
+                          {alarm ? 'Alarm' : (u.run_mode || u.state || 'Cool')}
+                        </span>
+                      </div>
+                      <div className="dash-cc-temps">
+                        <span className="dash-cc-temp">
+                          <span className="lab">Setpoint</span>
+                          <span className="val">
+                            {u.setpoint_f != null ? `${Math.round(u.setpoint_f)}°F` : '—'}
+                          </span>
+                        </span>
+                        <span className="dash-cc-temp">
+                          <span className="lab">Return</span>
+                          <span className={`val ${alarm ? 'ret' : ''}`}>
+                            {u.return_f != null ? `${Math.round(u.return_f)}°F` : '—'}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </section>
+        )}
       </div>
 
       {/* Accesos rápidos */}

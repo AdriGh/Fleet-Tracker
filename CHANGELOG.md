@@ -7,6 +7,29 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.24.0] - 2026-06-19
+
+Paso 3 · C — rediseños aprobados aplicados a las pantallas reales (quirúrgico,
+preservando lo ya aprobado).
+
+### Cambiado
+- **Cold Chain**: sub-línea "Active alarms" (critical/door/low-fuel desde datos
+  reales) + grid de **sparklines 24h por unidad** (mismo endpoint de historial)
+  que llena el espacio inferior. PRESERVADO: celdas verdes en rango, valores
+  centrados, columna Fuel coloreada.
+- **Dashboard**: banda inferior con **mini-tabla de Open Work Orders** (datos
+  reales) con badge **"from reefer fault"** + **mini-strip de Cold Chain** (solo
+  con reefer en vivo). PRESERVADOS todos los KPIs/charts.
+- **Unit Profile**: banda overview con **Quick facts** (VIN/placa/marca-modelo/
+  odómetro/last DVIR reales) + diagrama etiquetado con leyenda.
+- **Work Order**: pulido de espacios; PRESERVADOS el thumbnail de factura, el
+  input decimal y el auto-fill del escaneo.
+
+### Nota
+- Elementos ilustrativos de los mockups sin fuente de datos real (logs de
+  excursiones, timelines inventados, deltas de KPI) se OMITIERON a propósito —
+  cero datos falsos en la app. Logo intacto.
+
 ## [1.23.0] - 2026-06-19
 
 Paso 3 · B — Smart Fill, QuickBuy/POs y scaffold de marketplace de partes.
