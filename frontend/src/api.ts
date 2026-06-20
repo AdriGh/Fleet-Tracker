@@ -2006,3 +2006,81 @@ export async function deletePart(id: number): Promise<void> {
   const res = await fetch(`/api/parts/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(await readError(res))
 }
+
+// --- Reports & Analytics: gasto del taller (fase H8) ---------------------
+// Reporte de gasto (parts + labor) sobre WOs cerradas (completed/invoiced),
+// agregado por categoría / unidad / mes / parte. Lo sirve el backend en
+// /api/reports/spend; el frente solo pinta los rankings + KPIs.
+
+// Filtros del reporte (todos opcionales). `from`/`to` en formato ISO
+// (YYYY-MM-DD); '' = sin límite. `terminal` = key de terminal en mayúsculas;
+// '' = todas. `topUnits`/`topParts` = tamaño de cada ranking (1–100).
+export interface SpendReportParams {
+  from?: string
+  to?: string
+  terminal?: string
+  topUnits?: number
+  topParts?: number
+}
+
+// El backend hace eco de los filtros parseados (null = no aplicado).
+export interface SpendRange {
+  from: string | null
+  to: string | null
+  terminal: string | null
+}
+
+export interface SpendTotals {
+  total_spend: number   // parts + labor
+  parts_spend: number
+  labor_spend: number
+  wo_count: number      // WOs distintas en rango
+  avg_per_wo: number    // total_spend / wo_count (0 si no hay)
+}
+
+// Fila de un ranking por categoría (key estable + label de display).
+export interface SpendCategory {
+  key: string
+  label: string
+  value: number
+}
+
+// Fila genérica de ranking (unidad o mes): label + monto.
+export interface SpendBar {
+  label: string
+  value: number
+}
+
+// Fila del top de partes (solo líneas de tipo parte con part_number).
+export interface SpendPart {
+  part_number: string
+  description: string
+  qty: number
+  value: number
+}
+
+export interface SpendReport {
+  range: SpendRange
+  totals: SpendTotals
+  by_category: SpendCategory[]
+  by_unit: SpendBar[]
+  by_month: SpendBar[]
+  top_parts: SpendPart[]
+}
+
+export async function getSpendReport(
+  params: SpendReportParams = {},
+): Promise<SpendReport> {
+  const qs = new URLSearchParams()
+  // 'from' es palabra reservada del backend pero el alias del Query la expone
+  // tal cual; el resto son nombres directos.
+  if (params.from) qs.set('from', params.from)
+  if (params.to) qs.set('to', params.to)
+  if (params.terminal) qs.set('terminal', params.terminal)
+  if (params.topUnits != null) qs.set('top_units', String(params.topUnits))
+  if (params.topParts != null) qs.set('top_parts', String(params.topParts))
+  const q = qs.toString()
+  const res = await fetch(`/api/reports/spend${q ? `?${q}` : ''}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as SpendReport
+}

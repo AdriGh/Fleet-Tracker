@@ -22,6 +22,7 @@ import ReeferPage from './views/ReeferPage'
 import WorkOrdersPage from './views/WorkOrdersPage'
 import PartsPage from './views/PartsPage'
 import DriversPage from './views/DriversPage'
+import ReportsPage from './views/ReportsPage'
 import SettingsPage from './views/SettingsPage'
 import LoginPage from './views/LoginPage'
 
@@ -39,6 +40,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { id: 'dashboard', label: 'Dashboard' },
       { id: 'map', label: 'Live Map' },
+      { id: 'reports', label: 'Reports & Analytics' },
     ],
   },
   {
@@ -59,12 +61,6 @@ const NAV_SECTIONS: NavSection[] = [
       { id: 'workorders', label: 'Work Orders' },
       { id: 'parts', label: 'Parts & Vendors' },
       { id: 'drivers', label: 'Driver Compliance' },
-    ],
-  },
-  {
-    title: 'Coming soon',
-    items: [
-      { id: 'reports', label: 'Reports & Analytics', soon: true },
     ],
   },
 ]
@@ -92,12 +88,6 @@ const GROUP_ICONS: Record<string, ReactElement> = {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
       strokeLinecap="round" strokeLinejoin="round">
       <path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L4 16.8 7.2 20l5.3-5.3a4 4 0 0 0 5.2-5.4l-2.5 2.5-2.3-.5-.5-2.3z" />
-    </svg>
-  ),
-  'Coming soon': (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
     </svg>
   ),
 }
@@ -574,6 +564,7 @@ export default function App() {
           {section === 'workorders' && <WorkOrdersPage />}
           {section === 'parts' && <PartsPage />}
           {section === 'drivers' && <DriversPage />}
+          {section === 'reports' && <ReportsPage />}
           {section === 'settings' && (
             <SettingsPage
               theme={theme}
