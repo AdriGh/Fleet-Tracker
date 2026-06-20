@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 
 import httpx
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
 
 from .. import __version__, config, db
@@ -21,7 +21,8 @@ from ..core import (
     engine,
     excel, integrations_admin, local_config, lynx, mailer, maint,
     manual_units, media_host, notify_service, open_defects, org_config,
-    parts, permissions, pm, pois, pretrip, providers, reefer, samsara,
+    parts, permissions, pm, pois, pretrip, providers, reefer, reports,
+    samsara,
     sms_service,
     teams,
     telegram_notify, terminals, thermoking, tms, traccar, tracking,
@@ -75,6 +76,31 @@ def _mask_email(e: str) -> str:
 def _mask_phone(p: str) -> str:
     digits = re.sub(r"\D", "", p or "")
     return ("•••-" + digits[-4:]) if len(digits) >= 4 else ("•••" if p else "")
+
+
+# ---------------------------------------------------------------------------
+# Reports & Analytics (Increment A): gasto de mantenimiento agregado
+# ---------------------------------------------------------------------------
+# Lectura (GET): el middleware exige solo estar autenticado (sin scope extra),
+# igual que el resto de los GET. El filtro por terminal espeja a las otras
+# rutas (terminals.resolve). Rango vacio o sin datos => ceros y arrays vacios.
+@router.get("/reports/spend")
+def reports_spend(from_: str = Query("", alias="from"), to: str = "",
+                  terminal: str = "", top_units: int = 10,
+                  top_parts: int = 10):
+    """Gasto de mantenimiento agregado para charts.
+
+    Query params:
+      - from / to: 'YYYY-MM-DD' (inclusive; vacios = sin limite).
+      - terminal: clave de terminal (Settings -> Terminals); vacio = todas.
+      - top_units / top_parts: tamano de esos rankings (default 10).
+
+    `from` es palabra reservada en Python, asi que el parametro se declara
+    `from_` con alias de query 'from'. Devuelve totals + arrays {label,value}
+    listos para graficar."""
+    return reports.spend_report(
+        date_from=from_, date_to=to, terminal=terminal,
+        top_units=top_units, top_parts=top_parts)
 
 
 @router.get("/reports/{report_id}/download")

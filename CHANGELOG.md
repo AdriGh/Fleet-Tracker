@@ -7,6 +7,21 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.22.0] - 2026-06-19
+
+Reports & Analytics — gasto de mantenimiento por categoría/unidad/mes (Paso 3 · A).
+
+### Añadido
+- **Reports & Analytics** (sección nueva, antes "coming soon"): tablero de
+  **gasto de mantenimiento** agregado desde las líneas de los Work Orders —
+  responde "¿cuánto gastamos en llantas/frenos/labor?". KPIs (total, parts vs
+  labor, # WOs, promedio/WO), **gasto por categoría** (clasificador por
+  part#/descripción: tires/brakes/engine/oil/electrical/suspension/labor/…),
+  por **unidad**, **tendencia mensual**, y **top parts**; filtros de **rango de
+  fechas** (mes/trimestre/YTD/custom) y **terminal**; export CSV. Backend
+  `core/reports.py` + `GET /api/reports/spend` (solo cuenta WOs
+  completed/invoiced; fecha efectiva service→closed→created).
+
 ## [1.21.0] - 2026-06-19
 
 Review: la factura del WO se muestra como miniatura en una sección destacada.

@@ -7442,3 +7442,178 @@ iframe.wo-preview { border: 1px solid var(--border); }
 @media (prefers-reduced-motion: reduce) {
   .wo-line-row { animation: none; }
 }
+
+/* ===== Reports & Analytics (spend) ================================= */
+/* Filtros: rango (tabs) + custom (date inputs) + terminal (tabs).
+   Una sola fila respirable que envuelve en pantallas chicas. */
+.rp-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 18px 28px;
+}
+.rp-filter { display: flex; flex-direction: column; gap: 7px; }
+.rp-filter-lbl {
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.rp-custom { flex-direction: row; gap: 12px; align-items: flex-end; }
+.rp-custom label { display: flex; flex-direction: column; gap: 7px; }
+.rp-custom .cell-input { min-width: 150px; }
+
+/* Dinero: el signo $ va atenuado y un punto más chico que el número, que
+   se queda en tabular-nums para alinear columnas. */
+.rp-money { font-variant-numeric: tabular-nums; }
+.rp-money > i {
+  font-style: normal;
+  font-size: 0.7em;
+  color: var(--text-muted);
+  margin-right: 1px;
+  vertical-align: baseline;
+}
+
+/* KPI "Parts vs labor": dos montos partidos por una barra de reparto. */
+.rp-split {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 1.15rem;
+  flex-wrap: wrap;
+}
+.rp-split-sep { color: var(--text-muted); font-weight: 600; }
+.rp-labor { color: var(--st-on-track); }
+.rp-split-bar {
+  display: flex;
+  height: 5px;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 8px;
+  background: var(--surface-2);
+}
+.rp-split-bar i { display: block; height: 100%; }
+
+/* Grid de paneles: 2 columnas que colapsan a 1 en angosto. */
+.rp-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.rp-cats .card-body { display: flex; justify-content: center; }
+.rp-cats .piechart { gap: 28px; }
+
+.rp-table-head h2 { display: flex; align-items: center; }
+
+/* Barras horizontales de gasto por unidad. */
+.rp-bars { list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 11px; }
+.rp-bars li {
+  display: grid;
+  grid-template-columns: 78px 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+.rp-bar-label {
+  font-weight: 600;
+  font-size: 0.86rem;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rp-bar-track {
+  height: 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.rp-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  min-width: 3px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent) 70%, transparent), var(--accent));
+  animation: rp-grow 0.5s var(--ease-out-soft) both;
+}
+@keyframes rp-grow { from { transform: scaleX(0); transform-origin: left; } }
+.rp-bar-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+.rp-bar-value > i {
+  font-style: normal; font-size: 0.7em; color: var(--text-muted);
+  margin-right: 1px;
+}
+
+/* Tabla de top partes: reusa .mnt-table pero la 1.ª columna va a la izq. */
+.rp-parts-table th.rp-left,
+.rp-parts-table td.rp-left { text-align: left; }
+.rp-pn {
+  display: block;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.84rem;
+}
+.rp-pd {
+  display: block;
+  font-style: normal;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rp-cell-money { font-weight: 700; }
+.rp-cell-money > i {
+  font-style: normal; font-size: 0.7em; color: var(--text-muted);
+  margin-right: 1px;
+}
+.rp-parts-empty {
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  padding: 22px 12px !important;
+}
+
+/* Chart de tendencia mensual (SVG inline). */
+.rp-trend-chart { width: 100%; }
+.rp-trend-bar {
+  fill: var(--accent);
+  opacity: 0.92;
+  transition: opacity 0.15s ease;
+}
+.rp-trend-chart svg:hover .rp-trend-bar { opacity: 0.62; }
+.rp-trend-chart .rp-trend-bar:hover { opacity: 1; }
+.rp-trend-val {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  text-anchor: middle;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Estado vacío de la página (sin gasto en el rango). */
+.rp-empty { text-align: center; padding: 40px 24px; }
+.rp-empty svg {
+  width: 42px; height: 42px; color: var(--border-strong);
+  margin-bottom: 10px;
+}
+.rp-empty h2 { font-size: 1.1rem; font-weight: 700; }
+.rp-empty p {
+  font-size: 0.9rem; color: var(--text-muted);
+  max-width: 46ch; margin: 8px auto 0; line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .rp-grid { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rp-bar-fill { animation: none; }
+}
