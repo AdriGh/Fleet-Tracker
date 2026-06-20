@@ -21,7 +21,9 @@ from ..core import (
     engine,
     excel, integrations_admin, local_config, lynx, mailer, maint,
     manual_units, media_host, notify_service, open_defects, org_config,
-    parts, permissions, pm, pois, pretrip, providers, reefer, reports,
+    parts, parts_marketplace, permissions, pm, pois, pretrip, providers,
+    purchasing, reefer,
+    reports,
     samsara,
     sms_service,
     teams,
@@ -533,6 +535,27 @@ class WorkOrderSendIn(BaseModel):
     unit_info: dict = {}
 
 
+# ----- Purchase Orders / QuickBuy (Increment B) ----------------------------
+
+class POLineIn(BaseModel):
+    part_number: str = ""
+    description: str = ""
+    qty: float = 1
+    unit_cost: float = 0
+
+
+class PurchaseOrderIn(BaseModel):
+    vendor: str = ""
+    notes: str = ""
+    lines: list[POLineIn] = []          # QuickBuy: crea la PO con líneas
+
+
+class PurchaseOrderPatch(BaseModel):
+    vendor: str | None = None
+    notes: str | None = None
+    status: str | None = None           # draft | ordered | received
+
+
 @router.get("/workorders")
 def wo_list(status: str = "", unit: str = ""):
     return {"workorders": workorders.list_wos(status, unit),
@@ -753,6 +776,97 @@ def parts_delete(part_id: int):
     if not parts.delete_part(part_id):
         raise HTTPException(status_code=404, detail="Part not found")
     return {"ok": True}
+
+
+# ----- Marketplace de partes (scaffold, Increment B) -----------------------
+# Búsqueda en un marketplace externo (FindItParts/PartsTech). Es GET => el
+# middleware solo exige estar autenticado (sin scope extra). Mientras no haya
+# cuenta de API, el proveedor MOCK devuelve muestras y configured=false; la UI
+# muestra el banner de datos demo. Conectar el real es escribir un adapter
+# (ver core/parts_marketplace.py) — no toca esta ruta.
+
+@router.get("/parts/marketplace/status")
+def parts_marketplace_status():
+    """Estado del marketplace activo (configured=false con el mock)."""
+    return parts_marketplace.status()
+
+
+@router.get("/parts/marketplace/search")
+def parts_marketplace_search(q: str = "", limit: int = 20):
+    """Busca partes en el marketplace activo.
+
+    Devuelve { configured, provider, results: [...] }. Con el mock,
+    configured=false y results son muestras realistas."""
+    return parts_marketplace.search(q, limit)
+
+
+# ----- Purchase Orders / QuickBuy (Increment B) ----------------------------
+# Espeja /workorders: el middleware exige maint.edit para POST/PATCH/DELETE
+# bajo /api/purchase-orders (cubierto por el prefijo /api/parts? NO — se
+# agrega abajo en _scope_for). GET es lectura (basta estar autenticado).
+
+@router.get("/purchase-orders")
+def po_list(status: str = ""):
+    return {"purchase_orders": purchasing.list_pos(status),
+            "stats": purchasing.stats()}
+
+
+@router.post("/purchase-orders")
+def po_create(body: PurchaseOrderIn):
+    try:
+        return purchasing.create_po(
+            body.vendor, body.notes,
+            [ln.model_dump() for ln in body.lines])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/purchase-orders/{po_id}")
+def po_get(po_id: int):
+    po = purchasing.get_po(po_id)
+    if po is None:
+        raise HTTPException(status_code=404, detail="PO not found")
+    return po
+
+
+@router.patch("/purchase-orders/{po_id}")
+def po_patch(po_id: int, body: PurchaseOrderPatch):
+    try:
+        po = purchasing.update_po(
+            po_id, {k: v for k, v in body.model_dump().items()
+                    if v is not None})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if po is None:
+        raise HTTPException(status_code=404, detail="PO not found")
+    return po
+
+
+@router.delete("/purchase-orders/{po_id}")
+def po_delete(po_id: int):
+    if not purchasing.delete_po(po_id):
+        raise HTTPException(status_code=404, detail="PO not found")
+    return {"ok": True}
+
+
+@router.post("/purchase-orders/{po_id}/lines")
+def po_add_line(po_id: int, body: POLineIn):
+    try:
+        po = purchasing.add_line(po_id, body.part_number, body.description,
+                                 body.qty, body.unit_cost)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if po is None:
+        raise HTTPException(status_code=404, detail="PO not found")
+    return po
+
+
+@router.delete("/purchase-orders/{po_id}/lines/{line_id}")
+def po_del_line(po_id: int, line_id: int):
+    po = purchasing.delete_line(po_id, line_id)
+    if po is None:
+        raise HTTPException(status_code=404, detail="PO not found")
+    return po
 
 
 @router.delete("/workorders/{wo_id}/lines/{line_id}")
@@ -1468,6 +1582,16 @@ def integrations_status():
                         "kind": "Invoice and estimate autofill",
                         "status": docscan.status()[0],
                         "detail": docscan.status()[1],
+                        "items": [],
+                    },
+                    {
+                        "id": "parts_marketplace",
+                        "name": "Parts marketplace",
+                        "kind": "Live parts pricing & availability",
+                        "status": ("connected"
+                                   if parts_marketplace.status()["configured"]
+                                   else "not_configured"),
+                        "detail": parts_marketplace.status()["detail"],
                         "items": [],
                     },
                 ],

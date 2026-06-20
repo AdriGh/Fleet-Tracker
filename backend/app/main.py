@@ -64,9 +64,10 @@ def _scope_for(method: str, path: str) -> str | None:
     # Avisos: envío real por email/SMS.
     if path.startswith("/api/notify/"):
         return "notices.send"
-    # Mantenimiento: PM/DOT, parts, vendors, campañas/docs de unidad.
-    if path.startswith(("/api/parts", "/api/vendors", "/api/maint/",
-                        "/api/pm/")):
+    # Mantenimiento: PM/DOT, parts, vendors, órdenes de compra (QuickBuy),
+    # campañas/docs de unidad.
+    if path.startswith(("/api/parts", "/api/vendors", "/api/purchase-orders",
+                        "/api/maint/", "/api/pm/")):
         return "maint.edit"
     if path.startswith("/api/units/"):
         # /units/settings = device settings (flota); el resto (campaigns,

@@ -356,6 +356,46 @@ class Part(OrgScoped, Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class PurchaseOrder(OrgScoped, Base):
+    """Orden de compra de partes a un vendor (QuickBuy, fase Increment B).
+
+    Espeja el patrón de WorkOrder (org-scoped, líneas en cascada). Pipeline
+    simple: draft -> ordered -> received. `total` se recalcula desde las
+    líneas en el serializer (no se confía en el valor crudo). `vendor` es
+    el NOMBRE del proveedor como texto libre (igual que el shop externo de
+    una WO): basta para una primera versión, sin FK dura a Vendor."""
+    __tablename__ = "purchase_order"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    vendor: Mapped[str] = mapped_column(String(120), default="", index=True)
+    status: Mapped[str] = mapped_column(String(12), default="draft",
+                                        index=True)   # draft|ordered|received
+    notes: Mapped[str] = mapped_column(Text, default="")
+    # Total cacheado (lo que muestra el listado); el serializer recalcula
+    # desde las líneas para que sea siempre consistente.
+    total: Mapped[float] = mapped_column(Float, default=0.0)
+
+    lines: Mapped[list["POLine"]] = relationship(
+        back_populates="po", cascade="all, delete-orphan")
+
+
+class POLine(OrgScoped, Base):
+    """Línea de una orden de compra: una parte (qty × costo unitario).
+    Espeja WorkOrderLine; `part_number` referencia el catálogo Part."""
+    __tablename__ = "po_line"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    po_id: Mapped[int] = mapped_column(ForeignKey("purchase_order.id"))
+    part_number: Mapped[str] = mapped_column(String(60), default="")
+    description: Mapped[str] = mapped_column(String(160), default="")
+    qty: Mapped[float] = mapped_column(Float, default=1.0)
+    unit_cost: Mapped[float] = mapped_column(Float, default=0.0)
+
+    po: Mapped[PurchaseOrder] = relationship(back_populates="lines")
+
+
 class Unit(OrgScoped, Base):
     """Unidad agregada a mano (Fleet -> Add New Unit). Complementa el fleet
     vivo de Samsara para terminales/clientes que no estan en Samsara, y
@@ -544,7 +584,7 @@ def _migrate() -> None:
         for table in ("user", "report_block", "block_driver", "defect",
                       "work_order", "work_order_line", "tms_driver",
                       "alert_event", "unit_doc", "maint_record", "vendor",
-                      "part"):
+                      "part", "purchase_order", "po_line"):
             cols = {r[1] for r in conn.exec_driver_sql(
                 f'PRAGMA table_info("{table}")').fetchall()}
             if "org_id" not in cols:

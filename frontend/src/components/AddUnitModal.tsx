@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from 'react'
 import Modal from './Modal'
 import { addUnit, decodeVin, type UnitInput } from '../api'
 import { useTerminals } from '../terminal'
+import { notifyOk, notifyErr, notifyWarn } from '../toast'
 
 const TYPES = [
   { v: 'truck', label: 'Tractor (truck)' },
@@ -32,24 +33,37 @@ export default function AddUnitModal({ onClose, onSaved }: {
     setF((s) => ({ ...s, [k]: v }))
   }
 
-  async function decode() {
+  // Smart Fill: decodifica el VIN via NHTSA vPIC y autollena Year/Make/Model.
+  // Si vPIC no devuelve nada o el VIN es invalido, NO toca los campos y avisa
+  // con un toast (patron de notificaciones de la app).
+  async function smartFill() {
     const vin = (f.vin ?? '').trim()
-    if (vin.length < 11) { setVinMsg('Enter a full VIN first'); return }
+    if (vin.length < 11) {
+      setVinMsg(null)
+      notifyWarn('Enter a full VIN first', '17-character VIN required')
+      return
+    }
     setDecoding(true)
     setVinMsg(null)
     try {
       const r = await decodeVin(vin)
-      if (r.ok) {
+      if (r.ok && (r.year || r.make || r.model)) {
         setF((s) => ({
           ...s, year: r.year || s.year,
           make: r.make || s.make, model: r.model || s.model,
         }))
-        setVinMsg('Year / Make / Model filled from VIN ✓')
+        const summary = [r.year, r.make, r.model].filter(Boolean).join(' ')
+        const extra = [r.body, r.engine].filter(Boolean).join(' · ')
+        setVinMsg(`Filled from VIN: ${summary}`)
+        notifyOk('Smart Fill complete', extra ? `${summary} · ${extra}` : summary)
       } else {
-        setVinMsg(r.error || 'Could not decode VIN')
+        // vPIC no reconocio el VIN: dejar los campos intactos y avisar.
+        setVinMsg(null)
+        notifyWarn('VIN not recognized', r.error || 'No specs returned — fields left as-is')
       }
     } catch (e) {
-      setVinMsg(e instanceof Error ? e.message : 'Decode failed')
+      setVinMsg(null)
+      notifyErr('Smart Fill failed', e)
     } finally {
       setDecoding(false)
     }
@@ -93,19 +107,32 @@ export default function AddUnitModal({ onClose, onSaved }: {
         </label>
 
         <label style={{ gridColumn: '1 / -1' }}>
-          <span>VIN — fills Year / Make / Model</span>
+          <span>VIN — Smart Fill auto-populates Year / Make / Model</span>
           <span style={{ display: 'flex', gap: 8 }}>
-            <input className="cell-input" style={{ flex: 1 }}
+            <input className="cell-input mono" style={{ flex: 1 }}
               value={f.vin ?? ''}
               onChange={(e) => set('vin', e.target.value.toUpperCase())}
-              placeholder="17-character VIN" />
+              placeholder="17-character VIN" maxLength={17} />
             <button type="button" className="btn btn-ghost"
-              onClick={decode} disabled={decoding}>
-              {decoding ? 'Decoding…' : 'Decode VIN'}
+              onClick={smartFill} disabled={decoding}>
+              {decoding ? (
+                'Decoding…'
+              ) : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none"
+                    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                    strokeLinejoin="round" aria-hidden="true">
+                    <path d="M5 3v4M3 5h4M6 17v4M4 19h4M13 3l2.5 6.5L22 12l-6.5 2.5L13 21l-2.5-6.5L4 12l6.5-2.5z" />
+                  </svg>
+                  Smart Fill
+                </span>
+              )}
             </button>
           </span>
           {vinMsg && (
-            <small style={{ color: 'var(--muted, #667)' }}>{vinMsg}</small>
+            <small style={{ color: 'var(--st-on-track-ink, var(--text-muted))' }}>
+              {vinMsg}
+            </small>
           )}
         </label>
 

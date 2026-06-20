@@ -7,6 +7,24 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.23.0] - 2026-06-19
+
+Paso 3 · B — Smart Fill, QuickBuy/POs y scaffold de marketplace de partes.
+
+### Añadido
+- **Smart Fill (VIN → specs)**: en "Add unit", un botón **Smart Fill** autocompleta
+  año/marca/modelo (+ body/engine) desde el VIN vía la API gratuita **vPIC de
+  NHTSA** (sin key). Endpoint `GET /api/vin/{vin}`.
+- **QuickBuy / Purchase Orders**: módulo de órdenes de compra — modelos
+  `PurchaseOrder`/`POLine`, `core/purchasing.py`, `/api/purchase-orders` (CRUD +
+  estado draft→ordered→received + líneas). Tab **Purchase Orders** dentro de
+  Parts & Vendors + acción **QuickBuy** por parte en el catálogo. (write =
+  maint.edit; read = auth)
+- **Marketplace de partes (scaffold)**: búsqueda con adapter + proveedor MOCK
+  (`core/parts_marketplace.py`, `GET /api/parts/marketplace/search`), panel con
+  banner **"Demo data — conecta FindItParts/PartsTech en Settings"**.
+  Integration-ready: pendiente la API key del proveedor para datos en vivo.
+
 ## [1.22.0] - 2026-06-19
 
 Reports & Analytics — gasto de mantenimiento por categoría/unidad/mes (Paso 3 · A).
