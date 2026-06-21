@@ -639,13 +639,25 @@ def _migrate() -> None:
 def init_schema() -> None:
     """Inicializa el esquema y siembra la org 'default'.
 
-    SQLite (dev): create_all + migraciones aditivas (`_migrate`). Postgres
-    (prod): el esquema lo maneja **Alembic** (`alembic upgrade head` en el
-    deploy), así que acá NO se hace create_all; solo se asegura la org
-    'default' (la tabla ya existe tras la migración)."""
-    if config.IS_SQLITE:
-        Base.metadata.create_all(_engine)
+    Ambos motores: create_all crea las tablas FALTANTES desde los modelos
+    actuales (es idempotente: no toca ni altera las tablas existentes). En un
+    Postgres FRESCO (deploy piloto en Dokploy/VPS) esto basta para levantar el
+    esquema completo y correcto directo de los modelos, sin depender de Alembic
+    (que hoy solo tiene la migración inicial y no incluye las tablas agregadas
+    después: work_order, purchase_order, part, vendor, etc.).
+
+    NOTA (largo plazo): el camino correcto en producción son migraciones
+    Alembic versionadas (`alembic upgrade head`) — fuera del alcance de este
+    deploy. Mientras tanto, create_all sobre una base fresca es seguro; sobre
+    una base con datos viejos NO agrega columnas nuevas a tablas existentes
+    (eso lo cubre _migrate solo en SQLite, ver abajo).
+
+    SQLite (dev): además de create_all corre las migraciones aditivas de
+    `_migrate` (ALTER TABLE específicos de SQLite). Ese path queda SOLO para
+    SQLite; en Postgres no se corre (su DDL es SQLite-specific)."""
+    Base.metadata.create_all(_engine)
     ensure_default_org()
+    # _migrate usa PRAGMA/ALTER específicos de SQLite: solo para dev local.
     if config.IS_SQLITE:
         _migrate()
 

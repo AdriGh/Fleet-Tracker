@@ -1,0 +1,65 @@
+# Fleet Tracker — stack de produccion: Postgres + app (API + frontend).
+#
+# Pensado para Dokploy/VPS (tambien sirve para correr local con Docker).
+# Variables sensibles se leen de un archivo .env junto a este compose (ver
+# DEPLOY.md). NO commitear .env ni la carpeta ./secrets.
+
+services:
+  # -------------------------------------------------------------------------
+  # Base de datos Postgres (persistente en el volumen pgdata)
+  # -------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fleet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fleet}
+      POSTGRES_DB: ${POSTGRES_DB:-fleet}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # depends_on espera a que Postgres acepte conexiones antes de arrancar app
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fleet} -d ${POSTGRES_DB:-fleet}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # -------------------------------------------------------------------------
+  # App: FastAPI + frontend compilado, en un solo contenedor
+  # -------------------------------------------------------------------------
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Driver psycopg3 (ya esta en requirements.txt). config.IS_SQLITE queda
+      # en False con esta URL -> se usa Postgres.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-fleet}:${POSTGRES_PASSWORD:-fleet}@db:5432/${POSTGRES_DB:-fleet}
+      # El server escucha en 0.0.0.0:8000 (lo fija el CMD del Dockerfile).
+      # Estas dos solo afectan otros consumidores de config; uvicorn manda.
+      DVIR_HOST: 0.0.0.0
+      DVIR_PORT: "8000"
+      # Directorio donde el SecretStore busca los <name>.local.json. Apunta al
+      # ./secrets montado abajo. Si la carpeta esta vacia, cada integracion
+      # arranca en modo offline/degradado (la app igual corre). Ver DEPLOY.md.
+      FLEET_SECRETS_DIR: /app/secrets
+    ports:
+      # host:contenedor — exponer 8765 afuera para no chocar con otros 8000.
+      # En Dokploy normalmente NO se publica el puerto: el proxy interno (Traefik)
+      # enruta al 8000 del contenedor por dominio. Ver DEPLOY.md.
+      - "${APP_PORT:-8765}:8000"
+    volumes:
+      # Persistencia de archivos subidos (invoices de WO, docs de unidad) y de
+      # los Excel temporales. Sin estos, se pierden al recrear el contenedor.
+      - ./data/uploads:/app/backend/uploads
+      - ./data/jobs:/app/backend/.jobs
+      # SECRETOS opcionales en runtime: un SOLO directorio montado read-only con
+      # los <name>.local.json que el cliente tenga (samsara.local.json,
+      # docscan.local.json, etc.). NO se hornean en la imagen y NO se commitean.
+      # Si ./secrets no existe o esta vacio, todas las integraciones degradan.
+      - ./secrets:/app/secrets:ro
+
+volumes:
+  pgdata:

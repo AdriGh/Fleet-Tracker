@@ -1,0 +1,64 @@
+# Contexto de build minimo: solo backend/ y frontend/ (codigo). Todo lo demas
+# se excluye para acelerar el build, achicar la imagen y -CLAVE- no hornear
+# secretos ni datos locales en la imagen.
+
+# Control de versiones / meta
+.git
+.gitignore
+.gitattributes
+
+# Frontend: deps y build se rehacen DENTRO de la imagen (etapa 1)
+node_modules
+**/node_modules
+frontend/dist
+frontend/node_modules
+
+# Python: caches, venvs, bytecode
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+.venv
+venv
+**/.venv
+**/venv
+
+# Bases de datos locales (dev) — NO van a la imagen
+*.db
+backend/dvir.db
+
+# SECRETOS: nunca en la imagen. Se montan en runtime (ver docker-compose.yml).
+**/*.local.json
+**/*.local.csv
+backend/service_account.json
+.env
+**/.env
+
+# Datos en runtime / generados (se persisten via volumenes, no en la imagen)
+backend/.jobs
+backend/uploads
+roster.csv
+
+# Material que no corre en produccion
+mockups
+sandbox
+docs
+graphify-out
+.impeccable
+.claude
+**/.claude
+.mcp.json
+*.bat
+watch-*
+DVIR *.xlsx
+dvir_testdata
+
+# Sistema / editor
+.DS_Store
+Thumbs.db
+.vscode
+.idea
+
+# Docs sueltos (no necesarios para correr)
+*.md
+!DEPLOY.md

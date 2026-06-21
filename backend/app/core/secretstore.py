@@ -36,11 +36,20 @@ class SecretStore(abc.ABC):
 
 
 class FileSecretStore(SecretStore):
-    """Cada secreto en backend/<name>.local.json. Por ahora global: org_id
-    se ignora. Es el comportamiento historico, intacto."""
+    """Cada secreto en <base>/<name>.local.json. Por ahora global: org_id
+    se ignora. Es el comportamiento historico, intacto.
+
+    `base` por defecto es backend/ (dev local, sin cambios). En contenedores
+    se puede apuntar a un directorio montado con los secretos via la env
+    FLEET_SECRETS_DIR (p.ej. /app/secrets), asi NO hace falta bind-montear
+    cada *.local.json individual sobre /app/backend (ver docker-compose.yml /
+    DEPLOY.md). Si FLEET_SECRETS_DIR no esta seteada, se usa backend/."""
 
     def __init__(self, base: Path | None = None):
-        self._base = base or config.BACKEND_DIR
+        if base is None:
+            env_dir = os.environ.get("FLEET_SECRETS_DIR", "").strip()
+            base = Path(env_dir) if env_dir else config.BACKEND_DIR
+        self._base = base
 
     def _path(self, name: str) -> Path:
         return self._base / f"{name}.local.json"

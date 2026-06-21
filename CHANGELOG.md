@@ -7,6 +7,29 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.26.0] - 2026-06-19
+
+Deploy — Docker + Postgres listos para Dokploy/VPS (rework · comercialización).
+
+### Añadido
+- **Dockerfile** multi-stage (build del frontend con Node → backend Python sirve
+  `dist` + API con uvicorn), **`.dockerignore`**, **`docker-compose.yml`** (app +
+  Postgres + volúmenes persistentes para uploads/jobs/db) y **`DEPLOY.md`** (guía
+  paso a paso para Dokploy/VPS + caveats).
+
+### Cambiado
+- `db.py`: `create_all` ahora corre también en **Postgres** (idempotente) → un
+  Postgres fresco obtiene el esquema completo desde los modelos actuales (las
+  migraciones Alembic versionadas quedan como tarea futura). El path
+  SQLite/`_migrate` del dev no cambia.
+- `secretstore.py`: nuevo env `FLEET_SECRETS_DIR` para montar los `*.local.json`
+  desde un volumen de solo-lectura en prod (default = `backend/` en dev).
+
+### Nota
+- En prod, **docscan** debe apuntar a Anthropic (o un Ollama externo) — el
+  contenedor no trae Ollama. El **build/run** del contenedor se verifica en el
+  VPS (Docker no está disponible en el entorno de dev).
+
 ## [1.25.0] - 2026-06-19
 
 Inventory de partes — stock, reorder point y movimientos auditables (rework).
