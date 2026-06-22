@@ -7,6 +7,21 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.28.0] - 2026-06-21
+
+Escaneo de facturas ~30× más rápido — proveedor Groq vision.
+
+### Añadido
+- **docscan · proveedor Groq** (Llama 4 Scout,
+  `meta-llama/llama-4-scout-17b-16e-instruct`): el escaneo de invoices pasa de
+  **~98 s (Ollama local) a ~2-3 s** (≈30×), reusando la API de Groq.
+  Configurable en Settings → Connectivity (`groq_api_key`, o env `GROQ_API_KEY`).
+  Mejora también la **precisión**: en una factura real sacó el total correcto
+  (~$1,019) donde el 7B local sobre-extraía (~$1,748). Reutiliza el render
+  PDF→imagen; salida estructurada validada (sanitiza `null`→default). Los
+  proveedores Ollama/Anthropic/Textract quedan intactos; `auto` sigue cayendo a
+  Ollama offline por defecto.
+
 ## [1.27.0] - 2026-06-21
 
 Review v1.26 — facturas multi-unidad, UX del drawer y Reports.

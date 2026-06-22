@@ -19,8 +19,15 @@ Proveedores, elegibles en `backend/docscan.local.json` (gitignored):
   sobre el texto detectado. Credenciales IAM con permiso
   textract:AnalyzeExpense; el ping usa STS GetCallerIdentity (gratis).
 - "anthropic" (pago por uso): Claude vía API. Key de platform.claude.com.
+- "groq" (RÁPIDO, free tier): Groq corre un modelo multimodal de Llama 4
+  (meta-llama/llama-4-scout-17b-16e-instruct) en su hardware LPU, que hace
+  la inferencia de visión en SEGUNDOS (vs ~1m40s del 7B local). API
+  OpenAI-compatible: POST /openai/v1/chat/completions con las páginas del
+  invoice como image_url base64 + el mismo prompt, salida JSON. Key de
+  console.groq.com (groq_api_key en settings, o env GROQ_API_KEY).
 - "auto": textract si hay credenciales AWS, si no anthropic si hay
-  api_key, si no ollama.
+  api_key, si no ollama (offline, default seguro). Groq NO entra en auto:
+  se elige explícito con provider:"groq".
 
 Además hay un fallback heurístico sin AI (regex sobre la capa de texto)
 cuando el proveedor elegido no está disponible y el PDF es digital.
@@ -39,6 +46,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
 import re
 import time
 
@@ -85,6 +93,12 @@ _LEGACY_PATH = config.BACKEND_DIR / "anthropic.local.json"
 DEFAULT_CLAUDE_MODEL = "claude-opus-4-8"
 DEFAULT_OLLAMA_MODEL = "qwen2.5vl:7b"
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
+# Groq: modelo multimodal de Llama 4 confirmado disponible en la key del
+# usuario. Corre la visión en segundos en LPU.
+DEFAULT_GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+_GROQ_TIMEOUT = 60                   # la inferencia tarda segundos, no minutos
+_GROQ_MAX_IMAGES = 2                 # cap de páginas como en el camino Ollama
 
 MEDIA_TYPES = {
     "application/pdf": "document",
@@ -231,6 +245,11 @@ def load_settings() -> dict:
         "aws_secret_access_key": str(data.get("aws_secret_access_key")
                                      or ""),
         "aws_region": str(data.get("aws_region") or "us-east-1"),
+        # Groq: la key sale del settings; si falta, cae al env GROQ_API_KEY.
+        # El "model" de Groq es propio (Llama 4) para no pisar el de Claude.
+        "groq_api_key": str(data.get("groq_api_key")
+                            or os.environ.get("GROQ_API_KEY") or "").strip(),
+        "groq_model": str(data.get("groq_model") or DEFAULT_GROQ_MODEL),
     }
 
 
@@ -240,9 +259,11 @@ def _has_aws(s: dict) -> bool:
 
 def resolved_provider(s: dict | None = None) -> str:
     s = s or load_settings()
-    if s["provider"] in ("anthropic", "ollama", "textract"):
+    if s["provider"] in ("anthropic", "ollama", "textract", "groq"):
         return s["provider"]
     # auto: el motor comercial primero, luego Claude, luego local gratis.
+    # Groq NO entra en auto a propósito: se elige explícito (no se cambia el
+    # default offline silenciosamente).
     if _has_aws(s):
         return "textract"
     if s["api_key"]:
@@ -262,6 +283,10 @@ def status() -> tuple[str, str]:
         if not s["api_key"]:
             return "not_configured", "Configure an Anthropic API key"
         return "connected", f"Claude · {s['model']}"
+    if prov == "groq":
+        if not s["groq_api_key"]:
+            return "not_configured", "Configure a Groq API key"
+        return "connected", f"Groq · {s['groq_model']} (fast)"
     return "connected", f"Local Ollama · {s['ollama_model']} (free)"
 
 
@@ -321,6 +346,31 @@ async def ping() -> dict:
             return {"ok": False, "detail": f"Unknown model '{s['model']}'"}
         except anthropic.APIError as exc:
             return {"ok": False, "detail": type(exc).__name__}
+
+    if prov == "groq":
+        if not s["groq_api_key"]:
+            return {"ok": False, "detail": "Not configured"}
+        # GET /models con la key: gratis, valida key + disponibilidad.
+        t0 = time.monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=8) as client:
+                r = await client.get(
+                    f"{GROQ_BASE_URL}/models",
+                    headers={"Authorization": f"Bearer {s['groq_api_key']}"})
+        except httpx.HTTPError as exc:
+            return {"ok": False, "detail": type(exc).__name__}
+        ms = int((time.monotonic() - t0) * 1000)
+        if r.status_code == 401:
+            return {"ok": False, "detail": "Invalid Groq API key"}
+        if r.status_code != 200:
+            return {"ok": False, "detail": f"HTTP {r.status_code}"}
+        ids = [m.get("id", "") for m in (r.json().get("data") or [])]
+        want = s["groq_model"]
+        if want in ids:
+            return {"ok": True, "detail": f"{want} ready ({ms} ms) · fast"}
+        # La key es válida aunque ese modelo puntual no aparezca listado.
+        return {"ok": True,
+                "detail": f"Groq OK ({ms} ms) · {len(ids)} models"}
 
     # Ollama local
     t0 = time.monotonic()
@@ -456,6 +506,8 @@ async def scan(raw: bytes, media_type: str) -> dict:
             return await _scan_textract(s, raw, media_type)
         if prov == "anthropic":
             return await _scan_anthropic(s, raw, media_type)
+        if prov == "groq":
+            return await _scan_groq(s, raw, media_type, pdf_text)
         return await _scan_ollama(s, raw, media_type, pdf_text)
     except ValueError:
         if len(pdf_text) >= _MIN_TEXT:
@@ -947,6 +999,145 @@ async def _scan_ollama(s: dict, raw: bytes, media_type: str,
     return _normalize(extract, s["ollama_model"], {
         "input": usage.get("prompt_eval_count", 0),
         "output": usage.get("eval_count", 0),
+    })
+
+
+# Instrucción de forma JSON para el modo response_format=json_object de Groq.
+# Groq (OpenAI-compatible) no acepta un JSON Schema en json_object como hace
+# Ollama con `format`; hay que describir la forma en el prompt. Las claves y
+# tipos espejan WoExtract/WoComplaint/WoLineExtract para que model_validate
+# parsee directo.
+_GROQ_JSON_SHAPE = """\
+
+Return ONLY a single JSON object (no markdown, no prose) with EXACTLY this shape:
+{
+  "service_date": string|null,      // YYYY-MM-DD
+  "vendor": string|null,
+  "vendor_city": string|null,
+  "vendor_state": string|null,      // 2-letter
+  "invoice_number": string|null,
+  "mechanic": string|null,
+  "grand_total": number|null,
+  "complaints": [
+    {"unit": string|null, "mileage": integer|null,
+     "detail": string, "is_pm": boolean}
+  ],
+  "lines": [
+    {"kind": "part"|"labor", "description": string, "qty": number,
+     "unit_cost": number, "part_number": string, "total": number|null}
+  ]
+}
+Use null (not the string "null") for missing values. Do not wrap the JSON in
+code fences."""
+
+
+async def _scan_groq(s: dict, raw: bytes, media_type: str,
+                     pdf_text: str) -> dict:
+    """Proveedor rápido: Groq (Llama 4 Scout) por API OpenAI-compatible.
+
+    Igual que el camino Ollama, SIEMPRE manda IMÁGENES: el PDF se rasteriza a
+    PNG (~170 DPI, 1-2 páginas) con `_pdf_vision_pngs` y cada página viaja como
+    un bloque image_url con data URL base64; las fotos se pasan directo. La
+    diferencia es la velocidad: la LPU de Groq resuelve la visión en segundos.
+
+    Salida estructurada vía response_format=json_object + la forma descrita en
+    el prompt; se valida/parsea en WoExtract con el mismo `_normalize`."""
+    if not s["groq_api_key"]:
+        raise ValueError(
+            "Groq scan is not configured. Add your Groq API key in "
+            "Settings, Connectivity (or set GROQ_API_KEY).")
+
+    # 1) Páginas/foto -> data URLs base64 (PNG para PDF, mime real para foto).
+    data_urls: list[str] = []
+    if media_type == "application/pdf":
+        try:
+            pngs = _pdf_vision_pngs(raw, pages=_GROQ_MAX_IMAGES)
+        except ValueError:
+            # Sin render posible: si hay capa de texto, deja que el scan() la
+            # rebote al parser heurístico (mismo contrato que Ollama).
+            raise
+        data_urls = [f"data:image/png;base64,{b64}" for b64 in pngs]
+    else:
+        b64 = base64.standard_b64encode(raw).decode()
+        data_urls = [f"data:{media_type};base64,{b64}"]
+    # Cap de imágenes (espejo del camino Ollama: 1-2 páginas).
+    data_urls = data_urls[:_GROQ_MAX_IMAGES]
+
+    # 2) Mensaje multimodal OpenAI-compatible: texto del prompt + N imágenes.
+    content: list[dict] = [
+        {"type": "text", "text": _PROMPT + _GROQ_JSON_SHAPE}]
+    for url in data_urls:
+        content.append({"type": "image_url", "image_url": {"url": url}})
+
+    payload = {
+        "model": s["groq_model"],
+        "messages": [{"role": "user", "content": content}],
+        "temperature": 0,
+        "max_tokens": 4096,             # salida estructurada acotada
+        "response_format": {"type": "json_object"},
+    }
+    headers = {
+        "Authorization": f"Bearer {s['groq_api_key']}",
+        "Content-Type": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=_GROQ_TIMEOUT) as client:
+            r = await client.post(f"{GROQ_BASE_URL}/chat/completions",
+                                  headers=headers, json=payload)
+    except httpx.HTTPError as exc:
+        raise ValueError(f"Groq scan failed: {type(exc).__name__}")
+    if r.status_code == 401:
+        raise ValueError("Invalid Groq API key. Check Settings, "
+                         "Connectivity.")
+    if r.status_code == 429:
+        raise ValueError("Rate limited by the Groq API. Try again in a "
+                         "minute.")
+    if r.status_code != 200:
+        detail = ""
+        try:
+            detail = str((r.json().get("error") or {}).get("message")
+                         or "")[:120]
+        except ValueError:
+            pass
+        raise ValueError(f"Groq scan failed ({r.status_code}). {detail}")
+
+    try:
+        body = r.json()
+        content_str = (body["choices"][0]["message"]["content"]) or ""
+    except (ValueError, KeyError, IndexError):
+        raise ValueError("Groq returned an unreadable response.")
+    try:
+        data = json.loads(content_str)
+    except ValueError:
+        raise ValueError("The Groq model returned an unreadable result. "
+                         "Try a clearer photo or the original PDF.")
+    # Saneo previo a la validación: Llama 4 a veces emite null explícito en
+    # qty/unit_cost/part_number de una línea (campos NO opcionales en
+    # WoLineExtract, con default). El camino Ollama no lo sufre porque manda
+    # un JSON Schema con `format`; aquí, con response_format json_object, hay
+    # que colapsar esos null al default para que el model_validate no falle.
+    if isinstance(data, dict):
+        for ln in data.get("lines") or []:
+            if not isinstance(ln, dict):
+                continue
+            if ln.get("qty") is None:
+                ln["qty"] = 1
+            if ln.get("unit_cost") is None:
+                ln["unit_cost"] = 0
+            if ln.get("part_number") is None:
+                ln["part_number"] = ""
+    try:
+        extract = WoExtract.model_validate(data)
+    except ValidationError:
+        raise ValueError("The Groq model returned an unreadable result. "
+                         "Try a clearer photo or the original PDF.")
+    # Si el PDF traía texto, normaliza la marca de cadena (igual que Ollama).
+    if len(pdf_text) >= _MIN_TEXT:
+        _apply_brand(extract, pdf_text)
+    usage = body.get("usage") or {}
+    return _normalize(extract, s["groq_model"], {
+        "input": usage.get("prompt_tokens", 0),
+        "output": usage.get("completion_tokens", 0),
     })
 
 

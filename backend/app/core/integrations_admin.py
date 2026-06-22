@@ -214,15 +214,20 @@ def config_specs() -> dict[str, dict]:
         "docscan": {
             "title": "AI document scan",
             "help": ("Scans shop invoices and estimates to autofill work "
-                     "orders. Engines: AWS Textract AnalyzeExpense "
+                     "orders. Engines: Groq (Llama 4 Scout, fast, free tier — "
+                     "vision in seconds), AWS Textract AnalyzeExpense "
                      "($0.008/page, the commercial-grade option), local "
                      "Ollama (free, needs 'ollama pull qwen2.5vl:7b') or "
                      "Claude API. Auto picks Textract if AWS keys exist, "
-                     "then Claude, then local."),
+                     "then Claude, then local; pick 'groq' explicitly to use "
+                     "Groq."),
             "fields": [
                 {"key": "provider",
-                 "label": "Provider (auto | textract | ollama | anthropic)",
+                 "label": "Provider (auto | groq | textract | ollama | "
+                          "anthropic)",
                  "kind": "text", "tail": claude["provider"]},
+                {"key": "groq_api_key", "label": "Groq API key (fast)",
+                 "kind": "password", "tail": _tail(claude["groq_api_key"])},
                 {"key": "aws_access_key_id", "label": "AWS access key id",
                  "kind": "password",
                  "tail": _tail(claude["aws_access_key_id"])},
@@ -304,7 +309,8 @@ def save_config(provider: str, values: dict) -> dict:
         merge(docscan.SETTINGS_PATH,
               ["provider", "api_key", "model", "ollama_url",
                "ollama_model", "aws_access_key_id",
-               "aws_secret_access_key", "aws_region"])
+               "aws_secret_access_key", "aws_region",
+               "groq_api_key", "groq_model"])
     elif provider == "gplaces":
         merge(pois.GOOGLE_CONF, ["places_api_key"])
     elif provider == "lynx":
