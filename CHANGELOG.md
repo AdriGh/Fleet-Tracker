@@ -7,6 +7,15 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.28.1] - 2026-06-22
+
+### Corregido
+- **Build de Docker (deploy)**: `MarketplacePanel.resultToPart` construía un `Part`
+  sin `reorder_point` (campo obligatorio desde v1.25/Inventory) → el `tsc -b` del
+  build de producción fallaba. Agregado `reorder_point: 0`. Verificado con
+  `npm run build` (tsc -b + vite build) limpio. (Nota: usar `npm run build`, no
+  solo `tsc --noEmit`, para verificar — son más estrictos.)
+
 ## [1.28.0] - 2026-06-21
 
 Escaneo de facturas ~30× más rápido — proveedor Groq vision.

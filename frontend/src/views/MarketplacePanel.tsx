@@ -45,6 +45,7 @@ function resultToPart(r: MarketplaceResult): Part {
     vendor_id: null,
     vendor_name: r.vendor,
     on_hand: 0,
+    reorder_point: 0,
     notes: '',
   }
 }
