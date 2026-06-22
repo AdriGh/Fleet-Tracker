@@ -60,11 +60,14 @@ services:
       # los Excel temporales. Sin estos, se pierden al recrear el contenedor.
       - ./data/uploads:/app/backend/uploads
       - ./data/jobs:/app/backend/.jobs
-      # SECRETOS opcionales en runtime: un SOLO directorio montado read-only con
-      # los <name>.local.json que el cliente tenga (samsara.local.json,
-      # docscan.local.json, etc.). NO se hornean en la imagen y NO se commitean.
-      # Si ./secrets no existe o esta vacio, todas las integraciones degradan.
-      - ./secrets:/app/secrets:ro
+      # SECRETOS en runtime: un SOLO directorio con los <name>.local.json
+      # (samsara.local.json, docscan.local.json, etc.). NO se hornean en la
+      # imagen ni se commitean. Montado read-WRITE (sin :ro) porque la app
+      # TAMBIEN escribe aqui: el auth_secret que firma los tokens de sesion se
+      # autogenera la 1a vez (sin el, el login da 500), y las credenciales que
+      # configures por la UI (Settings) se guardan aqui. Persiste entre redeploys
+      # (bind mount al host). Si esta vacio, las integraciones arrancan en off.
+      - ./secrets:/app/secrets
 
 volumes:
   pgdata:

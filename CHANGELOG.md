@@ -7,6 +7,16 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.28.3] - 2026-06-22
+
+### Corregido
+- **Login imposible en producción (secrets read-only)**: el volumen `./secrets`
+  se montaba `:ro`, pero la app necesita **escribir** ahí el `auth_secret` que
+  firma los tokens de sesión (se autogenera en el primer login). Con el montaje
+  de solo-lectura, el login devolvía 500 al intentar persistir el secreto (y
+  tampoco se podían guardar credenciales de integraciones desde la UI). Ahora el
+  montaje es read-write; el secreto persiste entre redeploys (bind mount).
+
 ## [1.28.2] - 2026-06-22
 
 ### Corregido
