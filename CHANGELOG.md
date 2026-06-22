@@ -7,6 +7,19 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.29.0] - 2026-06-22
+
+### Agregado
+- **App de escritorio = cliente de la nube**: `launch.bat` ahora abre la app de
+  **producción** (URL del VPS) en una ventana de aplicación (Chrome `--app`, con
+  fallback a Edge), sin correr nada en la PC. Al loguear se accede a la **misma
+  base de datos del server** (Postgres) — los datos del escritorio y la web son
+  los mismos, siempre en sync. Se eligió esto sobre conectar un server local a la
+  Postgres remota porque no pone credenciales de la base en el cliente, no expone
+  el puerto 5432 ni requiere túnel, y no salta la capa de auth/API.
+- **`launch-dev.bat`**: preserva el modo anterior (server local + SQLite en
+  `backend/dvir.db`) para desarrollo/offline.
+
 ## [1.28.4] - 2026-06-22
 
 ### Cambiado
