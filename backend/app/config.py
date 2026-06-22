@@ -18,7 +18,37 @@ PORT = int(os.environ.get("DVIR_PORT", "8765"))
 # Postgres, p.ej.  postgresql+psycopg://user:pass@host:5432/dvir
 # Si no esta seteada, se cae a una SQLite local para desarrollo/tests.
 _DEFAULT_SQLITE_URL = f"sqlite:///{BACKEND_DIR / 'dvir.db'}"
-DATABASE_URL = os.environ.get("DATABASE_URL", _DEFAULT_SQLITE_URL)
+
+
+def _resolve_database_url() -> str:
+    """Resuelve la URL de la base, en orden de prioridad:
+    1) DATABASE_URL explicita (si alguien la setea a mano).
+    2) Componentes POSTGRES_* (user/clave/host/db): se arma con
+       sqlalchemy.URL.create, que CODIFICA caracteres especiales de la
+       contraseña (@ : / ...). Antes pegabamos la clave cruda en la URL y una
+       contraseña con '@' rompia el parseo del host (host quedaba '@db').
+    3) SQLite local (dev/tests).
+    """
+    explicit = os.environ.get("DATABASE_URL")
+    if explicit:
+        return explicit
+    user = os.environ.get("POSTGRES_USER")
+    database = os.environ.get("POSTGRES_DB")
+    host = os.environ.get("POSTGRES_HOST")
+    if user and database and host:
+        from sqlalchemy import URL
+        return URL.create(
+            "postgresql+psycopg",
+            username=user,
+            password=os.environ.get("POSTGRES_PASSWORD") or None,
+            host=host,
+            port=int(os.environ.get("POSTGRES_PORT", "5432")),
+            database=database,
+        ).render_as_string(hide_password=False)
+    return _DEFAULT_SQLITE_URL
+
+
+DATABASE_URL = _resolve_database_url()
 IS_SQLITE = DATABASE_URL.startswith("sqlite")
 
 # Origenes permitidos para CORS (servidor de desarrollo de Vite).

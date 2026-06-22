@@ -34,11 +34,16 @@ services:
       db:
         condition: service_healthy
     environment:
-      # Driver psycopg3 (ya esta en requirements.txt). config.IS_SQLITE queda
-      # en False con esta URL -> se usa Postgres.
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-fleet}:${POSTGRES_PASSWORD:-fleet}@db:5432/${POSTGRES_DB:-fleet}
+      # Postgres por COMPONENTES (no DATABASE_URL pre-armada): config.py la arma
+      # con sqlalchemy.URL.create, que CODIFICA los caracteres especiales de la
+      # contraseña (@ : / ...). Antes se pegaba la clave cruda y una con '@'
+      # rompia la URL (el host quedaba '@db'). El driver es psycopg3.
+      POSTGRES_USER: ${POSTGRES_USER:-fleet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fleet}
+      POSTGRES_DB: ${POSTGRES_DB:-fleet}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
       # El server escucha en 0.0.0.0:8000 (lo fija el CMD del Dockerfile).
-      # Estas dos solo afectan otros consumidores de config; uvicorn manda.
       DVIR_HOST: 0.0.0.0
       DVIR_PORT: "8000"
       # Directorio donde el SecretStore busca los <name>.local.json. Apunta al

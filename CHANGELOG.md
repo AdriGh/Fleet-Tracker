@@ -7,6 +7,17 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.28.2] - 2026-06-22
+
+### Corregido
+- **Arranque en producción (Postgres)**: la app crasheaba en bucle con
+  `failed to resolve host '@db'` cuando la contraseña de Postgres contenía
+  caracteres especiales (`@`, `:`, `/`). El `docker-compose` armaba la
+  `DATABASE_URL` pegando la clave cruda, rompiendo el parseo del host. Ahora se
+  pasan los componentes `POSTGRES_*` por separado y `config.py` construye la URL
+  con `sqlalchemy.URL.create`, que **codifica** la contraseña. Robusto para
+  cualquier cliente/clave; no requiere resetear la base ni cambiar la contraseña.
+
 ## [1.28.1] - 2026-06-22
 
 ### Corregido

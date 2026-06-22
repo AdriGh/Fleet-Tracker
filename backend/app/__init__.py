@@ -1,3 +1,3 @@
 """DVIR Report Generator - backend FastAPI."""
 
-__version__ = "1.28.1"
+__version__ = "1.28.2"
