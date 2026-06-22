@@ -86,7 +86,7 @@ mkdir -p secrets
 # Copiar SOLO los que uses (nombre exacto: <name>.local.json):
 #   secret.local.json      -> secreto de firma de tokens de sesion (recomendado)
 #   samsara.local.json     -> ELD/telematica Samsara (roster vivo, GPS)
-#   docscan.local.json     -> escaneo de invoices con IA (ver CAVEAT abajo)
+#   docscan.local.json     -> escaneo de invoices con IA (Groq recomendado; ver CAVEAT abajo)
 #   avisos.local.json      -> Gmail/Drive (envio de avisos por email)
 #   twilio.local.json      -> SMS
 #   cloudinary.local.json  -> hosting de imagenes
@@ -143,8 +143,8 @@ Dokploy corre el `docker-compose.yml` del repo y enruta el trafico con su proxy
 interno (Traefik) por dominio. Pasos:
 
 1. **Repo / acceso**: en Dokploy, crear un proyecto y un servicio tipo
-   **Compose** apuntando a este repo (rama `feature/deploy` o la que mergees a
-   `main`). Dokploy clona el repo y usa el `docker-compose.yml` de la raiz.
+   **Compose** apuntando a este repo (rama `main`). Dokploy clona el repo y usa
+   el `docker-compose.yml` de la raiz.
 
 2. **Environment**: en la pestaña *Environment* del servicio, cargar las
    variables de la seccion 2 (`POSTGRES_USER`, `POSTGRES_PASSWORD`,
@@ -204,11 +204,18 @@ interno (Traefik) por dominio. Pasos:
 
 2. **Escaneo de invoices con IA (docscan).** El proveedor por defecto es `auto`,
    que cae a **Ollama local** si no hay otras credenciales — y **Ollama NO esta
-   en el contenedor**. Para que el escaneo de invoices funcione en prod, en
+   en el contenedor**. Para que el escaneo funcione en prod, en
    `docscan.local.json`:
-   - opcion recomendada: `"provider": "anthropic"` + `"api_key": "<clave de
-     platform.claude.com>"`, o
-   - apuntar `"ollama_url"` a un Ollama externo accesible desde el contenedor.
+   - **OPCION RECOMENDADA: `"provider": "groq"` + `"groq_api_key": "<clave de
+     console.groq.com>"`** (modelo `meta-llama/llama-4-scout-17b-16e-instruct`).
+     Es cloud (corre dentro del contenedor, a diferencia de Ollama),
+     **~2-3 s vs ~98 s** del 7B local, y el free-tier alcanza para un piloto.
+     La clave tambien se puede pasar por env `GROQ_API_KEY` en vez del archivo.
+     Este escaneo lo provee el **operador** (central) — NO se le pide la key al
+     cliente.
+   - alternativa de maxima precision: `"provider": "anthropic"` + `"api_key":
+     "<platform.claude.com>"` (de pago).
+   - o apuntar `"ollama_url"` a un Ollama externo accesible desde el contenedor.
    Sin esto, el resto de la app funciona; solo el auto-fill por escaneo queda sin
    backend de vision.
 
@@ -220,3 +227,57 @@ interno (Traefik) por dominio. Pasos:
 4. **Secretos = integraciones opcionales.** Samsara, Gmail/avisos, Twilio/SMS,
    Telegram, Cloudinary, etc. degradan a offline/simulado si falta su
    `*.local.json`. La app no se cae por eso.
+
+---
+
+## 9. Onboarding de un cliente piloto (ej. Journey)
+
+Checklist para dejar listo un cliente nuevo **despues** de desplegar la instancia
+(secciones 1-6). Marca el orden recomendado:
+
+### 1. Cuenta + empresa
+- [ ] Completar el **OnboardingWizard** → admin del cliente.
+- [ ] **Settings → Company**: nombre + acento de marca; datos del taller (nombre,
+      direccion, telefono — salen impresos en los invoices); Bill-To por empresa.
+- [ ] **Settings → Company**: umbrales (PM interval, DVIR min minutes, defect
+      lookback), labor rate, y CC routing por terminal si aplica.
+
+### 2. Escaneo de invoices — lo provees TU (central)
+- [ ] `docscan.local.json`: `provider: "groq"` + tu `groq_api_key`. NO se lo pides
+      al cliente. Verifica que un escaneo tarda ~segundos (no ~98 s).
+
+### 3. Telemetria / ELD del cliente — lo trae Journey
+- [ ] `samsara.local.json` (o Motive): token **read-only** de Journey → flota,
+      conductores, GPS, DVIR y defectos en vivo. Sin esto la flota/roster no se
+      auto-cargan.
+- [ ] Confirmar los **scopes** del token (vehiculos, HoS, defectos, y trailer
+      stats si hay reefer).
+
+### 4. Cold Chain — el moat (reefers de Journey)
+- [ ] Conectar la **fuente real de reefers**: `lynx.local.json` /
+      `thermoking.local.json` (OEM, control two-way) o `traccar.local.json`
+      (aftermarket). Sin esto, Cold Chain queda en **DEMO**.
+- [ ] **Esto es lo clave a conseguir de Journey** para el piloto de reefer:
+      acceso a sus dispositivos/plataforma. Es lo que valida el moat reefer→WO.
+
+### 5. Avisos a conductores (opcional)
+- [ ] `avisos.local.json` (Gmail) y/o `twilio.local.json` (SMS) si el cliente va
+      a mandar notices a sus conductores.
+
+### 6. Datos iniciales
+- [ ] **Parts & Vendors**: catalogo de partes + proveedores; **Inventory**: stock
+      y reorder points iniciales.
+- [ ] **PM history**: export de Fullbay → `pm.local.csv` para arrancar el PM
+      Tracker con datos reales.
+- [ ] **Settings → Users**: alta del equipo del cliente (dispatcher / mechanic /
+      viewer).
+
+### 7. Seguridad
+- [ ] **Rotar** cualquier token que se haya pegado en chat/docs.
+- [ ] `secret.local.json` presente (firma de sesiones) y `./secrets` en
+      read-only.
+
+> Para el piloto compartido (pocos clientes en una instancia): el escaneo central
+> con Groq free-tier alcanza. Al crecer, pasar a un plan Groq de pago y mover las
+> integraciones de cada cliente (ELD/reefer/email) a config **por-org** — ver el
+> backlog de productización.
