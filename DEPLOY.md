@@ -77,9 +77,10 @@ La app **corre sin ningun secreto**: cada integracion sin credenciales arranca
 en modo offline/degradado. Los secretos viven como archivos
 `backend/<name>.local.json` (gitignored) y NO se hornean en la imagen.
 
-En produccion se montan desde un **unico directorio** `./secrets` (read-only).
-El contenedor los lee desde ahi gracias a `FLEET_SECRETS_DIR=/app/secrets`
-(ya seteado en el compose).
+En produccion se montan desde un **unico directorio** `./secrets` (read-write:
+la app ademas autogenera ahi el `secret.local.json` que firma las sesiones, y
+guarda las credenciales que configures por la UI). El contenedor los lee desde
+ahi gracias a `FLEET_SECRETS_DIR=/app/secrets` (ya seteado en el compose).
 
 ```bash
 mkdir -p secrets
@@ -114,7 +115,7 @@ valores y dejalo en `./secrets`.
 | `pgdata` (named) | Datos de Postgres. **No borrar** salvo reset total. |
 | `./data/uploads` → `/app/backend/uploads` | Invoices de WO (`wo_invoices/`) y docs de unidad (`unitdocs/`). |
 | `./data/jobs` → `/app/backend/.jobs` | Excel temporales generados. |
-| `./secrets` → `/app/secrets` (ro) | Los `*.local.json` (ver seccion 3). |
+| `./secrets` → `/app/secrets` (rw) | Los `*.local.json` + el `secret.local.json` autogenerado (firma de sesiones). Persiste entre redeploys. |
 
 Sin los mounts de `uploads` y `.jobs`, esos archivos se pierden al recrear el
 contenedor. La base vive en `pgdata` (named volume), que sobrevive a
@@ -204,17 +205,20 @@ interno (Traefik) por dominio. Pasos:
 
 2. **Escaneo de invoices con IA (docscan).** El proveedor por defecto es `auto`,
    que cae a **Ollama local** si no hay otras credenciales — y **Ollama NO esta
-   en el contenedor**. Para que el escaneo funcione en prod, en
-   `docscan.local.json`:
-   - **OPCION RECOMENDADA: `"provider": "groq"` + `"groq_api_key": "<clave de
-     console.groq.com>"`** (modelo `meta-llama/llama-4-scout-17b-16e-instruct`).
-     Es cloud (corre dentro del contenedor, a diferencia de Ollama),
-     **~2-3 s vs ~98 s** del 7B local, y el free-tier alcanza para un piloto.
-     La clave tambien se puede pasar por env `GROQ_API_KEY` en vez del archivo.
-     Este escaneo lo provee el **operador** (central) — NO se le pide la key al
-     cliente.
-   - alternativa de maxima precision: `"provider": "anthropic"` + `"api_key":
-     "<platform.claude.com>"` (de pago).
+   en el contenedor**. Groq NO entra en `auto` (se elige explicito). Para que el
+   escaneo funcione en prod, **lo mas simple es por variables de entorno** (en
+   Dokploy → Environment; persisten entre redeploys, sin SSH ni archivos):
+   - **OPCION RECOMENDADA (env vars):** `DOCSCAN_PROVIDER=groq` +
+     `GROQ_API_KEY=<clave de console.groq.com>` (usa el modelo
+     `meta-llama/llama-4-scout-17b-16e-instruct` por defecto). Es cloud (corre
+     dentro del contenedor, a diferencia de Ollama), **~2-3 s vs ~98 s** del 7B
+     local, y el free-tier alcanza para un piloto. Este escaneo lo provee el
+     **operador** (central) — NO se le pide la key al cliente.
+   - **alternativa (archivo):** dejar `docscan.local.json` en `./secrets` con
+     `{"provider":"groq","groq_api_key":"..."}` — la app lo lee via
+     `FLEET_SECRETS_DIR` (montaje persistente).
+   - maxima precision: `DOCSCAN_PROVIDER=anthropic` + `api_key` de
+     platform.claude.com (de pago), o `"provider":"anthropic"` en el archivo.
    - o apuntar `"ollama_url"` a un Ollama externo accesible desde el contenedor.
    Sin esto, el resto de la app funciona; solo el auto-fill por escaneo queda sin
    backend de vision.

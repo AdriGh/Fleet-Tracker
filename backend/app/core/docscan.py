@@ -49,6 +49,7 @@ import json
 import os
 import re
 import time
+from pathlib import Path
 
 import httpx
 from pydantic import BaseModel, Field, ValidationError
@@ -226,8 +227,21 @@ class WoExtract(BaseModel):
 
 # ----- Settings -----------------------------------------------------------
 
+def _settings_path() -> Path:
+    """Ubicación del docscan.local.json. En contenedores, FLEET_SECRETS_DIR
+    (p.ej. /app/secrets, montado y persistente) tiene prioridad: así se
+    configura el escaneo sin hornear el archivo en la imagen y sobrevive a los
+    redeploys. En dev cae a backend/docscan.local.json (y al legacy)."""
+    env_dir = os.environ.get("FLEET_SECRETS_DIR", "").strip()
+    if env_dir:
+        p = Path(env_dir) / "docscan.local.json"
+        if p.exists():
+            return p
+    return SETTINGS_PATH if SETTINGS_PATH.exists() else _LEGACY_PATH
+
+
 def load_settings() -> dict:
-    path = SETTINGS_PATH if SETTINGS_PATH.exists() else _LEGACY_PATH
+    path = _settings_path()
     data: dict = {}
     if path.exists():
         try:
@@ -235,7 +249,10 @@ def load_settings() -> dict:
         except (OSError, ValueError):
             data = {}
     return {
-        "provider": str(data.get("provider") or "auto"),
+        # provider también por env (DOCSCAN_PROVIDER) para configurar en
+        # contenedores sin archivo (p.ej. DOCSCAN_PROVIDER=groq en Dokploy).
+        "provider": str(data.get("provider")
+                        or os.environ.get("DOCSCAN_PROVIDER") or "auto"),
         "api_key": str(data.get("api_key") or ""),
         "model": str(data.get("model") or DEFAULT_CLAUDE_MODEL),
         "ollama_url": str(data.get("ollama_url") or DEFAULT_OLLAMA_URL),

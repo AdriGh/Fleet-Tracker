@@ -7,7 +7,17 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
-## [1.28.3] - 2026-06-22
+## [1.28.4] - 2026-06-22
+
+### Cambiado
+- **docscan configurable por entorno (deploy)**: el escaneo de facturas ahora
+  toma el proveedor de la env `DOCSCAN_PROVIDER` (p.ej. `groq`) además del
+  archivo, y `load_settings()` busca `docscan.local.json` en `FLEET_SECRETS_DIR`
+  (el `./secrets` montado y persistente) antes que en la imagen. Así se configura
+  Groq en producción 100% desde Dokploy (`DOCSCAN_PROVIDER=groq` + `GROQ_API_KEY`)
+  sin SSH ni hornear archivos, y sobrevive a los redeploys. Antes solo leía
+  `backend/docscan.local.json` (dentro de la imagen) y `auto` nunca elegía Groq.
+- DEPLOY.md actualizado: secrets montado read-write, método de Groq por env vars.
 
 ### Corregido
 - **Login imposible en producción (secrets read-only)**: el volumen `./secrets`
