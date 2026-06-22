@@ -5,8 +5,12 @@ Suma las lineas de las work orders (parts + labor) para que el dueno del
 taller responda "cuanto gaste en llantas / frenos / labor este mes/trimestre".
 
 Alcance de los datos:
-- Solo cuentan las ordenes COMPLETED o INVOICED (trabajo realmente hecho;
-  open/assigned/in_progress son estimaciones en curso, no gasto real).
+- Cuenta el GASTO COMPROMETIDO de cualquier orden NO-borrador que tenga
+  lineas facturables (open/assigned/in_progress/completed/invoiced). En la
+  practica el jefe carga el invoice del taller apenas llega y la orden queda
+  "open"; si solo contaramos completed/invoiced ese gasto ya real no
+  aparecia en Reports hasta cerrar la orden a mano. Una orden sin lineas con
+  monto > 0 NO cuenta (no infla el conteo de WOs ni el promedio).
 - La fecha del gasto es el "service date" efectivo de la orden:
   service_date (lo que cargo el jefe) -> closed_at (sello de completed) ->
   created_at. Asi el gasto cae en el periodo en que se hizo el servicio.
@@ -30,9 +34,11 @@ from sqlalchemy import select
 from ..db import Part, SessionLocal, WorkOrder
 from . import terminals
 
-# Estados que SI cuentan como gasto real (trabajo hecho/facturado). Los
-# estados previos (open/assigned/in_progress) son estimaciones en curso.
-_SPEND_STATUSES = ("completed", "invoiced")
+# Estados que NO cuentan como gasto: el unico "borrador" del pipeline seria
+# una orden vacia. No hay status "draft" real (el pipeline arranca en "open"),
+# asi que el corte efectivo es "tener al menos una linea facturable": cualquier
+# orden no-borrador con lineas suma gasto comprometido, este o no facturada.
+_EXCLUDED_STATUSES: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -192,14 +198,17 @@ def spend_report(date_from: str = "", date_to: str = "",
             if (pn or "").strip()
         }
 
-        # Ordenes que cuentan como gasto (completed/invoiced). El filtro por
-        # rango y terminal se hace en Python: la fecha efectiva combina
-        # varias columnas y la terminal se resuelve con terminals.resolve
-        # (misma logica que el resto de la app).
-        wos = session.scalars(
-            select(WorkOrder).where(
-                WorkOrder.status.in_(_SPEND_STATUSES))
-        ).all()
+        # Todas las ordenes (gasto comprometido): el filtro por estado ya no
+        # recorta a completed/invoiced — basta con que la orden tenga lineas
+        # con monto > 0 (se valida en el loop). El filtro por rango y terminal
+        # se hace en Python: la fecha efectiva combina varias columnas y la
+        # terminal se resuelve con terminals.resolve (misma logica que el resto
+        # de la app). _EXCLUDED_STATUSES queda como hook por si en el futuro
+        # hay un estado "borrador" que deba excluirse.
+        q = select(WorkOrder)
+        if _EXCLUDED_STATUSES:
+            q = q.where(WorkOrder.status.notin_(_EXCLUDED_STATUSES))
+        wos = session.scalars(q).all()
 
         # Acumuladores.
         total_spend = 0.0
@@ -222,16 +231,15 @@ def spend_report(date_from: str = "", date_to: str = "",
             if term and terminals.resolve(wo.unit, wo.company) != term:
                 continue
 
-            # La orden entra al reporte: cuenta para el total de ordenes
-            # aunque alguna linea sea 0.
-            wo_count += 1
             month_key = eff.strftime("%Y-%m")
             unit_key = (wo.unit or "").strip() or "—"
+            wo_billed = False   # ¿esta orden aporto al menos una linea > 0?
 
             for ln in wo.lines:
                 amount = round((ln.qty or 0) * (ln.unit_cost or 0), 2)
                 if amount == 0:
                     continue
+                wo_billed = True
                 total_spend += amount
                 if (ln.kind or "").strip().lower() == "labor":
                     labor_spend += amount
@@ -255,6 +263,12 @@ def spend_report(date_from: str = "", date_to: str = "",
                     entry["qty"] += (ln.qty or 0)
                     if not entry["description"]:
                         entry["description"] = ln.description or ""
+
+            # Solo cuenta como WO del reporte si aporto gasto real (>0). Asi
+            # las ordenes vacias/abiertas sin lineas no inflan el conteo ni
+            # bajan el promedio por WO.
+            if wo_billed:
+                wo_count += 1
 
     total_spend = round(total_spend, 2)
     parts_spend = round(parts_spend, 2)

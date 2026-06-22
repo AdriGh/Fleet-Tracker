@@ -349,8 +349,9 @@ export default function WorkOrdersPage() {
                 </thead>
                 <tbody>
                   {filtered.map((w) => (
-                    <tr key={w.id} onClick={() => setOpenWo(w.id)}>
-                      <td className="mono">#{w.id}</td>
+                    <tr key={w.id} onClick={() => setOpenWo(w.id)}
+                      className={w.parent_id ? 'wo-row-child' : ''}>
+                      <td className="mono">#{w.display_no}</td>
                       <td><span className="unit-code">{w.unit}</span>
                         {w.is_pm && <span className="wo-pm-tag">PM</span>}
                       </td>
@@ -413,6 +414,12 @@ const emptyComplaint = (): ComplaintDraft =>
 type SharedInvoice = {
   vendor: string; city: string; state: string; invoice: string; date: string
 }
+
+// Línea en edición del modal (review v1.26): extiende la línea escaneada con
+// la UNIDAD a la que pertenece. '' = la unidad primaria (la orden padre); un
+// código de unidad la rutea a la orden HIJA de esa unidad. Así cada WO
+// (padre + hijas) lleva SOLO sus líneas y la suma = total del invoice.
+type EditLine = WoScanLine & { unit: string }
 
 // Formato del complaint pedido por el usuario:
 //   ISSUE DESCRIPTION (≤4 líneas)
@@ -488,7 +495,10 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
   // (review v1.18) reusando POST /workorders/{id}/invoice-file, para que la
   // sección "Source invoice" ya lo muestre sin subida manual.
   const [scanFile, setScanFile] = useState<File | null>(null)
-  const [scanLines, setScanLines] = useState<WoScanLine[]>([])
+  const [scanLines, setScanLines] = useState<EditLine[]>([])
+  // Total impreso del invoice (amount due), del escaneo. Alimenta la
+  // reconciliación: si la suma de líneas != esto, se avisa en el modal.
+  const [grandTotal, setGrandTotal] = useState<number | null>(null)
   // Un escaneo corrió pero NO devolvió líneas: distingue el estado vacío
   // inicial (aún no se escaneó nada) del escaneo que no detectó ítems, para
   // mostrar la pista bajo el editor de Parts & Labor.
@@ -498,7 +508,7 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
   const [preview, setPreview] = useState<{ url: string; pdf: boolean } | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
 
-  function setLine(i: number, patch: Partial<WoScanLine>) {
+  function setLine(i: number, patch: Partial<EditLine>) {
     setScanLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)))
   }
 
@@ -553,7 +563,19 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
       if (x.vendor_state) setVendorState(x.vendor_state)
       if (x.invoice_number) setInvoiceNum(x.invoice_number)
       if (x.mechanic) setMechanic(x.mechanic)
-      setScanLines(x.lines)
+      // Total impreso del invoice (para la reconciliación del modal).
+      setGrandTotal(x.grand_total ?? null)
+      // Auto-ruteo de líneas a su unidad (review v1.26): si el invoice cubre
+      // varias unidades, las líneas de llanta/rueda se asignan a la unidad
+      // del complaint con pinta de trailer; el resto cae en la primaria ('').
+      const trailerC = cs.find((c) =>
+        c.unit && /tire|wheel|trailer|llanta/i.test(c.detail))
+      const tireRe = /\btires?\b|\bwheel\b|\brim\b|\btread\b|\bL[FR]|\bR[FR]/i
+      const edit: EditLine[] = x.lines.map((ln) => ({
+        ...ln,
+        unit: (trailerC && tireRe.test(ln.description)) ? trailerC.unit : '',
+      }))
+      setScanLines(edit)
       // Pista de empty-state: el escaneo terminó pero sin líneas.
       setScannedNoLines(x.lines.length === 0)
       // Guardar el File para adjuntarlo a la WO al crearla (FIX 2).
@@ -606,9 +628,9 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
       notifyErr('Missing complaint', 'Add at least one issue detail')
       return
     }
-    // Agrupar complaints por unidad: cada unidad distinta genera su PROPIO
-    // work order (un PM al tractor + una llanta al trailer => WO#1 y WO#2).
-    // Los complaints sin unidad caen en la unidad seleccionada (primaria).
+    // Agrupar complaints por unidad: la unidad PRIMARIA es la orden PADRE; cada
+    // OTRA unidad es una orden HIJA del mismo invoice (review v1.26: #4 / #4.1).
+    // Los complaints sin unidad caen en la primaria.
     const primaryU = unit.trim().toUpperCase()
     const groups = new Map<string, ComplaintDraft[]>()
     for (const c of kept) {
@@ -617,10 +639,10 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
     }
     const others = [...groups.keys()].filter((u) => u !== primaryU)
     if (others.length && !window.confirm(
-      `This invoice covers ${groups.size} units. Create ${groups.size} work `
-      + `orders — ${unit.trim()} + ${others.join(', ')}? The cost lines go on `
-      + `the ${unit.trim()} order; the others are created so each unit has its `
-      + `own service record.`)) {
+      `This invoice covers ${groups.size} units. Create ${groups.size} linked `
+      + `work orders — ${unit.trim()} (#parent) + ${others.join(', ')} `
+      + `(#parent.1, …)? Each unit keeps its own lines; the same invoice file `
+      + `attaches to all of them.`)) {
       return
     }
 
@@ -630,63 +652,71 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
         vendor, city: vendorCity, state: vendorState,
         invoice: invoiceNum, date,
       }
-      const lines = scanLines.filter((l) => l.description.trim())
+      const allLines = scanLines.filter((l) => l.description.trim())
       const shopInv = invoiceNum.trim()
-
-      // 1) Orden PRIMARIA (la unidad seleccionada): lleva las líneas/costos.
-      const primaryCs = groups.get(primaryU) ?? []
-      const primaryCamp = campaign
-        || (primaryCs.some((c) => c.is_pm) ? 'pm' : '')
-      const primaryWo = await createWorkOrder({
-        unit: unit.trim(),
-        title: titleFor(primaryCs, primaryCamp),
-        complaint: primaryCs.map((c) => formatComplaint(c, shared)).join('\n\n'),
-        mechanic, priority, campaign: primaryCamp, shop_invoice: shopInv,
-        mileage: mileage ? Number(mileage)
-          : (primaryCs[0]?.mileage ? Number(primaryCs[0].mileage) : null),
-        service_date: date,
-        source: scanName ? 'scan' : 'manual',
+      // Líneas por unidad: la línea va a su unidad asignada; '' (o una unidad
+      // que no tiene su propia orden) cae en la PRIMARIA (la orden padre).
+      const linesFor = (u: string) => allLines.filter((l) => {
+        const lu = (l.unit || '').trim().toUpperCase()
+        return u === primaryU
+          ? (!lu || !groups.has(lu) || lu === primaryU)
+          : lu === u
       })
-      for (const ln of lines) {
-        await addWoLine(primaryWo.id, {
-          kind: ln.kind, description: ln.description.trim(),
-          qty: Number(ln.qty) || 1, unit_cost: Number(ln.unit_cost) || 0,
-          part_number: ln.part_number ?? '',
-        })
-      }
 
-      // FIX 2: si la WO viene de un escaneo, adjuntar el documento original a
-      // la orden PRIMARIA (la que lleva los costos) reusando el endpoint de
-      // factura. No bloquea la creación: un fallo solo avisa por toast.
-      if (scanFile) {
-        try {
-          await uploadWoInvoiceFile(primaryWo.id, scanFile)
-        } catch (e) {
-          notifyErr("Work order created, but couldn't attach the invoice", e)
-        }
-      }
-
-      // 2) Una orden por cada OTRA unidad (stub: complaint sin líneas, para
-      // que aparezca en el perfil de esa unidad y se le carguen costos luego).
-      for (const ou of others) {
-        const cs = groups.get(ou)!
-        const camp = cs.some((c) => c.is_pm) ? 'pm' : ''
-        await createWorkOrder({
-          unit: ou,
+      // Helper: crea una WO (padre si parentId=null, hija si trae parentId),
+      // le carga SUS líneas y le adjunta el MISMO archivo de invoice.
+      const created: WorkOrder[] = []
+      async function makeWo(u: string, cs: ComplaintDraft[],
+                            parentId: number | null): Promise<WorkOrder> {
+        const camp = (parentId === null ? campaign : '')
+          || (cs.some((c) => c.is_pm) ? 'pm' : '')
+        const wo = await createWorkOrder({
+          unit: u,
           title: titleFor(cs, camp),
           complaint: cs.map((c) => formatComplaint(c, shared)).join('\n\n'),
           mechanic, priority, campaign: camp, shop_invoice: shopInv,
-          mileage: cs[0]?.mileage ? Number(cs[0].mileage) : null,
+          mileage: (parentId === null && mileage) ? Number(mileage)
+            : (cs[0]?.mileage ? Number(cs[0].mileage) : null),
           service_date: date,
           source: scanName ? 'scan' : 'manual',
+          parent_id: parentId,
         })
+        for (const ln of linesFor(u.toUpperCase())) {
+          await addWoLine(wo.id, {
+            kind: ln.kind, description: ln.description.trim(),
+            qty: Number(ln.qty) || 1, unit_cost: Number(ln.unit_cost) || 0,
+            part_number: ln.part_number ?? '',
+          })
+        }
+        // FIX (v1.26): el documento original se adjunta a TODAS las órdenes del
+        // invoice (antes solo a la primaria; las hijas quedaban sin factura).
+        if (scanFile) {
+          try {
+            await uploadWoInvoiceFile(wo.id, scanFile)
+          } catch (e) {
+            notifyErr(`WO created, but couldn't attach the invoice to ${u}`, e)
+          }
+        }
+        created.push(wo)
+        return wo
       }
 
-      const n = groups.size
-      notifyOk(n > 1 ? `${n} work orders created` : 'Work order created',
+      // 1) Orden PADRE (unidad primaria).
+      const primaryWo = await makeWo(
+        primaryU, groups.get(primaryU) ?? [], null)
+      // 2) Una orden HIJA por cada otra unidad (parent_id = padre).
+      for (const ou of others) {
+        await makeWo(ou, groups.get(ou)!, primaryWo.id)
+      }
+
+      const n = created.length
+      const nLines = allLines.length
+      notifyOk(n > 1 ? `${n} linked work orders created` : 'Work order created',
         `#${primaryWo.id} ${primaryWo.unit}`
-        + (others.length ? ` + ${others.join(', ')}` : '')
-        + (lines.length ? ` · ${lines.length} cost lines` : ''))
+        + (others.length
+          ? ` + ${others.map((_, i) => `#${primaryWo.id}.${i + 1}`).join(', ')}`
+          : '')
+        + (nLines ? ` · ${nLines} cost lines` : ''))
       onCreated(primaryWo.id)
     } catch (e) {
       notifyErr('Could not create', e)
@@ -697,6 +727,25 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
 
   const scanTotal = scanLines.reduce(
     (s, l) => s + l.qty * l.unit_cost, 0)
+  // Reconciliación (review v1.26): si el invoice imprimió un grand total y la
+  // suma de las líneas extraídas no coincide (tolerancia $0.50), se avisa —
+  // NO se auto-escala; el usuario corrige las líneas. El scan local sobre-
+  // extrae (sumó $1,748.79 con un invoice real de $1,019).
+  const totalMismatch = grandTotal != null && scanLines.length > 0
+    && Math.abs(scanTotal - grandTotal) > 0.5
+  // Unidades disponibles para rutear una línea: la primaria + las unidades de
+  // los complaints. '' en el selector = la unidad primaria (orden padre).
+  const lineUnits = useMemo(() => {
+    const set = new Set<string>()
+    const pu = unit.trim().toUpperCase()
+    if (pu) set.add(pu)
+    for (const c of complaints) {
+      const u = c.unit.trim().toUpperCase()
+      if (u) set.add(u)
+    }
+    return [...set]
+  }, [unit, complaints])
+  const primaryUC = unit.trim().toUpperCase()
 
   return (
     <Modal title="New work order" width={1360} fullHeight onClose={onClose}>
@@ -909,13 +958,16 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
                 setScannedNoLines(false)
                 setScanLines([...scanLines, {
                   kind: 'part', description: '', qty: 1, unit_cost: 0,
+                  unit: '',
                 }])
               }}>
               + Add line
             </button>
           </div>
           {scanLines.map((ln, i) => (
-            <div key={i} className="wo-line-row wo-line-row-cat">
+            <div key={i}
+              className={`wo-line-row wo-line-row-cat${
+                lineUnits.length > 1 ? ' wo-line-row-multi' : ''}`}>
               <select className="cell-input" value={ln.kind}
                 onChange={(e) => setLineKind(i,
                   e.target.value as 'part' | 'labor')}>
@@ -939,6 +991,22 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
                 title={ln.kind === 'part' ? 'Unit cost' : 'Hourly rate'}
                 value={ln.unit_cost}
                 onChange={(n) => setLine(i, { unit_cost: n })} />
+              {/* Multi-unit (v1.26): rutea la línea a la orden de su unidad.
+                  Solo aparece cuando el invoice cubre varias unidades. */}
+              {lineUnits.length > 1 && (
+                <select className="cell-input wo-line-unit"
+                  title="Which unit's work order gets this line"
+                  value={(ln.unit || '').toUpperCase() || primaryUC}
+                  onChange={(e) => setLine(i, {
+                    unit: e.target.value === primaryUC ? '' : e.target.value,
+                  })}>
+                  {lineUnits.map((u) => (
+                    <option key={u} value={u}>
+                      {u === primaryUC ? `${u} (primary)` : u}
+                    </option>
+                  ))}
+                </select>
+              )}
               <button className="mnt-icon" title="Remove line"
                 onClick={() => setScanLines(
                   scanLines.filter((_, j) => j !== i))}>
@@ -959,7 +1027,32 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
           {scanLines.length > 0 && (
             <span className="wo-scan-total">
               Will be added on create · {money(scanTotal)}
+              {grandTotal != null && (
+                <span className="wo-scan-grand">
+                  {' '}· invoice total {money(grandTotal)}
+                </span>
+              )}
             </span>
+          )}
+          {/* Reconciliación (v1.26): la suma de líneas != total impreso del
+              invoice. NO se auto-escala; se avisa para que el usuario corrija
+              las líneas (el scan local sobre-extrae). */}
+          {totalMismatch && (
+            <div className="banner warn wo-recon-warn">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                strokeLinejoin="round">
+                <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+                <path d="M12 9v4M12 17h.01" />
+              </svg>
+              <span>
+                Lines sum to <strong>{money(scanTotal)}</strong> but the invoice
+                grand total is <strong>{money(grandTotal!)}</strong> (off by{' '}
+                {money(Math.abs(scanTotal - grandTotal!))}). The scan may have
+                over-read rows — fix the lines before creating so the work
+                order totals match the invoice.
+              </span>
+            </div>
           )}
         </div>
 
@@ -985,10 +1078,16 @@ export function WoDrawer({ woId, mechanics, onClose }: {
   const qc = useQueryClient()
   const { can } = usePerms()
   const open = woId != null
+  // Navegación interna entre órdenes ligadas del mismo invoice (review v1.26):
+  // al abrir un enlace #4.1 ↔ #4 el drawer cambia de WO sin cerrarse. Se
+  // resetea a la WO con la que se abrió cada vez que cambia `woId`.
+  const [navId, setNavId] = useState<number | null>(woId)
+  useEffect(() => { setNavId(woId) }, [woId])
+  const shownId = navId ?? woId
   const woQ = useQuery({
-    queryKey: ['workorder', woId],
-    queryFn: () => getWorkOrder(woId!),
-    enabled: open,
+    queryKey: ['workorder', shownId],
+    queryFn: () => getWorkOrder(shownId!),
+    enabled: open && shownId != null,
   })
   const wo = woQ.data ?? null
 
@@ -1230,17 +1329,23 @@ export function WoDrawer({ woId, mechanics, onClose }: {
 
   return (
     <>
-    <Drawer.Root direction="right" open={open}
+    {/* B1/B2 (review v1.26): `handleOnly` hace que SOLO el handle arrastre el
+        panel (vaul-drag), así el click-drag dentro del contenido selecciona
+        texto normalmente. `dismissible` + el onOpenChange ya cierran con
+        Escape y con clic en el overlay; el botón X llama onClose directo. */}
+    <Drawer.Root direction="right" open={open} dismissible handleOnly
       onOpenChange={(o) => { if (!o) onClose() }}>
       <Drawer.Portal>
         <Drawer.Overlay className="ud-overlay" />
         <Drawer.Content className="ud-content wo-drawer">
+          {/* Handle de arrastre (única zona que mueve el panel con vaul). */}
+          <Drawer.Handle className="wo-drawer-handle" />
           {wo && (
             <>
               <div className="ud-head">
                 <div>
                   <Drawer.Title className="ud-title">
-                    WO #{wo.id} · {wo.unit}
+                    WO #{wo.links?.display_no ?? wo.id} · {wo.unit}
                   </Drawer.Title>
                   <span className="ud-chiprow">
                     <span className={`wo-status ${STATUS_META[wo.status].cls}`}>
@@ -1257,6 +1362,33 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                       <span className="ud-chip">from reefer fault</span>
                     )}
                   </span>
+                  {/* Vínculos del invoice multi-unidad (review v1.26): "child
+                      of #4" + enlaces a las otras unidades. Navega dentro del
+                      drawer sin cerrarlo. */}
+                  {wo.links && (wo.links.parent
+                    || wo.links.children.length > 0) && (
+                    <div className="wo-link-row">
+                      {wo.links.parent && (
+                        <button type="button" className="wo-link-chip"
+                          title={`Open parent WO #${wo.links.parent.display_no}`}
+                          onClick={() => setNavId(wo.links!.parent!.id)}>
+                          <span className="wo-link-eyebrow">child of</span>
+                          #{wo.links.parent.display_no} · {wo.links.parent.unit}
+                        </button>
+                      )}
+                      {wo.links.children
+                        .filter((k) => k.id !== wo.id)
+                        .map((k) => (
+                          <button type="button" key={k.id}
+                            className="wo-link-chip"
+                            title={`Open linked WO #${k.display_no}`}
+                            onClick={() => setNavId(k.id)}>
+                            <span className="wo-link-eyebrow">linked</span>
+                            #{k.display_no} · {k.unit}
+                          </button>
+                        ))}
+                    </div>
+                  )}
                 </div>
                 <button className="icon-btn" onClick={onClose}
                   aria-label="Close">
@@ -1267,7 +1399,7 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                 </button>
               </div>
               <Drawer.Description className="sr-only">
-                Work order {wo.id} details
+                Work order {wo.links?.display_no ?? wo.id} details
               </Drawer.Description>
 
               <div className="ud-body">

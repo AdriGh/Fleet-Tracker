@@ -145,6 +145,15 @@ class WorkOrder(OrgScoped, Base):
         DateTime, nullable=True)        # sello de COMPLETED (histórico)
     invoiced_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True)
+    # Multi-unit (review v1.26): un invoice que cubre varias unidades se modela
+    # como una orden PADRE (la unidad primaria) y N HIJAS (las otras unidades),
+    # numeradas #4, #4.1, #4.2… `parent_id` apunta al padre (NULL si es la
+    # raíz/orden normal); `child_seq` es el ordinal de la hija (1, 2, …) para
+    # el número de display. Cada orden lleva SUS propias líneas (sin duplicar
+    # el costo: la suma de padre+hijas = total del invoice).
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("work_order.id"), nullable=True, index=True)
+    child_seq: Mapped[int] = mapped_column(Integer, default=0)
     unit: Mapped[str] = mapped_column(String(64), index=True)
     company: Mapped[str] = mapped_column(String(64), default="")
     status: Mapped[str] = mapped_column(String(20), default="open",
@@ -581,6 +590,10 @@ def _migrate() -> None:
             "po_number": "VARCHAR(60) DEFAULT ''",
             "authorizer": "VARCHAR(80) DEFAULT ''",
             "shop_invoice": "VARCHAR(60) DEFAULT ''",
+            # Multi-unit (v1.26): jerarquía padre/hija para invoices que
+            # cubren varias unidades (#4 / #4.1).
+            "parent_id": "INTEGER REFERENCES work_order(id)",
+            "child_seq": "INTEGER DEFAULT 0",
         }
         for col, ddl in adds.items():
             if col not in cols:
