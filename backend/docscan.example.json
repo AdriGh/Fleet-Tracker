@@ -1,5 +1,7 @@
 {
   "provider": "auto",
+  "groq_api_key": "",
+  "groq_model": "meta-llama/llama-4-scout-17b-16e-instruct",
   "aws_access_key_id": "",
   "aws_secret_access_key": "",
   "aws_region": "us-east-1",
