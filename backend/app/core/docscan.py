@@ -162,6 +162,12 @@ shop-supplies PERCENTAGE lines, fees, discounts, payments and balances.
 A flat "Shop Supplies" charge with a dollar amount IS a part line —
 include it.
 
+grand_total: the FINAL printed grand total / amount due / invoice total of
+the WHOLE document (the single bottom-line dollar figure the customer pays,
+after tax and fees). Read it from the summary block (the line labeled
+"Total", "Invoice Total", "Amount Due", "Balance Due" — NOT "Subtotal").
+Return it as a number, no currency symbol or commas. Null if not printed.
+
 Use null when a field is not in the document. Do not invent data.
 """
 
@@ -196,6 +202,10 @@ class WoExtract(BaseModel):
     vendor_state: str | None = None
     invoice_number: str | None = None
     mechanic: str | None = None
+    # Total impreso del invoice (amount due / grand total). Sirve para la
+    # reconciliación en el modal: si la suma de las líneas extraídas != este
+    # valor, se avisa (el scan local sobre-extrae). Null si no se detecta.
+    grand_total: float | None = None
     complaints: list[WoComplaint] = []
     lines: list[WoLineExtract] = []
 
@@ -564,6 +574,30 @@ _RE_SUM_NORM = re.compile(
 _RE_TOTAL_LINE = re.compile(r"total\b", re.I)
 _RE_SUBTOTAL = re.compile(r"sub\s*total", re.I)
 _RE_DISCOUNTISH = re.compile(r"discount|sub\s*total|balance|payment", re.I)
+# Monto de un total impreso (layout normal "Total 1,019.04", "Total Due:
+# $1,019.04", "Invoice Total 1,019.04" e invertido "1,019.04Total"). El
+# último 'Total' real del documento manda. Entre 'total' y el monto se
+# toleran rótulos cortos ("Due", "Amount", ":") sin otro número.
+_RE_GRAND_NORM = re.compile(
+    r"\btotal\b[ \t]*(?:(?:due|amount|payable|charges?)[ \t]*){0,2}[:#]?[ \t]*"
+    r"\$?([\d,]+\.\d{2})", re.I)
+_RE_GRAND_INV = re.compile(r"([\d,]+\.\d{2})\s*total\b", re.I)
+
+
+def _grand_total(text: str) -> float | None:
+    """Total final impreso del invoice (amount due). Escanea de abajo hacia
+    arriba la última línea 'Total' real (excluyendo Subtotal) con un monto."""
+    lines = text.splitlines()
+    for ln in reversed(lines):
+        if not _RE_TOTAL_LINE.search(ln) or _RE_SUBTOTAL.search(ln):
+            continue
+        m = _RE_GRAND_NORM.search(ln) or _RE_GRAND_INV.search(ln)
+        if m:
+            try:
+                return float(m.group(1).replace(",", ""))
+            except ValueError:
+                continue
+    return None
 
 
 def _clean_detail(s: str) -> str:
@@ -826,6 +860,8 @@ def _scan_heuristic(text: str) -> dict:
                     unit_cost=float(unit_cost.replace(",", "")),
                 ))
     x.lines = lines
+    # Total impreso del invoice (amount due) para la reconciliación del modal.
+    x.grand_total = _grand_total(text)
     return _normalize(x, "basic text parser (no AI)")
 
 
@@ -1019,6 +1055,8 @@ def _map_expense(resp: dict) -> WoExtract:
                 x.service_date = _to_iso(val)
             elif ftype == "INVOICE_RECEIPT_ID" and not x.invoice_number:
                 x.invoice_number = val[:30]
+            elif ftype in ("TOTAL", "AMOUNT_DUE") and x.grand_total is None:
+                x.grand_total = _money(val)
         for grp in doc.get("LineItemGroups", []):
             for li in grp.get("LineItems", []):
                 fields: dict[str, str] = {}
@@ -1054,6 +1092,8 @@ def _map_expense(resp: dict) -> WoExtract:
     if not x.vendor_city and (m := _RE_CITYST.search(full)):
         x.vendor_city = _clean_city(m.group(1))
         x.vendor_state = m.group(2)
+    if x.grand_total is None:          # respaldo: total impreso del texto
+        x.grand_total = _grand_total(full)
     x.complaints = _build_complaints(full, _find_units(full))
     _apply_brand(x, full)          # normaliza marcas de cadena conocidas
     return x

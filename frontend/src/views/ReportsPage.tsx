@@ -5,7 +5,9 @@
 // top unidades + top partes. Filtros: rango de fechas (presets + custom)
 // y terminal (mismo helper que el resto de la app). Export CSV incluido.
 import { useMemo, useState } from 'react'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import {
+  keepPreviousData, useQuery, useQueryClient,
+} from '@tanstack/react-query'
 import {
   getSpendReport,
   type SpendBar, type SpendPart, type SpendReport,
@@ -13,11 +15,22 @@ import {
 import { notifyErr } from '../toast'
 import { useTerminals } from '../terminal'
 import { Button, Tabs } from '../components/ds'
-import PieChart from '../components/PieChart'
 import CountUp from '../components/CountUp'
 import Skeleton from '../components/Skeleton'
 
 type Cell = string | number
+
+// Fila ya enriquecida del desglose por categoría: color de identidad, % del
+// total (para la barra apilada) y % relativo al máximo (para la mini-barra de
+// cada fila). value = monto en $.
+interface CatDatum {
+  key: string
+  label: string
+  value: number
+  color: string
+  pct: number   // % del gasto total
+  rel: number   // % respecto a la categoría más alta (escala de la barra)
+}
 
 // Trazo compartido de los iconos (mismo estándar que las demás páginas).
 const STROKE = {
@@ -111,6 +124,7 @@ function downloadCSV(m: Cell[][], name: string) {
 
 export default function ReportsPage() {
   const { terminals, labelOf } = useTerminals()
+  const queryClient = useQueryClient()
 
   const [preset, setPreset] = useState<PresetId>('ytd')
   const [terminal, setTerminal] = useState('')
@@ -139,16 +153,34 @@ export default function ReportsPage() {
   const partsPct = t && t.total_spend > 0
     ? Math.round((t.parts_spend / t.total_spend) * 100) : 0
 
-  // Donut: una porción por categoría con gasto (>0). El backend ya filtra y
-  // ordena; solo se mapea a color.
-  const pieData = useMemo(() =>
-    (data?.by_category ?? []).map((c) => ({
+  // Desglose por categoría: una fila por categoría con gasto (>0), ya filtrado
+  // y ordenado por el backend. Se le agrega color de identidad, % del total y
+  // el % relativo al máximo (para la barra mini de cada fila). Alimenta el
+  // chart segmentado custom (reemplaza al donut genérico).
+  const catData = useMemo<CatDatum[]>(() => {
+    const cats = data?.by_category ?? []
+    const total = cats.reduce((s, c) => s + c.value, 0)
+    const max = Math.max(1, ...cats.map((c) => c.value))
+    return cats.map((c) => ({
+      key: c.key,
       label: c.label,
-      value: Math.round(c.value),
+      value: c.value,
       color: CAT_COLOR[c.key] ?? 'var(--accent)',
-    })), [data])
+      pct: total > 0 ? (c.value / total) * 100 : 0,
+      rel: (c.value / max) * 100,
+    }))
+  }, [data])
 
   const hasData = !!t && t.wo_count > 0
+
+  // Refresh REAL: invalida TODO el namespace 'spend-report' en la caché (no
+  // solo el rango activo) y fuerza un refetch ignorando el staleTime. Así, si
+  // el jefe creó WOs en otra pantalla, el número se mueve al volver y tocar
+  // Refresh — antes refetch() podía servir la copia cacheada sin pedir red.
+  async function refresh() {
+    await queryClient.invalidateQueries({ queryKey: ['spend-report'] })
+    await query.refetch({ cancelRefetch: true })
+  }
 
   function exportCSV() {
     if (!data) return
@@ -194,12 +226,13 @@ export default function ReportsPage() {
         <div>
           <h1>Reports &amp; Analytics</h1>
           <p className="page-sub">
-            Shop spend across completed work orders — by category, unit, month
-            and part. Internal cost, no markup.
+            Committed shop spend across all work orders with line items
+            (incl. open) — by category, unit, month and part. Internal cost,
+            no markup.
           </p>
         </div>
         <div className="head-actions">
-          <Button variant="ghost" onClick={() => query.refetch()}
+          <Button variant="ghost" onClick={refresh}
             loading={query.isFetching}
             icon={
               <svg viewBox="0 0 24 24" {...STROKE}>
@@ -279,8 +312,8 @@ export default function ReportsPage() {
           </svg>
           <h2>No spend in this range</h2>
           <p>
-            Close out work orders (mark them completed or invoiced) and their
-            parts &amp; labor will roll up here. Try widening the date range.
+            Add parts &amp; labor to a work order and its spend rolls up here —
+            no need to close it out first. Try widening the date range.
           </p>
         </div></div>
       ) : (
@@ -320,7 +353,7 @@ export default function ReportsPage() {
               <span className="stat-value">
                 <CountUp value={t!.wo_count} />
               </span>
-              <span className="stat-sub">completed or invoiced</span>
+              <span className="stat-sub">with billable lines</span>
             </div>
             <div className="stat-card">
               <span className="stat-label">Avg per WO</span>
@@ -332,28 +365,32 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          {/* ----- Categoría (donut) + tendencia mensual ----- */}
-          <div className="rp-grid">
-            <section className="card rp-cats">
-              <div className="card-head">
-                <h2>Spend by category</h2>
-                <span className="sub">parts &amp; labor</span>
-              </div>
-              <div className="card-body">
-                <PieChart data={pieData} size={188} centerUnit="categories" />
-              </div>
-            </section>
+          {/* ----- Gasto por categoría (chart segmentado, hero a ancho
+                   completo: la barra apilada + el desglose llenan el panel sin
+                   el hueco que dejaba el donut) ----- */}
+          <section className="card rp-cats">
+            <div className="card-head">
+              <h2>Spend by category</h2>
+              <span className="sub rp-money">
+                parts &amp; labor · <i>$</i>{money(t!.total_spend)} total
+              </span>
+            </div>
+            <div className="card-body">
+              <CategoryBreakdown cats={catData} total={t!.total_spend} />
+            </div>
+          </section>
 
-            <section className="card rp-trend">
-              <div className="card-head">
-                <h2>Monthly trend</h2>
-                <span className="sub">spend per month</span>
-              </div>
-              <div className="card-body">
-                <MonthTrend points={data!.by_month} />
-              </div>
-            </section>
-          </div>
+          {/* ----- Tendencia mensual a ancho completo (el SVG está pensado
+                   para 680px; a media columna quedaba apretado y con hueco) -- */}
+          <section className="card rp-trend">
+            <div className="card-head">
+              <h2>Monthly trend</h2>
+              <span className="sub">spend per month</span>
+            </div>
+            <div className="card-body">
+              <MonthTrend points={data!.by_month} />
+            </div>
+          </section>
 
           {/* ----- Top unidades + top partes ----- */}
           <div className="rp-grid">
@@ -400,6 +437,80 @@ export default function ReportsPage() {
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Spend by category — chart segmentado custom (reemplaza al donut genérico).
+// Dos partes que comparten la identidad de color de cada categoría:
+//   1) Una barra apilada a ancho completo (la "asignación" del gasto): cada
+//      categoría ocupa su % del total, con divisores finos. Es el hero visual.
+//   2) Un desglose en grilla (auto-fit) debajo: por categoría, chip de color +
+//      etiqueta + mini-barra (escala al máximo) + monto en $ (tabular-nums) +
+//      %. Llena el panel a lo ancho, sin los huecos del donut.
+// Hover sincronizado: resaltar un segmento atenúa los demás y viceversa.
+// ---------------------------------------------------------------------------
+function CategoryBreakdown(
+  { cats, total }: { cats: CatDatum[]; total: number },
+) {
+  const [hover, setHover] = useState<string | null>(null)
+  if (cats.length === 0 || total <= 0) {
+    return (
+      <div className="empty mini">
+        <p>No categorized spend in this range.</p>
+      </div>
+    )
+  }
+  const dim = (key: string) => hover != null && hover !== key
+
+  return (
+    <div className="rp-cat">
+      {/* Barra apilada: una asignación del 100% del gasto por categoría. */}
+      <div className="rp-cat-stack" role="img"
+        aria-label="Spend allocation by category">
+        {cats.map((c) => (
+          <span
+            key={c.key}
+            className="rp-cat-seg"
+            title={`${c.label} · $${money(c.value)} · ${Math.round(c.pct)}%`}
+            style={{
+              width: `${c.pct}%`,
+              background: c.color,
+              opacity: dim(c.key) ? 0.32 : 1,
+            }}
+            onMouseEnter={() => setHover(c.key)}
+            onMouseLeave={() => setHover(null)}
+          />
+        ))}
+      </div>
+
+      {/* Desglose: una fila por categoría, en grilla que llena el ancho. */}
+      <ul className="rp-cat-list">
+        {cats.map((c) => (
+          <li
+            key={c.key}
+            className={`rp-cat-row${hover === c.key ? ' on' : ''}`}
+            style={{ opacity: dim(c.key) ? 0.5 : 1 }}
+            onMouseEnter={() => setHover(c.key)}
+            onMouseLeave={() => setHover(null)}
+          >
+            <span className="rp-cat-top">
+              <span className="rp-cat-chip" style={{ background: c.color }} />
+              <span className="rp-cat-lbl" title={c.label}>{c.label}</span>
+              <span className="rp-cat-pct">{Math.round(c.pct)}%</span>
+            </span>
+            <span className="rp-cat-track">
+              <span className="rp-cat-fill"
+                style={{ width: `${Math.max(c.rel, 2)}%`,
+                  background: c.color }} />
+            </span>
+            <span className="rp-cat-amt rp-money">
+              <i>$</i>{money(c.value)}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

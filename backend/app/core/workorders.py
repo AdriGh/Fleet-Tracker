@@ -54,7 +54,46 @@ def _line_dict(ln: WorkOrderLine) -> dict:
     }
 
 
-def _wo_dict(wo: WorkOrder, with_lines: bool = False) -> dict:
+def _display_no(wo: WorkOrder) -> str:
+    """Número de display: "4" para una orden raíz, "4.1"/"4.2"… para una
+    hija (parent_id + child_seq). El padre del invoice multi-unidad conserva
+    su id entero; las hijas heredan el id del padre como prefijo."""
+    if wo.parent_id and wo.child_seq:
+        return f"{wo.parent_id}.{wo.child_seq}"
+    return str(wo.id)
+
+
+def _links_dict(wo: WorkOrder, session) -> dict:
+    """Vínculos padre/hijas/hermanas del invoice multi-unidad (review v1.26).
+    Devuelve el id+display del padre (si es hija) y la lista de hijas (si es
+    padre o si comparten padre), para que el drawer muestre "#4.1 · child of
+    #4" + enlaces a las otras unidades del mismo invoice."""
+    out: dict = {
+        "display_no": _display_no(wo),
+        "parent_id": wo.parent_id,
+        "child_seq": wo.child_seq or 0,
+        "parent": None,
+        "children": [],
+    }
+    # Si es hija: datos del padre para el enlace "child of #4".
+    if wo.parent_id:
+        parent = session.get(WorkOrder, wo.parent_id)
+        if parent is not None:
+            out["parent"] = {"id": parent.id, "unit": parent.unit,
+                             "display_no": _display_no(parent)}
+    # id raíz del invoice: el padre si es hija, o sí mismo si es padre.
+    root_id = wo.parent_id or wo.id
+    kids = session.scalars(
+        select(WorkOrder).where(WorkOrder.parent_id == root_id)
+        .order_by(WorkOrder.child_seq)).all()
+    out["children"] = [
+        {"id": k.id, "unit": k.unit, "display_no": _display_no(k)}
+        for k in kids]
+    return out
+
+
+def _wo_dict(wo: WorkOrder, with_lines: bool = False,
+             session=None) -> dict:
     from . import wo_invoices            # import diferido (orden de carga)
     total = round(sum(ln.qty * ln.unit_cost for ln in wo.lines), 2)
     # Factura original adjunta: campos calculados desde el archivo en disco
@@ -62,6 +101,9 @@ def _wo_dict(wo: WorkOrder, with_lines: bool = False) -> dict:
     inv_name = wo_invoices.file_name(wo.id)
     out = {
         "id": wo.id,
+        "display_no": _display_no(wo),
+        "parent_id": wo.parent_id,
+        "child_seq": wo.child_seq or 0,
         "created_at": wo.created_at.isoformat(),
         "updated_at": wo.updated_at.isoformat(),
         "closed_at": wo.closed_at.isoformat() if wo.closed_at else None,
@@ -109,7 +151,13 @@ def list_wos(status: str = "", unit: str = "", limit: int = 200) -> list[dict]:
 def get_wo(wo_id: int) -> dict | None:
     with SessionLocal() as session:
         wo = session.get(WorkOrder, wo_id)
-        return _wo_dict(wo, with_lines=True) if wo else None
+        if wo is None:
+            return None
+        out = _wo_dict(wo, with_lines=True)
+        # Vínculos padre/hijas para el drawer (review v1.26): "#4.1 · child of
+        # #4" + enlaces a las otras unidades del mismo invoice.
+        out["links"] = _links_dict(wo, session)
+        return out
 
 
 def create_wo(unit: str, title: str, complaint: str = "",
@@ -117,7 +165,10 @@ def create_wo(unit: str, title: str, complaint: str = "",
               priority: str = "normal", is_pm: bool = False,
               source: str = "manual", mileage: int | None = None,
               service_date: str = "", campaign: str = "",
-              shop_invoice: str = "") -> dict:
+              shop_invoice: str = "", parent_id: int | None = None) -> dict:
+    """Crea una work order. Si `parent_id` viene seteado, la orden es una HIJA
+    del invoice multi-unidad (review v1.26): se le asigna el siguiente
+    `child_seq` libre bajo ese padre para numerarla #padre.N (#4.1, #4.2…)."""
     from . import maint                  # import diferido (orden de carga)
     unit = unit.strip()
     title = title.strip()
@@ -144,9 +195,21 @@ def create_wo(unit: str, title: str, complaint: str = "",
         shop_invoice=shop_invoice.strip()[:60],
     )
     with SessionLocal() as session:
+        if parent_id is not None:
+            parent = session.get(WorkOrder, parent_id)
+            if parent is None:
+                raise ValueError("parent work order not found")
+            wo.parent_id = parent_id
+            # Siguiente ordinal libre bajo el padre (1, 2, 3…).
+            last = session.scalar(
+                select(func.max(WorkOrder.child_seq)).where(
+                    WorkOrder.parent_id == parent_id)) or 0
+            wo.child_seq = int(last) + 1
         session.add(wo)
         session.commit()
-        return _wo_dict(wo, with_lines=True)
+        out = _wo_dict(wo, with_lines=True)
+        out["links"] = _links_dict(wo, session)
+        return out
 
 
 def update_wo(wo_id: int, fields: dict) -> dict | None:
@@ -311,13 +374,27 @@ def delete_line(wo_id: int, line_id: int) -> dict | None:
 
 def delete_wo(wo_id: int) -> bool:
     """Elimina la work order y sus líneas (cascade). H3: pedido del
-    usuario para corregir órdenes creadas por error."""
+    usuario para corregir órdenes creadas por error.
+
+    Multi-unit (v1.26): borrar el PADRE de un invoice multi-unidad borra
+    también sus HIJAS (son del mismo invoice; dejarlas huérfanas rompería su
+    número de display #4.N). Borrar una hija suelta no toca al padre."""
+    from . import wo_invoices            # import diferido (orden de carga)
     with SessionLocal() as session:
         wo = session.get(WorkOrder, wo_id)
         if wo is None:
             return False
+        # Hijas del invoice (si esta orden es el padre).
+        kids = session.scalars(
+            select(WorkOrder).where(WorkOrder.parent_id == wo_id)).all()
+        kid_ids = [k.id for k in kids]
+        for k in kids:
+            session.delete(k)
         session.delete(wo)
         session.commit()
+        # Limpia los archivos de factura adjuntos (fuera de la DB).
+        for cid in [wo_id, *kid_ids]:
+            wo_invoices.delete_file(cid)
         return True
 
 

@@ -7275,6 +7275,80 @@ table.defects-table td {
   color: var(--text-muted);
   text-align: right;
 }
+/* Total impreso del invoice junto a la suma de líneas (reconciliación v1.26). */
+.wo-scan-grand { color: var(--text); font-weight: 700; }
+/* Aviso de reconciliación: la suma de líneas != total del invoice (v1.26). */
+.wo-recon-warn {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  margin-top: 4px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.wo-recon-warn svg { flex: none; margin-top: 1px; }
+/* Multi-unit (v1.26): vínculos padre/hijas del invoice + fila hija + handle. */
+.wo-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+.wo-link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease-out-soft),
+    background 0.15s var(--ease-out-soft);
+}
+.wo-link-chip:hover {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.wo-link-eyebrow {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+/* Fila de orden HIJA en la tabla: barra de acento a la izquierda. */
+.wo-row-child td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.wo-row-child .mono { color: var(--text-muted); }
+/* Handle de arrastre del drawer (vaul handleOnly): única zona que mueve el
+   panel, para que el click-drag dentro seleccione texto (review v1.26). */
+.wo-drawer-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 14px;
+  margin: 0;
+  background: transparent;
+  cursor: grab;
+  z-index: 3;
+}
+.wo-drawer-handle::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 44px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+}
+.wo-drawer-handle:active { cursor: grabbing; }
 /* Pista de empty-state cuando el escaneo no detecta líneas (H3c). */
 .wo-scan-empty {
   margin: 2px 0 0;
@@ -7843,6 +7917,16 @@ iframe.wo-preview { border: 1px solid var(--border); }
   grid-template-columns: 78px 92px 1fr 58px 76px 26px;
 }
 .wo-line-row-cat .cell-input:disabled { opacity: 0.45; }
+/* Multi-unit (v1.26): columna extra para rutear la línea a la unidad de su
+   orden (selector entre unit_cost y el botón de borrar). */
+.wo-line-row-multi {
+  grid-template-columns: 78px 92px 1fr 58px 76px 92px 26px;
+}
+.wo-line-row .wo-line-unit {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
 /* Increment B: línea de Purchase Order (part# | desc | qty | cost | acción) */
 .po-line-row {
   grid-template-columns: 96px 1fr 58px 80px auto;
@@ -7923,8 +8007,82 @@ iframe.wo-preview { border: 1px solid var(--border); }
   gap: 16px;
   align-items: start;
 }
-.rp-cats .card-body { display: flex; justify-content: center; }
-.rp-cats .piechart { gap: 28px; }
+/* ===== Spend by category — chart segmentado custom (hero a ancho completo).
+   Barra apilada del 100% del gasto + desglose en grilla que llena el panel.
+   Solo tokens; rojo reservado al acento; montos en tabular-nums. ===== */
+.rp-cat { display: flex; flex-direction: column; gap: 18px; }
+
+/* Barra apilada: segmentos contiguos, cada uno con su color de identidad,
+   separados por una hairline del color de superficie (no negro). */
+.rp-cat-stack {
+  display: flex;
+  width: 100%;
+  height: 18px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.rp-cat-seg {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  box-shadow: inset -1px 0 0 var(--surface);   /* divisor fino entre segmentos */
+  transition: opacity 0.15s ease;
+  cursor: default;
+}
+.rp-cat-seg:last-child { box-shadow: none; }
+
+/* Desglose: grilla auto-fit para que las categorías llenen todo el ancho
+   sin huecos, en 2–4 columnas según el espacio. */
+.rp-cat-list {
+  list-style: none; margin: 0; padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px 22px;
+}
+.rp-cat-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 7px;
+  transition: opacity 0.15s ease;
+  cursor: default;
+}
+.rp-cat-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.84rem;
+}
+.rp-cat-chip {
+  width: 0.72rem; height: 0.72rem; border-radius: 0.28rem; flex: none;
+}
+.rp-cat-lbl {
+  font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rp-cat-pct {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.rp-cat-track {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.rp-cat-fill {
+  display: block; height: 100%; border-radius: 999px; min-width: 3px;
+  animation: rp-grow 0.5s var(--ease-out-soft) both;
+}
+.rp-cat-amt {
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+.rp-cat-row.on .rp-cat-lbl { color: var(--text); }
 
 .rp-table-head h2 { display: flex; align-items: center; }
 
@@ -8036,7 +8194,7 @@ iframe.wo-preview { border: 1px solid var(--border); }
   .rp-grid { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .rp-bar-fill { animation: none; }
+  .rp-bar-fill, .rp-cat-fill { animation: none; }
 }
 
 /* ===== Increment C: WO drawer — Fault diagnostics + Activity timeline =====

@@ -7,6 +7,30 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.27.0] - 2026-06-21
+
+Review v1.26 — facturas multi-unidad, UX del drawer y Reports.
+
+### Añadido
+- **WO multi-unidad**: una factura que cubre varias unidades crea una orden
+  **PADRE + N HIJAS** enlazadas (**#4 / #4.1**), cada una con SUS líneas (sin
+  duplicar el costo → la suma = total del invoice). La misma factura se adjunta
+  en **todas**. `parent_id`/`child_seq` (migrados vía `_migrate`). El drawer
+  muestra el link padre/hija y navega entre las enlazadas.
+- **Conciliación de total**: el escaneo extrae el **total impreso** del invoice;
+  si la suma de líneas no cuadra, sale un **aviso** en el modal (no auto-escala).
+
+### Corregido
+- **Drawer del WO**: se puede **seleccionar texto** sin arrastrar el panel (vaul
+  handle-only) + cierra con **Escape** / botón X.
+- **Reports**: el botón **Refresh** ahora refresca de verdad (invalida + refetch);
+  el gasto **incluye cualquier WO con líneas** (antes solo completed/invoiced, por
+  eso los WO recién creados no aparecían).
+
+### Cambiado
+- **Reports**: el donut genérico → **breakdown segmentado a medida** (barra de
+  asignación + grilla por categoría), sin espacios vacíos.
+
 ## [1.26.0] - 2026-06-19
 
 Deploy — Docker + Postgres listos para Dokploy/VPS (rework · comercialización).

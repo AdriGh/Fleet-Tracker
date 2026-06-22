@@ -915,8 +915,27 @@ export interface WoLine {
   total: number
 }
 
+// Vínculo a otra unidad del mismo invoice multi-unidad (review v1.26).
+export interface WoLink {
+  id: number
+  unit: string
+  display_no: string        // "4" / "4.1"
+}
+
+export interface WoLinks {
+  display_no: string
+  parent_id: number | null
+  child_seq: number
+  parent: WoLink | null     // presente si esta orden es una hija
+  children: WoLink[]        // otras unidades del mismo invoice
+}
+
 export interface WorkOrder {
   id: number
+  // Multi-unit (v1.26): número de display ("4" / "4.1") + jerarquía padre/hija.
+  display_no: string
+  parent_id: number | null
+  child_seq: number
   created_at: string
   updated_at: string
   closed_at: string | null
@@ -948,6 +967,8 @@ export interface WorkOrder {
   total: number
   n_lines: number
   lines?: WoLine[]
+  // Vínculos padre/hijas del invoice multi-unidad (solo en getWorkOrder).
+  links?: WoLinks
   // Presente solo si el PATCH disparo una notificacion de Telegram.
   telegram?: { sent: boolean; simulated?: boolean; detail?: string }
 }
@@ -1157,6 +1178,9 @@ export interface WoScanExtract {
   vendor_state: string | null
   invoice_number: string | null
   mechanic: string | null
+  // Total impreso del invoice (amount due) para la reconciliación del modal:
+  // si la suma de líneas != esto, se avisa. Null si no se detectó.
+  grand_total: number | null
   complaints: WoScanComplaint[]
   lines: WoScanLine[]
 }
@@ -1180,7 +1204,7 @@ export async function createWorkOrder(body: {
   unit: string; title: string; complaint?: string; company?: string
   mechanic?: string; priority?: WoPriority; is_pm?: boolean; source?: string
   mileage?: number | null; service_date?: string; campaign?: string
-  shop_invoice?: string
+  shop_invoice?: string; parent_id?: number | null
 }): Promise<WorkOrder> {
   const res = await fetch('/api/workorders', {
     method: 'POST',

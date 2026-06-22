@@ -497,6 +497,9 @@ class WorkOrderIn(BaseModel):
     service_date: str = ""
     campaign: str = ""
     shop_invoice: str = ""
+    # Multi-unit (v1.26): si viene seteado, la orden se crea como HIJA del
+    # invoice multi-unidad (numerada #padre.N).
+    parent_id: int | None = None
 
 
 class WorkOrderPatch(BaseModel):
@@ -570,7 +573,7 @@ def wo_create(body: WorkOrderIn):
             body.unit, body.title, body.complaint, body.company,
             body.mechanic, body.priority, body.is_pm, body.source,
             body.mileage, body.service_date, body.campaign,
-            body.shop_invoice)
+            body.shop_invoice, body.parent_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
