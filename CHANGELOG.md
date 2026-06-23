@@ -7,6 +7,21 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.34.0] - 2026-06-23
+
+### Seguridad
+- **SEC-4 (backend) · Sesión en cookie HttpOnly + revocación**: el login además
+  setea una cookie `fleet_session` **HttpOnly + Secure (prod) + SameSite=Strict**
+  con el token; el middleware lee la cookie (con fallback a `Bearer`). El token
+  ahora incluye `token_version` (nueva columna `user.token_version`, migración
+  `df63703c9a5b`); cambiar la contraseña la incrementa → **invalida los tokens
+  viejos** (revocación real). Nuevo endpoint `/auth/logout` que limpia la cookie.
+  Verificado: login→cookie, auth por cookie, revocación, logout (+ SEC-3 y
+  build intactos). Al desplegar, los tokens viejos (formato sin versión) dejan
+  de validar → **un re-login**. (Pendiente SEC-4 frontend: que el SPA deje de
+  guardar el token en `localStorage` y use solo la cookie + `/auth/status` —
+  eso cierra del todo el robo de sesión por XSS.)
+
 ## [1.33.0] - 2026-06-23
 
 ### Seguridad / Datos
