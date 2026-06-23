@@ -7,6 +7,20 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.35.4] - 2026-06-23
+
+### Corregido
+- **Hotfix · Escaneo daba Error 500 (`ModuleNotFoundError: No module named 'PIL'`)**:
+  con Groq ya activo, escanear un PDF crasheaba con 500. El backend rasteriza el
+  PDF a PNG para la visión con `pypdfium2`, cuyo `.to_pil()` requiere **Pillow**,
+  que **no estaba en la imagen** (`requirements.txt` tenía `pypdfium2` pero no
+  `pillow`; PyMuPDF tampoco, así que caía al camino pypdfium2 que sí necesita PIL).
+  Como es `ModuleNotFoundError` (no `ValueError`), el handler de `wo_scan` no lo
+  atrapaba → 500. Fix: añadido `pillow>=10` a `requirements.txt`. Afectaba también
+  al camino Textract (`_pdf_images_b64` usa el mismo `.to_pil()`).
+  **LECCIÓN: lo que corre en dev (PIL/fitz instalados) puede faltar en el contenedor
+  — fijar TODAS las deps de runtime en requirements.txt.**
+
 ## [1.35.3] - 2026-06-23
 
 ### Corregido
