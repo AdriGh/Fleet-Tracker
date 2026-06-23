@@ -7,6 +7,25 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.35.5] - 2026-06-23
+
+### Corregido
+- **Hotfix P0 · Facturar una WO o refrescar el navegador sacaban al login (regresión SEC-4)**:
+  con la sesión migrada a cookie HttpOnly, el **middleware** sí validaba la cookie
+  (`user_from_request`), pero ~19 endpoints **re-validaban auth leyendo solo el
+  header `Authorization`** (que ya no se envía) → devolvían 401/403 → el front
+  disparaba `ft-unauthorized` y volvía al login. Síntomas reportados: (1) marcar
+  una WO como **Invoiced** (`require_scope("wo.invoice", …)` en `wo_patch`) y
+  (2) **Ctrl+R** (`GET /auth/status`, header-only) sacaban al usuario. También
+  afectaba — sin que se notara aún — gestión de usuarios, guardar Org/Settings,
+  companies, teams, terminals, ELD y el enmascarado PII de `/drivers`. Fix
+  central: los helpers `_require_admin`/`require_scope` y `auth_status` ahora
+  resuelven el usuario desde `request.state.user` (que el middleware deja ya
+  resuelto, cookie-aware) con fallback a `auth.user_from_request` para el
+  allowlist. Sin cambios en el frontend. **LECCIÓN: al mover auth a cookie, TODO
+  chequeo por-endpoint debe leer la cookie/request, no `Authorization` — el header
+  ya no existe.**
+
 ## [1.35.4] - 2026-06-23
 
 ### Corregido

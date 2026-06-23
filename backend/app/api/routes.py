@@ -612,10 +612,10 @@ def wo_delete(wo_id: int):
 
 @router.patch("/workorders/{wo_id}")
 async def wo_patch(wo_id: int, body: WorkOrderPatch,
-                   authorization: str | None = Header(default=None)):
+                   request: Request):
     # El middleware ya exigió maint.edit; FACTURAR exige además wo.invoice.
     if body.status == "invoiced":
-        require_scope("wo.invoice", authorization)
+        require_scope("wo.invoice", request)
     before = workorders.get_wo(wo_id)
     if before is None:
         raise HTTPException(status_code=404, detail="WO not found")
@@ -1102,8 +1102,21 @@ class UserPatch(BaseModel):
     name: str | None = None
 
 
-def _require_admin(authorization: str | None) -> dict:
-    user = auth.user_from_header(authorization)
+def _user_from(request: Request) -> dict | None:
+    """SEC-4 fix: el usuario lo resuelve el middleware (cookie-aware) y lo deja
+    en request.state.user. En rutas del allowlist (sin middleware) cae a
+    auth.user_from_request (lee la cookie HttpOnly y, como fallback, el Bearer).
+    NUNCA leer solo el header Authorization: la sesión vive en la cookie, así
+    que el header viene vacío y el chequeo fallaría — esto causaba que facturar
+    una WO y refrescar el navegador (auth/status) sacaran al usuario al login."""
+    u = getattr(request.state, "user", None)
+    if u is not None:
+        return u
+    return auth.user_from_request(request)
+
+
+def _require_admin(request: Request) -> dict:
+    user = _user_from(request)
     if user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
     if user["role"] != "admin":
@@ -1112,11 +1125,11 @@ def _require_admin(authorization: str | None) -> dict:
     return user
 
 
-def require_scope(scope: str, authorization: str | None) -> dict:
+def require_scope(scope: str, request: Request) -> dict:
     """Exige que el usuario tenga `scope` (H4). Bootstrap (sin usuarios aún)
     queda abierto. Para refinamientos dependientes del body que el middleware
     no puede ver (p.ej. facturar una WO)."""
-    user = auth.user_from_header(authorization)
+    user = _user_from(request)
     if user is None:
         if not auth.users_exist():
             return {"id": 0, "role": "admin", "username": "", "name": ""}
@@ -1129,9 +1142,9 @@ def require_scope(scope: str, authorization: str | None) -> dict:
 
 
 @router.get("/auth/status")
-def auth_status(authorization: str | None = Header(default=None)):
+def auth_status(request: Request):
     """Estado de autenticación. Allowlisted: nunca devuelve 401."""
-    user = auth.user_from_header(authorization)
+    user = _user_from(request)
     return {
         "setup_needed": not auth.users_exist(),
         "authenticated": user is not None,
@@ -1220,15 +1233,15 @@ def auth_logout(response: Response):
 
 
 @router.get("/auth/users")
-def auth_users(authorization: str | None = Header(default=None)):
-    _require_admin(authorization)
+def auth_users(request: Request):
+    _require_admin(request)
     return {"users": auth.list_users()}
 
 
 @router.post("/auth/users")
 def auth_users_create(body: UserIn,
-                      authorization: str | None = Header(default=None)):
-    _require_admin(authorization)
+                      request: Request):
+    _require_admin(request)
     try:
         return auth.create_user(body.name, body.username, body.password,
                                 body.role)
@@ -1238,8 +1251,8 @@ def auth_users_create(body: UserIn,
 
 @router.patch("/auth/users/{user_id}")
 def auth_users_patch(user_id: int, body: UserPatch,
-                     authorization: str | None = Header(default=None)):
-    admin = _require_admin(authorization)
+                     request: Request):
+    admin = _require_admin(request)
     try:
         user = auth.update_user(
             user_id,
@@ -1267,8 +1280,8 @@ def org_get():
 
 @router.post("/org")
 def org_save(body: dict,
-             authorization: str | None = Header(default=None)):
-    _require_admin(authorization)
+             request: Request):
+    _require_admin(request)
     return org_config.save(body)
 
 
@@ -1293,8 +1306,8 @@ def terminals_get():
 
 @router.post("/terminals")
 def terminals_save(body: TerminalIn,
-                   authorization: str | None = Header(default=None)):
-    _require_admin(authorization)
+                   request: Request):
+    _require_admin(request)
     try:
         return terminals.save_terminal(body.key, body.label, body.prefixes)
     except ValueError as exc:
@@ -1303,8 +1316,8 @@ def terminals_save(body: TerminalIn,
 
 @router.delete("/terminals/{key}")
 def terminals_delete(key: str,
-                     authorization: str | None = Header(default=None)):
-    _require_admin(authorization)
+                     request: Request):
+    _require_admin(request)
     try:
         return terminals.delete_terminal(key)
     except ValueError as exc:
@@ -1313,9 +1326,9 @@ def terminals_delete(key: str,
 
 @router.post("/terminals/assign")
 def terminals_assign(body: TerminalAssignIn,
-                     authorization: str | None = Header(default=None)):
+                     request: Request):
     """Reemplaza la flota pinneada de la terminal por la lista enviada."""
-    _require_admin(authorization)
+    _require_admin(request)
     try:
         return terminals.assign(body.terminal, body.units)
     except ValueError as exc:
@@ -1348,8 +1361,8 @@ def teams_get():
 
 @router.post("/teams")
 def teams_save(body: TeamIn,
-               authorization: str | None = Header(default=None)):
-    _require_admin(authorization)
+               request: Request):
+    _require_admin(request)
     try:
         return teams.save_team(
             body.key, body.label, [d.model_dump() for d in body.drivers])
@@ -1359,8 +1372,8 @@ def teams_save(body: TeamIn,
 
 @router.delete("/teams/{key}")
 def teams_delete(key: str,
-                 authorization: str | None = Header(default=None)):
-    _require_admin(authorization)
+                 request: Request):
+    _require_admin(request)
     try:
         return teams.delete_team(key)
     except ValueError as exc:
@@ -1369,9 +1382,9 @@ def teams_delete(key: str,
 
 @router.post("/teams/assign")
 def teams_assign(body: TeamAssignIn,
-                 authorization: str | None = Header(default=None)):
+                 request: Request):
     """Reemplaza la flota del equipo por la lista enviada."""
-    _require_admin(authorization)
+    _require_admin(request)
     try:
         return teams.assign(body.team, body.units)
     except ValueError as exc:
@@ -1428,9 +1441,9 @@ def units_manual_template():
 
 @router.post("/units/manual/import")
 def units_manual_import(body: UnitsCsvIn,
-                        authorization: str | None = Header(default=None)):
+                        request: Request):
     """Import masivo de unidades desde un CSV (upsert por numero de unidad)."""
-    _require_admin(authorization)
+    _require_admin(request)
     return manual_units.import_csv(body.csv)
 
 
@@ -1454,8 +1467,8 @@ def companies_list():
 
 @router.post("/companies")
 def companies_add(body: CompanyIn,
-                  authorization: str | None = Header(default=None)):
-    _require_admin(authorization)
+                  request: Request):
+    _require_admin(request)
     try:
         return {"companies": companies.add(body.label, body.key)}
     except ValueError as exc:
@@ -1464,8 +1477,8 @@ def companies_add(body: CompanyIn,
 
 @router.post("/companies/rename")
 def companies_rename(body: CompanyRenameIn,
-                     authorization: str | None = Header(default=None)):
-    _require_admin(authorization)
+                     request: Request):
+    _require_admin(request)
     try:
         return {"companies": companies.rename(body.key, body.label)}
     except ValueError as exc:
@@ -1474,8 +1487,8 @@ def companies_rename(body: CompanyRenameIn,
 
 @router.delete("/companies/{key}")
 def companies_delete(key: str,
-                     authorization: str | None = Header(default=None)):
-    _require_admin(authorization)
+                     request: Request):
+    _require_admin(request)
     return {"companies": companies.delete(key)}
 
 
@@ -1523,9 +1536,9 @@ class EldActiveIn(BaseModel):
 
 @router.post("/integrations/eld/active")
 def eld_set_active(body: EldActiveIn,
-                   authorization: str | None = Header(default=None)):
+                   request: Request):
     """Marca cuál proveedor ELD es el activo (fuente de datos por defecto)."""
-    _require_admin(authorization)
+    _require_admin(request)
     try:
         return {"active": providers.set_active(body.provider)}
     except ValueError as exc:
@@ -1534,12 +1547,12 @@ def eld_set_active(body: EldActiveIn,
 
 @router.get("/integrations/eld/{provider}/fleet-preview")
 async def eld_fleet_preview(provider: str,
-                            authorization: str | None = Header(default=None)):
+                            request: Request):
     """Corre el adapter list_fleet del proveedor y devuelve conteo + muestra.
 
     Verifica de punta a punta que un adapter trae datos reales, sin tocar el
     inventario de la app."""
-    _require_admin(authorization)
+    _require_admin(request)
     reg = providers.registry()
     prov = reg.get(provider)
     if prov is None:
@@ -1819,8 +1832,7 @@ async def fleet(refresh: bool = False):
 
 
 @router.get("/drivers")
-async def drivers_endpoint(refresh: bool = False,
-                           authorization: str | None = Header(default=None)):
+async def drivers_endpoint(request: Request, refresh: bool = False):
     """Conductores activos (Samsara) + email del snapshot local de Driver info.
     El email NO se lee en vivo; viene del snapshot (ver /drivers/sync-contacts).
     H4: si el rol no tiene pii.view, email/teléfono salen enmascarados."""
@@ -1842,7 +1854,7 @@ async def drivers_endpoint(refresh: bool = False,
         d["email"] = overrides.get(k) or (book.get(k) or {}).get("email", "")
     # H4: enmascarar PII server-side si el rol no la puede ver. user None =
     # bootstrap (sin usuarios) -> se muestra (el middleware ya filtró el resto).
-    user = auth.user_from_header(authorization)
+    user = _user_from(request)
     masked = user is not None and not permissions.has_scope(
         user["role"], "pii.view")
     if masked:
