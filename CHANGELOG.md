@@ -7,6 +7,22 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.35.3] - 2026-06-23
+
+### Corregido
+- **Hotfix · docscan no usaba Groq en prod (variables no llegaban al contenedor)**:
+  `DOCSCAN_PROVIDER` y `GROQ_API_KEY` se configuraban en el panel de Dokploy pero
+  el escaneo seguía cayendo a Ollama (`printenv` dentro del contenedor salía
+  vacío). Causa: en un deploy por **docker-compose**, las variables del panel van
+  al `.env` que Compose usa **solo para interpolar** `${...}`; NO se inyectan al
+  contenedor salvo que estén listadas en el bloque `environment:` del servicio —
+  y `DOCSCAN_PROVIDER`/`GROQ_API_KEY` no estaban (sí estaban `POSTGRES_*`, por eso
+  la DB sí conectaba). Fix: añadidas al `environment:` del app con interpolación
+  (`DOCSCAN_PROVIDER: ${DOCSCAN_PROVIDER:-auto}`, `GROQ_API_KEY: ${GROQ_API_KEY:-}`).
+  Tras el deploy, Connectivity debe mostrar **"Groq · …scout… (fast)"**.
+  **LECCIÓN: en Compose, una var del panel solo llega al contenedor si está en el
+  bloque `environment:` (o `env_file:`); el `.env` por sí solo es solo interpolación.**
+
 ## [1.35.2] - 2026-06-23
 
 ### Corregido

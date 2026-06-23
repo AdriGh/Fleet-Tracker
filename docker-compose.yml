@@ -50,6 +50,15 @@ services:
       # ./secrets montado abajo. Si la carpeta esta vacia, cada integracion
       # arranca en modo offline/degradado (la app igual corre). Ver DEPLOY.md.
       FLEET_SECRETS_DIR: /app/secrets
+      # docscan (escaneo AI de facturas). Estas DOS variables DEBEN listarse
+      # AQUI para que Compose las inyecte al contenedor: el panel de Dokploy
+      # las guarda en el .env, que Compose usa SOLO para interpolar ${...} en
+      # este archivo. Si no estan en este bloque NO llegan al proceso (printenv
+      # vacio) y resolved_provider() cae a 'auto' -> Ollama. Con esto,
+      # DOCSCAN_PROVIDER=groq del .env activa el escaneo rapido en LPU de Groq.
+      # Ver docscan.py / DEPLOY.md.
+      DOCSCAN_PROVIDER: ${DOCSCAN_PROVIDER:-auto}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
     ports:
       # host:contenedor — exponer 8765 afuera para no chocar con otros 8000.
       # En Dokploy normalmente NO se publica el puerto: el proxy interno (Traefik)
