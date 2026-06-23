@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 
 import httpx
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 
 from .. import __version__, config, db
@@ -22,7 +22,7 @@ from ..core import (
     excel, integrations_admin, inventory, local_config, lynx, mailer, maint,
     manual_units, media_host, notify_service, open_defects, org_config,
     parts, parts_marketplace, permissions, pm, pois, pretrip, providers,
-    purchasing, reefer,
+    purchasing, ratelimit, reefer,
     reports,
     samsara,
     sms_service,
@@ -1141,9 +1141,24 @@ def auth_status(authorization: str | None = Header(default=None)):
     }
 
 
+def _too_many(retry_after_s: int) -> HTTPException:
+    """SEC-3: 429 con header Retry-After y mensaje claro. El cliente sabe
+    cuanto esperar; el front ya parsea `detail` via readError."""
+    return HTTPException(
+        status_code=429,
+        detail=f"Too many attempts, try again in {retry_after_s} s",
+        headers={"Retry-After": str(retry_after_s)})
+
+
 @router.post("/auth/setup")
-def auth_setup(body: AuthSetupIn):
+def auth_setup(body: AuthSetupIn, request: Request):
     """Crea el PRIMER usuario (admin). Solo con la tabla vacía."""
+    # SEC-3: rate limit por IP como defensa (este endpoint solo funciona con
+    # la tabla vacia, pero no debe poder martillarse).
+    ip = ratelimit.client_ip(request)
+    if not ratelimit.hit(f"setup:{ip}", ratelimit.SETUP_RATE,
+                         ratelimit.SETUP_RATE_WINDOW_S):
+        raise _too_many(ratelimit.SETUP_RATE_WINDOW_S)
     try:
         user = auth.setup_admin(body.name, body.username, body.password)
     except ValueError as exc:
@@ -1153,11 +1168,31 @@ def auth_setup(body: AuthSetupIn):
 
 
 @router.post("/auth/login")
-def auth_login(body: AuthLoginIn):
+def auth_login(body: AuthLoginIn, request: Request):
+    # SEC-3: defensa anti fuerza bruta. Orden: ban de IP -> rate limit por IP
+    # -> bloqueo de cuenta -> credenciales. La IP real sale del XFF (Traefik).
+    ip = ratelimit.client_ip(request)
+    banned, ban_left = ratelimit.is_banned(ip)
+    if banned:
+        raise _too_many(ban_left)
+    if not ratelimit.hit(f"login:{ip}", ratelimit.LOGIN_RATE,
+                         ratelimit.LOGIN_RATE_WINDOW_S):
+        raise _too_many(ratelimit.LOGIN_RATE_WINDOW_S)
+    locked, lock_left = ratelimit.is_locked(body.username)
+    if locked:
+        raise _too_many(lock_left)
+
     result = auth.login(body.username, body.password)
     if result is None:
+        # Fallo: cuenta hacia ban de IP y hacia bloqueo de cuenta.
+        ratelimit.record_failure(ip)
+        ratelimit.record_account_failure(body.username)
+        # Mensaje generico (no filtra si el usuario existe).
         raise HTTPException(status_code=401,
                             detail="Incorrect username or password")
+    # Exito: limpia ambos contadores.
+    ratelimit.record_success(ip)
+    ratelimit.record_account_success(body.username)
     return result
 
 

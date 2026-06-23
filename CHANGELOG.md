@@ -7,6 +7,24 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.32.0] - 2026-06-23
+
+### Seguridad
+- **SEC-3 · Rate limiting + IP banning + lockout de cuenta (anti fuerza bruta)**:
+  nuevo `backend/app/core/ratelimit.py` (en memoria, thread-safe; IP real desde
+  `X-Forwarded-For` tras Traefik). `/auth/login` ahora aplica, en orden: ban de
+  IP → rate-limit (5/min por IP) → lockout de cuenta → credenciales. Ban de IP
+  tras 15 fallos/10 min (→15 min); lockout de cuenta tras 8 fallos (→15 min).
+  `/auth/setup` también rate-limited. Responde **429 + Retry-After**. Configurable
+  por env `SEC3_*` (defaults sanos; no requiere setear nada). Primer test del
+  repo: `backend/tests/test_ratelimit.py` (4/4). Cierra el vector de fuerza bruta
+  del login (antes no había NINGÚN freno). Store en memoria = single-replica;
+  redis es el upgrade multi-replica (ARCH-1).
+
+### Documentación
+- `reports/informe-arreglos.{html,pdf}` — informe ejecutivo ejemplificado de los
+  arreglos (v1.30.0→v1.31.1 + OPS-1): qué cambió, cómo afecta, antes vs. ahora.
+
 ## [1.31.1] - 2026-06-22
 
 ### Corregido

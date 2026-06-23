@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fleet Tracker — Informe de Arreglos de Seguridad y Calidad</title>
+<style>
+  :root{
+    --accent:#e11900;
+    --accent-soft:#fdecec;
+    --ok-soft:#eaf7ee;
+    --ok-line:#1f9d4d;
+    --bad-line:#e11900;
+    --ink:#1a1a1a;
+    --muted:#5c5c5c;
+    --line:#e2e2e2;
+    --line-soft:#efefef;
+    --crit:#e11900;
+    --high:#b45309;
+    --med:#6b7280;
+    --bg-card:#ffffff;
+  }
+
+  *{ box-sizing:border-box; }
+
+  html,body{
+    margin:0;
+    padding:0;
+    background:#f4f4f5;
+    color:var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size:14px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .page{
+    max-width:820px;
+    margin:0 auto;
+    padding:32px 36px 56px;
+    background:#fff;
+  }
+
+  /* ---------- Portada ---------- */
+  .cover{
+    border-top:8px solid var(--accent);
+    padding:36px 0 28px;
+    margin-bottom:28px;
+    border-bottom:1px solid var(--line);
+  }
+  .cover .brand{
+    display:inline-flex;
+    align-items:center;
+    gap:9px;
+    font-weight:700;
+    letter-spacing:.02em;
+    color:var(--accent);
+    font-size:13px;
+    text-transform:uppercase;
+    margin-bottom:18px;
+  }
+  .cover .brand .dot{
+    width:13px;height:13px;border-radius:3px;
+    background:var(--accent);
+    display:inline-block;
+  }
+  .cover h1{
+    font-size:31px;
+    line-height:1.15;
+    margin:0 0 14px;
+    font-weight:800;
+    letter-spacing:-.01em;
+    max-width:680px;
+  }
+  .cover .meta{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px 26px;
+    margin-top:18px;
+    font-size:13px;
+    color:var(--muted);
+  }
+  .cover .meta b{ color:var(--ink); }
+  .cover .pill-live{
+    display:inline-flex;align-items:center;gap:7px;
+    background:var(--ok-soft);
+    color:#15803d;
+    border:1px solid #b6e4c4;
+    padding:4px 11px;
+    border-radius:999px;
+    font-size:12px;
+    font-weight:600;
+  }
+  .cover .pill-live .led{
+    width:8px;height:8px;border-radius:50%;background:#1f9d4d;display:inline-block;
+  }
+
+  h2.section{
+    font-size:20px;
+    font-weight:800;
+    letter-spacing:-.01em;
+    margin:34px 0 12px;
+    padding-bottom:7px;
+    border-bottom:2px solid var(--accent);
+  }
+  h3{ font-size:15px; margin:18px 0 6px; font-weight:700; }
+  p{ margin:0 0 10px; }
+
+  .lead{ font-size:14.5px; color:#2a2a2a; }
+
+  /* ---------- Badges severidad ---------- */
+  .badge{
+    display:inline-block;
+    padding:2px 9px;
+    border-radius:5px;
+    font-size:11px;
+    font-weight:700;
+    letter-spacing:.02em;
+    text-transform:uppercase;
+    color:#fff;
+    white-space:nowrap;
+  }
+  .badge.crit{ background:var(--crit); }
+  .badge.high{ background:var(--high); }
+  .badge.med{ background:var(--med); }
+  .badge.id{
+    background:#f1f1f2;
+    color:#333;
+    border:1px solid #dcdcdc;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    letter-spacing:0;
+  }
+
+  /* ---------- Tabla resumen ---------- */
+  table.summary{
+    width:100%;
+    border-collapse:collapse;
+    margin:14px 0 8px;
+    font-size:12.5px;
+  }
+  table.summary th, table.summary td{
+    text-align:left;
+    padding:8px 9px;
+    border-bottom:1px solid var(--line);
+    vertical-align:top;
+  }
+  table.summary thead th{
+    background:#fafafa;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.03em;
+    color:var(--muted);
+    border-bottom:2px solid var(--line);
+  }
+  table.summary td.col-id{ white-space:nowrap; font-family: ui-monospace, Menlo, Consolas, monospace; font-weight:600; }
+  table.summary tr:last-child td{ border-bottom:none; }
+
+  /* ---------- Ficha ---------- */
+  .ficha{
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:18px 20px 16px;
+    margin:16px 0;
+    background:var(--bg-card);
+    page-break-inside:avoid;
+    break-inside:avoid;
+  }
+  .ficha .ficha-head{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-bottom:6px;
+  }
+  .ficha .ficha-head h3{
+    margin:0;
+    font-size:16px;
+    flex:1 1 auto;
+  }
+  .ficha .ficha-head .ver{
+    font-size:11px;
+    color:var(--muted);
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    background:#f6f6f6;
+    padding:2px 7px;
+    border-radius:5px;
+    border:1px solid #ececec;
+  }
+  .ficha .row{ margin:8px 0; }
+  .ficha .label{
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:var(--muted);
+    font-weight:700;
+    margin-bottom:2px;
+  }
+  .ficha .label.tech{ color:var(--accent); }
+
+  /* Cajas Antes / Ahora */
+  .ba-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:11px;
+    margin:12px 0 4px;
+  }
+  .box{
+    border-radius:9px;
+    padding:11px 13px;
+    font-size:13px;
+  }
+  .box .box-title{
+    font-size:11px;
+    font-weight:800;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    margin-bottom:5px;
+    display:flex;align-items:center;gap:6px;
+  }
+  .box.antes{
+    background:var(--accent-soft);
+    border:1px solid #f6c9c9;
+    border-left:4px solid var(--bad-line);
+  }
+  .box.antes .box-title{ color:#b91c1c; }
+  .box.ahora{
+    background:var(--ok-soft);
+    border:1px solid #bfe6cb;
+    border-left:4px solid var(--ok-line);
+  }
+  .box.ahora .box-title{ color:#15803d; }
+  .box p{ margin:0; }
+  .ico{ font-weight:900; }
+
+  code, .mono{
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size:12px;
+    background:#f4f4f5;
+    padding:1px 5px;
+    border-radius:4px;
+    color:#b91c1c;
+  }
+
+  .note-block{
+    background:#fafafa;
+    border:1px solid var(--line);
+    border-left:4px solid var(--accent);
+    border-radius:8px;
+    padding:12px 15px;
+    margin:14px 0;
+    font-size:13px;
+  }
+
+  ul.clean{ margin:6px 0 10px; padding-left:20px; }
+  ul.clean li{ margin:4px 0; }
+
+  .footer{
+    margin-top:40px;
+    padding-top:14px;
+    border-top:1px solid var(--line);
+    font-size:11px;
+    color:var(--muted);
+    display:flex;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+
+  /* ---------- Impresión A4 ---------- */
+  @page{ size:A4; margin:18mm; }
+  @media print{
+    html,body{ background:#fff; font-size:11.2pt; }
+    .page{ max-width:none; margin:0; padding:0; }
+    .ficha{ page-break-inside:avoid; break-inside:avoid; }
+    h2.section, h3{ page-break-after:avoid; break-after:avoid; }
+    .cover{ page-break-after:avoid; }
+    table.summary{ page-break-inside:auto; }
+    table.summary tr{ page-break-inside:avoid; }
+    a{ color:inherit; text-decoration:none; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ============ PORTADA ============ -->
+  <header class="cover">
+    <span class="brand"><span class="dot"></span> Fleet Tracker</span>
+    <h1>Informe de Arreglos de Seguridad y Calidad</h1>
+    <div class="meta">
+      <span><b>Fecha:</b> 23 de junio de 2026</span>
+      <span><b>Versión actual:</b> v1.31.1</span>
+      <span class="pill-live"><span class="led"></span> App en producción (Dokploy / Hostinger)</span>
+    </div>
+  </header>
+
+  <!-- ============ RESUMEN EJECUTIVO ============ -->
+  <h2 class="section">Resumen ejecutivo</h2>
+
+  <p class="lead">Durante junio realizamos una auditoría profunda y honesta de Fleet Tracker
+  —la base ya estaba por encima del promedio: contraseñas cifradas correctamente, control de
+  roles del lado del servidor y aislamiento entre clientes— y empezamos a tapar los agujeros que,
+  por estar la app <b>ya expuesta a internet con datos reales de los pilotos</b>, eran explotables
+  hoy mismo. Este informe resume, en lenguaje claro, los <b>diez arreglos ya terminados</b>: qué
+  riesgo concreto tenía cada uno, qué podía pasar con la versión vieja, y cómo queda protegido ahora.</p>
+
+  <p>Los arreglos cubren cuatro frentes. <b>Seguridad de acceso</b>: cerramos una puerta por la
+  que un empleado de solo-lectura podía borrar empresas y equipos enteros, y cerramos la ventana
+  de "API abierta" del primer arranque. <b>Integridad de los datos</b>: blindamos el contador de
+  facturas para que nunca se repitan números (un problema contable serio) y frenamos manipulaciones
+  de datos entre clientes distintos. <b>Estabilidad</b>: corregimos errores que tumbaban el Dashboard
+  en producción y caídas intermitentes por conexiones muertas a la base. <b>Operaciones</b>: pusimos
+  en marcha las migraciones de base de datos, los respaldos diarios, y purgamos del historial de
+  Git un archivo con datos personales de conductores que seguía siendo recuperable.</p>
+
+  <p>Importante para el negocio: <b>todos estos arreglos se aplicaron sin sacar la app de servicio</b>.
+  Los pilotos siguieron operando con normalidad. La mayoría de los cambios son invisibles para el
+  usuario del día a día —no hay funciones nuevas que aprender—; lo que cambió es que la app es ahora
+  más difícil de atacar, más fiable y recuperable ante un desastre.</p>
+
+  <table class="summary">
+    <thead>
+      <tr>
+        <th style="width:62px">ID</th>
+        <th>Arreglo</th>
+        <th style="width:78px">Severidad</th>
+        <th>Riesgo evitado</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="col-id">SEC-1</td>
+        <td>Permisos por rol "a prueba de fallos"</td>
+        <td><span class="badge crit">Crítica</span></td>
+        <td>Que un usuario de solo-lectura borrara empresas, equipos y cambiara integraciones.</td>
+      </tr>
+      <tr>
+        <td class="col-id">SEC-2</td>
+        <td>Arranque inicial seguro</td>
+        <td><span class="badge crit">Crítica</span></td>
+        <td>Que un extraño secuestrara la instancia recién desplegada antes de que tú la configures.</td>
+      </tr>
+      <tr>
+        <td class="col-id">DATA-1</td>
+        <td>Aislamiento de escrituras entre clientes</td>
+        <td><span class="badge crit">Crítica</span></td>
+        <td>Que un cliente marcara o modificara las alertas de otro cliente (o de todos).</td>
+      </tr>
+      <tr>
+        <td class="col-id">DATA-2</td>
+        <td>Numeración de facturas a prueba de duplicados</td>
+        <td><span class="badge crit">Crítica</span></td>
+        <td>Dos facturas con el mismo número emitidas a la vez (problema contable y legal).</td>
+      </tr>
+      <tr>
+        <td class="col-id">OPS-1</td>
+        <td>Purga de datos de conductores del historial de Git</td>
+        <td><span class="badge crit">Crítica</span></td>
+        <td>Que alguien recuperara el archivo con la PII de conductores del historial del repositorio.</td>
+      </tr>
+      <tr>
+        <td class="col-id">OPS-2</td>
+        <td>Migraciones de base de datos operativas</td>
+        <td><span class="badge crit">Crítica</span></td>
+        <td>Que un cambio de esquema tumbara silenciosamente la base en producción.</td>
+      </tr>
+      <tr>
+        <td class="col-id">OPS-3</td>
+        <td>Respaldos automáticos de la base</td>
+        <td><span class="badge crit">Crítica</span></td>
+        <td>Pérdida total de datos de cumplimiento (DOT/DVIR) si se cae el servidor.</td>
+      </tr>
+      <tr>
+        <td class="col-id">DATA-6</td>
+        <td>Resúmenes y tendencias compatibles con Postgres</td>
+        <td><span class="badge med">Media</span></td>
+        <td>Que el Dashboard diera error 500 y no cargara en producción.</td>
+      </tr>
+      <tr>
+        <td class="col-id">DATA-7</td>
+        <td>Conexiones a la base sin caídas por inactividad</td>
+        <td><span class="badge med">Media</span></td>
+        <td>Errores intermitentes (pantallazos 5xx) tras ratos de inactividad.</td>
+      </tr>
+      <tr>
+        <td class="col-id">FE-2</td>
+        <td>App a prueba de "pantalla en blanco"</td>
+        <td><span class="badge med">Media</span></td>
+        <td>Que un error de pantalla dejara la app totalmente en blanco sin explicación.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p style="font-size:11px;color:var(--muted);margin-top:4px">
+    Severidad según el impacto real con la app <b>expuesta a internet con datos reales</b>:
+    <span class="badge crit" style="padding:1px 6px">Crítica</span> explotable hoy /
+    <span class="badge high" style="padding:1px 6px">Alta</span> riesgo serio /
+    <span class="badge med" style="padding:1px 6px">Media</span> calidad y robustez.
+  </p>
+
+  <!-- ============ FICHAS ============ -->
+  <h2 class="section">Detalle de cada arreglo</h2>
+
+  <!-- ===== SEC-1 ===== -->
+  <div class="ficha">
+    <div class="ficha-head">
+      <h3>Permisos por rol "a prueba de fallos" (RBAC fail-closed)</h3>
+      <span class="badge crit">Crítica</span>
+      <span class="badge id">SEC-1</span>
+      <span class="ver">v1.30.0</span>
+    </div>
+
+    <div class="row">
+      <div class="label">Qué es</div>
+      <p>El "portero" que decide qué puede hacer cada rol (administrador, mecánico, solo-lectura…).
+      Antes, si una acción no estaba en una lista explícita, el portero la dejaba pasar por defecto.</p>
+    </div>
+
+    <div class="row">
+      <div class="label tech">Qué cambió</div>
+      <p>El middleware de autorización (<span class="mono">backend/app/main.py</span>) pasó de
+      <i>default-allow</i> a <i>fail-closed</i>: toda operación de escritura no contemplada queda
+      ahora restringida a administradores. Se añadieron permisos explícitos a empresas, equipos,
+      integraciones, POIs, reportes y DVIR.</p>
+    </div>
+
+    <div class="row">
+      <div class="label">Cómo afecta la app actual</div>
+      <p>El administrador actual <b>no nota ningún cambio</b>: sigue pudiendo hacer todo lo que hacía.
+      Lo que cambia es invisible para el uso normal: las cuentas con rol limitado ya no pueden hacer
+      acciones que nunca debieron poder hacer.</p>
+    </div>
+
+    <div class="ba-grid">
+      <div class="box antes">
+        <div class="box-title"><span class="ico">✕</span> Qué podía pasar antes</div>
+        <p>Le dabas a un empleado una cuenta de <b>solo-lectura</b> para que viera reportes. Esa
+        persona —o cualquiera que le robara la sesión— podía, con un poco de maña, <b>crear y borrar
+        empresas y equipos enteros</b>, disparar importaciones del ELD y hasta cambiar el proveedor
+        de GPS activo. Tu "observador" tenía, en la práctica, manos de administrador en media app.</p>
+      </div>
+      <div class="box ahora">
+        <div class="box-title"><span class="ico">✓</span> Qué pasa ahora</div>
+        <p>Cualquier acción de escritura sin permiso explícito se <b>rechaza con un error de "no
+        autorizado"</b>. Solo-lectura es de verdad solo-lectura. Las acciones sensibles quedaron
+        limitadas a administradores salvo que se les conceda el permiso concreto.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SEC-2 ===== -->
+  <div class="ficha">
+    <div class="ficha-head">
+      <h3>Arranque inicial seguro (bootstrap)</h3>
+      <span class="badge crit">Crítica</span>
+      <span class="badge id">SEC-2</span>
+      <span class="ver">v1.30.0</span>
+    </div>
+
+    <div class="row">
+      <div class="label">Qué es</div>
+      <p>El estado de la app justo después de instalarse, cuando todavía no hay ningún usuario creado
+      y estás a punto de configurar tu cuenta de administrador.</p>
+    </div>
+
+    <div class="row">
+      <div class="label tech">Qué cambió</div>
+      <p>Mientras la tabla de usuarios esté vacía, la API ya no queda abierta: sin sesión válida
+      responde "no autenticado" (401), salvo una lista corta de rutas necesarias (estado, configuración
+      inicial, login, salud, marca). El asistente de configuración sigue funcionando
+      (<span class="mono">backend/app/main.py</span>).</p>
+    </div>
+
+    <div class="row">
+      <div class="label">Cómo afecta la app actual</div>
+      <p>Ninguno visible. La app ya está configurada y en producción; este blindaje protege el
+      momento del primer arranque y de futuros redespliegues desde cero.</p>
+    </div>
+
+    <div class="ba-grid">
+      <div class="box antes">
+        <div class="box-title"><span class="ico">✕</span> Qué podía pasar antes</div>
+        <p>En el instante en que el servidor levantaba la app por primera vez y <b>aún no existía
+        ningún usuario</b>, la API quedaba <b>completamente abierta</b>. Entre que el contenedor
+        arrancaba y tú completabas el asistente de registro, un extraño que estuviera observando el
+        servidor podía <b>adelantarse y crearse a sí mismo como el administrador</b> de tu Fleet
+        Tracker. Te quedabas fuera de tu propia app.</p>
+      </div>
+      <div class="box ahora">
+        <div class="box-title"><span class="ico">✓</span> Qué pasa ahora</div>
+        <p>Sin usuarios, la API solo deja pasar lo imprescindible para que <b>tú</b> completes el
+        registro inicial; todo lo demás está cerrado. La ventana de secuestro del primer arranque
+        queda eliminada.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== DATA-1 ===== -->
+  <div class="ficha">
+    <div class="ficha-head">
+      <h3>Aislamiento de escrituras entre clientes (IDOR de escritura)</h3>
+      <span class="badge crit">Crítica</span>
+      <span class="badge id">DATA-1</span>
+      <span class="ver">v1.30.0</span>
+    </div>
+
+    <div class="row">
+      <div class="label">Qué es</div>
+      <p>La barrera que evita que los datos de un cliente se mezclen con los de otro. La barrera
+      protegía bien las <i>lecturas</i>, pero una operación de <i>escritura</i> sobre las alertas
+      se le escapaba.</p>
+    </div>
+
+    <div class="row">
+      <div class="label tech">Qué cambió</div>
+      <p>La función que marca alertas como atendidas (<span class="mono">ack_events</span> en
+      <span class="mono">backend/app/core/alerts.py</span>) hacía un <span class="mono">UPDATE</span>
+      sin filtrar por organización. Ahora filtra siempre por la organización del cliente actual.</p>
+    </div>
+
+    <div class="row">
+      <div class="label">Cómo afecta la app actual</div>
+      <p>Invisible. Cada cliente sigue viendo y gestionando solo sus alertas, pero ahora también a
+      nivel de escritura está garantizado por código.</p>
+    </div>
+
+    <div class="ba-grid">
+      <div class="box antes">
+        <div class="box-title"><span class="ico">✕</span> Qué podía pasar antes</div>
+        <p>Un usuario de la empresa A, manipulando una petición, podía marcar como "atendidas" las
+        <b>alertas de la empresa B</b>. Peor: una llamada sin especificar cuáles, marcaba como
+        atendidas <b>las alertas de TODAS las empresas de la base</b> a la vez. Alguien podía "apagar"
+        las alertas de cumplimiento de otro cliente sin que este se enterara.</p>
+      </div>
+      <div class="box ahora">
+        <div class="box-title"><span class="ico">✓</span> Qué pasa ahora</div>
+        <p>Cada operación sobre alertas queda <b>amarrada a la organización del usuario</b> que la
+        ejecuta. Es imposible tocar las alertas de otro cliente, y mucho menos las de todos.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== DATA-2 ===== -->
+  <div class="ficha">
+    <div class="ficha-head">
+      <h3>Numeración de facturas a prueba de duplicados (contador atómico)</h3>
+      <span class="badge crit">Crítica</span>
+      <span class="badge id">DATA-2</span>
+      <span class="ver">v1.30.1</span>
+    </div>
+
+    <div class="row">
+      <div class="label">Qué es</div>
+      <p>El mecanismo que asigna el número correlativo a cada factura del taller (1, 2, 3…) para que
+      nunca se repita.</p>
+    </div>
+
+    <div class="row">
+      <div class="label tech">Qué cambió</div>
+      <p>El contador anterior leía el número, sumaba uno y lo guardaba sin candado, dejando una
+      rendija para el solapamiento. Se reemplazó por <span class="mono">db.bump_invoice_number</span>
+      con bloqueo a nivel de base (<span class="mono">SELECT ... FOR UPDATE</span>), atómico en
+      Postgres. Sin cambios de esquema.</p>
+    </div>
+
+    <div class="row">
+      <div class="label">Cómo afecta la app actual</div>
+      <p>Invisible y sin cambios de comportamiento: las facturas se siguen numerando igual, pero ahora
+      es matemáticamente imposible repetir un número aunque se facture en paralelo.</p>
+    </div>
+
+    <div class="ba-grid">
+      <div class="box antes">
+        <div class="box-title"><span class="ico">✕</span> Qué podía pasar antes</div>
+        <p>Si dos personas facturaban dos órdenes de trabajo <b>en el mismo instante</b> —cosa normal
+        en un taller con varios mostradores—, ambas podían tomar el <b>mismo número de factura</b>.
+        Resultado: dos facturas distintas con el número 1043. Eso es un <b>problema contable y legal</b>
+        que ensucia tu contabilidad y complica auditorías o reclamos.</p>
+      </div>
+      <div class="box ahora">
+        <div class="box-title"><span class="ico">✓</span> Qué pasa ahora</div>
+        <p>La base de datos entrega el número con un candado: la segunda factura <b>espera su turno</b>
+        y recibe el siguiente número. Nunca más dos facturas con la misma numeración.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== OPS-3 ===== -->
+  <div class="ficha">
+    <div class="ficha-head">
+      <h3>Respaldos automáticos de la base de datos</h3>
+      <span class="badge crit">Crítica</span>
+      <span class="badge id">OPS-3</span>
+      <span class="ver">v1.30.1</span>
+    </div>
+
+    <div class="row">
+      <div class="label">Qué es</div>
+      <p>Copias de seguridad periódicas de toda la información de la app (órdenes, facturas,
+      inventario, mantenimiento, DVIR) para poder recuperarla si algo sale mal.</p>
+    </div>
+
+    <div class="row">
+      <div class="label tech">Qué cambió</div>
+      <p>Se añadió <span class="mono">ops/backup.sh</span> (vuelca la base con <span class="mono">pg_dump</span>,
+      comprimido, con retención de 14 días, pensado para correr automáticamente en el servidor) más un
+      manual de restauración (<span class="mono">ops/db-restore.md</span>) y la sección 4.1 en
+      <span class="mono">DEPLOY.md</span>.</p>
+    </div>
+
+    <div class="row">
+      <div class="label">Cómo afecta la app actual</div>
+      <p>Invisible para el usuario. Aporta una red de seguridad: ante un fallo, los datos se pueden
+      restaurar. <i>Pendiente</i>: dejar el respaldo programado en el servidor por SSH y copiar las
+      copias fuera del propio servidor.</p>
+    </div>
+
+    <div class="ba-grid">
+      <div class="box antes">
+        <div class="box-title"><span class="ico">✕</span> Qué podía pasar antes</div>
+        <p>No existía <b>ningún respaldo</b>. La única "protección" era no borrar el disco. Si el VPS
+        de Hostinger sufría una falla de hardware, un borrado accidental o un ataque, se perdían
+        <b>de golpe y para siempre</b> todas las órdenes de trabajo, facturas, inventario y —lo más
+        grave— los registros de cumplimiento DOT/DVIR que la ley obliga a conservar.</p>
+      </div>
+      <div class="box ahora">
+        <div class="box-title"><span class="ico">✓</span> Qué pasa ahora</div>
+        <p>Existe un script de respaldo comprimido con 14 días de retención y un manual de restauración
+        paso a paso. Ante un desastre, los datos se recuperan en lugar de perderse.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== OPS-2 ===== -->
+  <div class="ficha">
+    <div class="ficha-head">
+      <h3>Migraciones de base de datos operativas (Alembic)</h3>
+      <span class="badge crit">Crítica</span>
+      <span class="badge id">OPS-2</span>
+      <span class="ver">v1.31.0 / v1.31.1</span>
+    </div>
+
+    <div class="row">
+      <div class="label">Qué es</div>
+      <p>El sistema que aplica de forma ordenada y segura los cambios en la <i>estructura</i> de la
+      base de datos (añadir una columna, una tabla nueva…) cada vez que sale una versión nueva.</p>
+    </div>
+
+    <div class="row">
+      <div class="label tech">Qué cambió</div>
+      <p>El contenedor ya no depende de <span class="mono">create_all</span> para el esquema. Un nuevo
+      <span class="mono">backend/scripts/db_migrate.py</span> corre al arrancar: en base existente sin
+      historial la <b>adopta</b> sin tocar datos y aplica los cambios pendientes; en base nueva la crea
+      desde cero. Se regeneró el esquema base completo (19 tablas, antes faltaban 3). En la v1.31.1 se
+      corrigió un fallo donde Alembic <b>crasheaba en producción</b> por el carácter <span class="mono">%</span>
+      de la contraseña de Postgres (entraba en bucle de reinicio); ahora la URL se pasa directa al motor.</p>
+    </div>
+
+    <div class="row">
+      <div class="label">Cómo afecta la app actual</div>
+      <p>Invisible en uso normal, pero clave para el futuro: <b>desbloquea</b> poder publicar mejoras
+      que cambian la estructura de datos sin riesgo de romper la base en silencio.</p>
+    </div>
+
+    <div class="ba-grid">
+      <div class="box antes">
+        <div class="box-title"><span class="ico">✕</span> Qué podía pasar antes</div>
+        <p>Como cada cambio se desplegaba automáticamente en cuanto subías código, y el sistema viejo
+        <b>no sabía modificar tablas que ya existían</b>, bastaba una mejora que añadiera una columna
+        para que la app <b>se rompiera en producción de forma silenciosa</b>: error 500 al usar la
+        pantalla afectada, sin aviso claro, sobre la base real de los pilotos. Tú te enterabas por la
+        queja del usuario, no por una alerta.</p>
+      </div>
+      <div class="box ahora">
+        <div class="box-title"><span class="ico">✓</span> Qué pasa ahora</div>
+        <p>Al arrancar, la app aplica los cambios de estructura de forma <b>ordenada y verificada</b>
+        (probado en los tres escenarios: base nueva, base existente adoptada y base ya migrada). Los
+        cambios de esquema futuros dejan de ser una ruleta rusa.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== OPS-1 ===== -->
+  <div class="ficha">
+    <div class="ficha-head">
+      <h3>Purga de datos de conductores del historial de Git</h3>
+      <span class="badge crit">Crítica</span>
+      <span class="badge id">OPS-1</span>
+      <span class="ver">limpieza de repositorio</span>
+    </div>
+
+    <div class="row">
+      <div class="label">Qué es</div>
+      <p>El historial de Git guarda <b>todas</b> las versiones pasadas de cada archivo. Un archivo con
+      datos personales de conductores (<span class="mono">roster.csv</span>) se había borrado del
+      proyecto, pero seguía vivo y recuperable en el historial.</p>
+    </div>
+
+    <div class="row">
+      <div class="label tech">Qué cambió</div>
+      <p>Se reescribió el historial completo con <span class="mono">git filter-branch</span> para
+      eliminar <span class="mono">roster.csv</span> de <b>todos</b> los commits, y se hizo
+      <span class="mono">force-push</span> de la rama <span class="mono">main</span> y de las 67
+      etiquetas (tags). El archivo deja de existir en cualquier punto del historial.</p>
+    </div>
+
+    <div class="row">
+      <div class="label">Cómo afecta la app actual</div>
+      <p>Ninguno funcional. Es higiene de privacidad y cumplimiento: la PII de conductores ya no es
+      extraíble del repositorio.</p>
+    </div>
+
+    <div class="ba-grid">
+      <div class="box antes">
+        <div class="box-title"><span class="ico">✕</span> Qué podía pasar antes</div>
+        <p>Aunque el archivo "ya no estaba" en el proyecto, cualquiera con acceso al repositorio podía
+        <b>recuperar el archivo de datos de conductores</b> con un solo comando, viajando al commit
+        antiguo. Quedaban expuestos nombres y datos personales de conductores de un empleador anterior:
+        un incidente de privacidad y un posible problema legal latente.</p>
+      </div>
+      <div class="box ahora">
+        <div class="box-title"><span class="ico">✓</span> Qué pasa ahora</div>
+        <p>El archivo fue <b>borrado de raíz de todo el historial</b> y el cambio se forzó en el
+        repositorio remoto (rama y 67 etiquetas). Ya no hay forma de recuperar esa información desde Git.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== DATA-6 ===== -->
+  <div class="ficha">
+    <div class="ficha-head">
+      <h3>Resúmenes y tendencias compatibles con Postgres</h3>
+      <span class="badge med">Media</span>
+      <span class="badge id">DATA-6</span>
+      <span class="ver">v1.30.0</span>
+    </div>
+
+    <div class="row">
+      <div class="label">Qué es</div>
+      <p>Los cálculos que arman el resumen del mes, las tendencias y el listado de conductores faltantes
+      —lo que alimenta el Dashboard.</p>
+    </div>
+
+    <div class="row">
+      <div class="label tech">Qué cambió</div>
+      <p>Esos cálculos usaban una función de fecha (<span class="mono">strftime</span>) que solo existe
+      en SQLite, no en la base de producción (Postgres). Se reemplazó por un rango de fechas portable
+      (<span class="mono">_month_bounds</span> en <span class="mono">backend/app/db.py</span>) que
+      funciona en ambas.</p>
+    </div>
+
+    <div class="row">
+      <div class="label">Cómo afecta la app actual</div>
+      <p>El usuario nota que <b>el Dashboard y los resúmenes vuelven a cargar</b> correctamente en
+      producción, sin errores.</p>
+    </div>
+
+    <div class="ba-grid">
+      <div class="box antes">
+        <div class="box-title"><span class="ico">✕</span> Qué podía pasar antes</div>
+        <p>En desarrollo todo funcionaba (porque allí se usa otra base de datos), pero en producción
+        el <b>panel de resumen del Dashboard daba error 500 y no cargaba</b>. El usuario abría su
+        pantalla principal y se encontraba con un fallo en vez de sus números de la flota.</p>
+      </div>
+      <div class="box ahora">
+        <div class="box-title"><span class="ico">✓</span> Qué pasa ahora</div>
+        <p>Los cálculos de resumen, tendencias y faltantes usan fechas compatibles con Postgres y
+        <b>cargan sin error</b> tanto en desarrollo como en producción.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== DATA-7 ===== -->
+  <div class="ficha">
+    <div class="ficha-head">
+      <h3>Conexiones a la base sin caídas por inactividad</h3>
+      <span class="badge med">Media</span>
+      <span class="badge id">DATA-7</span>
+      <span class="ver">v1.30.0</span>
+    </div>
+
+    <div class="row">
+      <div class="label">Qué es</div>
+      <p>La forma en que la app mantiene abiertas las conexiones a la base de datos para responder rápido.</p>
+    </div>
+
+    <div class="row">
+      <div class="label tech">Qué cambió</div>
+      <p>Se configuró el motor con <span class="mono">pool_pre_ping=True</span> (verifica que la
+      conexión siga viva antes de usarla) y <span class="mono">pool_recycle=1800</span> (renueva
+      conexiones cada 30 minutos), evitando los errores de <span class="mono">SSL connection closed</span>.</p>
+    </div>
+
+    <div class="row">
+      <div class="label">Cómo afecta la app actual</div>
+      <p>El usuario nota <b>menos errores intermitentes</b>, sobre todo al volver a la app tras un rato
+      sin usarla.</p>
+    </div>
+
+    <div class="ba-grid">
+      <div class="box antes">
+        <div class="box-title"><span class="ico">✕</span> Qué podía pasar antes</div>
+        <p>Tras un rato de inactividad, la base cerraba la conexión por su cuenta pero la app no se
+        daba cuenta. La siguiente acción del usuario —abrir una pantalla, guardar algo— se topaba con
+        una <b>conexión muerta y devolvía un error 5xx</b>. El usuario tenía que recargar y volver a
+        intentarlo, sin saber por qué había fallado.</p>
+      </div>
+      <div class="box ahora">
+        <div class="box-title"><span class="ico">✓</span> Qué pasa ahora</div>
+        <p>La app <b>comprueba y renueva</b> las conexiones automáticamente. Las caídas intermitentes
+        por conexiones envejecidas desaparecen.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== FE-2 ===== -->
+  <div class="ficha">
+    <div class="ficha-head">
+      <h3>App a prueba de "pantalla en blanco" (Error Boundary)</h3>
+      <span class="badge med">Media</span>
+      <span class="badge id">FE-2</span>
+      <span class="ver">v1.30.0</span>
+    </div>
+
+    <div class="row">
+      <div class="label">Qué es</div>
+      <p>Una red de seguridad en la interfaz para que, si una pantalla falla al dibujarse, la app no
+      se quede totalmente en blanco.</p>
+    </div>
+
+    <div class="row">
+      <div class="label tech">Qué cambió</div>
+      <p>Se envolvió la app con un <span class="mono">ErrorBoundary</span> que captura los errores de
+      render y muestra un mensaje en vez de una página vacía. Además, se corrigió un comentario de
+      seguridad <b>falso</b> en <span class="mono">LoginPage.tsx</span> que afirmaba —erróneamente—
+      que no había autenticación real (sí la hay).</p>
+    </div>
+
+    <div class="row">
+      <div class="label">Cómo afecta la app actual</div>
+      <p>Si algo falla en una pantalla, el usuario ve un <b>mensaje claro con opción de recargar</b>
+      en lugar de quedarse mirando una página en blanco sin saber qué pasó.</p>
+    </div>
+
+    <div class="ba-grid">
+      <div class="box antes">
+        <div class="box-title"><span class="ico">✕</span> Qué podía pasar antes</div>
+        <p>Bastaba un único error inesperado al dibujar una pantalla para que <b>toda la app se pusiera
+        en blanco</b>, sin mensaje ni pista. El usuario asumía que "la app se rompió" o "se cayó
+        internet", cerraba y, a veces, te llamaba alarmado. Además, un comentario en el código mentía
+        sobre la seguridad del login y podía confundir a quien lo mantuviera.</p>
+      </div>
+      <div class="box ahora">
+        <div class="box-title"><span class="ico">✓</span> Qué pasa ahora</div>
+        <p>Un fallo de pantalla se contiene y muestra "Algo salió mal — Recargar" sin tumbar la app
+        entera. Y la documentación de seguridad del login refleja la realidad.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CIERRE ============ -->
+  <h2 class="section">Qué queda por hacer</h2>
+
+  <p>Estos diez arreglos cubren lo crítico y explotable de inmediato. El plan de blindaje
+  (<span class="mono">ROADMAP-SEGURIDAD.md</span>) continúa por etapas hacia el estándar OWASP ASVS
+  Nivel 2, propio de apps con datos personales y financieros. Lo principal que sigue en cola:</p>
+
+  <ul class="clean">
+    <li><b>SEC-3 — Anti-fuerza-bruta (en progreso):</b> límite de intentos de login, bloqueo temporal
+    por cuenta y baneo de IPs abusivas, para frenar adivinanza de contraseñas y ataques de costo.</li>
+    <li><b>SEC-4 — Sesiones endurecidas:</b> sacar el token de sesión del navegador a una cookie
+    protegida, bajar su duración y poder revocarlo (hoy un token robado vale 30 días sin posibilidad
+    de anularlo).</li>
+    <li><b>DATA-3 / DATA-4 — Reglas de unicidad en la base:</b> evitar usuarios o partes duplicadas y
+    el doble descuento de inventario ante clics simultáneos.</li>
+    <li><b>Más adelante:</b> política de contraseñas más fuerte y verificación contra filtraciones
+    conocidas; cabeceras de seguridad (CSP/HSTS); integración continua que frene despliegues con
+    errores; segundo factor (MFA) para administradores; y observabilidad (registro de eventos y
+    alertas).</li>
+  </ul>
+
+  <div class="note-block">
+    <b>Nota operativa:</b> todos los arreglos descritos en este informe se aplicaron con la app
+    <b>operativa en producción</b>. Los pilotos siguieron usando Fleet Tracker con normalidad durante
+    todo el proceso; los despliegues fueron incrementales y, salvo el candado HTTPS aún pendiente, no
+    hubo interrupción del servicio.
+  </div>
+
+  <div class="footer">
+    <span>Fleet Tracker — Informe de Arreglos de Seguridad y Calidad</span>
+    <span>v1.31.1 · 23 de junio de 2026 · Confidencial — uso interno</span>
+  </div>
+
+</div>
+</body>
+</html>
