@@ -7,6 +7,17 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.31.1] - 2026-06-22
+
+### Corregido
+- **Hotfix OPS-2 · Alembic crasheaba en prod por `%` en la URL**: `env.py` hacía
+  `config.set_main_option("sqlalchemy.url", DATABASE_URL)`, y el ConfigParser de
+  Alembic interpola `%` — la password URL-encoded (`%40` = `@`, del fix v1.28.2)
+  reventaba con `invalid interpolation syntax` → el contenedor entraba en
+  crash-loop. Ahora `env.py` pasa `DATABASE_URL` **directo a `create_engine`**
+  (online) sin tocar el `.ini`. Los tests locales no lo cazaron porque usaban
+  SQLite (sin `%`); ahora verificado que la URL Postgres con `%40` parsea.
+
 ## [1.31.0] - 2026-06-22
 
 ### Operaciones / Cambiado

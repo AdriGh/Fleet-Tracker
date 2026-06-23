@@ -13,7 +13,7 @@ import sys
 from logging.config import fileConfig
 from pathlib import Path
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import create_engine, pool
 
 from alembic import context
 
@@ -29,8 +29,11 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# La URL la manda la app (no la del .ini), para respetar DATABASE_URL.
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+# La URL la maneja env.py DIRECTO (no via config.set_main_option/.ini): el
+# ConfigParser de Alembic interpola '%' y la password viene URL-encoded (p.ej.
+# '%40' por '@', del fix v1.28.2) -> rompía con "invalid interpolation syntax".
+# Se pasa DATABASE_URL crudo a create_engine (online) y a context.configure
+# (offline); SQLAlchemy decodifica el %40 correctamente.
 target_metadata = Base.metadata
 
 # SQLite no soporta la mayoría de los ALTER: el modo batch recrea la tabla.
@@ -51,11 +54,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    connectable = create_engine(DATABASE_URL, poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
