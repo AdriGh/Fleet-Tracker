@@ -56,10 +56,12 @@ services:
       # enruta al 8000 del contenedor por dominio. Ver DEPLOY.md.
       - "${APP_PORT:-8765}:8000"
     volumes:
-      # Persistencia de archivos subidos (invoices de WO, docs de unidad) y de
-      # los Excel temporales. Sin estos, se pierden al recrear el contenedor.
-      - ./data/uploads:/app/backend/uploads
-      - ./data/jobs:/app/backend/.jobs
+      # Persistencia de archivos subidos (PDFs de invoices de WO, docs de unidad)
+      # y Excel temporales. VOLÚMENES NOMBRADOS (no binds a ./): Dokploy re-clona
+      # el repo en cada deploy y borraría un bind a ./data → se perderían los
+      # PDFs. Los volúmenes nombrados persisten como pgdata.
+      - fleet_uploads:/app/backend/uploads
+      - fleet_jobs:/app/backend/.jobs
       # SECRETOS en runtime (auth_secret que firma las sesiones + credenciales
       # de integraciones guardadas por la UI). VOLUMEN NOMBRADO (no bind): un
       # bind a ./secrets se PERDÍA cuando Dokploy re-clonaba el repo en cada
@@ -71,3 +73,5 @@ services:
 volumes:
   pgdata:
   fleet_secrets:
+  fleet_uploads:
+  fleet_jobs:

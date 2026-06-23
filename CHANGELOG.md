@@ -7,6 +7,16 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.35.2] - 2026-06-23
+
+### Corregido
+- **Ops · `uploads`/`jobs` a volúmenes nombrados (evita perder PDFs de invoices)**:
+  `./data/uploads` y `./data/jobs` eran binds al clon del repo, que Dokploy borra
+  en cada deploy → los PDF de facturas subidos se perdían. Migrados a volúmenes
+  nombrados `fleet_uploads` / `fleet_jobs` (persisten como `pgdata`); mismo fix
+  que los secrets en v1.35.1. NOTA: lo que hubiera en el bind anterior no migra
+  (probablemente ya se perdía en cada deploy); de aquí en más persiste.
+
 ## [1.35.1] - 2026-06-23
 
 ### Corregido
