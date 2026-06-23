@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import Logo from '../components/Logo'
-import { authLogin, setToken, type AuthUser } from '../api'
+import { authLogin, type AuthUser } from '../api'
 
 type Props = {
   appName: string
@@ -17,10 +17,9 @@ type Props = {
  * edita SLIDES abajo.
  *
  * AUTENTICACIÓN REAL: handleSubmit llama a POST /api/auth/login, que valida
- * contra el backend (PBKDF2-SHA256 + token HMAC firmado). El token se guarda
- * en localStorage (ver api.ts) — pendiente migrar a cookie HttpOnly (SEC-4 en
- * docs/ROADMAP-SEGURIDAD.md). (Corregido: el comentario anterior afirmaba en
- * falso que no había endpoint de auth.)
+ * contra el backend (PBKDF2-SHA256 + token HMAC). La sesión viaja en una cookie
+ * HttpOnly que setea el server (SEC-4): el token NO se guarda en JS, así que un
+ * XSS no puede robar la sesión.
  */
 
 type Slide = {
@@ -100,7 +99,7 @@ export default function LoginPage({ appName, tagline, onLogin }: Props) {
     setSubmitting(true)
     try {
       const r = await authLogin(email.trim(), password)
-      setToken(r.token)
+      // SEC-4: el server setea la cookie HttpOnly; el token NO se guarda en JS.
       onLogin(r.user)
     } catch (err) {
       setError(err instanceof Error

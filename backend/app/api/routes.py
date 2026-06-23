@@ -1151,7 +1151,7 @@ def _too_many(retry_after_s: int) -> HTTPException:
 
 
 @router.post("/auth/setup")
-def auth_setup(body: AuthSetupIn, request: Request):
+def auth_setup(body: AuthSetupIn, request: Request, response: Response):
     """Crea el PRIMER usuario (admin). Solo con la tabla vacía."""
     # SEC-3: rate limit por IP como defensa (este endpoint solo funciona con
     # la tabla vacia, pero no debe poder martillarse).
@@ -1164,7 +1164,15 @@ def auth_setup(body: AuthSetupIn, request: Request):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     result = auth.login(body.username, body.password)
-    return {"user": user, "token": result["token"] if result else ""}
+    token = result["token"] if result else ""
+    if token:
+        # SEC-4: tras el onboarding deja la sesión iniciada por cookie HttpOnly
+        # (igual que el login), para no forzar un login extra al recién creado.
+        response.set_cookie(
+            auth.COOKIE_NAME, token, httponly=True,
+            secure=(not config.IS_SQLITE), samesite="strict",
+            max_age=auth.TOKEN_TTL_S, path="/")
+    return {"user": user, "token": token}
 
 
 @router.post("/auth/login")

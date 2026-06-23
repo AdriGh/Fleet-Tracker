@@ -9,26 +9,32 @@ export interface ReportGroup {
   rows: ReportRow[]
 }
 
-// --- Token + fetch autenticado (fase G7) --------------------------------
-const TOKEN_KEY = 'ft-token'
-export const getToken = () => localStorage.getItem(TOKEN_KEY) ?? ''
-export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t)
-export const clearToken = () => localStorage.removeItem(TOKEN_KEY)
+// --- Sesión por cookie HttpOnly (SEC-4) ---------------------------------
+// El token de sesión vive en una cookie HttpOnly que el navegador envía solo
+// (fetch same-origin). El JS YA NO lo guarda ni lo lee → a prueba de robo por
+// XSS. getToken/setToken/clearToken quedan como no-op por compatibilidad de
+// los llamadores existentes.
+export const getToken = () => ''
+export const setToken = (_t: string) => { /* SEC-4: no se guarda token en JS */ }
+export const clearToken = () => { /* SEC-4: el logout limpia la cookie en server */ }
+// SEC-4: barre cualquier token viejo dejado en localStorage por sesiones
+// pre-cookie. Ya no se usa para auth (la cookie HttpOnly manda) y no debe
+// quedar legible por JS.
+try { localStorage.removeItem('ft-token') } catch { /* ignore */ }
 
-// Shadow del fetch global SOLO en este módulo: toda llamada a la API
-// lleva Authorization, y un 401 limpia el token y avisa a App para
-// volver al login (evento 'ft-unauthorized').
+// Shadow del fetch global SOLO en este módulo: la cookie de sesión viaja sola
+// (credentials same-origin por defecto). Un 401 (sesión vencida/inválida) avisa
+// a App para volver al login (evento 'ft-unauthorized').
 async function fetch(input: RequestInfo | URL,
                      init?: RequestInit): Promise<Response> {
-  const headers = new Headers(init?.headers)
-  const tok = getToken()
-  if (tok && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${tok}`)
-  }
-  const res = await window.fetch(input, { ...init, headers })
-  if (res.status === 401 && tok) {
-    clearToken()
-    window.dispatchEvent(new Event('ft-unauthorized'))
+  const res = await window.fetch(input, init)
+  if (res.status === 401) {
+    const url = typeof input === 'string' ? input : String(input)
+    // No rebotar en los propios endpoints de auth: login/setup devuelven 401
+    // por credenciales incorrectas, no por sesión vencida.
+    if (!url.includes('/api/auth/')) {
+      window.dispatchEvent(new Event('ft-unauthorized'))
+    }
   }
   return res
 }
@@ -756,6 +762,14 @@ export async function authLogin(
   })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
+}
+
+export async function logout(): Promise<void> {
+  // SEC-4: limpia la cookie de sesión en el server. Si falla, el caller igual
+  // limpia el estado local de la UI.
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' })
+  } catch { /* no-op */ }
 }
 
 export async function authSetup(

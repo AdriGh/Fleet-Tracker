@@ -4,7 +4,7 @@ import {
 import { Toaster } from 'sonner'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  authStatus, clearToken, getHealth, listAlertEvents,
+  authStatus, getHealth, listAlertEvents, logout,
   type AuthUser, type OrgBranding,
 } from './api'
 import { PermsContext, type Perms } from './perms'
@@ -517,7 +517,7 @@ export default function App() {
               <button
                 className="icon-btn"
                 onClick={() => {
-                  clearToken()
+                  logout()
                   setSessionUser(null)
                   qc.removeQueries()
                   statusQuery.refetch()

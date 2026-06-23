@@ -7,6 +7,19 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.35.0] - 2026-06-23
+
+### Seguridad
+- **SEC-4 (frontend) — completa SEC-4: sesión SOLO por cookie**: el SPA dejó de
+  guardar el token en `localStorage` (`api.ts`: get/set/clearToken no-op + barre
+  el `ft-token` viejo) y se apoya en la cookie HttpOnly + `GET /auth/status`. El
+  fetch ya no envía `Authorization`; un 401 (sesión vencida) vuelve al login.
+  El cierre de sesión ahora llama de verdad a `POST /auth/logout` (limpia la
+  cookie). `/auth/setup` también setea la cookie → el onboarding queda logueado
+  sin un login extra. **Resultado: el token de sesión ya NO existe en JavaScript
+  → un XSS no puede robar la sesión** (cierra FE-1/SEC-4). `LoginPage`/
+  `OnboardingWizard` ajustados; build (`tsc -b` + vite) y backend verificados.
+
 ## [1.34.0] - 2026-06-23
 
 ### Seguridad
