@@ -289,7 +289,7 @@
     <h1>Informe de Arreglos de Seguridad y Calidad</h1>
     <div class="meta">
       <span><b>Fecha:</b> 23 de junio de 2026</span>
-      <span><b>Versión actual:</b> v1.31.1</span>
+      <span><b>Versión actual:</b> v1.35.0</span>
       <span class="pill-live"><span class="led"></span> App en producción (Dokploy / Hostinger)</span>
     </div>
   </header>
@@ -301,7 +301,7 @@
   —la base ya estaba por encima del promedio: contraseñas cifradas correctamente, control de
   roles del lado del servidor y aislamiento entre clientes— y empezamos a tapar los agujeros que,
   por estar la app <b>ya expuesta a internet con datos reales de los pilotos</b>, eran explotables
-  hoy mismo. Este informe resume, en lenguaje claro, los <b>diez arreglos ya terminados</b>: qué
+  hoy mismo. Este informe resume, en lenguaje claro, los <b>catorce arreglos ya terminados</b>: qué
   riesgo concreto tenía cada uno, qué podía pasar con la versión vieja, y cómo queda protegido ahora.</p>
 
   <p>Los arreglos cubren cuatro frentes. <b>Seguridad de acceso</b>: cerramos una puerta por la
@@ -387,6 +387,30 @@
         <td>App a prueba de "pantalla en blanco"</td>
         <td><span class="badge med">Media</span></td>
         <td>Que un error de pantalla dejara la app totalmente en blanco sin explicación.</td>
+      </tr>
+      <tr>
+        <td class="col-id">SEC-3</td>
+        <td>Rate limiting + ban de IP + lockout de cuenta</td>
+        <td><span class="badge high">Alta</span></td>
+        <td>Adivinación de contraseñas por fuerza bruta y tumbar la app / disparar costos con miles de peticiones.</td>
+      </tr>
+      <tr>
+        <td class="col-id">DATA-3</td>
+        <td>Aislamiento de usuarios entre organizaciones</td>
+        <td><span class="badge high">Alta</span></td>
+        <td>Que un admin de una empresa viera y editara los usuarios de OTRA empresa (IDOR).</td>
+      </tr>
+      <tr>
+        <td class="col-id">DATA-4</td>
+        <td>Integridad de inventario y órdenes</td>
+        <td><span class="badge high">Alta</span></td>
+        <td>Partes duplicadas (stock partido en dos) y números de orden hija (#4.1) colisionando.</td>
+      </tr>
+      <tr>
+        <td class="col-id">SEC-4</td>
+        <td>Sesión en cookie segura + revocación</td>
+        <td><span class="badge high">Alta</span></td>
+        <td>Robo de la sesión por XSS (token 30 días en el navegador) sin posibilidad de revocarla.</td>
       </tr>
     </tbody>
   </table>
@@ -858,25 +882,216 @@
     </div>
   </div>
 
+  <!-- ===== SEC-3 ===== -->
+  <div class="ficha">
+    <div class="ficha-head">
+      <h3>Rate limiting + ban de IP + lockout de cuenta (anti fuerza bruta)</h3>
+      <span class="badge high">Alta</span>
+      <span class="badge id">SEC-3</span>
+      <span class="ver">v1.32.0</span>
+    </div>
+
+    <div class="row">
+      <div class="label">Qué es</div>
+      <p>El freno que limita cuántas veces seguidas se puede intentar iniciar sesión. Sirve para que
+      nadie pueda "probar y probar" contraseñas a toda velocidad, ni bombardear la app con miles de
+      peticiones hasta tumbarla.</p>
+    </div>
+
+    <div class="row">
+      <div class="label tech">Qué cambió</div>
+      <p>Nuevo <span class="mono">backend/app/core/ratelimit.py</span> (en memoria, thread-safe; lee la
+      IP real desde <span class="mono">X-Forwarded-For</span> tras Traefik). El login aplica, en orden:
+      ban de IP → límite de <b>5 intentos/min por IP</b> → bloqueo de cuenta → credenciales. Tras 15
+      fallos en 10 min la IP queda <b>baneada 15 min</b>; tras 8 fallos la cuenta se <b>bloquea</b> 15 min.
+      Responde <span class="mono">429 + Retry-After</span>. Configurable por env <span class="mono">SEC3_*</span>
+      (valores por defecto sanos). Incluye el primer test del repo (<span class="mono">test_ratelimit.py</span>).</p>
+    </div>
+
+    <div class="row">
+      <div class="label">Cómo afecta la app actual</div>
+      <p>Para un usuario legítimo es <b>invisible</b>: nadie teclea su contraseña cinco veces por minuto.
+      Solo lo nota quien intente abusar del login, que recibe un "demasiados intentos".</p>
+    </div>
+
+    <div class="ba-grid">
+      <div class="box antes">
+        <div class="box-title"><span class="ico">✕</span> Qué podía pasar antes</div>
+        <p>El login <b>no tenía ningún freno</b>. Alguien que conociera la URL podía <b>probar miles de
+        contraseñas</b> (fuerza bruta) hasta dar con una, o <b>tumbar la app y disparar los costos</b>
+        lanzándole mil peticiones por segundo. Nada lo detenía ni lo ralentizaba.</p>
+      </div>
+      <div class="box ahora">
+        <div class="box-title"><span class="ico">✓</span> Qué pasa ahora</div>
+        <p>Máximo 5 intentos por minuto y por IP; tras 15 fallos la IP queda baneada 15 minutos y tras
+        8 fallos la cuenta se bloquea. La app responde <b>429 "demasiados intentos"</b> y corta el
+        ataque, incluso si viene repartido entre varias IPs.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== DATA-3 ===== -->
+  <div class="ficha">
+    <div class="ficha-head">
+      <h3>Aislamiento de usuarios entre organizaciones (IDOR)</h3>
+      <span class="badge high">Alta</span>
+      <span class="badge id">DATA-3</span>
+      <span class="ver">v1.33.0</span>
+    </div>
+
+    <div class="row">
+      <div class="label">Qué es</div>
+      <p>La barrera que evita que un administrador de una empresa pueda meterse con las cuentas de
+      usuario de OTRA empresa. La lista y edición de usuarios se le escapaba a esa barrera.</p>
+    </div>
+
+    <div class="row">
+      <div class="label tech">Qué cambió</div>
+      <p>Las funciones <span class="mono">list_users</span> y <span class="mono">update_user</span> ahora
+      filtran y validan por la organización del request (el modelo <span class="mono">User</span> no es
+      <span class="mono">OrgScoped</span>, así que sus consultas no se filtraban solas). <i>Diferido</i>:
+      username único <b>por organización</b>, que requiere rediseñar el login para desambiguar.</p>
+    </div>
+
+    <div class="row">
+      <div class="label">Cómo afecta la app actual</div>
+      <p>Invisible. Cada administrador sigue gestionando solo los usuarios de su empresa, pero ahora está
+      garantizado por código que no puede tocar los de otra.</p>
+    </div>
+
+    <div class="ba-grid">
+      <div class="box antes">
+        <div class="box-title"><span class="ico">✕</span> Qué podía pasar antes</div>
+        <p>Un administrador de una empresa podía <b>ver y editar los usuarios de OTRA empresa</b>
+        manipulando una petición (un fallo de tipo IDOR). Además, el nombre de usuario era <b>único a
+        nivel global</b>: si una empresa registraba "admin", la siguiente ya no podía usar ese nombre —
+        rompiendo la idea de tener varios clientes independientes en la misma app.</p>
+      </div>
+      <div class="box ahora">
+        <div class="box-title"><span class="ico">✓</span> Qué pasa ahora</div>
+        <p>La gestión de usuarios queda <b>amarrada a la organización</b> de quien la ejecuta. Un
+        administrador solo ve y edita los usuarios de su propia empresa; los de los demás clientes le
+        son invisibles e intocables.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== DATA-4 ===== -->
+  <div class="ficha">
+    <div class="ficha-head">
+      <h3>Integridad de inventario y órdenes (reglas de unicidad)</h3>
+      <span class="badge high">Alta</span>
+      <span class="badge id">DATA-4</span>
+      <span class="ver">v1.33.0</span>
+    </div>
+
+    <div class="row">
+      <div class="label">Qué es</div>
+      <p>Las reglas que impiden que se cree dos veces la misma parte del catálogo o que dos órdenes de
+      trabajo enlazadas reciban el mismo número de "hija" (#4.1).</p>
+    </div>
+
+    <div class="row">
+      <div class="label tech">Qué cambió</div>
+      <p>Se añadieron restricciones de unicidad <b>a nivel base de datos</b>:
+      <span class="mono">UniqueConstraint(org_id, part_number)</span> en las partes y
+      <span class="mono">(parent_id, child_seq)</span> en las órdenes. <span class="mono">create_part</span>
+      y <span class="mono">create_wo</span> capturan el error de integridad y fallan con un mensaje claro
+      en vez de duplicar en silencio. Es la <b>primera migración Alembic versionada</b> aplicada en
+      producción (migración <span class="mono">1048cd72c14a</span>, encadenada al baseline).</p>
+    </div>
+
+    <div class="row">
+      <div class="label">Cómo afecta la app actual</div>
+      <p>Invisible en uso normal. Aporta una garantía de fondo: ni el catálogo de partes ni la numeración
+      de órdenes se pueden ensuciar, ni siquiera con clics simultáneos.</p>
+    </div>
+
+    <div class="ba-grid">
+      <div class="box antes">
+        <div class="box-title"><span class="ico">✕</span> Qué podía pasar antes</div>
+        <p>Dos acciones <b>en el mismo instante</b> podían <b>duplicar una parte</b> del catálogo —su
+        stock quedaba partido en dos filas distintas, descuadrando el inventario— o <b>colisionar el
+        número de una orden hija (#4.1)</b>, dejando dos órdenes con la misma numeración. La app
+        comprobaba "¿ya existe?" justo antes de crear, pero esa rendija dejaba colarse los duplicados.</p>
+      </div>
+      <div class="box ahora">
+        <div class="box-title"><span class="ico">✓</span> Qué pasa ahora</div>
+        <p>La propia base de datos rechaza el duplicado y la app responde con un <b>error claro</b> en
+        lugar de crear una segunda copia. El inventario y la numeración de órdenes quedan blindados.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SEC-4 ===== -->
+  <div class="ficha">
+    <div class="ficha-head">
+      <h3>Sesión en cookie segura + revocación</h3>
+      <span class="badge high">Alta</span>
+      <span class="badge id">SEC-4</span>
+      <span class="ver">v1.34.0 / v1.35.0</span>
+    </div>
+
+    <div class="row">
+      <div class="label">Qué es</div>
+      <p>El "pase" que demuestra que ya iniciaste sesión y que la app revisa en cada acción. El problema
+      era dónde se guardaba ese pase y que no había forma de anularlo.</p>
+    </div>
+
+    <div class="row">
+      <div class="label tech">Qué cambió</div>
+      <p>El login ahora deja el token en una <b>cookie <span class="mono">HttpOnly</span> + Secure +
+      SameSite=Strict</b> que el JavaScript no puede leer; el middleware la lee (con respaldo a
+      <span class="mono">Bearer</span>). El token incluye un <span class="mono">token_version</span>
+      (columna nueva, migración <span class="mono">df63703c9a5b</span>): cambiar la contraseña lo
+      incrementa e <b>invalida los tokens viejos</b>. Hay un endpoint real
+      <span class="mono">/auth/logout</span>. En la v1.35.0 el frontend dejó de guardar el token en
+      <span class="mono">localStorage</span> y se apoya solo en la cookie + <span class="mono">/auth/status</span>.</p>
+    </div>
+
+    <div class="row">
+      <div class="label">Cómo afecta la app actual</div>
+      <p>Casi invisible: al desplegar, las sesiones viejas dejan de valer y hay que <b>volver a iniciar
+      sesión una vez</b>. A partir de ahí, cerrar sesión y cambiar la contraseña funcionan de verdad.</p>
+    </div>
+
+    <div class="ba-grid">
+      <div class="box antes">
+        <div class="box-title"><span class="ico">✕</span> Qué podía pasar antes</div>
+        <p>El pase de sesión vivía <b>30 días guardado en el navegador (localStorage), legible por
+        cualquier script</b>. Un ataque de tipo XSS podía <b>robar la sesión</b> y suplantar al usuario
+        durante un mes. Y no había forma de revocarla: <b>cambiar la contraseña no cerraba las sesiones
+        viejas</b>, así que un pase robado seguía valiendo.</p>
+      </div>
+      <div class="box ahora">
+        <div class="box-title"><span class="ico">✓</span> Qué pasa ahora</div>
+        <p>La sesión viaja en una <b>cookie que el JavaScript no puede leer</b> (a salvo de robo por XSS),
+        cambiar la contraseña <b>invalida las sesiones viejas</b> y existe un logout real que cierra la
+        sesión de verdad.</p>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ CIERRE ============ -->
   <h2 class="section">Qué queda por hacer</h2>
 
-  <p>Estos diez arreglos cubren lo crítico y explotable de inmediato. El plan de blindaje
-  (<span class="mono">ROADMAP-SEGURIDAD.md</span>) continúa por etapas hacia el estándar OWASP ASVS
-  Nivel 2, propio de apps con datos personales y financieros. Lo principal que sigue en cola:</p>
+  <p>Estos catorce arreglos cubren lo crítico y lo de riesgo alto explotable de inmediato —incluida
+  ahora toda la capa de autenticación (login con freno, sesión en cookie segura) y el aislamiento entre
+  clientes. El plan de blindaje (<span class="mono">ROADMAP-SEGURIDAD.md</span>) continúa por etapas
+  hacia el estándar OWASP ASVS Nivel 2, propio de apps con datos personales y financieros. Lo principal
+  que sigue en cola:</p>
 
   <ul class="clean">
-    <li><b>SEC-3 — Anti-fuerza-bruta (en progreso):</b> límite de intentos de login, bloqueo temporal
-    por cuenta y baneo de IPs abusivas, para frenar adivinanza de contraseñas y ataques de costo.</li>
-    <li><b>SEC-4 — Sesiones endurecidas:</b> sacar el token de sesión del navegador a una cookie
-    protegida, bajar su duración y poder revocarlo (hoy un token robado vale 30 días sin posibilidad
-    de anularlo).</li>
-    <li><b>DATA-3 / DATA-4 — Reglas de unicidad en la base:</b> evitar usuarios o partes duplicadas y
-    el doble descuento de inventario ante clics simultáneos.</li>
-    <li><b>Más adelante:</b> política de contraseñas más fuerte y verificación contra filtraciones
-    conocidas; cabeceras de seguridad (CSP/HSTS); integración continua que frene despliegues con
-    errores; segundo factor (MFA) para administradores; y observabilidad (registro de eventos y
-    alertas).</li>
+    <li><b>SEC-5 / SEC-6 — Endurecimiento adicional:</b> cabeceras de seguridad (CSP/HSTS) y rotación
+    del secreto que firma las sesiones.</li>
+    <li><b>DATA-5 / N+1 — Rendimiento:</b> optimizar las consultas de reportes y listados pesados para
+    que escalen sin cargar de más en memoria.</li>
+    <li><b>ARCH-1 — Multi-réplica:</b> mover los trabajos en cola y el loop de alertas fuera de la
+    memoria (a Postgres/redis) para poder correr varias instancias de la app.</li>
+    <li><b>OPS-4 / OPS-5 — Operaciones:</b> que el contenedor no corra como administrador (no-root) y
+    una integración continua (CI) que frene despliegues con errores.</li>
+    <li><b>Más adelante:</b> segundo factor (MFA) para administradores, y el panel de administración /
+    CRM de suscripciones.</li>
   </ul>
 
   <div class="note-block">
@@ -888,7 +1103,7 @@
 
   <div class="footer">
     <span>Fleet Tracker — Informe de Arreglos de Seguridad y Calidad</span>
-    <span>v1.31.1 · 23 de junio de 2026 · Confidencial — uso interno</span>
+    <span>v1.35.0 · 23 de junio de 2026 · Confidencial — uso interno</span>
   </div>
 
 </div>
