@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from ..db import Part, SessionLocal, Vendor, WorkOrderLine
 
@@ -143,7 +144,13 @@ def create_part(data: dict) -> dict:
         p = Part(part_number=pn[:60], created_at=now, updated_at=now)
         _apply_part(p, data)
         session.add(p)
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError:
+            # DATA-4: backstop ante carrera (otra request creó la misma parte
+            # entre el chequeo de arriba y este commit).
+            session.rollback()
+            raise ValueError(f"Part {pn} already exists")
         name = ""
         if p.vendor_id:
             v = session.get(Vendor, p.vendor_id)

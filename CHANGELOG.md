@@ -7,6 +7,22 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.33.0] - 2026-06-23
+
+### Seguridad / Datos
+- **DATA-4 · Integridad de inventario y WOs (1ª migración Alembic real)**:
+  `UniqueConstraint(org_id, part_number)` en `part` y `(parent_id, child_seq)` en
+  `work_order` — backstop a nivel BD ante carreras de creación concurrente
+  (partes duplicadas / `#4.1` duplicado). `create_part` y `create_wo` capturan
+  `IntegrityError` y fallan claro en vez de duplicar en silencio. Migración
+  `1048cd72c14a` (encadenada al baseline `edc57a9c8b8e`) — estrena el pipeline
+  Alembic con un cambio de esquema real. (Diferido: índice PARCIAL para
+  `part_stock_movement`, que necesita `WHERE ref<>''` por los movimientos 'manual'.)
+- **DATA-3 (IDOR) · Aislamiento de usuarios por org**: `list_users` y `update_user`
+  ahora filtran/validan por la organización del request (User no es OrgScoped →
+  sus SELECT no se filtraban solos). (Diferido: username único POR-org, que
+  requiere rediseñar el login para desambiguar.)
+
 ## [1.32.0] - 2026-06-23
 
 ### Seguridad

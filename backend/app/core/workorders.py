@@ -22,6 +22,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from ..db import SessionLocal, WorkOrder, WorkOrderLine
 from . import pm
@@ -206,7 +207,16 @@ def create_wo(unit: str, title: str, complaint: str = "",
                     WorkOrder.parent_id == parent_id)) or 0
             wo.child_seq = int(last) + 1
         session.add(wo)
-        session.commit()
+        try:
+            session.commit()
+        except IntegrityError:
+            # DATA-4: colisión de child_seq por dos creaciones concurrentes
+            # bajo el mismo padre (la UniqueConstraint(parent_id, child_seq) lo
+            # impide). Antes generaba un #4.1 duplicado en silencio; ahora falla
+            # claro y el usuario reintenta.
+            session.rollback()
+            raise ValueError(
+                "work order number collision (concurrent create), retry")
         out = _wo_dict(wo, with_lines=True)
         out["links"] = _links_dict(wo, session)
         return out

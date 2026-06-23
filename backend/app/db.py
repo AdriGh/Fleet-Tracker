@@ -14,7 +14,7 @@ from pathlib import Path
 
 from sqlalchemy import (
     Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text,
-    create_engine, event, func, select,
+    UniqueConstraint, create_engine, event, func, select,
 )
 from sqlalchemy.orm import (
     DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker,
@@ -142,6 +142,12 @@ class WorkOrder(OrgScoped, Base):
     tracker se actualiza vía override.
     """
     __tablename__ = "work_order"
+    __table_args__ = (
+        # DATA-4: un padre no puede tener dos hijas con el mismo ordinal
+        # (#4.1 duplicado por carrera en child_seq). Las raíces (parent_id
+        # NULL) quedan exentas: en SQL los NULL no colisionan entre sí.
+        UniqueConstraint("parent_id", "child_seq", name="uq_wo_parent_child"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)
@@ -360,6 +366,12 @@ class Part(OrgScoped, Base):
     on_hand <= reorder_point (con reorder_point > 0), la parte sale en la
     lista de low-stock. Se reusa al cargar líneas de una work order."""
     __tablename__ = "part"
+    __table_args__ = (
+        # DATA-4: una parte única por (organización, part_number). Backstop a
+        # nivel BD de la dedup que ya hace create_part — evita filas duplicadas
+        # por una carrera de creación concurrente.
+        UniqueConstraint("org_id", "part_number", name="uq_part_org_pn"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     part_number: Mapped[str] = mapped_column(String(60), index=True)

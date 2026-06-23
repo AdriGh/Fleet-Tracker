@@ -26,7 +26,7 @@ from datetime import datetime
 from sqlalchemy import func, select
 
 from ..db import SessionLocal, User, default_org_id
-from . import secretstore
+from . import secretstore, tenant
 
 # H4: 'safety' (cumplimiento: DVIR/PM/DOT, avisos, PII) sumado al set.
 ROLES = ("admin", "dispatcher", "safety", "mechanic", "viewer")
@@ -174,13 +174,19 @@ def login(username: str, password: str) -> dict | None:
 
 
 def list_users() -> list[dict]:
+    # DATA-3 (IDOR): User NO es OrgScoped, así que sus SELECT no se filtran
+    # solos. Filtramos por la org del request para no listar usuarios de otra
+    # organización. (Single-tenant: no-op; multi-tenant: aislamiento correcto.)
+    org = tenant.get_current_org()
     with SessionLocal() as session:
+        q = select(User).order_by(User.id)
+        if org is not None:
+            q = q.where(User.org_id == org)
         return [{
             "id": u.id, "username": u.username, "name": u.name,
             "role": u.role, "active": u.active,
             "created_at": u.created_at.isoformat(),
-        } for u in session.scalars(
-            select(User).order_by(User.id)).all()]
+        } for u in session.scalars(q).all()]
 
 
 def update_user(user_id: int, fields: dict,
@@ -188,6 +194,11 @@ def update_user(user_id: int, fields: dict,
     with SessionLocal() as session:
         u = session.get(User, user_id)
         if u is None:
+            return None
+        # DATA-3 (IDOR): el target debe pertenecer a la org del admin actuante;
+        # si no, se trata como inexistente (no se modifica nada cross-tenant).
+        org = tenant.get_current_org()
+        if org is not None and u.org_id != org:
             return None
         if "role" in fields and fields["role"] in ROLES:
             u.role = fields["role"]
