@@ -1,8 +1,8 @@
-"""initial schema
+"""baseline full schema
 
-Revision ID: a518e3d89977
+Revision ID: edc57a9c8b8e
 Revises: 
-Create Date: 2026-06-18 05:41:30.697286
+Create Date: 2026-06-22 22:29:30.257691
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'a518e3d89977'
+revision: str = 'edc57a9c8b8e'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -91,6 +91,41 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['org_id'], ['organization.id'], ),
     sa.PrimaryKeyConstraint('org_id', 'key')
     )
+    op.create_table('part_stock_movement',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('part_number', sa.String(length=60), nullable=False),
+    sa.Column('delta', sa.Float(), nullable=False),
+    sa.Column('reason', sa.String(length=16), nullable=False),
+    sa.Column('ref_type', sa.String(length=20), nullable=False),
+    sa.Column('ref_id', sa.String(length=40), nullable=False),
+    sa.Column('note', sa.String(length=200), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('org_id', sa.Integer(), nullable=True),
+    sa.ForeignKeyConstraint(['org_id'], ['organization.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    with op.batch_alter_table('part_stock_movement', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_part_stock_movement_org_id'), ['org_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_part_stock_movement_part_number'), ['part_number'], unique=False)
+        batch_op.create_index(batch_op.f('ix_part_stock_movement_reason'), ['reason'], unique=False)
+
+    op.create_table('purchase_order',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), nullable=False),
+    sa.Column('vendor', sa.String(length=120), nullable=False),
+    sa.Column('status', sa.String(length=12), nullable=False),
+    sa.Column('notes', sa.Text(), nullable=False),
+    sa.Column('total', sa.Float(), nullable=False),
+    sa.Column('org_id', sa.Integer(), nullable=True),
+    sa.ForeignKeyConstraint(['org_id'], ['organization.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    with op.batch_alter_table('purchase_order', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_purchase_order_org_id'), ['org_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_purchase_order_status'), ['status'], unique=False)
+        batch_op.create_index(batch_op.f('ix_purchase_order_vendor'), ['vendor'], unique=False)
+
     op.create_table('report_block',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('company', sa.String(length=64), nullable=False),
@@ -214,6 +249,8 @@ def upgrade() -> None:
     sa.Column('updated_at', sa.DateTime(), nullable=False),
     sa.Column('closed_at', sa.DateTime(), nullable=True),
     sa.Column('invoiced_at', sa.DateTime(), nullable=True),
+    sa.Column('parent_id', sa.Integer(), nullable=True),
+    sa.Column('child_seq', sa.Integer(), nullable=False),
     sa.Column('unit', sa.String(length=64), nullable=False),
     sa.Column('company', sa.String(length=64), nullable=False),
     sa.Column('status', sa.String(length=20), nullable=False),
@@ -235,10 +272,12 @@ def upgrade() -> None:
     sa.Column('shop_invoice', sa.String(length=60), nullable=False),
     sa.Column('org_id', sa.Integer(), nullable=True),
     sa.ForeignKeyConstraint(['org_id'], ['organization.id'], ),
+    sa.ForeignKeyConstraint(['parent_id'], ['work_order.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
     with op.batch_alter_table('work_order', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_work_order_org_id'), ['org_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_work_order_parent_id'), ['parent_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_work_order_status'), ['status'], unique=False)
         batch_op.create_index(batch_op.f('ix_work_order_unit'), ['unit'], unique=False)
 
@@ -285,6 +324,7 @@ def upgrade() -> None:
     sa.Column('cost', sa.Float(), nullable=False),
     sa.Column('vendor_id', sa.Integer(), nullable=True),
     sa.Column('on_hand', sa.Float(), nullable=False),
+    sa.Column('reorder_point', sa.Float(), nullable=False),
     sa.Column('notes', sa.String(length=300), nullable=False),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.Column('updated_at', sa.DateTime(), nullable=False),
@@ -296,6 +336,21 @@ def upgrade() -> None:
     with op.batch_alter_table('part', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_part_org_id'), ['org_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_part_part_number'), ['part_number'], unique=False)
+
+    op.create_table('po_line',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('po_id', sa.Integer(), nullable=False),
+    sa.Column('part_number', sa.String(length=60), nullable=False),
+    sa.Column('description', sa.String(length=160), nullable=False),
+    sa.Column('qty', sa.Float(), nullable=False),
+    sa.Column('unit_cost', sa.Float(), nullable=False),
+    sa.Column('org_id', sa.Integer(), nullable=True),
+    sa.ForeignKeyConstraint(['org_id'], ['organization.id'], ),
+    sa.ForeignKeyConstraint(['po_id'], ['purchase_order.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    with op.batch_alter_table('po_line', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_po_line_org_id'), ['org_id'], unique=False)
 
     op.create_table('work_order_line',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -323,6 +378,10 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_work_order_line_org_id'))
 
     op.drop_table('work_order_line')
+    with op.batch_alter_table('po_line', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_po_line_org_id'))
+
+    op.drop_table('po_line')
     with op.batch_alter_table('part', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_part_part_number'))
         batch_op.drop_index(batch_op.f('ix_part_org_id'))
@@ -339,6 +398,7 @@ def downgrade() -> None:
     with op.batch_alter_table('work_order', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_work_order_unit'))
         batch_op.drop_index(batch_op.f('ix_work_order_status'))
+        batch_op.drop_index(batch_op.f('ix_work_order_parent_id'))
         batch_op.drop_index(batch_op.f('ix_work_order_org_id'))
 
     op.drop_table('work_order')
@@ -370,6 +430,18 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_report_block_org_id'))
 
     op.drop_table('report_block')
+    with op.batch_alter_table('purchase_order', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_purchase_order_vendor'))
+        batch_op.drop_index(batch_op.f('ix_purchase_order_status'))
+        batch_op.drop_index(batch_op.f('ix_purchase_order_org_id'))
+
+    op.drop_table('purchase_order')
+    with op.batch_alter_table('part_stock_movement', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_part_stock_movement_reason'))
+        batch_op.drop_index(batch_op.f('ix_part_stock_movement_part_number'))
+        batch_op.drop_index(batch_op.f('ix_part_stock_movement_org_id'))
+
+    op.drop_table('part_stock_movement')
     op.drop_table('org_setting')
     with op.batch_alter_table('maint_record', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_maint_record_unit'))

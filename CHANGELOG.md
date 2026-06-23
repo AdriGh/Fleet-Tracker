@@ -7,7 +7,20 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
-## [1.30.1] - 2026-06-22
+## [1.31.0] - 2026-06-22
+
+### Operaciones / Cambiado
+- **OPS-2 · Migraciones Alembic operativas**: el contenedor ya NO depende de
+  `create_all` para el esquema. Nuevo `backend/scripts/db_migrate.py` corre en el
+  entrypoint (Dockerfile, con `FLEET_SKIP_DB_INIT=1`): si la base existe pero
+  nunca corrió Alembic (el caso del piloto), la **ADOPTA** con `alembic stamp
+  head` (sin DDL) y luego `alembic upgrade head`; en base fresca crea todo desde
+  el baseline; en base ya migrada aplica deltas pendientes. Se regeneró el
+  baseline (`edc57a9c8b8e_baseline_full_schema`) con el esquema COMPLETO actual
+  (19 tablas; la migración inicial stale tenía 16 — le faltaban purchase_order,
+  po_line, part_stock_movement, org_setting). Verificado local en las 3 rutas
+  (fresca, adopción de existente, idempotencia). **Desbloquea** los cambios de
+  esquema versionados (DATA-3/DATA-4) sin romper prod en silencio.
 
 ### Corregido
 - **DATA-2 · Contador de factura atómico**: `next_invoice_number` hacía un

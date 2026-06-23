@@ -59,4 +59,8 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8000/api/health || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# OPS-2: antes de servir, corre las migraciones Alembic (adopta la base
+# existente con `stamp` si nunca corrió Alembic, luego `upgrade head`). Con
+# FLEET_SKIP_DB_INIT=1 el esquema lo gestiona SOLO Alembic (no el create_all
+# legacy). Si la migración falla, el contenedor NO arranca (fail-loud).
+CMD ["sh", "-c", "export FLEET_SKIP_DB_INIT=1; python scripts/db_migrate.py && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
