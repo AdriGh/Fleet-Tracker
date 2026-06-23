@@ -67,8 +67,12 @@ class FileSecretStore(SecretStore):
 
     def set_blob(self, name: str, data: dict,
                  org_id: int | None = None) -> None:
-        self._path(name).write_text(
-            json.dumps(data), encoding="utf-8")
+        p = self._path(name)
+        # Asegura el directorio base (p.ej. /app/secrets puede no existir si el
+        # volumen está recién creado/vacío) — evita FileNotFoundError al escribir
+        # el auth_secret en el primer login.
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(data), encoding="utf-8")
 
 
 _BACKENDS = {"file": FileSecretStore}

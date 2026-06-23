@@ -7,6 +7,21 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.35.1] - 2026-06-23
+
+### Corregido
+- **Hotfix · Login 500 (`/app/secrets` faltante) + sesión reseteada en cada
+  deploy**: el primer login autogenera el `auth_secret` y `secretstore.set_blob`
+  fallaba con `FileNotFoundError` porque `/app/secrets` no existía — el bind
+  `./secrets` se **perdía al re-clonar Dokploy en cada deploy** (también por eso
+  deslogueaba cada deploy: el secreto se regeneraba). Fix: (1) `set_blob` crea el
+  directorio si falta; (2) `./secrets` pasa a **volumen nombrado `fleet_secrets`**
+  (persiste como `pgdata`). Verificado. **Tras este deploy hay un último re-login**
+  (volumen nuevo → secreto nuevo); de ahí en más la sesión persiste entre deploys.
+> Pendiente relacionado: `./data/uploads` y `./data/jobs` también son binds al
+> clon → revisar si Dokploy los borra (riesgo de perder PDFs de invoices) y
+> migrarlos a volúmenes nombrados.
+
 ## [1.35.0] - 2026-06-23
 
 ### Seguridad

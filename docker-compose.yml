@@ -60,14 +60,14 @@ services:
       # los Excel temporales. Sin estos, se pierden al recrear el contenedor.
       - ./data/uploads:/app/backend/uploads
       - ./data/jobs:/app/backend/.jobs
-      # SECRETOS en runtime: un SOLO directorio con los <name>.local.json
-      # (samsara.local.json, docscan.local.json, etc.). NO se hornean en la
-      # imagen ni se commitean. Montado read-WRITE (sin :ro) porque la app
-      # TAMBIEN escribe aqui: el auth_secret que firma los tokens de sesion se
-      # autogenera la 1a vez (sin el, el login da 500), y las credenciales que
-      # configures por la UI (Settings) se guardan aqui. Persiste entre redeploys
-      # (bind mount al host). Si esta vacio, las integraciones arrancan en off.
-      - ./secrets:/app/secrets
+      # SECRETOS en runtime (auth_secret que firma las sesiones + credenciales
+      # de integraciones guardadas por la UI). VOLUMEN NOMBRADO (no bind): un
+      # bind a ./secrets se PERDÍA cuando Dokploy re-clonaba el repo en cada
+      # deploy → el auth_secret se regeneraba (deslogueos) y el dir podía faltar
+      # (login 500). El volumen nombrado persiste como pgdata. docscan se
+      # configura por env (DOCSCAN_PROVIDER/GROQ_API_KEY), sin dropear archivos.
+      - fleet_secrets:/app/secrets
 
 volumes:
   pgdata:
+  fleet_secrets:
