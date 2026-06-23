@@ -370,9 +370,17 @@ def list_events(limit: int = 50, unacked_only: bool = False) -> list[dict]:
 
 
 def ack_events(ids: list[int] | None = None) -> int:
-    """Marca eventos como atendidos. Sin ids -> todos."""
+    """Marca eventos como atendidos. Sin ids -> todos los del tenant actual.
+
+    DATA-1: el UPDATE Core NO pasa por el guard de aislamiento (que solo
+    intercepta SELECT), así que filtramos por org_id a mano para no marcar
+    (ni dejar marcar) alertas de OTRA organización (IDOR de escritura)."""
+    org = tenant.get_current_org()
+    if org is None:
+        return 0
     with SessionLocal() as session:
-        stmt = update(AlertEvent).values(acked=True)
+        stmt = (update(AlertEvent).values(acked=True)
+                .where(AlertEvent.org_id == org))
         if ids:
             stmt = stmt.where(AlertEvent.id.in_(ids))
         else:

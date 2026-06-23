@@ -27,7 +27,12 @@ from .core import tenant
 # SQLite necesita check_same_thread=False para usarse desde el threadpool de
 # FastAPI; Postgres no acepta ese argumento.
 _connect_args = {"check_same_thread": False} if config.IS_SQLITE else {}
-_engine = create_engine(config.DATABASE_URL, connect_args=_connect_args)
+_engine = create_engine(
+    config.DATABASE_URL,
+    connect_args=_connect_args,
+    pool_pre_ping=True,    # DATA-7: descarta conexiones muertas (evita 5xx por
+    pool_recycle=1800,     # 'SSL connection has been closed' tras idle en PG)
+)
 SessionLocal = sessionmaker(bind=_engine)
 
 
@@ -770,6 +775,18 @@ def recent_blocks(limit=5, sort="created_at"):
         } for r in rows]
 
 
+def _month_bounds(d: date) -> tuple[date, date]:
+    """(primer dia del mes de d, primer dia del mes siguiente).
+
+    Portable: reemplaza los filtros con func.strftime (SQLite-only, que
+    REVIENTA en Postgres) por un rango [inicio, sig) valido en ambos motores
+    y que ademas puede usar indice sobre block_date. (DATA-6)"""
+    start = d.replace(day=1)
+    nxt = (date(d.year + 1, 1, 1) if d.month == 12
+           else date(d.year, d.month + 1, 1))
+    return start, nxt
+
+
 def missing_drivers(limit=10):
     """Top de conductores con mas dias 'NO DVIR' en el mes del bloque
     mas reciente."""
@@ -781,13 +798,14 @@ def missing_drivers(limit=10):
         if latest is None:
             return {"month": None, "drivers": []}
 
+        start, nxt = _month_bounds(latest)
         rows = session.execute(
             select(BlockDriver.driver, func.count().label("misses"))
             .join(ReportBlock, BlockDriver.block_id == ReportBlock.id)
             .where(
                 BlockDriver.is_no_dvir.is_(True),
-                func.strftime("%Y-%m", ReportBlock.block_date)
-                == latest.strftime("%Y-%m"),
+                ReportBlock.block_date >= start,
+                ReportBlock.block_date < nxt,
             )
             .group_by(BlockDriver.driver)
             .order_by(func.count().desc())
@@ -809,9 +827,11 @@ def month_summary():
         if latest is None:
             return {"month": None, "fleet_safe_pct": None, "n_blocks": 0}
         ym = latest.strftime("%Y-%m")
+        start, nxt = _month_bounds(latest)
         rows = session.scalars(
             select(ReportBlock).where(
-                func.strftime("%Y-%m", ReportBlock.block_date) == ym)
+                ReportBlock.block_date >= start,
+                ReportBlock.block_date < nxt)
         ).all()
         if not rows:
             return {"month": ym, "fleet_safe_pct": None, "n_blocks": 0}
@@ -860,9 +880,11 @@ def trends():
         if latest is None:
             return {"month": None, "points": []}
         ym = latest.strftime("%Y-%m")
+        start, nxt = _month_bounds(latest)
         rows = session.scalars(
             select(ReportBlock)
-            .where(func.strftime("%Y-%m", ReportBlock.block_date) == ym)
+            .where(ReportBlock.block_date >= start,
+                   ReportBlock.block_date < nxt)
             .order_by(ReportBlock.block_date, ReportBlock.company)
         ).all()
         return {

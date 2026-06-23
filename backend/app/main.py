@@ -45,6 +45,13 @@ _AUTH_ALLOWLIST = {
     "/api/auth/setup",
     "/api/org/branding",
 }
+# SEC-1: escrituras (no-GET) que cualquier AUTENTICADO puede hacer (generar
+# reportes DVIR). Se listan EXPLICITAMENTE para que el fallthrough de
+# _scope_for sea fail-closed (admin-only) en vez de default-allow.
+_AUTHONLY_WRITE = {
+    "/api/batch/analyze",
+    "/api/batch/generate",
+}
 def _scope_for(method: str, path: str) -> str | None:
     """Scope requerido para (method, path), o None si basta estar autenticado.
     La LECTURA (GET) nunca exige scope. Centraliza el RBAC fino (H4).
@@ -54,9 +61,12 @@ def _scope_for(method: str, path: str) -> str | None:
     `wo_patch`."""
     if method == "GET":
         return None
-    # Administración (Company, usuarios, integraciones, terminales, settings).
-    if path.startswith(("/api/auth/users", "/api/integrations/config",
-                        "/api/org", "/api/terminals")):
+    # Administración (Company/org, usuarios, integraciones, terminales, equipos).
+    # SEC-1: ampliado a /api/companies, /api/teams y a TODO /api/integrations
+    # (antes solo /integrations/config, dejando /integrations/test y
+    # /integrations/eld/active SIN scope -> los ejecutaba un viewer).
+    if path.startswith(("/api/auth/users", "/api/org", "/api/terminals",
+                        "/api/companies", "/api/teams", "/api/integrations")):
         return "settings.manage"
     # Work orders (POST/PATCH/DELETE). /send => facturar.
     if path.startswith("/api/workorders"):
@@ -89,7 +99,19 @@ def _scope_for(method: str, path: str) -> str | None:
     # Control remoto de reefers (setpoint/modo OEM vía Lynx): acción de flota.
     if path.startswith("/api/reefer/"):
         return "fleet.edit"
-    return None
+    # SEC-1: mapa (POIs + búsqueda Google que factura), import de reporting ELD
+    # y borrado de bloques DVIR -> acción de flota (no para 'viewer').
+    if path.startswith(("/api/pois", "/api/reporting", "/api/dvir")):
+        return "fleet.edit"
+    # Escrituras abiertas a cualquier autenticado (generar reportes DVIR).
+    if path in _AUTHONLY_WRITE:
+        return None
+    # SEC-1 — FAIL-CLOSED: cualquier otra escritura no contemplada queda
+    # admin-only. Antes caía en `return None` (default-allow) y un 'viewer'
+    # ejecutaba mutaciones no enumeradas. 'settings.manage' solo lo tiene admin,
+    # así que es un default seguro que NO rompe al admin si quedó alguna ruta
+    # sin mapear. Toda ruta de escritura nueva debe declararse arriba.
+    return "settings.manage"
 
 
 @app.middleware("http")
@@ -104,17 +126,18 @@ async def _require_auth(request: Request, call_next):
         request.state.user = user
         request.state.org_id = user["org_id"] if user else None
         if user is None:
-            # Sin usuarios todavía (primer arranque): la API queda
-            # abierta SOLO hasta crear el admin en el wizard.
-            if auth.users_exist():
-                return JSONResponse(
-                    {"detail": "Not authenticated"}, status_code=401)
-        else:
-            scope = _scope_for(request.method, path)
-            if scope and not permissions.has_scope(user["role"], scope):
-                return JSONResponse(
-                    {"detail": f"Your role ({user['role']}) can't do this"},
-                    status_code=403)
+            # SEC-2: sin sesión válida -> 401 SIEMPRE. Antes, si la tabla de
+            # usuarios estaba vacía (primer arranque), la API quedaba ABIERTA
+            # y la instancia era secuestrable. Ahora solo el allowlist
+            # (auth/status, auth/setup, login, health, branding) responde sin
+            # token, así que el wizard de onboarding sigue funcionando.
+            return JSONResponse(
+                {"detail": "Not authenticated"}, status_code=401)
+        scope = _scope_for(request.method, path)
+        if scope and not permissions.has_scope(user["role"], scope):
+            return JSONResponse(
+                {"detail": f"Your role ({user['role']}) can't do this"},
+                status_code=403)
     return await call_next(request)
 
 
