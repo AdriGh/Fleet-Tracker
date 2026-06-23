@@ -16,9 +16,11 @@ type Props = {
  * cae con gracia al gradiente de marca (no se ve roto). Para cambiar el set,
  * edita SLIDES abajo.
  *
- * NOTA: por ahora es una compuerta de front-end (no hay endpoint de auth en el
- * backend). Acepta cualquier credencial no vacía y marca la sesión en
- * localStorage. Para seguridad real hay que cablear un endpoint /auth.
+ * AUTENTICACIÓN REAL: handleSubmit llama a POST /api/auth/login, que valida
+ * contra el backend (PBKDF2-SHA256 + token HMAC firmado). El token se guarda
+ * en localStorage (ver api.ts) — pendiente migrar a cookie HttpOnly (SEC-4 en
+ * docs/ROADMAP-SEGURIDAD.md). (Corregido: el comentario anterior afirmaba en
+ * falso que no había endpoint de auth.)
  */
 
 type Slide = {

@@ -7,6 +7,43 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.30.0] - 2026-06-22
+
+### Seguridad
+- **SEC-1 · RBAC fail-closed**: el middleware de auth era *default-allow* — una
+  ruta de escritura no enumerada en `_scope_for` la ejecutaba cualquier
+  autenticado (incl. `viewer`): crear/borrar companies y teams, `integrations/test`,
+  cambiar el ELD activo, etc. Ahora toda escritura no contemplada queda
+  **admin-only** y se añadió scope a companies/teams/integrations/pois/reporting/
+  dvir (`backend/app/main.py`). El admin actual no se ve afectado.
+- **SEC-2 · Bootstrap seguro**: mientras la tabla de usuarios estaba vacía, toda
+  la API quedaba abierta (secuestrable en el primer arranque). Ahora sin sesión
+  válida se responde 401 salvo el allowlist (status/setup/login/health/branding);
+  el wizard de onboarding sigue funcionando (`backend/app/main.py`).
+- **DATA-1 · IDOR de escritura cross-tenant**: `alerts.ack_events` hacía `UPDATE`
+  sin filtrar `org_id` (el guard de aislamiento solo cubre SELECT) → marcaba
+  alertas de otras orgs. Ahora filtra por `org_id` del tenant actual
+  (`backend/app/core/alerts.py`).
+
+### Corregido
+- **DATA-6 · `strftime` rompía en Postgres**: `month_summary`, `trends` y
+  `missing_drivers` usaban `func.strftime` (SQLite-only) → **500 en producción**.
+  Reemplazado por rango de fechas portable `_month_bounds` (`backend/app/db.py`).
+- **DATA-7 · Conexiones stale**: `create_engine` ahora con `pool_pre_ping=True`
+  + `pool_recycle=1800` → evita 5xx por `SSL connection closed` tras idle en PG.
+- **FE-2 · Robustez frontend**: `ErrorBoundary` envuelve la app (no más pantalla
+  en blanco ante un error de render) y se corrigió un comentario de seguridad
+  FALSO en `LoginPage.tsx` (afirmaba que no había auth real).
+
+### Documentación
+- **`docs/` — sistema de contexto + auditoría**: 8 docs (6 de contexto +
+  AUDITORIA con 21 hallazgos + ROADMAP-SEGURIDAD de 10 etapas → OWASP ASVS L2).
+
+> Pendiente del lote de auditoría (no incluido aquí; requiere esquema/transacciones):
+> DATA-2 (contador de factura atómico), DATA-3/DATA-4 (UniqueConstraints → Alembic),
+> OPS-1/2/3 (purga PII en git, Alembic, backups de DB), SEC-3/SEC-4 (rate-limit,
+> token a cookie HttpOnly). Ver `docs/ROADMAP-SEGURIDAD.md`.
+
 ## [1.29.0] - 2026-06-22
 
 ### Agregado
