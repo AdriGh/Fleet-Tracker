@@ -7,6 +7,13 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+### Documentación
+- **`docs/` — sistema de contexto + auditoría** (rama `docs/audit-hardening`): 8 docs
+  generados con una barrida de auditoría full-stack + research (OWASP). Los 6 de
+  contexto (ARQUITECTURA, CONVENCIONES, DECISIONES, GLOSARIO, FLUJO-DE-TRABAJO,
+  ERRORES-CONOCIDOS) + AUDITORIA (21 hallazgos priorizados) + ROADMAP-SEGURIDAD
+  (10 etapas → OWASP ASVS L2). No cambia código de la app.
+
 ## [1.29.0] - 2026-06-22
 
 ### Agregado
