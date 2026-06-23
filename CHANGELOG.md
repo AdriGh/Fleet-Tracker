@@ -7,6 +7,22 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.30.1] - 2026-06-22
+
+### Corregido
+- **DATA-2 · Contador de factura atómico**: `next_invoice_number` hacía un
+  read-modify-write sin lock sobre el JSON de `org_setting` → dos facturaciones
+  concurrentes podían tomar el mismo número (duplicados, problema contable).
+  Nuevo `db.bump_invoice_number` con `SELECT ... FOR UPDATE` (atómico en
+  Postgres, no-op en SQLite). Sin cambio de esquema.
+
+### Operaciones
+- **OPS-3 · Backups de la base**: `ops/backup.sh` (`pg_dump` dentro del
+  contenedor, comprimido, retención 14 días, pensado para cron en el VPS) +
+  `ops/db-restore.md` (runbook de restore) + sección 4.1 en DEPLOY.md. Antes no
+  había NINGÚN backup (pérdida total ante caída del VPS). Falta: instalar el
+  cron en el VPS (SSH) y copiar dumps fuera del servidor.
+
 ## [1.30.0] - 2026-06-22
 
 ### Seguridad

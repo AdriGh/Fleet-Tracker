@@ -121,6 +121,29 @@ Sin los mounts de `uploads` y `.jobs`, esos archivos se pierden al recrear el
 contenedor. La base vive en `pgdata` (named volume), que sobrevive a
 `docker compose up --build`.
 
+### 4.1 Backups de la base (OPS-3)
+
+El volumen `pgdata` sobrevive a los redeploys, pero **NO es un backup**: si se
+pierde el VPS (o se borra el volumen) se va TODA la data de cumplimiento (WOs,
+facturas, inventario, PM, DVIR/DOT). Hay un script de dump automático:
+
+- `ops/backup.sh` — `pg_dump` dentro del contenedor de la base, comprimido y con
+  retención (14 días por defecto). Pensado para cron en el VPS.
+- `ops/db-restore.md` — cómo restaurar.
+
+Instalación en el VPS (una vez, por SSH):
+
+```bash
+mkdir -p /root/fleet-backups
+# copiar ops/backup.sh -> /root/fleet-backups/backup.sh
+chmod +x /root/fleet-backups/backup.sh
+(crontab -l 2>/dev/null; echo '0 3 * * * /root/fleet-backups/backup.sh >> /root/fleet-backups/backup.log 2>&1') | crontab -
+/root/fleet-backups/backup.sh   # probar a mano
+```
+
+> Mejora pendiente: copiar los dumps **fuera del VPS** (rclone a S3/Backblaze) —
+> un backup en el mismo servidor no protege contra la pérdida del servidor.
+
 ---
 
 ## 5. Primer arranque (onboarding del admin)

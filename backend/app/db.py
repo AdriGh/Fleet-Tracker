@@ -575,6 +575,40 @@ def save_setting(key: str, value: dict) -> None:
         session.commit()
 
 
+def bump_invoice_number(default_start: int = 1001) -> int:
+    """Toma el próximo número de invoice y AVANZA el contador de forma ATÓMICA
+    (DATA-2). Bloquea la fila org_setting('org_config') con SELECT ... FOR
+    UPDATE y hace leer-incrementar-escribir en UNA transacción, para que dos
+    facturaciones concurrentes NO obtengan el mismo número (antes el
+    read-modify-write sobre el JSON no tenía lock -> facturas duplicadas, un
+    problema contable serio). Devuelve el entero crudo (sin prefijo). El
+    `with_for_update` es no-op en SQLite (dev, single-writer) y efectivo en
+    Postgres (prod)."""
+    org = _setting_org()
+    with SessionLocal() as session:
+        row = session.get(OrgSetting, (org, "org_config"),
+                          with_for_update=True)
+        if row is None:
+            n = default_start
+            session.add(OrgSetting(
+                org_id=org, key="org_config",
+                value_json=json.dumps({"invoice": {"next_number": n + 1}},
+                                      ensure_ascii=False)))
+            session.commit()
+            return n
+        try:
+            data = json.loads(row.value_json)
+        except ValueError:
+            data = {}
+        inv = data.get("invoice") or {}
+        n = int(inv.get("next_number", default_start) or default_start)
+        inv["next_number"] = n + 1
+        data["invoice"] = inv
+        row.value_json = json.dumps(data, ensure_ascii=False)
+        session.commit()
+        return n
+
+
 def _migrate() -> None:
     """Migraciones aditivas para SQLite (create_all no agrega columnas a
     tablas existentes). Idempotente: solo agrega lo que falte.

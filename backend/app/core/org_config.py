@@ -201,14 +201,13 @@ def invoice_cfg() -> dict:
 
 
 def next_invoice_number() -> str:
-    """Toma el próximo número de invoice y AVANZA el contador (persistido).
-    Devuelve el número con prefijo (p.ej. 'INV-1042'). App local mono-
-    usuario: lectura-incremento-escritura simple sobre el JSON."""
-    cur = get()
-    n = int(cur["invoice"].get("next_number", 1001) or 1001)
-    prefix = str(cur["invoice"].get("prefix", "") or "")
-    cur["invoice"]["next_number"] = n + 1
-    _write(cur)
+    """Toma el próximo número de invoice y AVANZA el contador de forma ATÓMICA.
+    Devuelve el número con prefijo (p.ej. 'INV-1042'). El incremento atómico
+    (lock de fila) vive en db.bump_invoice_number (DATA-2): antes era un
+    read-modify-write sin lock sobre el JSON -> dos facturaciones simultáneas
+    podían tomar el mismo número."""
+    prefix = str(invoice_cfg().get("prefix", "") or "")
+    n = db.bump_invoice_number(default_start=1001)
     return f"{prefix}{n}"
 
 
