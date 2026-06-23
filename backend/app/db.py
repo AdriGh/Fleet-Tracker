@@ -261,6 +261,9 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16), default="viewer")
     pw_hash: Mapped[str] = mapped_column(String(200))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # SEC-4: versión de credencial. El token de sesión la incluye; cambiar la
+    # contraseña la incrementa → invalida los tokens emitidos antes (revocación).
+    token_version: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 

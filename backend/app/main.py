@@ -42,6 +42,7 @@ _AUTH_ALLOWLIST = {
     "/api/health",
     "/api/auth/status",
     "/api/auth/login",
+    "/api/auth/logout",
     "/api/auth/setup",
     "/api/org/branding",
 }
@@ -118,8 +119,7 @@ def _scope_for(method: str, path: str) -> str | None:
 async def _require_auth(request: Request, call_next):
     path = request.url.path
     if path.startswith("/api/") and path not in _AUTH_ALLOWLIST:
-        user = auth.user_from_header(
-            request.headers.get("authorization"))
+        user = auth.user_from_request(request)
         # H6 fase 3: el tenant del request viaja en request.state; la
         # dependencia tenant.bind_tenant lo lleva al ContextVar dentro del
         # endpoint. Se setea aca (mismo scope) para que llegue al endpoint.

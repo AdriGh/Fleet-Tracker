@@ -1168,7 +1168,7 @@ def auth_setup(body: AuthSetupIn, request: Request):
 
 
 @router.post("/auth/login")
-def auth_login(body: AuthLoginIn, request: Request):
+def auth_login(body: AuthLoginIn, request: Request, response: Response):
     # SEC-3: defensa anti fuerza bruta. Orden: ban de IP -> rate limit por IP
     # -> bloqueo de cuenta -> credenciales. La IP real sale del XFF (Traefik).
     ip = ratelimit.client_ip(request)
@@ -1193,7 +1193,22 @@ def auth_login(body: AuthLoginIn, request: Request):
     # Exito: limpia ambos contadores.
     ratelimit.record_success(ip)
     ratelimit.record_account_success(body.username)
+    # SEC-4: la sesión viaja en una cookie HttpOnly (el JS no la lee → a prueba
+    # de robo por XSS). `secure` solo en prod (HTTPS); en dev (SQLite/http) no,
+    # o el navegador no la setearía. SameSite=Strict → protección CSRF fuerte.
+    response.set_cookie(
+        auth.COOKIE_NAME, result["token"], httponly=True,
+        secure=(not config.IS_SQLITE), samesite="strict",
+        max_age=auth.TOKEN_TTL_S, path="/")
     return result
+
+
+@router.post("/auth/logout")
+def auth_logout(response: Response):
+    """SEC-4: cierra sesión limpiando la cookie. Está en el allowlist (limpiar
+    la propia cookie no requiere estar autenticado)."""
+    response.delete_cookie(auth.COOKIE_NAME, path="/")
+    return {"ok": True}
 
 
 @router.get("/auth/users")

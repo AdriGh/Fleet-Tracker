@@ -31,6 +31,7 @@ from . import secretstore, tenant
 # H4: 'safety' (cumplimiento: DVIR/PM/DOT, avisos, PII) sumado al set.
 ROLES = ("admin", "dispatcher", "safety", "mechanic", "viewer")
 TOKEN_TTL_S = 30 * 24 * 3600          # 30 días
+COOKIE_NAME = "fleet_session"         # SEC-4: cookie HttpOnly de sesión
 _PBKDF2_ITERS = 200_000
 
 
@@ -72,8 +73,10 @@ def verify_password(password: str, stored: str) -> bool:
 
 # ----- Tokens ------------------------------------------------------------
 
-def issue_token(user_id: int) -> str:
-    payload = f"{user_id}.{int(time.time()) + TOKEN_TTL_S}"
+def issue_token(user_id: int, token_version: int = 0) -> str:
+    # SEC-4: el payload incluye token_version → al cambiar la contraseña se
+    # incrementa la versión del usuario y los tokens viejos dejan de validar.
+    payload = f"{user_id}.{token_version}.{int(time.time()) + TOKEN_TTL_S}"
     sig = hmac.new(_secret(), payload.encode("ascii"),
                    hashlib.sha256).hexdigest()
     b64 = base64.urlsafe_b64encode(payload.encode("ascii")).decode("ascii")
@@ -93,15 +96,21 @@ def verify_token(token: str) -> dict | None:
     if not hmac.compare_digest(sig, want):
         return None
     try:
-        user_id_s, expiry_s = payload.split(".", 1)
+        user_id_s, ver_s, expiry_s = payload.split(".", 2)
         if int(expiry_s) < time.time():
             return None
         user_id = int(user_id_s)
+        tok_ver = int(ver_s)
     except ValueError:
+        # Token viejo (formato user_id.expiry, sin versión) o corrupto.
         return None
     with SessionLocal() as session:
         u = session.get(User, user_id)
         if u is None or not u.active:
+            return None
+        # SEC-4: revocación — la versión del token debe coincidir con la actual
+        # del usuario (cambiar password la incrementa → invalida lo viejo).
+        if (u.token_version or 0) != tok_ver:
             return None
         return {"id": u.id, "username": u.username, "name": u.name,
                 "role": u.role, "org_id": u.org_id}
@@ -111,6 +120,18 @@ def user_from_header(authorization: str | None) -> dict | None:
     if not authorization or not authorization.startswith("Bearer "):
         return None
     return verify_token(authorization[7:].strip())
+
+
+def user_from_request(request) -> dict | None:
+    """SEC-4: resuelve el usuario leyendo PRIMERO la cookie de sesión HttpOnly
+    (que el JS no puede leer → a prueba de robo por XSS) y, como fallback, el
+    header Authorization: Bearer (clientes API/curl/tests y transición)."""
+    tok = request.cookies.get(COOKIE_NAME)
+    if tok:
+        u = verify_token(tok)
+        if u is not None:
+            return u
+    return user_from_header(request.headers.get("authorization"))
 
 
 # ----- Usuarios ----------------------------------------------------------
@@ -167,7 +188,7 @@ def login(username: str, password: str) -> dict | None:
             if u is None:
                 verify_password(password, hash_password("x" * 12))
             return None
-        return {"token": issue_token(u.id),
+        return {"token": issue_token(u.id, u.token_version),
                 "user": {"id": u.id, "username": u.username,
                          "name": u.name, "role": u.role,
                          "org_id": u.org_id}}
@@ -212,6 +233,8 @@ def update_user(user_id: int, fields: dict,
                 raise ValueError(
                     "password needs at least 8 characters")
             u.pw_hash = hash_password(str(fields["password"]))
+            # SEC-4: cambiar la contraseña invalida los tokens viejos.
+            u.token_version = (u.token_version or 0) + 1
         if "name" in fields:
             u.name = str(fields["name"]).strip()[:120]
         session.commit()
