@@ -579,9 +579,26 @@ def wo_create(body: WorkOrderIn):
 
 
 @router.post("/workorders/scan")
-async def wo_scan(file: UploadFile = File(...)):
+async def wo_scan(request: Request, file: UploadFile = File(...)):
     """Escanea un invoice/estimate (PDF o foto) y devuelve los campos
     extraídos para autollenar la work order (fase H2.5)."""
+    # SEC-3 (extensión): el escaneo consume la API de Groq con un key COMPARTIDO
+    # (free tier ~125/día). Sin límite, un usuario podría agotar la cuota → 429
+    # para TODOS los clientes (o inflar el costo). Se limita POR USUARIO: 15/min
+    # y 150/día (config por env SEC3_SCAN_*). El middleware ya dejó el usuario
+    # autenticado en request.state.user; si faltara, cae a la IP.
+    uid = (getattr(request.state, "user", None) or {}).get("id") \
+        or ratelimit.client_ip(request)
+    if not ratelimit.hit(f"scan:min:{uid}", ratelimit.SCAN_RATE,
+                         ratelimit.SCAN_RATE_WINDOW_S):
+        raise _too_many(ratelimit.SCAN_RATE_WINDOW_S)
+    if not ratelimit.hit(f"scan:day:{uid}", ratelimit.SCAN_DAILY,
+                         ratelimit.SCAN_DAILY_WINDOW_S):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Daily scan limit reached ({ratelimit.SCAN_DAILY}/day). "
+                   "Try again tomorrow.",
+            headers={"Retry-After": str(ratelimit.SCAN_DAILY_WINDOW_S)})
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Empty file")

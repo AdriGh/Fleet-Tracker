@@ -23,6 +23,10 @@ Limites configurables por ENV VAR (defaults sanos entre parentesis):
   - SEC3_LOGIN_RATE_WINDOW_S  ventana del rate limit en segundos (60)
   - SEC3_SETUP_RATE        setup: peticiones por ventana / IP   (5)
   - SEC3_SETUP_RATE_WINDOW_S  ventana del rate limit de setup    (60)
+  - SEC3_SCAN_RATE         escaneo AI: peticiones/ventana / usuario (15)
+  - SEC3_SCAN_RATE_WINDOW_S  ventana del rate limit de escaneo      (60)
+  - SEC3_SCAN_DAILY        escaneo AI: tope diario / usuario        (150)
+  - SEC3_SCAN_DAILY_WINDOW_S ventana del tope diario (segundos)     (86400)
   - SEC3_IP_FAIL_MAX       fallos de login por IP para banear   (15)
   - SEC3_IP_FAIL_WINDOW_S  ventana en que se cuentan esos fallos (600)
   - SEC3_IP_BAN_S          duracion del ban de IP en segundos    (900)
@@ -54,6 +58,13 @@ LOGIN_RATE = _env_int("SEC3_LOGIN_RATE", 5)
 LOGIN_RATE_WINDOW_S = _env_int("SEC3_LOGIN_RATE_WINDOW_S", 60)
 SETUP_RATE = _env_int("SEC3_SETUP_RATE", 5)
 SETUP_RATE_WINDOW_S = _env_int("SEC3_SETUP_RATE_WINDOW_S", 60)
+# Escaneo AI (Groq): limite POR USUARIO. El escaneo consume el key COMPARTIDO
+# de Groq (free tier ~125/dia); sin limite un usuario agotaria la cuota -> 429
+# para TODOS. Defaults generosos para el piloto (15/min, 150/dia).
+SCAN_RATE = _env_int("SEC3_SCAN_RATE", 15)
+SCAN_RATE_WINDOW_S = _env_int("SEC3_SCAN_RATE_WINDOW_S", 60)
+SCAN_DAILY = _env_int("SEC3_SCAN_DAILY", 150)
+SCAN_DAILY_WINDOW_S = _env_int("SEC3_SCAN_DAILY_WINDOW_S", 86400)
 
 IP_FAIL_MAX = _env_int("SEC3_IP_FAIL_MAX", 15)
 IP_FAIL_WINDOW_S = _env_int("SEC3_IP_FAIL_WINDOW_S", 600)
@@ -90,7 +101,7 @@ def _prune_locked(now: float) -> None:
     if now - _last_clean < _CLEAN_EVERY_S:
         return
     _last_clean = now
-    horizon = max(LOGIN_RATE_WINDOW_S, SETUP_RATE_WINDOW_S,
+    horizon = max(LOGIN_RATE_WINDOW_S, SETUP_RATE_WINDOW_S, SCAN_DAILY_WINDOW_S,
                   IP_FAIL_WINDOW_S, ACCT_FAIL_WINDOW_S)
     for store in (_hits, _ip_fails, _acct_fails):
         for k in list(store.keys()):

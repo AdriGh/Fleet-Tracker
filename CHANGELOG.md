@@ -7,6 +7,20 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.36.0] - 2026-06-26
+
+### Seguridad
+- **SEC-3 (extensión) · Rate-limit del escaneo AI por usuario**: `POST /workorders/scan`
+  consume la API de Groq con un key **compartido** (free tier ~125/día) y estaba
+  **sin límite** — un usuario podía agotar la cuota → 429 para TODOS los clientes
+  (o inflar el costo). Ahora se limita **por usuario**: 15/min + 150/día (429 +
+  `Retry-After`; el front ya lo muestra). Reusa `core/ratelimit.hit` (ventana
+  deslizante en memoria) y se identifica por `request.state.user` (fallback IP).
+  Configurable por env `SEC3_SCAN_RATE`/`SEC3_SCAN_RATE_WINDOW_S` y
+  `SEC3_SCAN_DAILY`/`SEC3_SCAN_DAILY_WINDOW_S`. Verificado: cortes min/día y
+  aislamiento por-usuario. Motivado por los reels de seguridad ("no implementar
+  rate limiting") y protege la decisión del key Groq compartido (Opción A).
+
 ## [1.35.5] - 2026-06-23
 
 ### Corregido
