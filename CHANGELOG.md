@@ -7,6 +7,27 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.37.0] - 2026-06-26
+
+### Seguridad
+- **SEC-5 · Security headers + Content-Security-Policy**: middleware nuevo que
+  agrega en **toda** respuesta (incl. 401/403 y los assets del SPA):
+  - **`Content-Security-Policy`** calibrada al frontend REAL (build inspeccionado:
+    sin `<script>` inline). Clave: **`script-src 'self'` SIN `'unsafe-inline'`** →
+    un `<script>` inyectado por XSS **no ejecuta**. Permite los 2 externos reales
+    (`images.unsplash.com` del login, `tiles.openfreemap.org` del mapa) y
+    `worker-src blob:` para el worker de maplibre. `style-src 'unsafe-inline'`
+    (React/maplibre/sonner inyectan estilos inline; bajo riesgo).
+  - **`X-Content-Type-Options: nosniff`**, **`X-Frame-Options: DENY`** +
+    `frame-ancestors 'none'` (anti-clickjacking), **`Referrer-Policy:
+    strict-origin-when-cross-origin`**, **`Permissions-Policy`** (geo/cámara/mic/…
+    off), y **`Strict-Transport-Security`** (HSTS 1 año, **solo** cuando el
+    cliente llega por HTTPS vía `X-Forwarded-Proto`).
+  - Modo por env **`SEC5_CSP=on|report|off`** (default `on`): rollback a
+    Report-Only o apagado sin tocar código si algo se cuela en el piloto.
+  - Verificado por TestClient (headers presentes en 200 y 401; HSTS gated por
+    HTTPS). Sin cambios de frontend.
+
 ## [1.36.0] - 2026-06-26
 
 ### Seguridad

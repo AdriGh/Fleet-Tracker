@@ -1,6 +1,7 @@
 """Aplicacion FastAPI: API + frontend estatico."""
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
@@ -139,6 +140,63 @@ async def _require_auth(request: Request, call_next):
                 {"detail": f"Your role ({user['role']}) can't do this"},
                 status_code=403)
     return await call_next(request)
+
+
+# ----- SEC-5: cabeceras de seguridad + CSP -------------------------------
+# CSP calibrada al frontend REAL (build inspeccionado: NO hay <script> inline,
+# fuentes self-hosted). Externos reales: images.unsplash.com (fondo del login) y
+# tiles.openfreemap.org (mapa). maplibre crea su worker desde un blob: ->
+# worker-src blob:. Los estilos inline de React/maplibre/sonner exigen
+# style-src 'unsafe-inline' (bajo riesgo); script-src queda SIN 'unsafe-inline'
+# — eso es lo que corta un XSS: un <script> inyectado NO ejecuta.
+_CSP = (
+    "default-src 'self'; "
+    "base-uri 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; "
+    "form-action 'self'; "
+    "img-src 'self' data: blob: "
+    "https://images.unsplash.com https://tiles.openfreemap.org; "
+    "style-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; "
+    "font-src 'self' data:; "
+    "connect-src 'self' https://tiles.openfreemap.org; "
+    "worker-src 'self' blob:; "
+    "child-src 'self' blob:; "
+    "manifest-src 'self'"
+)
+# Modo CSP por env, por si algo se coló en el piloto (rollback sin tocar código):
+#   SEC5_CSP = on (default, enforce) | report (Report-Only, NO bloquea) | off
+_CSP_MODE = os.environ.get("SEC5_CSP", "on").strip().lower()
+_PERMISSIONS_POLICY = (
+    "geolocation=(), camera=(), microphone=(), payment=(), usb=(), "
+    "magnetometer=(), gyroscope=(), accelerometer=()"
+)
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    """SEC-5: cabeceras de seguridad en TODA respuesta (incl. 401/403 y los
+    assets del SPA). Se registra DESPUÉS de _require_auth → queda como capa
+    EXTERNA y cubre también las respuestas de error del auth."""
+    response = await call_next(request)
+    h = response.headers
+    h.setdefault("X-Content-Type-Options", "nosniff")
+    h.setdefault("X-Frame-Options", "DENY")
+    h.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    h.setdefault("Permissions-Policy", _PERMISSIONS_POLICY)
+    # HSTS solo si el cliente llegó por HTTPS (Traefik lo marca en
+    # X-Forwarded-Proto). Sobre HTTP el navegador lo ignora; no lo mandamos
+    # para no afirmarlo antes de confirmar el candado.
+    if request.headers.get("x-forwarded-proto",
+                           request.url.scheme) == "https":
+        h.setdefault("Strict-Transport-Security",
+                     "max-age=31536000; includeSubDomains")
+    if _CSP_MODE == "on":
+        h.setdefault("Content-Security-Policy", _CSP)
+    elif _CSP_MODE == "report":
+        h.setdefault("Content-Security-Policy-Report-Only", _CSP)
+    return response
 
 
 # bind_tenant corre para toda ruta de la API: fija el ContextVar de tenant
