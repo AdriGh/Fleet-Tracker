@@ -1,7 +1,7 @@
 @echo off
 setlocal
 REM ============================================================
-REM   Fleet Tracker - App de escritorio (cliente de la NUBE)
+REM   Rigsmith - App de escritorio (cliente de la NUBE)
 REM ============================================================
 REM Abre la app de PRODUCCION en una ventana de aplicacion (Chrome --app).
 REM Usa la MISMA base de datos que el server (Postgres en el VPS): al loguear
@@ -13,7 +13,7 @@ REM Para correr en LOCAL con SQLite (desarrollo/offline), usa launch-dev.bat.
 
 set "URL=https://fleet-tracker-fleettracker-pov0zh-95b032-187-77-255-150.sslip.io"
 
-echo Abriendo Fleet Tracker (nube)...
+echo Abriendo Rigsmith (nube)...
 
 REM Busca Chrome en las rutas tipicas (sistema 64/32-bit y por-usuario).
 set "CHROME="

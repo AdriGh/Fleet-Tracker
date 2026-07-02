@@ -7,6 +7,16 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.39.1] - 2026-07-02
+
+### Corregido
+- **Logo sin glow rojo**: se elimino el drop-shadow rojo detras del tile de
+  Rigsmith en el sidebar (.brand-logo) y en el hero del login
+  (.login-hero-logo) — el tile del DS va limpio sobre el fondo.
+- **Launcher de escritorio**: launch.bat rebrandeado y favicon.ico regenerado
+  desde el favicon oficial (el acceso directo de Windows ahora se llama
+  Rigsmith y usa el icono nuevo).
+
 ## [1.39.0] - 2026-07-02
 
 ### Cambiado
