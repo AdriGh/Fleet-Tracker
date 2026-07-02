@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <title>Rigsmith favicon</title>
+  
+  <rect width="200" height="200" rx="46" fill="#131316"></rect>
+  <g transform="translate(0 4)">
+    <g transform="translate(8 0) skewX(-7)">
+      <path fill="#f4f4f5" d="M88 34 H130 Q154 34 154 57 V79 Q154 96 136 101 L164 152 L138 160 L110 104 H88 V82 H118 Q128 82 128 73 V63 Q128 56 118 56 H88 Z"></path>
+      <path fill="#ff4438" fill-rule="evenodd" transform="rotate(-45 65 40)" d="M51 58 L51 36 L58 26 L72 26 L79 36 L79 58 Z M58 26 H72 V43 Q72 50 65 50 Q58 50 58 43 Z"></path>
+      <path fill="#ff4438" d="M57 50 H74 L71.5 136 H59.5 Z"></path>
+      <path fill="#ff4438" fill-rule="evenodd" d="M67 133 L81.7 141.5 V158.5 L67 167 L52.3 158.5 V141.5 Z M67 141 L74.8 145.5 V154.5 L67 159 L59.2 154.5 V145.5 Z"></path>
+    </g>
+  </g>
+</svg>

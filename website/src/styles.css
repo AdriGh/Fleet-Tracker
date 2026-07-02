@@ -1,0 +1,123 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/space-grotesk';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+
+/* Tokens Rigsmith (design system jul-2026, tema dark) -> utilidades Tailwind v4
+   (bg-brand, text-ink, font-display, border-line...). El sitio es dark-locked,
+   asi que se toman los valores de :root[data-theme='dark'] del DS. */
+@theme {
+  --font-display: 'Space Grotesk Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --color-bg: #0a0a0b;
+  --color-surface: #161618;
+  --color-surface-2: #100f11; /* DS dark surface-2 (tracks, ghost btn) */
+  --color-surface-3: #1e1e21; /* DS dark surface-3 (elevados) */
+  --color-panel: #131316; /* binnacle: StatCluster / tiles de instrumento */
+  --color-line: #27272b;
+  --color-line-strong: #38383e;
+  --color-ink: #f4f4f5;
+  --color-muted: #a1a1aa;
+  /* faint: aclarado vs el #6b6b76 del DS para pasar AA (4.5:1) sobre bg/panel;
+     los literales del instrumento (Gauge sub) quedan DS-locked */
+  --color-faint: #8b8b95;
+
+  --color-brand: #e11900; /* rojo pleno de marca (gradientes, tile del logo) */
+  --color-brand-bright: #ff4438; /* acento sobre dark (texto, iconos, LEDs) */
+  --color-brand-soft: #ff6a52;
+  --color-brand-deep: #b71400;
+  --color-btn: #e2231a; /* btn-primary dark del DS */
+  --color-btn-hover: #f0463b;
+
+  /* Tonos de instrumento (theme-invariant, excepcion intencional del DS) */
+  --color-gauge-ok: #34d399;
+  --color-gauge-warn: #fbbf24;
+  --color-gauge-info: #38bdf8;
+  --color-gauge-danger: #fb7185;
+
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out-soft: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+html {
+  scroll-behavior: smooth;
+  /* non-static: evita el warning de useScroll({target}) de motion (el
+     container default es <html>) sin impacto de layout */
+  position: relative;
+}
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+::selection {
+  background: color-mix(in srgb, var(--color-brand) 45%, transparent);
+}
+
+/* Grano sutil fijo del DS dark: rompe el negro plano (no repinta al scrollear) */
+.grain::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 130px;
+}
+
+/* Animacion firma del logo: la llave ratchetea alrededor del anillo hex.
+   (brand/rigsmith-logo-animation.css del handoff, tal cual.) */
+.rs-wrench {
+  transform-box: view-box;
+  transform-origin: 67px 150px;
+}
+.rs-logo:hover .rs-wrench {
+  animation: rsRatchet 1.6s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
+}
+/* Auto (sin hover): finito — 3 ciclos por entrada al viewport (WCAG 2.2.2) */
+.rs-logo.rs-logo-auto .rs-wrench {
+  animation: rsRatchet 1.6s cubic-bezier(0.34, 1.56, 0.64, 1) 3;
+}
+@keyframes rsRatchet {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  12% {
+    transform: rotate(-24deg);
+  }
+  26% {
+    transform: rotate(3deg);
+  }
+  34% {
+    transform: rotate(0deg);
+  }
+  52% {
+    transform: rotate(-24deg);
+  }
+  66% {
+    transform: rotate(3deg);
+  }
+  74% {
+    transform: rotate(0deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .rs-wrench {
+    animation: none !important;
+  }
+  .grain::after {
+    display: none;
+  }
+}

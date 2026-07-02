@@ -17,6 +17,7 @@ backend/*.local.json
 # Frontend
 node_modules/
 frontend/dist/
+website/dist/
 *.local
 
 # Salidas y datos de prueba
@@ -41,3 +42,6 @@ roster.csv
 /sandbox/
 backend/uploads/
 /graphify-out/
+
+# Research competitivo: screenshots full-page (pesados, solo referencia local)
+docs/competitive/screenshots/
