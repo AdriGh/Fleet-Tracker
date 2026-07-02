@@ -8,6 +8,7 @@ import { notifyOk, notifyErr } from '../toast'
 import { Button } from '../components/ds'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
+import { StatCluster } from '../components/ds'
 
 const ROLE_LABEL: Record<string, string> = {
   owner_operator: 'Owner Operator',
@@ -102,18 +103,19 @@ export default function DriversPage() {
       )}
 
       {driversQ.isPending ? (
-        <div className="kpi-row">
+        <StatCluster className="kpi-row">
           {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} h={86} />)}
-        </div>
+        </StatCluster>
       ) : (
-        <div className="kpi-row">
+        <StatCluster className="kpi-row">
           <StatCard label="Active drivers" value={kpis.total} tone="accent" />
           <StatCard label="Owner operators" value={kpis.oo} tone="info" />
           <StatCard label="With profile" value={kpis.withProfile}
-            sub={`of ${kpis.total}`} tone="default" />
+            sub={`of ${kpis.total}`} tone="default"
+            progress={kpis.total ? kpis.withProfile / kpis.total : undefined} />
           <StatCard label="Docs expiring" value={kpis.expiring}
             sub="within 30 days" tone={kpis.expiring ? 'warn' : 'ok'} />
-        </div>
+        </StatCluster>
       )}
 
       <section className="card">

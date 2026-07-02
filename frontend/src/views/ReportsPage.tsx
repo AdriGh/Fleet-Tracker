@@ -14,7 +14,7 @@ import {
 } from '../api'
 import { notifyErr } from '../toast'
 import { useTerminals } from '../terminal'
-import { Button, Tabs } from '../components/ds'
+import { Button, Tabs, StatCard, StatCluster } from '../components/ds'
 import CountUp from '../components/CountUp'
 import Skeleton from '../components/Skeleton'
 
@@ -189,7 +189,7 @@ export default function ReportsPage() {
       const scope = terminal ? labelOf(terminal) : 'All terminals'
       const rangeLabel =
         `${data.range.from ?? 'start'} to ${data.range.to ?? 'today'}`
-      rows.push(['Fleet Tracker — Spend report'])
+      rows.push(['Rigsmith — Spend report'])
       rows.push(['Scope', scope])
       rows.push(['Range', rangeLabel])
       rows.push([])
@@ -298,9 +298,9 @@ export default function ReportsPage() {
 
       {query.isPending ? (
         <>
-          <div className="kpi-row">
+          <StatCluster className="kpi-row">
             {Array.from({ length: 4 }, (_, i) => <Skeleton key={i} h={92} />)}
-          </div>
+          </StatCluster>
           <div className="card"><div className="card-body skel-rows">
             {Array.from({ length: 6 }, (_, i) => <Skeleton key={i} h={34} />)}
           </div></div>
@@ -318,52 +318,39 @@ export default function ReportsPage() {
         </div></div>
       ) : (
         <>
-          {/* ----- KPIs ----- */}
-          <div className="kpi-row">
-            <div className="stat-card tone-accent">
-              <span className="stat-label">Total spend</span>
-              <span className="stat-value rp-money">
-                <i>$</i>
-                <CountUp value={t!.total_spend} format={money} />
-              </span>
-              <span className="stat-sub">
-                {t!.wo_count} work {t!.wo_count === 1 ? 'order' : 'orders'}
-              </span>
-            </div>
-            <div className="stat-card tone-info">
-              <span className="stat-label">Parts vs labor</span>
-              <span className="stat-value rp-split">
-                <span className="rp-money"><i>$</i>{money(t!.parts_spend)}</span>
-                <span className="rp-split-sep">/</span>
-                <span className="rp-money rp-labor">
-                  <i>$</i>{money(t!.labor_spend)}
+          {/* ----- KPIs (gauges del DS; parts vs labor usa el riel split) ----- */}
+          <StatCluster className="kpi-row">
+            <StatCard
+              label="Total spend"
+              tone="accent"
+              value={<>$<CountUp value={t!.total_spend} format={money} /></>}
+              sub={`${t!.wo_count} work ${t!.wo_count === 1 ? 'order' : 'orders'}`}
+            />
+            <StatCard
+              label="Parts vs labor"
+              tone="info"
+              splitTone="ok"
+              progress={partsPct / 100}
+              value={
+                <span style={{ fontSize: '1.15rem' }}>
+                  <span style={{ color: '#38bdf8' }}>${money(t!.parts_spend)}</span>
+                  <span style={{ color: '#6b6b76' }}> / </span>
+                  <span style={{ color: '#34d399' }}>${money(t!.labor_spend)}</span>
                 </span>
-              </span>
-              <span className="stat-sub">
-                {partsPct}% parts · {100 - partsPct}% labor
-              </span>
-              <span className="rp-split-bar" aria-hidden="true">
-                <i style={{ width: `${partsPct}%`, background: 'var(--ui-info)' }} />
-                <i style={{ width: `${100 - partsPct}%`,
-                  background: 'var(--st-on-track)' }} />
-              </span>
-            </div>
-            <div className="stat-card">
-              <span className="stat-label">Work orders</span>
-              <span className="stat-value">
-                <CountUp value={t!.wo_count} />
-              </span>
-              <span className="stat-sub">with billable lines</span>
-            </div>
-            <div className="stat-card">
-              <span className="stat-label">Avg per WO</span>
-              <span className="stat-value rp-money">
-                <i>$</i>
-                <CountUp value={t!.avg_per_wo} format={money} />
-              </span>
-              <span className="stat-sub">cost per closed order</span>
-            </div>
-          </div>
+              }
+              sub={`${partsPct}% parts · ${100 - partsPct}% labor`}
+            />
+            <StatCard
+              label="Work orders"
+              value={<CountUp value={t!.wo_count} />}
+              sub="with billable lines"
+            />
+            <StatCard
+              label="Avg per WO"
+              value={<>$<CountUp value={t!.avg_per_wo} format={money} /></>}
+              sub="cost per closed order"
+            />
+          </StatCluster>
 
           {/* ----- Gasto por categoría (chart segmentado, hero a ancho
                    completo: la barra apilada + el desglose llenan el panel sin

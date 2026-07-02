@@ -5,6 +5,7 @@ import { notifyOk, notifyErr } from '../toast'
 import { Button, Tabs } from '../components/ds'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
+import { StatCluster } from '../components/ds'
 
 type Cell = string | number
 
@@ -198,17 +199,17 @@ export default function RosterPage({ embedded = false }: Props) {
   )
 
   const kpiBlock = loading ? (
-    <div className="kpi-row">
+    <StatCluster className="kpi-row">
       {Array.from({ length: 3 }).map((_, i) => (
         <Skeleton key={i} className="skel-kpi" h={86} />
       ))}
-    </div>
+    </StatCluster>
   ) : (
-    <div className="kpi-row">
+    <StatCluster className="kpi-row">
       <StatCard label="Active drivers" value={kpis.total} tone="accent" />
       <StatCard label="Company A" value={kpis.chaser} tone="info" />
       <StatCard label="Company B" value={kpis.mcc} tone="default" />
-    </div>
+    </StatCluster>
   )
 
   const filterBlock = (

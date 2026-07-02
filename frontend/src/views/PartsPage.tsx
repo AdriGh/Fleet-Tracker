@@ -14,6 +14,7 @@ import { Button, Tabs } from '../components/ds'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
+import { StatCluster } from '../components/ds'
 import PurchaseOrdersPage, { QuickBuyButton } from './PurchaseOrdersPage'
 import MarketplacePanel from './MarketplacePanel'
 
@@ -123,7 +124,7 @@ function PartsTab() {
   return (
     <>
       {partsQ.isFetching && <div className="loadbar" aria-hidden="true" />}
-      <div className="kpi-row">
+      <StatCluster className="kpi-row">
         <StatCard label="Parts" value={parts.length} tone="info" />
         <StatCard label="Categories"
           value={(partsQ.data?.categories ?? []).length} tone="default" />
@@ -141,7 +142,7 @@ function PartsTab() {
               : lowCount ? 'click to filter' : 'all stocked'}
             tone={lowCount ? 'warn' : 'ok'} />
         </button>
-      </div>
+      </StatCluster>
 
       <section className="card">
         <div className="card-head">

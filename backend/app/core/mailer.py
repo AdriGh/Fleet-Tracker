@@ -85,6 +85,6 @@ def send_test(settings: EmailSettings, to: str | None = None) -> dict:
     })
     return send_email(
         forced, to or settings.sender, [],
-        "Fleet Tracker · mail configuration test",
+        "Rigsmith · mail configuration test",
         "If you received this email, Gmail sending is configured "
-        "correctly.\n\nFleet Tracker")
+        "correctly.\n\nRigsmith")

@@ -323,7 +323,7 @@ def _dispatch(created: list[dict], cfg: dict) -> None:
     batch = created[:MAX_EXTERNAL_PER_CYCLE]
     lines = [f"- [{RULE_LABEL.get(e['rule'], e['rule'])}] {e['message']}"
              for e in batch]
-    body = ("Fleet Tracker alerts:\n\n" + "\n".join(lines)
+    body = ("Rigsmith alerts:\n\n" + "\n".join(lines)
             + "\n\nOpen the dashboard for details.")
 
     if cfg["channels"]["email"] and cfg["recipients"]["emails"]:
@@ -338,7 +338,7 @@ def _dispatch(created: list[dict], cfg: dict) -> None:
 
     if cfg["channels"]["sms"] and cfg["recipients"]["phones"]:
         settings = sms_service.load_settings()
-        text = "Fleet Tracker: " + "; ".join(
+        text = "Rigsmith: " + "; ".join(
             e["message"] for e in batch)[:1500]
         for phone in cfg["recipients"]["phones"]:
             try:

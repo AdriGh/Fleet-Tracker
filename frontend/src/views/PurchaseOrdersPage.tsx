@@ -19,6 +19,7 @@ import { Button, Tabs } from '../components/ds'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
+import { StatCluster } from '../components/ds'
 
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
@@ -81,18 +82,18 @@ export default function PurchaseOrdersPage({ quickPart }: {
       {listQ.isFetching && <div className="loadbar" aria-hidden="true" />}
 
       {listQ.isPending ? (
-        <div className="kpi-row">
+        <StatCluster className="kpi-row">
           {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} h={86} />)}
-        </div>
+        </StatCluster>
       ) : stats && (
-        <div className="kpi-row">
+        <StatCluster className="kpi-row">
           <StatCard label="Draft" value={stats.draft}
             tone={stats.draft ? 'warn' : 'default'} />
           <StatCard label="Ordered" value={stats.ordered} tone="info" />
           <StatCard label="Received" value={stats.received} tone="ok" />
           <StatCard label="Open value" value={money(stats.open_value)}
             tone="accent" />
-        </div>
+        </StatCluster>
       )}
 
       <div className="card">

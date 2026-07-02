@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { fleetArchive, listFleet, type FleetUnit } from '../api'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
+import { StatCluster } from '../components/ds'
 import UnitDrawer from '../components/UnitDrawer'
 import IconButton from '../components/IconButton'
 import AddUnitModal from '../components/AddUnitModal'
@@ -172,20 +173,20 @@ export default function FleetPage({ onOpenUnit }: {
 
       {/* KPIs */}
       {loading ? (
-        <div className="kpi-row">
+        <StatCluster className="kpi-row">
           {Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} className="skel-kpi" h={86} />
           ))}
-        </div>
+        </StatCluster>
       ) : (
-        <div className="kpi-row">
+        <StatCluster className="kpi-row">
           <StatCard label="Total units" value={kpis.total} tone="accent" />
           <StatCard label="Trucks" value={kpis.trucks} tone="info" />
           <StatCard label="Trailers" value={kpis.trailers} tone="default" />
           <StatCard label="Chassis" value={kpis.chassis} tone="default" />
           <StatCard label="With open defects" value={kpis.withDefects}
             tone="danger" />
-        </div>
+        </StatCluster>
       )}
 
       {/* Filtros */}
