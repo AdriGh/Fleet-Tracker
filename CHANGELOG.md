@@ -7,6 +7,16 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.40.0] - 2026-07-02
+
+### Agregado
+- **Deploy del sitio de marketing** (website/): Dockerfile multi-stage
+  (Node 22 build -> nginx estatico), nginx.conf con SPA fallback + headers
+  de seguridad (nosniff, X-Frame-Options DENY, Referrer-Policy,
+  Permissions-Policy, CSP calibrada al sitio; HSTS diferido hasta dominio
+  propio) y cache inmutable para /assets. Se deploya como segunda app
+  (Application/Dockerfile) en el mismo Dokploy — pasos en DEPLOY.md.
+
 ## [1.39.1] - 2026-07-02
 
 ### Corregido

@@ -308,3 +308,32 @@ Checklist para dejar listo un cliente nuevo **despues** de desplegar la instanci
 > con Groq free-tier alcanza. Al crecer, pasar a un plan Groq de pago y mover las
 > integraciones de cada cliente (ELD/reefer/email) a config **por-org** — ver el
 > backlog de productización.
+
+---
+
+## Sitio de marketing (website/) — app aparte en Dokploy
+
+El sitio publico de Rigsmith (`website/`) se deploya como una **segunda app
+estatica** en el mismo Dokploy, independiente de la app principal. Artefactos
+(ya en el repo): `website/Dockerfile` (build Node → nginx), `website/nginx.conf`
+(SPA fallback + headers de seguridad), `website/.dockerignore`.
+
+Pasos en el panel de Dokploy (una sola vez):
+
+1. En el proyecto → **Create Service → Application** (no Compose).
+   Nombre sugerido: `rigsmith-website`.
+2. **Provider**: el mismo repo GitHub (`AdriGh/DVIR-Report-Generator`),
+   branch `main`, via la GitHub App ya conectada.
+3. **Build Type: Dockerfile** con:
+   - Docker File: `website/Dockerfile`
+   - Docker Context Path: `website`
+4. **Domains → Create Domain**: Generate (te da la URL sslip.io propia),
+   puerto del contenedor **80**, HTTPS **on** (Let's Encrypt).
+5. **Auto Deploy: On Push** (igual que la app). Deploy.
+
+Notas:
+- Cada push a `main` rebuildea ambos servicios; el del sitio tarda ~1 min.
+- HSTS queda deshabilitado a proposito hasta tener dominio definitivo.
+- Con dominio propio: sitio en el apex (`rigsmith.com`) y la app en
+  `app.rigsmith.com`; actualizar `website/src/config.ts` (APP_URL) y la
+  linea URL de `launch.bat`.
