@@ -41,3 +41,7 @@ roster.csv
 /sandbox/
 backend/uploads/
 /graphify-out/
+
+# Screenshots de competencia (Playwright MCP): referencia local pesada (~13 MB)
+# + artefactos auto de Playwright (.yml/.log). No versionar (usar Git LFS si se quiere).
+docs/competitive/screenshots/
