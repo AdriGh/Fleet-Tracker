@@ -19,6 +19,7 @@ import { Button, Tabs } from '../components/ds'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
+import { StatCluster } from '../components/ds'
 import WorkOrderInvoice from '../components/WorkOrderInvoice'
 
 export const STATUS_META: Record<WoStatus, { label: string; cls: string }> = {
@@ -275,11 +276,11 @@ export default function WorkOrdersPage() {
       )}
 
       {listQ.isPending ? (
-        <div className="kpi-row">
+        <StatCluster className="kpi-row">
           {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} h={86} />)}
-        </div>
+        </StatCluster>
       ) : stats && (
-        <div className="kpi-row">
+        <StatCluster className="kpi-row">
           <StatCard label="Open" value={stats.open}
             tone={stats.open ? 'warn' : 'ok'} />
           <StatCard label="Assigned" value={stats.assigned} tone="info" />
@@ -289,7 +290,7 @@ export default function WorkOrdersPage() {
           <StatCard label="Invoiced" value={stats.invoiced} tone="ok" />
           <StatCard label="Cost (30d)" value={money(stats.cost_30d)}
             tone="accent" />
-        </div>
+        </StatCluster>
       )}
 
       <div className="card">
@@ -1591,7 +1592,7 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                   </div>
                   {wo.invoice_number && (
                     <p className="ud-muted wo-invnum">
-                      Fleet Tracker invoice&nbsp;#:{' '}
+                      Rigsmith invoice&nbsp;#:{' '}
                       <strong>{wo.invoice_number}</strong> · format in
                       Settings, Company
                     </p>

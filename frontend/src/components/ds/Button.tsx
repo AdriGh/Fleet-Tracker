@@ -1,7 +1,7 @@
 import React from 'react'
 
 /**
- * Fleet Tracker primary button. Red `primary`, neutral `ghost`, green
+ * Rigsmith primary button. Red `primary`, neutral `ghost`, green
  * `success`. Lifts on hover, springs on press; primary carries a red glow.
  * Design system core — styling is inline via CSS custom properties.
  */

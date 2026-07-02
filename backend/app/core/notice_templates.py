@@ -29,7 +29,7 @@ _SEED: list[dict] = [{
         "DVIR: [PEGAR LINK DE VIMEO]\n"
         "Pre-trip: [PEGAR LINK DE VIMEO]\n\n"
         "Please watch both before your next shift. Thanks!\n\n"
-        "- Fleet Tracker"
+        "- Rigsmith"
     ),
 }]
 

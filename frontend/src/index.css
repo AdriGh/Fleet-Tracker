@@ -69,7 +69,7 @@
     Segoe UI, Roboto, sans-serif;
   --font-display: "Space Grotesk Variable", "Geist Variable", system-ui,
     sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
 
   /* Tamaño base + escala de tipo (cockpit-denso → display) */
   --text-size-base: 15px;
@@ -779,7 +779,7 @@ body::after {
   margin-top: 3px;
 }
 
-/* Logo animado de Fleet Tracker */
+/* Logo animado de Rigsmith */
 .ft-route {
   fill: none; stroke: var(--border-strong);
   stroke-width: 3; stroke-linecap: round; opacity: 0.45;
@@ -3283,31 +3283,13 @@ td.dur-high {
 .email-edit { display: inline-flex; align-items: center; gap: 6px; }
 .email-edit .cell-input { min-width: 180px; }
 
+/* Fila de KPIs: ahora es el StatCluster del DS (rediseño jul-2026, gauges
+   de instrumento fusionados en una placa). El componente pone display:grid
+   y los divisores; aca solo el margen y las columnas responsive. */
 .kpi-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
   margin-bottom: 16px;
 }
-.stat-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  box-shadow: var(--shadow-sm);
-  position: relative;
-  overflow: hidden;
-}
-.stat-card::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 4px;
-  background: var(--border-strong);
-}
+.ft-stat-cell > .kpi-card-btn { height: 100%; }
 .stat-label {
   font-size: 0.74rem;
   font-weight: 600;
@@ -3324,14 +3306,9 @@ td.dur-high {
   overflow-wrap: anywhere;
 }
 .stat-sub { font-size: 0.74rem; color: var(--text-muted); }
-.tone-danger::before { background: var(--ui-danger); }
 .tone-danger .stat-value { color: var(--ui-danger); }
-.tone-ok::before { background: var(--ui-success); }
 .tone-ok .stat-value { color: var(--ui-success); }
-.tone-warn::before { background: var(--ui-warn); }
-.tone-info::before { background: var(--ui-info); }
 .tone-info .stat-value { color: var(--ui-info); }
-.tone-accent::before { background: var(--accent); }
 
 /* ---------- Dashboard (home) ------------------------------------- */
 .btn-link {
@@ -6502,11 +6479,6 @@ table.defects-table td {
 .brand:hover .brand-logo { transform: rotate(-4deg) scale(1.05); }
 
 /* ----- Tarjetas y listas ----- */
-.stat-card {
-  transition: transform 0.2s var(--ease-out-soft), box-shadow 0.2s ease;
-}
-.stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
-
 .dash-list-item {
   transition: background 0.12s ease, transform 0.16s var(--ease-out-soft);
 }
@@ -6542,13 +6514,13 @@ table.defects-table td {
   }
   .btn, .icon-btn, .icon-act, .tab-btn, .cat-chip,
   .nav-item, .nav-item::before, .nav-item .nav-ico,
-  .brand-logo, .stat-card, .dash-list-item {
+  .brand-logo, .dash-list-item {
     transition: none;
   }
   .btn:hover:not(:disabled),
-  .stat-card:hover,
   .dash-list-item:hover,
   .brand:hover .brand-logo { transform: none; }
+  .rs-wrench { animation: none !important; }
 }
 
 /* ==================================================================
@@ -8346,14 +8318,13 @@ iframe.wo-preview { border: 1px solid var(--border); }
   border-radius: var(--radius);
   transition: transform var(--dur-fast, 0.15s) ease;
 }
-.kpi-card-btn > .stat-card { width: 100%; height: 100%; }
+.kpi-card-btn .ft-stat-card { width: 100%; height: 100%; }
 .kpi-card-btn:hover { transform: translateY(-1px); }
 .kpi-card-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.kpi-card-btn.is-active > .stat-card {
-  border-color: var(--ui-warn);
+.kpi-card-btn.is-active .ft-stat-card {
   box-shadow: inset 0 0 0 1px var(--ui-warn);
 }
 
@@ -8446,3 +8417,30 @@ iframe.wo-preview { border: 1px solid var(--border); }
 .adj-log-wrap { max-height: 220px; overflow-y: auto; }
 .adj-delta.is-pos { color: var(--ui-success); font-weight: 700; }
 .adj-delta.is-neg { color: var(--ui-danger); font-weight: 700; }
+
+/* ==================================================================
+   Marca Rigsmith (rebrand jul-2026) — animacion firma: la llave
+   ratchetea alrededor del anillo hex al hover (handoff brand/).
+   ================================================================== */
+.rs-wrench { transform-box: view-box; transform-origin: 67px 150px; }
+.rs-logo:hover .rs-wrench,
+.brand:hover .rs-wrench,
+.login-panel-brand:hover .rs-wrench {
+  animation: rsRatchet 1.6s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
+}
+@keyframes rsRatchet {
+  0%, 100% { transform: rotate(0deg); }
+  12% { transform: rotate(-24deg); }
+  26% { transform: rotate(3deg); }
+  34% { transform: rotate(0deg); }
+  52% { transform: rotate(-24deg); }
+  66% { transform: rotate(3deg); }
+  74% { transform: rotate(0deg); }
+}
+
+/* Skeletons DENTRO del instrumento: shimmer oscuro (la placa es always-dark
+   en ambos temas; sin esto, en tema claro flashean bloques casi blancos). */
+.ft-stat-cluster .skel {
+  background: linear-gradient(100deg, #1b1b1f 30%, #26262b 50%, #1b1b1f 70%);
+  background-size: 220% 100%;
+}

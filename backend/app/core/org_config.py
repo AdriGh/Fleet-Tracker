@@ -26,12 +26,12 @@ CONFIG_PATH = config.BACKEND_DIR / "org.local.json"   # legacy (migracion)
 
 # Nombre fijo de la app. NO es editable desde Settings (se ignora cualquier
 # valor que llegue en branding.app_name y get() siempre devuelve este).
-APP_NAME = "Fleet Tracker"
+APP_NAME = "Rigsmith"
 
 DEFAULTS: dict = {
     "branding": {
         "app_name": APP_NAME,
-        "tagline": "Fleet compliance",
+        "tagline": "Your fleet, forged right.",
         "accent": "",                # vacío = rojo de fábrica (#e11900)
     },
     "thresholds": {

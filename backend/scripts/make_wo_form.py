@@ -141,10 +141,10 @@ def build(out_path: Path) -> None:
 
     # Nota para la oficina (chiquita, no estorba)
     text(page, LEFT, y + 8,
-         "Office: take a photo and drop it into Fleet Tracker > Work Orders > New (auto-scan).",
+         "Office: take a photo and drop it into Rigsmith > Work Orders > New (auto-scan).",
          size=7, color=GRAY)
 
-    doc.set_metadata({"title": "Work Order — MDW Yard", "author": "Fleet Tracker"})
+    doc.set_metadata({"title": "Work Order — MDW Yard", "author": "Rigsmith"})
     doc.save(out_path)
     doc.close()
     print(f"OK -> {out_path}")

@@ -10,7 +10,7 @@ import { Button } from '../components/ds'
 type Props = { onDone: () => void }
 
 const ACCENTS: { value: string; label: string }[] = [
-  { value: '', label: 'Fleet Tracker red' },
+  { value: '', label: 'Rigsmith red' },
   { value: '#2563eb', label: 'Blue' },
   { value: '#16a34a', label: 'Green' },
   { value: '#d97706', label: 'Amber' },
@@ -32,8 +32,8 @@ export default function OnboardingWizard({ onDone }: Props) {
   const [confirm, setConfirm] = useState('')
 
   // Paso 2 — empresa
-  const [appName, setAppName] = useState('Fleet Tracker')
-  const [tagline, setTagline] = useState('Fleet compliance')
+  const [appName, setAppName] = useState('Rigsmith')
+  const [tagline, setTagline] = useState('Your fleet, forged right.')
   const [accent, setAccent] = useState('')
 
   const step1Valid = useMemo(() =>
@@ -65,7 +65,7 @@ export default function OnboardingWizard({ onDone }: Props) {
     try {
       await saveOrg({
         branding: {
-          app_name: appName.trim() || 'Fleet Tracker',
+          app_name: appName.trim() || 'Rigsmith',
           tagline: tagline.trim(),
           accent,
         },
@@ -84,7 +84,7 @@ export default function OnboardingWizard({ onDone }: Props) {
       <div className="wiz-card">
         <div className="wiz-brand">
           <Logo />
-          <strong>{appName.trim() || 'Fleet Tracker'}</strong>
+          <strong>{appName.trim() || 'Rigsmith'}</strong>
         </div>
 
         <ol className="wiz-steps" aria-label="Setup progress">
@@ -168,7 +168,7 @@ export default function OnboardingWizard({ onDone }: Props) {
             <label className="ud-field">
               <span>Tagline</span>
               <input className="cell-input" value={tagline}
-                placeholder="Fleet compliance"
+                placeholder="Your fleet, forged right."
                 onChange={(e) => setTagline(e.target.value)} />
             </label>
             <span className="ud-field"><span>Accent color</span></span>

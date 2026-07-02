@@ -153,7 +153,7 @@ export default function SettingsPage(
       <div className="page-head">
         <div>
           <h1>Settings</h1>
-          <p className="page-sub">Configure how Fleet Tracker behaves.</p>
+          <p className="page-sub">Configure how Rigsmith behaves.</p>
         </div>
       </div>
 
@@ -488,7 +488,7 @@ export default function SettingsPage(
           <div className="set-rows">
             <div className="set-row">
               <span className="set-row-label">App</span>
-              <span className="set-row-value">Fleet Tracker · compliance suite</span>
+              <span className="set-row-value">Rigsmith · compliance suite</span>
             </div>
             <div className="set-row">
               <span className="set-row-label">Version</span>

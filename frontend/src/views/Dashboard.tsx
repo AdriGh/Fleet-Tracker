@@ -21,7 +21,7 @@ import SafeDonut from '../components/SafeDonut'
 import Skeleton from '../components/Skeleton'
 import CountUp from '../components/CountUp'
 import TrendsChart from '../components/TrendsChart'
-import { Button, StatCard } from '../components/ds'
+import { Button, StatCard, StatCluster } from '../components/ds'
 
 const UPCOMING_MILES = 5500
 
@@ -260,11 +260,11 @@ export default function Dashboard({ onNavigate }: Props) {
 
       {/* KPIs */}
       {kpiLoading ? (
-        <div className="kpi-row">
+        <StatCluster className="kpi-row">
           {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} h={86} />)}
-        </div>
+        </StatCluster>
       ) : (
-        <div className="kpi-row">
+        <StatCluster className="kpi-row">
           <StatCard
             label="Fleet SAFE (month)"
             value={summary?.fleet_safe_pct != null
@@ -272,6 +272,7 @@ export default function Dashboard({ onNavigate }: Props) {
               : '—'}
             sub={summary?.n_blocks ? `${summary.n_blocks} days` : 'no data'}
             tone={summary?.fleet_safe_pct != null && summary.fleet_safe_pct < 90 ? 'warn' : 'ok'}
+            progress={summary?.fleet_safe_pct != null ? summary.fleet_safe_pct / 100 : undefined}
           />
           <StatCard
             label="Open defects"
@@ -297,7 +298,7 @@ export default function Dashboard({ onNavigate }: Props) {
             sub="drivers this month"
             tone={missing.length ? 'warn' : 'ok'}
           />
-        </div>
+        </StatCluster>
       )}
 
       <div className="dash-grid">

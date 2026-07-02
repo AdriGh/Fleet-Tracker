@@ -9,6 +9,7 @@ import { notifyErr, notifyOk } from '../toast'
 import { Button } from '../components/ds'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
+import { StatCluster } from '../components/ds'
 
 const STROKE = {
   fill: 'none' as const,
@@ -426,25 +427,26 @@ export default function ReeferPage() {
       )}
 
       {q.isPending ? (
-        <div className="kpi-row">
+        <StatCluster className="kpi-row">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} h={86} />
           ))}
-        </div>
+        </StatCluster>
       ) : (
-        <div className="kpi-row">
+        <StatCluster className="kpi-row">
           <StatCard label="Reefers reporting" value={kpis.reporting}
             tone="info" />
           <StatCard label="Active alarms" value={kpis.alarms}
             sub={alarmBreakdown}
             tone={kpis.alarms ? 'danger' : 'ok'} />
           <StatCard label="Cooling units on" value={kpis.cooling}
-            sub={`of ${kpis.reporting}`} tone="ok" />
+            sub={`of ${kpis.reporting}`} tone="ok"
+            progress={kpis.reporting ? kpis.cooling / kpis.reporting : undefined} />
           <StatCard label="Avg reefer fuel"
             value={kpis.avgFuel != null ? `${kpis.avgFuel}%` : '—'}
             tone={kpis.avgFuel != null && kpis.avgFuel < 25
               ? 'warn' : 'default'} />
-        </div>
+        </StatCluster>
       )}
 
       <section className="card">

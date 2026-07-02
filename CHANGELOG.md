@@ -7,6 +7,24 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.39.0] - 2026-07-02
+
+### Cambiado
+- **Rebrand Rigsmith en la APP** (design system jul-2026): logo nuevo (tile
+  #131316 con R facetada + llave roja, ratchet al hover), favicons, título,
+  y todos los strings human-facing "Fleet Tracker" → "Rigsmith" (sidebar,
+  login, onboarding, settings, reportes impresos, CSV, avisos/mails del
+  backend). Default de tagline: "Your fleet, forged right." (el branding
+  por organización sigue pudiendo override el tagline; el nombre del
+  producto es fijo).
+- **StatCard rediseñado como gauge de instrumento** (always-dark, label mono
+  + LED de tono + riel de 22 ticks con progreso) + **StatCluster** nuevo:
+  los KPIs de las 10 vistas (Dashboard, Defects, Drivers, Fleet, Parts,
+  POs, Reefer, Reports, Roster, Work Orders) se funden en una sola placa
+  con divisores hairline en vez de tiles sueltos. El adaptador legacy
+  mantiene la API vieja (CountUp incluido); Reports usa el riel split
+  (parts vs labor). Fuente mono nueva: Geist Mono (Inter eliminado).
+
 ## [1.38.0] - 2026-07-02
 
 ### Agregado

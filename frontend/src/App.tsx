@@ -251,7 +251,7 @@ export default function App() {
   // Branding aplicado en vivo: título + acento (color-mix deriva tonos).
   useEffect(() => {
     if (!branding) return
-    document.title = branding.app_name || 'Fleet Tracker'
+    document.title = branding.app_name || 'Rigsmith'
     const root = document.documentElement
     const props = ['--accent', '--brand', '--accent-2', '--accent-strong',
                    '--accent-soft']
@@ -349,8 +349,8 @@ export default function App() {
   if (!authed) {
     return (
       <LoginPage
-        appName={branding?.app_name || 'Fleet Tracker'}
-        tagline={branding?.tagline || 'Fleet compliance'}
+        appName={branding?.app_name || 'Rigsmith'}
+        tagline={branding?.tagline || 'Your fleet, forged right.'}
         onLogin={(user) => { setSessionUser(user); statusQuery.refetch() }}
       />
     )
@@ -370,8 +370,8 @@ export default function App() {
         <div className="brand">
           <Logo />
           <span className="brand-text">
-            <strong>{branding?.app_name || 'Fleet Tracker'}</strong>
-            <span>{branding?.tagline || 'Fleet compliance'}</span>
+            <strong>{branding?.app_name || 'Rigsmith'}</strong>
+            <span>{branding?.tagline || 'Your fleet, forged right.'}</span>
           </span>
           <button
             className="icon-btn nav-collapse"

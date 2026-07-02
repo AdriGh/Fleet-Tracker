@@ -7,6 +7,7 @@ import {
 import Skeleton from '../components/Skeleton'
 import UnitDrawer from '../components/UnitDrawer'
 import StatCard from '../components/StatCard'
+import { StatCluster } from '../components/ds'
 import RankBars from '../components/RankBars'
 import StatusDonut from '../components/StatusDonut'
 import DefectsTrendChart from '../components/DefectsTrendChart'
@@ -437,24 +438,25 @@ export default function DefectsPage() {
 
       {/* KPIs */}
       {dashLoading ? (
-        <div className="kpi-row">
+        <StatCluster className="kpi-row">
           {Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} className="skel-kpi" h={86} />
           ))}
-        </div>
+        </StatCluster>
       ) : (
-        <div className="kpi-row">
+        <StatCluster className="kpi-row">
           <StatCard label="Records" value={kpis.total} tone="accent"
             sub={hasFilter ? 'filtered' : 'total'} />
           <StatCard label="Unsafe (open)" value={kpis.unsafe} tone="danger" />
           <StatCard label="Resolved" value={kpis.resolved} tone="info" />
           <StatCard label="% resolved"
             value={kpis.pct === null ? '—' : `${kpis.pct}%`} tone="warn"
-            sub="of incidents" />
+            sub="of incidents"
+            progress={kpis.pct === null ? undefined : kpis.pct / 100} />
           <StatCard label="Most affected unit"
             value={kpis.topUnit?.label ?? '—'} tone="default"
             sub={kpis.topUnit ? `${kpis.topUnit.value} incidents` : ''} />
-        </div>
+        </StatCluster>
       )}
 
       {/* Gráficos */}
