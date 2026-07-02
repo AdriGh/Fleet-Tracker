@@ -7,7 +7,25 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
-## [1.37.0] - 2026-06-26
+## [1.38.0] - 2026-07-02
+
+### Agregado
+- **Sitio de marketing `website/` (primera versión commiteada) + rebrand Rigsmith**:
+  el sitio público pre-login se incorpora al repo con la marca nueva **Rigsmith**
+  ("Your fleet, forged right", handoff del design system jul-2026: logo R + llave
+  con animación ratchet, tokens dark, fuentes Geist/Geist Mono/Space Grotesk).
+  - **Home cinemático (F6)**: hero con escena de escaneo en 3D leve (factura →
+    beam → work order que se llena sola, loop ~7s, se aplana con el scroll),
+    panel de instrumentos con gauges del DS (count-up + ticks), diagrama SVG de
+    la plataforma de integración agnóstica (líneas que se dibujan + datos
+    viajando), switcher de producto por tabs con mock UI hi-fi (WO/DVIR/PM/Cold
+    chain/Live map), timeline "un día en Rigsmith" con progreso scroll-linked,
+    comparación honesta vs Fullbay y cierre de marca con ratchet.
+  - Todo el motion respeta `prefers-reduced-motion` (estado final estático).
+  - La app (`frontend/`) NO cambia en esta versión; el rebrand de la app llega
+    con la adopción del design system.
+- `.gitignore`: `docs/competitive/screenshots/` (referencia local pesada, ya
+  ignorada en la rama de docs; ahora también en main).
 
 ### Seguridad
 - **SEC-5 · Security headers + Content-Security-Policy**: middleware nuevo que
