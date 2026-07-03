@@ -343,8 +343,8 @@ export default function ReeferPage() {
             </span>
             <h2>Connect trailer telemetry</h2>
             <p>
-              The Samsara token needs the scope below to read reefer data.
-              Edit the API token in the Samsara dashboard and enable:
+              The ELD token needs the scope below to read reefer data.
+              Edit the API token in your ELD dashboard and enable:
             </p>
             <div className="map-setup-scopes">
               {(data.missing_scopes.length
@@ -413,7 +413,7 @@ export default function ReeferPage() {
           <span>
             <strong>Demo data.</strong> No live reefer source is
             connected yet. Go direct with your OWN integration — never
-            through Samsara: the OEM cloud for real remote setpoint
+            through the ELD: the OEM cloud for real remote setpoint
             control (<strong>Carrier Lynx</strong> or{' '}
             <strong>Thermo King TracKing</strong>, via your dealer), or
             aftermarket hardware (a tracker + temp probe like Teltonika

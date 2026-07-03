@@ -11,6 +11,7 @@ import {
   setEldActive,
   testIntegration, unitsCsvTemplate,
   type AlertsSettings, type Company, type Driver, type FleetUnit,
+  type IntegrationGroup,
   type IntegrationProvider, type IntegrationSpec, type IntegrationStatus,
   type OrgConfig, type TeamDef, type TeamsConfig,
   type TerminalDef, type TerminalsConfig,
@@ -210,9 +211,9 @@ export default function SettingsPage(
               <path d="m9 18 6-6-6-6" />
             </svg>
             <div>
-              <h2>Connectivity</h2>
+              <h2>Integrations</h2>
               <span className="sub">
-                ELD platforms, messaging and data sources
+                Your ELD, messaging and data sources
               </span>
             </div>
           </button>
@@ -232,6 +233,10 @@ export default function SettingsPage(
           ) : (
             <div className="intg">
               {integrationsQuery.data?.groups.map((g) => (
+                g.id === 'eld' ? (
+                  <EldGroup key={g.id} group={g}
+                    onConfigure={(id) => setConfiguring(id)} />
+                ) : (
                 <div className="intg-group" key={g.id}>
                   <div className="intg-group-head">
                     <h3>{g.label}</h3>
@@ -244,6 +249,7 @@ export default function SettingsPage(
                     ))}
                   </div>
                 </div>
+                )
               ))}
               <p className="settings-help" style={{ marginTop: 4 }}>
                 Credentials live in <code>backend/*.local.json</code> (never
@@ -364,7 +370,7 @@ export default function SettingsPage(
                       onChange={(e) => setDays(Number(e.target.value))} />
                   </label>
                   <span className="settings-note">
-                    Based on Samsara DVIR history: a DVIR covers the truck and
+                    Based on the ELD DVIR history: a DVIR covers the truck and
                     its attached trailer, so this applies to both.
                   </span>
                 </div>
@@ -504,7 +510,7 @@ export default function SettingsPage(
             <div className="set-row">
               <span className="set-row-label">Data sources</span>
               <span className="set-row-value">
-                Samsara (live) · DVIR/HoS CSVs · Fullbay PM
+                ELD (live) · DVIR/HoS CSVs
               </span>
             </div>
           </div>
@@ -1373,7 +1379,7 @@ function AlertsCard() {
           ) : (
             <>
               <p className="settings-help">
-                Rules run every minute against the live Samsara feed.
+                Rules run every minute against the live ELD feed.
                 Events always show in the app (Dashboard + toasts); email
                 and SMS are opt-in. Mute single units from their drawer in
                 Fleet.
@@ -1667,6 +1673,134 @@ function IntegrationCard({ provider, onConfigure }: {
         )}
       </div>
     </div>
+  )
+}
+
+// ----- Grupo ELD: UNA card + picker (rework Integrations, jul-3) -----------
+// En vez de la grilla de vendors, se muestra solo la conexion ACTIVA (o un
+// placeholder) y un unico boton "Connect your ELD" que abre el selector.
+function EldGroup({ group, onConfigure }: {
+  group: IntegrationGroup
+  onConfigure: (id: string) => void
+}) {
+  const [picking, setPicking] = useState(false)
+  // Solo cuenta como conexion la activa Y realmente configurada; si no,
+  // placeholder generico (una instancia fresca no debe mostrar vendors).
+  const active = group.providers.find(
+    (p) => p.active && (p.status === 'connected' || p.status === 'live'),
+  )
+  return (
+    <div className="intg-group">
+      <div className="intg-group-head">
+        <h3>ELD · Telematics</h3>
+        <span className="intg-note">
+          One connection feeds fleet, drivers, DVIR, odometers and the live
+          map. Swap platforms anytime; your data stays.
+        </span>
+      </div>
+      <div className="intg-grid">
+        {active ? (
+          <IntegrationCard provider={active}
+            onConfigure={() => onConfigure(active.id)} />
+        ) : (
+          <div className="intg-card is-inactive">
+            <span className="intg-ico">
+              <span className="intg-mono">E</span>
+            </span>
+            <div className="intg-text">
+              <span className="intg-name-row">
+                <strong>Your ELD</strong>
+                <span className="set-badge is-off">Not connected</span>
+              </span>
+              <span className="intg-kind">Telematics + ELD</span>
+              <span className="intg-detail">
+                Connect the ELD you already run to sync your fleet.
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+      <span className="intg-actions" style={{ marginTop: 10 }}>
+        <button className="btn btn-ghost btn-xs"
+          onClick={() => setPicking(true)}>
+          {active ? 'Change ELD' : 'Connect your ELD'}
+        </button>
+      </span>
+      {picking && (
+        <EldPickerModal providers={group.providers}
+          onClose={() => setPicking(false)}
+          onConfigure={(id) => { setPicking(false); onConfigure(id) }} />
+      )}
+    </div>
+  )
+}
+
+function EldPickerModal({ providers, onClose, onConfigure }: {
+  providers: IntegrationProvider[]
+  onClose: () => void
+  onConfigure: (id: string) => void
+}) {
+  const qc = useQueryClient()
+  const [busy, setBusy] = useState('')
+
+  async function makeActive(p: IntegrationProvider) {
+    setBusy(p.id)
+    try {
+      await setEldActive(p.id)
+      notifyOk(`${p.name} is now your active ELD`)
+      qc.invalidateQueries({ queryKey: ['integrations'] })
+      onClose()
+    } catch (e) {
+      notifyErr("Couldn't set the active ELD", e)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  return (
+    <Modal title="Connect your ELD" onClose={onClose} width={560}>
+      <p className="settings-help" style={{ marginBottom: 12 }}>
+        Pick the platform your fleet already runs. Configure its credentials,
+        test the connection, then set it active.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {providers.map((p) => {
+          const badge = STATUS_BADGE[p.status]
+          const connected =
+            p.status === 'connected' || p.status === 'live'
+          return (
+            <div key={p.id} className="intg-card"
+              style={{ alignItems: 'center' }}>
+              <div className="intg-text">
+                <span className="intg-name-row">
+                  <strong>{p.name}</strong>
+                  <span className={`set-badge ${badge.cls}`}>{badge.label}</span>
+                  {p.active && (
+                    <span className="set-badge is-ok">Active</span>
+                  )}
+                </span>
+                <span className="intg-detail">{p.detail}</span>
+              </div>
+              <span className="intg-actions" style={{ flex: 'none' }}>
+                {p.configurable && (
+                  <button className="btn btn-ghost btn-xs"
+                    onClick={() => onConfigure(p.id)}>
+                    Configure
+                  </button>
+                )}
+                {connected && !p.active && (
+                  <button className="btn btn-ghost btn-xs"
+                    disabled={busy === p.id}
+                    onClick={() => makeActive(p)}>
+                    Set active
+                  </button>
+                )}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </Modal>
   )
 }
 

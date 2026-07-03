@@ -2,7 +2,7 @@ import { useState } from 'react'
 import Modal from './Modal'
 import { eldImport, eldPreview, type EldPreview } from '../api'
 
-// Import desde el ELD (Samsara): trae DVIR + distancia de un dia, muestra lo
+// Import desde el ELD: trae DVIR + distancia de un dia, muestra lo
 // PARSEADO (preview de validacion) y permite importarlo a Recent DVIRs. El
 // pre-trip llega en 2c; por ahora arma el reporte sin esa columna.
 export default function EldPreviewModal(
@@ -59,8 +59,8 @@ export default function EldPreviewModal(
     <Modal title="Import desde ELD · Preview (beta)" onClose={onClose}
       width={840}>
       <p className="page-sub" style={{ marginTop: 0 }}>
-        Trae DVIR + distancia del día desde Samsara y muestra lo que parseó. Si
-        algo se ve mal, abrí <b>“Ver raw de Samsara”</b> y pasámelo: con eso
+        Trae DVIR + distancia del día desde el ELD y muestra lo que parseó. Si
+        algo se ve mal, abrí <b>“Ver raw del ELD”</b> y pasámelo: con eso
         ajusto los mapeos de campos.
       </p>
 
@@ -98,7 +98,7 @@ export default function EldPreviewModal(
       {err && <div className="banner error"><span>{err}</span></div>}
       {res && !res.available && (
         <div className="banner error">
-          <span>{res.detail || 'Samsara no configurado'}</span>
+          <span>{res.detail || 'ELD no configurado'}</span>
         </div>
       )}
       {res?.errors && res.errors.length > 0 && (
@@ -175,7 +175,7 @@ export default function EldPreviewModal(
           </div>
           <button className="btn btn-ghost" style={{ marginTop: 10 }}
             onClick={() => setShowRaw((v) => !v)}>
-            {showRaw ? 'Ocultar' : 'Ver'} raw de Samsara
+            {showRaw ? 'Ocultar' : 'Ver'} raw del ELD
           </button>
           {showRaw && (
             <pre style={{

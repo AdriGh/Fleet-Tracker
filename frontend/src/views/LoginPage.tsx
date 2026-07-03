@@ -36,7 +36,7 @@ const SLIDES: Slide[] = [
     alt: 'Semi truck driving down a highway at sunset',
     eyebrow: 'Live compliance',
     headline: 'Your fleet, inspected to the minute',
-    sub: 'Daily DVIR reports that build themselves from Samsara.',
+    sub: 'Daily DVIR reports that build themselves from your ELD.',
   },
   {
     src: 'https://images.unsplash.com/photo-1519003722824-194d4455a60c?auto=format&fit=crop&w=1600&q=80',
@@ -61,12 +61,12 @@ const SLIDES: Slide[] = [
   },
 ]
 
-// Cifras reales del sistema (inventario vivo de Samsara): ~430 unidades
+// Cifras reales del sistema (inventario vivo del ELD): ~430 unidades
 // clasificadas (trucks + trailers + chassis) en 5 terminales.
 const STATS = [
   { v: '430+', k: 'Units tracked' },
   { v: '5', k: 'Terminals' },
-  { v: 'Live', k: 'Samsara sync' },
+  { v: 'Live', k: 'ELD sync' },
 ]
 
 export default function LoginPage({ appName, tagline, onLogin }: Props) {
