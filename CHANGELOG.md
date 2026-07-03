@@ -7,6 +7,18 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.41.1] - 2026-07-03
+
+### Cambiado
+- **Pricing: calculadora comparativa por tamano de flota** — el promedio de
+  mercado ya no es un flat de referencia: escala con el slider ($5/activo,
+  punto medio de los $4-6 del rubro) y muestra el ahorro mensual ("You
+  keep $X/mo"). Ej: 140 assets = $420 vs $700 de mercado.
+- **Starter free tier eliminado → trial de 30 dias sin tarjeta** (decision
+  de negocio: no hay self-signup aun y el free-forever acumula flotas que
+  no pagan). Quedan 2 planes: Fleet $3/activo/mes (badge "30 days free")
+  y Enterprise custom. FAQ y CTAs actualizados.
+
 ## [1.41.0] - 2026-07-03
 
 ### Agregado

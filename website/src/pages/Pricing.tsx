@@ -12,8 +12,10 @@ import { btnPrimary, btnGhost, shell, eyebrow } from '../ui'
 
 const PER_ASSET = 3
 const FLEET_MIN = 49
-const STARTER_MAX = 10
 const ENTERPRISE_FROM = 300
+// Promedio de mercado de las herramientas per-asset comparables ($4-6/activo,
+// jul-2026, tipicamente con contrato anual). Punto medio para la calculadora.
+const MARKET_PER_ASSET = 5
 
 function fleetPrice(assets: number): number {
   return Math.max(FLEET_MIN, assets * PER_ASSET)
@@ -31,33 +33,21 @@ type Plan = {
 
 const PLANS: Plan[] = [
   {
-    name: 'Starter',
-    price: 'Free',
-    priceSub: `up to ${STARTER_MAX} assets`,
-    blurb: 'For owner-operators and small yards. Free for real, not a trial.',
-    features: [
-      'DVIR, PM tracker, and work orders',
-      '25 AI invoice scans a month',
-      'One terminal',
-      'CSV export of your data, always',
-    ],
-    cta: 'Start free',
-  },
-  {
     name: 'Fleet',
     price: `$${PER_ASSET}`,
     priceSub: `per asset / month · $${FLEET_MIN} minimum`,
-    blurb: 'The whole platform. Billed monthly, cancel anytime.',
+    blurb: 'The whole platform. Your first 30 days are free, no card. Billed monthly after, cancel anytime.',
     features: [
-      'Everything in Starter, no caps',
+      'Everything, no caps or add-ons',
       'Unlimited users. No per-seat pricing, ever',
       'AI invoice scanning included (fair use)',
+      'DVIR, PM tracker, and work orders',
       'Cold chain, live map, parts & purchase orders',
       'Reports & analytics with CSV export',
       'ELD sync and integrations',
       'Priority support',
     ],
-    cta: 'Start free',
+    cta: 'Start your free 30 days',
     highlight: true,
   },
   {
@@ -101,7 +91,7 @@ const FIRST_30: Array<[string, string, string]> = [
 const FAQ: Array<[string, string]> = [
   [
     'Is there a contract?',
-    'No. Fleet is billed monthly and you can cancel anytime. Your data exports to CSV whenever you want it.',
+    'No. Your first 30 days are free with no card, then Fleet bills monthly and you can cancel anytime. Your data exports to CSV whenever you want it.',
   ],
   [
     'How do you count assets?',
@@ -113,7 +103,7 @@ const FAQ: Array<[string, string]> = [
   ],
   [
     'Is the AI scanning extra?',
-    'No. Invoice scanning is included in Fleet under fair use. Starter includes 25 scans a month.',
+    'No. Invoice scanning is included in Fleet under fair use, during the trial too.',
   ],
   [
     'Which ELDs do you support?',
@@ -138,16 +128,16 @@ export default function Pricing() {
             Per asset. All in. No fine print.
           </h1>
           <p className="mt-5 max-w-xl text-lg leading-relaxed text-muted">
-            One paid plan with everything. Unlimited users, monthly billing,
-            cancel anytime. Priced below the market average, not to imitate
-            it.
+            One plan with everything. Unlimited users, monthly billing, cancel
+            anytime, and your first 30 days are free. Priced below the market
+            average, not to imitate it.
           </p>
         </Reveal>
       </section>
 
       {/* ---------- Planes ---------- */}
       <section className={`${shell} pb-16`}>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="mx-auto grid max-w-4xl gap-4 md:grid-cols-2">
           {PLANS.map((p, i) => (
             <Reveal key={p.name} delay={i * 0.06}>
               <div
@@ -163,7 +153,7 @@ export default function Pricing() {
                   </h2>
                   {p.highlight && (
                     <span className="rounded-full bg-btn px-2.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.06em] text-white">
-                      The plan
+                      30 days free
                     </span>
                   )}
                 </div>
@@ -247,19 +237,27 @@ export default function Pricing() {
                 <span className="ml-1 font-mono text-[13px] font-normal text-[#6b6b76]">/mo</span>
               </div>
               <p className="mt-2 font-mono text-[10.5px] text-[#6b6b76]">
-                {assets <= STARTER_MAX
-                  ? 'that fits in Starter: free'
+                {assets * PER_ASSET < FLEET_MIN
+                  ? `under the $${FLEET_MIN} minimum, so $${FLEET_MIN} flat`
                   : assets >= ENTERPRISE_FROM
                     ? 'volume pricing available at this size, talk to us'
-                    : `$${PER_ASSET} per asset, everything included`}
+                    : `$${PER_ASSET} per asset, everything included · first 30 days free`}
               </p>
               <div className="mt-5 border-t border-[#232327] pt-4">
                 <p className="flex items-baseline justify-between text-[13px]">
-                  <span className="text-muted">Market average, for reference</span>
-                  <span className="font-mono text-ink tabular-nums">$550+/mo</span>
+                  <span className="text-muted">Market average at {assets} assets</span>
+                  <span className="font-mono text-ink tabular-nums">
+                    ${(assets * MARKET_PER_ASSET).toLocaleString('en-US')}/mo
+                  </span>
                 </p>
                 <p className="mt-1 font-mono text-[10.5px] text-[#6b6b76]">
-                  legacy shop suites, per shop, with user limits (Jul 2026)
+                  per-asset tools at $4 to $6, typically billed annually (Jul 2026)
+                </p>
+                <p className="mt-3 flex items-baseline justify-between text-[13px]">
+                  <span className="font-semibold text-ink">You keep</span>
+                  <span className="font-mono font-semibold tabular-nums" style={{ color: '#34d399' }}>
+                    ${(assets * MARKET_PER_ASSET - price).toLocaleString('en-US')}/mo
+                  </span>
                 </p>
               </div>
             </div>
@@ -325,7 +323,7 @@ export default function Pricing() {
                 Start free. Stay because it works.
               </h2>
               <p className="mt-2 text-[15px] text-muted">
-                Ten assets free forever. No card, no call, no contract.
+                Thirty days free. No card, no call, no contract.
               </p>
             </div>
             <a href={APP_URL} className={btnPrimary}>
