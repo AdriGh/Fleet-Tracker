@@ -42,9 +42,9 @@ export default function About() {
         <Reveal delay={0.08} className="mt-8 max-w-2xl space-y-5 text-lg leading-relaxed text-muted">
           <p>
             Rigsmith was not designed in a pitch deck. It started inside a real
-            operation: 430 units across five terminals, a shop paying $577 a
-            month for a legacy suite, and a compliance workflow held together
-            by spreadsheets.
+            operation: 430 units across five terminals, a shop paying over
+            $500 a month for a legacy suite, and a compliance workflow held
+            together by spreadsheets.
           </p>
           <p>
             So it got built beside the shop, one working feature at a time.

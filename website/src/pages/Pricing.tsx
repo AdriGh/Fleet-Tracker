@@ -1,7 +1,8 @@
 // Pricing publico y transparente (moat: self-serve vs los quote-based del
 // rubro). Modelo por activo, un solo plan pago, sin per-seat y sin contrato
-// anual. Numeros propuestos desde el benchmark (Fleetio ~$4-6/activo con
-// anual; Whip Around $5-10; Fullbay $577 flat con limites de usuarios).
+// anual. Numeros calibrados contra el benchmark competitivo, pero SIN nombrar
+// competidores en el copy publico (decision del usuario jul-3): se habla de
+// "market average" / numeros del mercado.
 import { useState } from 'react'
 import { ArrowRight, CheckCircle } from '@phosphor-icons/react'
 import { Link } from 'react-router-dom'
@@ -138,8 +139,8 @@ export default function Pricing() {
           </h1>
           <p className="mt-5 max-w-xl text-lg leading-relaxed text-muted">
             One paid plan with everything. Unlimited users, monthly billing,
-            cancel anytime. Priced to replace a $577 a month legacy suite, not
-            to imitate one.
+            cancel anytime. Priced below the market average, not to imitate
+            it.
           </p>
         </Reveal>
       </section>
@@ -254,11 +255,11 @@ export default function Pricing() {
               </p>
               <div className="mt-5 border-t border-[#232327] pt-4">
                 <p className="flex items-baseline justify-between text-[13px]">
-                  <span className="text-muted">Fullbay Basic, for reference</span>
-                  <span className="font-mono text-ink tabular-nums">$577/mo</span>
+                  <span className="text-muted">Market average, for reference</span>
+                  <span className="font-mono text-ink tabular-nums">$550+/mo</span>
                 </p>
                 <p className="mt-1 font-mono text-[10.5px] text-[#6b6b76]">
-                  per shop, with user limits (public pricing, Jul 2026)
+                  legacy shop suites, per shop, with user limits (Jul 2026)
                 </p>
               </div>
             </div>
