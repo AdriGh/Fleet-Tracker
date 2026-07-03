@@ -663,7 +663,7 @@ function MeterCell({ row, onSave }:
         <input
           type="number" className="cell-input mnt-input" autoFocus
           defaultValue={row.current_miles ?? ''}
-          placeholder="empty = Samsara"
+          placeholder="empty = ELD"
           onChange={(e) => setVal(e.target.value)}
           onBlur={() => setEdit(false)}
           onKeyDown={(e) => {
@@ -686,7 +686,7 @@ function MeterCell({ row, onSave }:
 }
 
 // Modal Add PM / Add DOT: unit + date + mileage (con botón que trae el
-// odómetro actual de Samsara) + notes.
+// odómetro actual del ELD) + notes.
 function AddModal({ kind, units, onClose, onSaved }: {
   kind: MaintKind
   units: MaintRow[]
@@ -710,7 +710,7 @@ function AddModal({ kind, units, onClose, onSaved }: {
         setMiles(String(o.miles))
         notifyOk('Current mileage', `${fmtMi(o.miles)} mi · ${o.source}`)
       } else {
-        notifyErr('No odometer', `Samsara has no reading for ${unit.trim()}`)
+        notifyErr('No odometer', `The ELD has no reading for ${unit.trim()}`)
       }
     } catch (e) {
       notifyErr("Couldn't fetch mileage", e)
@@ -772,7 +772,7 @@ function AddModal({ kind, units, onClose, onSaved }: {
             />
             <button
               className="btn btn-ghost" disabled={!unit.trim() || fetching}
-              title="Fetch the current odometer from Samsara"
+              title="Fetch the current odometer from the ELD"
               onClick={fillCurrent}
             >
               <svg viewBox="0 0 24 24" {...STROKE}

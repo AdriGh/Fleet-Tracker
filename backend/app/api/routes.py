@@ -1591,7 +1591,7 @@ async def eld_fleet_preview(provider: str,
 
 # Qué proveedores soportan test/configure desde la UI.
 _TESTABLE = {"samsara", "motive", "twilio", "cloudinary", "gmail",
-             "gplaces", "gsheets", "fullbay", "telegram", "docscan",
+             "gplaces", "telegram", "docscan",
              "traccar", "lynx", "thermoking"}
 _CONFIGURABLE = {"samsara", "motive", "twilio", "cloudinary",
                  "gplaces", "gmail", "telegram", "docscan", "traccar",
@@ -1609,19 +1609,11 @@ def integrations_status():
     email = mailer.load_settings()
     sms = sms_service.load_settings()
     media = media_host.load_settings()
-    avisos = local_config.load()
-    sheets_ok = bool(avisos.get("spreadsheet_id")
-                     and avisos.get("service_account_file"))
 
     def chan(settings) -> str:
         if not settings.configured:
             return "not_configured"
         return "dry_run" if settings.dry_run else "live"
-
-    pm_detail = "Waiting for pm.local.csv (Fullbay fleet export)"
-    if pm.is_available():
-        mtime = datetime.fromtimestamp(pm.CSV_PATH.stat().st_mtime)
-        pm_detail = f"pm.local.csv · updated {mtime:%m/%d/%Y}"
 
     out = {
         "groups": [
@@ -1677,24 +1669,6 @@ def integrations_status():
                 "note": "",
                 "providers": [
                     {
-                        "id": "gsheets", "name": "Google Sheets",
-                        "kind": "DVIR Report workbook (live)",
-                        "status": "connected" if sheets_ok
-                                  else "not_configured",
-                        "detail": ("Service account · read-only"
-                                   if sheets_ok
-                                   else "avisos.local.json incomplete"),
-                        "items": [],
-                    },
-                    {
-                        "id": "fullbay", "name": "Fullbay",
-                        "kind": "PM history (CSV export)",
-                        "status": "connected" if pm.is_available()
-                                  else "not_configured",
-                        "detail": pm_detail,
-                        "items": [],
-                    },
-                    {
                         "id": "gplaces", "name": "Google Places",
                         "kind": "Map services search (list only)",
                         "status": "connected" if pois.google_configured()
@@ -1726,10 +1700,10 @@ def integrations_status():
             {
                 "id": "coldchain",
                 "label": "Cold chain",
-                "note": "Reefer data from your OWN integration — direct, never "
-                        "through Samsara. OEM (Carrier Lynx) for real remote "
-                        "control, or aftermarket hardware via Traccar. See "
-                        "backend/LYNX_SETUP.md / REEFER_SETUP.md.",
+                "note": "Reefer data from your OWN integration — direct, "
+                        "independent of the ELD. OEM (Carrier Lynx) for real "
+                        "remote control, or aftermarket hardware via Traccar. "
+                        "See backend/LYNX_SETUP.md / REEFER_SETUP.md.",
                 "providers": [
                     {
                         "id": "lynx", "name": "Carrier Lynx · OEM reefer",

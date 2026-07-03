@@ -319,7 +319,7 @@ export default function DefectsPage() {
     ].filter((x) => x.value > 0)
   }, [issues])
 
-  // Tabla "Summary by unit": backlog de defectos ABIERTOS en vivo (Samsara +
+  // Tabla "Summary by unit": backlog de defectos ABIERTOS en vivo (ELD +
   // CSV de empresas fuera del org). Independiente del rango del dashboard.
   const board = openDefs
   const boardTerminals = useMemo(
@@ -386,13 +386,13 @@ export default function DefectsPage() {
         <div>
           <h1>Defects</h1>
           <p className="page-sub">
-            Defects reported in DVIRs (live from Samsara): incidents, trend
+            Defects reported in DVIRs (live from your ELD): incidents, trend
             and types over the selected range.
           </p>
         </div>
         <div className="head-actions">
           <Button variant="ghost" onClick={refresh} loading={fetching}
-            disabled={fetching} title="Refresh from Samsara"
+            disabled={fetching} title="Refresh from the ELD"
             icon={
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
                 stroke="currentColor" strokeWidth="2" strokeLinecap="round"

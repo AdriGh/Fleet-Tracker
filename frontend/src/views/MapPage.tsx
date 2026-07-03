@@ -25,7 +25,7 @@ const STYLE_DARK = 'https://tiles.openfreemap.org/styles/dark'
 
 const REFRESH_MS = 20_000
 
-// Duty status de Samsara -> badge corto + tono (estilo Panda DR/ON/SB/OFF).
+// Duty status del ELD -> badge corto + tono (estilo Panda DR/ON/SB/OFF).
 const DUTY: Record<string, { code: string; cls: string; label: string }> = {
   driving: { code: 'DR', cls: 'duty-dr', label: 'Driving' },
   onDuty: { code: 'ON', cls: 'duty-on', label: 'On duty' },
@@ -249,7 +249,7 @@ export default function MapPage({ theme }: Props) {
         <div className="page-head">
           <div>
             <h1>Live Map</h1>
-            <p className="page-sub">Real-time fleet positions from Samsara.</p>
+            <p className="page-sub">Real-time fleet positions from your ELD.</p>
           </div>
         </div>
         <div className="card">
@@ -262,8 +262,8 @@ export default function MapPage({ theme }: Props) {
             </span>
             <h2>Connect the GPS feed</h2>
             <p>
-              The Samsara token works, but it needs extra scopes to read
-              live positions. Edit the API token in the Samsara dashboard
+              The ELD token works, but it needs extra scopes to read
+              live positions. Edit the API token in your ELD dashboard
               and enable:
             </p>
             <div className="map-setup-scopes">
@@ -291,7 +291,7 @@ export default function MapPage({ theme }: Props) {
         <div>
           <h1>Live Map</h1>
           <p className="page-sub">
-            Real-time positions, speed and duty status from Samsara.
+            Real-time positions, speed and duty status from your ELD.
           </p>
         </div>
         {summary && (

@@ -214,7 +214,7 @@ export default function OnboardingWizard({ onDone }: Props) {
             <h1>All set</h1>
             <p className="wiz-sub">
               Next stop: <strong>Settings → Connectivity</strong> to
-              connect Samsara, email and SMS. The Live Map and Dashboard
+              connect your ELD, email and SMS. The Live Map and Dashboard
               light up on their own once data flows in.
             </p>
             <div className="wiz-actions">

@@ -235,11 +235,9 @@ def hub_group() -> dict:
     cards.sort(key=lambda c: (order.get(c["status"], 2), c["name"]))
     return {
         "id": "eld",
-        "label": "ELD / Telematics",
-        "note": ("Add any ELD by dropping in a provider adapter — the hub, "
-                 "credential editor and connection test generate from it. "
-                 "Configure credentials, test, and preview the fleet it "
-                 "returns. The active provider is the default ELD data "
-                 "source as routes migrate to the adapter layer."),
+        "label": "ELD · Telematics",
+        "note": ("Connect the ELD you already run. Credentials, connection "
+                 "test and fleet preview are built in; the active connection "
+                 "feeds fleet, DVIR, odometers and the live map."),
         "providers": cards,
     }

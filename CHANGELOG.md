@@ -7,6 +7,29 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.42.0] - 2026-07-03
+
+### Cambiado
+- **La app no menciona mas a Samsara**: todas las superficies de usuario
+  (login, Live Map, Defects, PM board, Reefer, Settings, onboarding) hablan
+  de "your ELD" / "ELD sync". El vendor solo aparece dentro del flujo de
+  conexion del propio usuario.
+- **Settings: Connectivity → Integrations**, con el grupo **ELD · Telematics
+  reducido a UNA card** (la conexion activa o "Your ELD — Not connected") y
+  un unico boton "Connect your ELD" que abre el selector de plataformas
+  (Configure / Set active). Una instancia fresca no muestra vendors.
+
+### Eliminado
+- Cards de **Fullbay** y **Google Sheets** en Data sources (el import CSV de
+  PM sigue funcionando por archivo; solo se quita del hub).
+
+### Documentacion
+- docs/parts-and-integrations-rework.md: informe de la fase de rework —
+  propuesta del stack de integraciones (incl. recomendacion sobre Notices),
+  research de APIs de partes HD (FinditParts/Nexpart/PartsTech/Diesel
+  Laptops), teardowns de parts de SquareRigger y Fleetio, y el plan por
+  fases P0-P3 del modulo de Parts.
+
 ## [1.41.1] - 2026-07-03
 
 ### Cambiado
