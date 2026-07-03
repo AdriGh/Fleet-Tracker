@@ -7,6 +7,25 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.41.0] - 2026-07-03
+
+### Agregado
+- **Sitio: Features, Pricing y About completos** (antes stubs).
+  - Features: hub por area con 7 secciones (texto | pantalla del producto en
+    frame de browser), mocks nuevos de Parts y Reports, teaser de
+    integraciones con ancla #integrations.
+  - Pricing publico: Starter gratis (10 activos) / Fleet $3 por activo/mes
+    (usuarios ilimitados, mensual, sin contrato, min $49) / Enterprise
+    custom (300+); calculadora con slider; First 30 Days; FAQ.
+  - About: la historia real (forjado dentro de una flota de 430 unidades),
+    cluster de numeros, la historia del nombre y la marca, 3 valores.
+- Regla de copy publico: SIN nombrar competidores — se usa "market average"
+  / numeros del mercado ($550+/mo suites legacy) en home, pricing y about.
+
+### Cambiado
+- Mocks de producto extraidos a website/src/home/mocks.tsx (compartidos
+  entre el switcher del home y la pagina de Features).
+
 ## [1.40.0] - 2026-07-02
 
 ### Agregado

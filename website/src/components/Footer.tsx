@@ -9,7 +9,7 @@ const COLS = [
     links: [
       { to: '/features', label: 'Features' },
       { to: '/pricing', label: 'Pricing' },
-      { to: '/features', label: 'Integrations' },
+      { to: '/features#integrations', label: 'Integrations' },
     ],
   },
   {

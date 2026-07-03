@@ -1,5 +1,5 @@
-// Comparacion honesta vs el suite legacy (Fullbay nombrado a proposito:
-// es el reemplazo directo y el precio ancla del pitch).
+// Comparacion honesta vs el suite legacy. Sin nombrar competidores (decision
+// del usuario jul-3): se habla de "market average" / numeros del mercado.
 import { CheckCircle, XCircle } from '@phosphor-icons/react'
 import Reveal from '../components/Reveal'
 import { eyebrow, shell } from '../ui'
@@ -8,13 +8,13 @@ const OLD_WAY = [
   'An interface designed a decade ago',
   'Line items typed by hand, one by one',
   'Telematics bolted on as an afterthought',
-  'Locked into a $577/mo plan',
+  'Locked into $550+/mo plans with user limits',
 ]
 const NEW_WAY = [
   'A modern UI your team will actually use',
   'AI scans the invoice in about 3 seconds',
   'Native sync with the ELD you already run',
-  'Priced to replace that $577/mo plan',
+  'Priced below the market average, per asset',
 ]
 
 export default function Compare() {
@@ -23,7 +23,7 @@ export default function Compare() {
       <Reveal className="max-w-2xl">
         <p className={eyebrow}>Why teams switch</p>
         <h2 className="mt-3 font-display text-3xl font-bold tracking-[-0.02em] sm:text-4xl">
-          Built to replace Fullbay, not to feel like it
+          Built to replace the legacy suite, not to feel like it
         </h2>
       </Reveal>
 
