@@ -135,7 +135,8 @@ async def _require_auth(request: Request, call_next):
             return JSONResponse(
                 {"detail": "Not authenticated"}, status_code=401)
         scope = _scope_for(request.method, path)
-        if scope and not permissions.has_scope(user["role"], scope):
+        if scope and not permissions.has_scope(
+                user.get("org_id"), user["role"], scope):
             return JSONResponse(
                 {"detail": f"Your role ({user['role']}) can't do this"},
                 status_code=403)

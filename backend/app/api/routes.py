@@ -573,6 +573,11 @@ class BundleRequestsIn(BaseModel):
     request_ids: list[int] = []
 
 
+class PermMatrixIn(BaseModel):
+    # { rol: [scopes concedidos] }. 'admin' se ignora (siempre full).
+    grants: dict[str, list[str]] = {}
+
+
 @router.get("/workorders")
 def wo_list(status: str = "", unit: str = ""):
     return {"workorders": workorders.list_wos(status, unit),
@@ -988,8 +993,19 @@ def parts_requests_cancel(req_id: int):
 # RBAC que el middleware enforce. GET => solo requiere estar autenticado.
 
 @router.get("/permissions/matrix")
-def permissions_matrix():
-    return permissions.matrix()
+def permissions_matrix(request: Request):
+    return permissions.matrix(getattr(request.state, "org_id", None))
+
+
+@router.post("/permissions/matrix")
+def permissions_matrix_save(body: PermMatrixIn, request: Request):
+    """Guarda la matriz de permisos de la org (admin-only por el fail-closed
+    de _scope_for → settings.manage). `admin` se ignora (siempre full)."""
+    try:
+        return permissions.save_matrix(
+            getattr(request.state, "org_id", None), body.grants)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.delete("/workorders/{wo_id}/lines/{line_id}")
@@ -1218,7 +1234,7 @@ def require_scope(scope: str, request: Request) -> dict:
         if not auth.users_exist():
             return {"id": 0, "role": "admin", "username": "", "name": ""}
         raise HTTPException(status_code=401, detail="Not authenticated")
-    if not permissions.has_scope(user["role"], scope):
+    if not permissions.has_scope(user.get("org_id"), user["role"], scope):
         raise HTTPException(
             status_code=403,
             detail=f"Your role ({user['role']}) can't do this")
@@ -1233,7 +1249,8 @@ def auth_status(request: Request):
         "setup_needed": not auth.users_exist(),
         "authenticated": user is not None,
         "user": user,
-        "scopes": permissions.scopes_for(user["role"]) if user else [],
+        "scopes": (permissions.scopes_for(user.get("org_id"), user["role"])
+                   if user else []),
         "branding": org_config.branding(),
     }
 
@@ -1881,7 +1898,7 @@ async def drivers_endpoint(request: Request, refresh: bool = False):
     # bootstrap (sin usuarios) -> se muestra (el middleware ya filtró el resto).
     user = _user_from(request)
     masked = user is not None and not permissions.has_scope(
-        user["role"], "pii.view")
+        user.get("org_id"), user["role"], "pii.view")
     if masked:
         for d in drivers:
             d["email"] = _mask_email(d.get("email", ""))

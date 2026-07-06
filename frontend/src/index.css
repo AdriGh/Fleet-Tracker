@@ -8808,8 +8808,14 @@ iframe.wo-preview { border: 1px solid var(--border); }
 .perm-seg {
   display: inline-flex; border: 1px solid var(--border); border-radius: 7px;
   overflow: hidden; font-size: 9px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.04em; background: none; cursor: pointer;
+  font-family: inherit; padding: 0;
 }
+.perm-seg:hover:not(:disabled) { border-color: var(--border-strong); }
+.perm-seg.is-locked { cursor: default; }
 .perm-seg span { padding: 3px 9px; color: var(--text-muted); }
 .perm-seg.view span.on { background: var(--surface-3); color: var(--text); }
 .perm-seg.edit span.on { background: var(--accent-soft); color: var(--accent); }
+.perm-actions {
+  display: flex; align-items: center; gap: 10px; margin-top: 14px;
+}
