@@ -38,7 +38,7 @@ export default function PurchasingPage() {
   const poCount = posQ.data?.purchase_orders.length ?? 0
 
   return (
-    <>
+    <div className="page page-wide">
       {(reqQ.isFetching) && <div className="loadbar" aria-hidden="true" />}
 
       <div className="parts-head">
@@ -81,7 +81,7 @@ export default function PurchasingPage() {
       {tab === 'requests'
         ? <RequestsQueue requests={requests} pending={reqQ.isPending} />
         : <PurchaseOrdersPage />}
-    </>
+    </div>
   )
 }
 

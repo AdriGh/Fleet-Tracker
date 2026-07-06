@@ -1,18 +1,22 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ackAlertEvents,
+  generateLowStockRequests,
   getReefer,
   getTrends,
   listAlertEvents,
   listFleet,
+  listLowStock,
   listOpenDefects,
   listPM,
+  listPurchaseOrders,
   listWorkOrders,
   missingDrivers,
   monthSummary,
   recentBlocks,
   type FleetUnit,
+  type LowStockPart,
   type PMUnit,
   type WorkOrder,
 } from '../api'
@@ -123,6 +127,20 @@ export default function Dashboard({ onNavigate }: Props) {
   })
   const reeferQ = useQuery({ queryKey: ['reefer'], queryFn: getReefer })
 
+  // --- Cockpit de taller (Shop operations) ---
+  // Todas las WOs (no solo 'open'): "Needs parts" incluye assigned/in_progress
+  // que esperan partes, no solo abiertas. Las stats del backend son globales.
+  const woAllQ = useQuery({
+    queryKey: ['workorders', ''],
+    queryFn: () => listWorkOrders(''),
+  })
+  const lowStockQ = useQuery({ queryKey: ['low-stock'], queryFn: listLowStock })
+  const poQ = useQuery({
+    queryKey: ['purchase-orders', ''],
+    queryFn: () => listPurchaseOrders(''),
+  })
+  const [generating, setGenerating] = useState(false)
+
   const alertEvents = alertsQ.data ?? []
   const unacked = alertEvents.filter((e) => !e.acked).length
 
@@ -139,7 +157,28 @@ export default function Dashboard({ onNavigate }: Props) {
   const fetching =
     summaryQ.isFetching || openQ.isFetching || pmQ.isFetching ||
     fleetQ.isFetching || trendsQ.isFetching ||
-    woQ.isFetching || reeferQ.isFetching
+    woQ.isFetching || reeferQ.isFetching ||
+    woAllQ.isFetching || lowStockQ.isFetching || poQ.isFetching
+
+  async function generateReorders() {
+    setGenerating(true)
+    try {
+      const { created } = await generateLowStockRequests()
+      qc.invalidateQueries({ queryKey: ['parts-requests'] })
+      if (created > 0) {
+        notifyOk('Reorder requests created',
+          `${created} part${created === 1 ? '' : 's'} queued for purchasing`)
+        onNavigate('purchasing')
+      } else {
+        notifyOk('Nothing to reorder',
+          'Every low-stock part already has a pending request')
+      }
+    } catch (e) {
+      notifyErr('Could not generate requests', e)
+    } finally {
+      setGenerating(false)
+    }
+  }
 
   // --- Defectos abiertos ---
   const openDefects = openQ.data ?? []
@@ -192,6 +231,22 @@ export default function Dashboard({ onNavigate }: Props) {
   }, [woQ.data])
   const woStats = woQ.data?.stats
 
+  // --- Shop operations (cockpit) ---
+  // Stats globales del backend (no dependen del filtro). "Needs parts" =
+  // WOs con flag de espera de partes que aún no están facturadas.
+  const shopStats = woAllQ.data?.stats
+  const needsParts: WorkOrder[] = useMemo(() => {
+    const list = woAllQ.data?.workorders ?? []
+    return list
+      .filter((w) => w.waiting_parts && w.status !== 'invoiced')
+      .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+  }, [woAllQ.data])
+  const lowStock: LowStockPart[] = lowStockQ.data ?? []
+  const poStats = poQ.data?.stats
+  const openPoCount = poStats ? poStats.draft + poStats.ordered : 0
+  const shopKpiLoading =
+    woAllQ.isPending || lowStockQ.isPending || poQ.isPending
+
   // --- Cold chain (reefers en vivo) ---
   // SOLO datos en vivo: si la respuesta es demo o no hay fuente real, se
   // omite el panel (no se inyectan reefers ficticios en la app real).
@@ -224,8 +279,8 @@ export default function Dashboard({ onNavigate }: Props) {
         <div>
           <h1>Dashboard</h1>
           <p className="page-sub">
-            Fleet compliance status at a glance: DVIR, defects,
-            maintenance and inventory.
+            Shop operations and fleet compliance at a glance: parts, work
+            orders, purchasing, DVIR and maintenance.
           </p>
         </div>
         <div className="head-actions">
@@ -235,6 +290,7 @@ export default function Dashboard({ onNavigate }: Props) {
               summaryQ.refetch(); openQ.refetch(); pmQ.refetch()
               fleetQ.refetch(); trendsQ.refetch(); missingQ.refetch()
               woQ.refetch(); reeferQ.refetch()
+              woAllQ.refetch(); lowStockQ.refetch(); poQ.refetch()
             }}
             loading={fetching}
             disabled={fetching}
@@ -250,6 +306,133 @@ export default function Dashboard({ onNavigate }: Props) {
             {fetching ? 'Refreshing…' : 'Refresh'}
           </Button>
         </div>
+      </div>
+
+      {/* ===== Cockpit de taller (Shop operations) ===== */}
+      <div className="dash-band-label">
+        <span>Shop operations</span>
+        <span className="dash-band-rule" />
+        <button className="btn-link" onClick={() => onNavigate('workorders')}>
+          Work orders →
+        </button>
+      </div>
+
+      {shopKpiLoading ? (
+        <StatCluster className="kpi-row">
+          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} h={86} />)}
+        </StatCluster>
+      ) : (
+        <StatCluster className="kpi-row">
+          <StatCard
+            label="Parts blocking WOs"
+            value={<CountUp value={shopStats?.waiting_parts ?? 0} />}
+            sub="work orders waiting"
+            tone={shopStats?.waiting_parts ? 'danger' : 'ok'}
+          />
+          <StatCard
+            label="Low stock parts"
+            value={<CountUp value={lowStock.length} />}
+            sub="at or below min"
+            tone={lowStock.length ? 'warn' : 'ok'}
+          />
+          <StatCard
+            label="Open POs"
+            value={<CountUp value={openPoCount} />}
+            sub={poStats ? `${money(poStats.open_value)} in flight` : '—'}
+            tone="info"
+          />
+          <StatCard
+            label="Shop spend (30d)"
+            value={shopStats ? money(shopStats.cost_30d) : '—'}
+            sub={shopStats ? `${shopStats.completed_30d} WOs completed` : ''}
+            tone="info"
+          />
+        </StatCluster>
+      )}
+
+      <div className="shop-actions">
+        {/* Needs parts — WOs bloqueadas esperando repuestos */}
+        <section className="card action-card is-danger">
+          <div className="card-head">
+            <h2>Needs parts</h2>
+            <span className="dash-count">{needsParts.length}</span>
+            <button className="btn-link" onClick={() => onNavigate('workorders')}>
+              View all →
+            </button>
+          </div>
+          <div className="card-body">
+            {woAllQ.isPending ? (
+              <div className="skel-rows">
+                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} h={34} />)}
+              </div>
+            ) : needsParts.length === 0 ? (
+              <div className="empty mini"><p>No work orders are waiting on parts.</p></div>
+            ) : (
+              <ul className="dash-list action-list">
+                {needsParts.slice(0, 6).map((w) => {
+                  const st = WO_STATUS_META[w.status] ?? WO_STATUS_META.open
+                  return (
+                    <li key={w.id} className="dash-list-item"
+                      onClick={() => onNavigate('workorders')}>
+                      <span className="dash-wo-id">#{w.display_no}</span>
+                      <span className="dash-list-code">{w.unit}</span>
+                      <span className="dash-list-name" title={w.title}>{w.title}</span>
+                      <span className={`dash-wo-pill ${st.cls}`}>{st.label}</span>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        </section>
+
+        {/* Reorder now — partes en/bajo su mínimo → cola de compras */}
+        <section className="card action-card is-warn">
+          <div className="card-head">
+            <h2>Reorder now</h2>
+            <span className="dash-count">{lowStock.length}</span>
+            {lowStock.length > 0 && (
+              <button className="btn-link" onClick={generateReorders}
+                disabled={generating}>
+                {generating ? 'Generating…' : 'Generate requests →'}
+              </button>
+            )}
+          </div>
+          <div className="card-body">
+            {lowStockQ.isPending ? (
+              <div className="skel-rows">
+                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} h={34} />)}
+              </div>
+            ) : lowStock.length === 0 ? (
+              <div className="empty mini"><p>Every part is above its reorder point.</p></div>
+            ) : (
+              <ul className="dash-list action-list">
+                {lowStock.slice(0, 6).map((p) => {
+                  const short = Math.max(0, p.reorder_point - p.on_hand)
+                  return (
+                    <li key={p.id} className="dash-list-item"
+                      onClick={() => onNavigate('parts')}>
+                      <span className="dash-list-code">{p.part_number}</span>
+                      <span className="dash-list-name" title={p.description}>
+                        {p.description || '—'}
+                      </span>
+                      <span className="reorder-qty">{p.on_hand}/{p.reorder_point}</span>
+                      <span className="dash-tag is-warn">
+                        {short > 0 ? `short ${short}` : 'at min'}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        </section>
+      </div>
+
+      {/* ===== Flota & compliance ===== */}
+      <div className="dash-band-label">
+        <span>Fleet &amp; compliance</span>
+        <span className="dash-band-rule" />
       </div>
 
       {/* KPIs */}

@@ -16,7 +16,6 @@ import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 import { StatCluster } from '../components/ds'
 import { QuickBuyButton } from './PurchaseOrdersPage'
-import PurchasingPage from './PurchasingPage'
 import MarketplacePanel from './MarketplacePanel'
 
 // ¿La parte está en/bajo su punto de reorden? (solo cuenta si reorder_point > 0)
@@ -31,7 +30,7 @@ const STOCK_REASON_LABEL: Record<string, string> = {
   manual: 'Manual',
 }
 
-type Tab = 'parts' | 'vendors' | 'pos' | 'marketplace'
+type Tab = 'parts' | 'vendors' | 'marketplace'
 
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
@@ -43,11 +42,11 @@ export default function PartsPage() {
     <div className="page page-wide">
       <div className="page-head">
         <div>
-          <h1>Parts &amp; Vendors</h1>
+          <h1>Parts</h1>
           <p className="page-sub">
             Shop catalog: parts with internal cost, the vendors you buy them
-            from, purchase orders, and a marketplace search. Reused when
-            building work orders.
+            from, and a marketplace search. Reused when building work orders.
+            Purchase orders live under Purchasing.
           </p>
         </div>
       </div>
@@ -57,7 +56,6 @@ export default function PartsPage() {
           <Tabs
             tabs={[{ id: 'parts', label: 'Parts' },
               { id: 'vendors', label: 'Vendors' },
-              { id: 'pos', label: 'Purchasing' },
               { id: 'marketplace', label: 'Marketplace' }]}
             value={tab}
             onChange={(id) => setTab(id as Tab)}
@@ -67,7 +65,6 @@ export default function PartsPage() {
 
       {tab === 'parts' && <PartsTab />}
       {tab === 'vendors' && <VendorsTab />}
-      {tab === 'pos' && <PurchasingPage />}
       {tab === 'marketplace' && <MarketplacePanel />}
     </div>
   )

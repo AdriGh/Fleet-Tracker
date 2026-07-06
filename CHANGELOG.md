@@ -7,6 +7,37 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.0.1] - 2026-07-06
+
+Primera versión de la serie **2.x**. Reorganiza el producto alrededor de la
+**operación del taller** siguiendo las referencias de los webinars de
+SquareRigger/Fleetio: el Dashboard pasa a ser un cockpit de taller y la
+navegación separa **Purchasing** como área propia.
+
+### Añadido
+- **Dashboard v2 — cockpit de taller.** El landing ahora **lidera con la
+  operación del taller** (antes era solo compliance). Banda **Shop operations**
+  al tope con 4 instrumentos: **Parts blocking WOs**, **Low stock parts**,
+  **Open POs** (+ valor en tránsito) y **Shop spend (30d)**. Debajo, dos cards
+  accionables:
+  - **Needs parts** — WOs bloqueadas esperando repuestos (→ Work Orders).
+  - **Reorder now** — partes en/bajo su mínimo con `on_hand/min` y chip
+    *short N / at min*, y un botón **Generate requests** que arma la cola de
+    compras de bajo stock (idempotente) y salta a Purchasing.
+  Todo con datos existentes; **cero cambios de backend**. La banda
+  **Fleet & compliance** conserva intacto lo anterior (SAFE, defectos, PMs,
+  tendencia, alertas, WOs abiertas, accesos rápidos).
+- **Purchasing como ítem de navegación propio** (antes era una pestaña dentro
+  de Parts). Vive en el grupo **Maintenance & Shop** con un **badge** que
+  muestra el nº de requests de compra pendientes.
+
+### Cambiado
+- **Sidebar › riel colapsado** ahora es **por-ítem** (Icon rail · 74px): un
+  icono por página con **flyout de label al hover** (antes: un icono por grupo,
+  estilo Samsara). Coincide con el tratamiento elegido del handoff de Design.
+- Grupo de navegación **"Maintenance & Compliance" → "Maintenance & Shop"**.
+- **"Parts & Vendors" → "Parts"** (los POs viven ahora bajo Purchasing).
+
 ## [1.49.0] - 2026-07-06
 
 ### Añadido
