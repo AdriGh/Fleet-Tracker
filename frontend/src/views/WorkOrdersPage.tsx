@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Drawer } from 'vaul'
 import {
   keepPreviousData, useQuery, useQueryClient,
@@ -21,6 +21,7 @@ import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 import { StatCluster } from '../components/ds'
 import WorkOrderInvoice from '../components/WorkOrderInvoice'
+import { CreatePoModal } from './PurchaseOrdersPage'
 
 export const STATUS_META: Record<WoStatus, { label: string; cls: string }> = {
   open: { label: 'Open', cls: 'wo-open' },
@@ -133,6 +134,27 @@ function woTimeline(wo: WorkOrder): WoEvent[] {
 function findPart(parts: Part[], pn: string): Part | undefined {
   const k = (pn || '').trim().toLowerCase()
   return k ? parts.find((p) => p.part_number.toLowerCase() === k) : undefined
+}
+
+// Mejor alternativa EN STOCK para el banner de decisión: misma categoría y
+// con mayor solape de palabras significativas en la descripción. Solo sugiere
+// si hay solape real — así no ofrece p. ej. un cartucho de secador como
+// reemplazo de una cámara de freno solo por compartir categoría.
+function bestAlternative(catalog: Part[], cp: Part): Part | null {
+  const words = new Set(
+    (cp.description || '').toLowerCase().split(/\W+/)
+      .filter((w) => w.length > 3))
+  let best: Part | null = null
+  let bestScore = 0
+  for (const p of catalog) {
+    if (p.part_number === cp.part_number) continue
+    if ((p.category || '') !== (cp.category || '')) continue
+    if ((p.on_hand || 0) <= 0) continue
+    const score = (p.description || '').toLowerCase().split(/\W+/)
+      .filter((w) => words.has(w)).length
+    if (score > bestScore) { best = p; bestScore = score }
+  }
+  return bestScore > 0 ? best : null
 }
 
 // Input numérico que admite decimales mientras se escribe (review v1.18).
@@ -1069,6 +1091,123 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
   )
 }
 
+// ----- Banner de decisión de stock (Treatment A inline, handoff de Design) -
+// Aparece bajo una línea de parte de la WO cuando el catálogo no tiene stock
+// suficiente para cubrirla. Dos salidas reales: comprar (QuickBuy → PO) o
+// hacer swap por una alternativa en stock de la misma categoría. El stock se
+// consume recién al facturar, así que on_hand es fiable mientras la WO está
+// activa.
+function WoStockBanner({ part, alt, need, onSwap, onBought }: {
+  part: Part
+  alt: Part | null
+  need: number
+  onSwap: (alt: Part) => Promise<void>
+  onBought: () => void
+}) {
+  const [buyOpen, setBuyOpen] = useState(false)
+  const [ordered, setOrdered] = useState(false)
+  const [swapping, setSwapping] = useState(false)
+  const oh = part.on_hand || 0
+
+  if (ordered) {
+    return (
+      <div className="wo-stock-banner is-ordered">
+        <div className="wsb-alert">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+            strokeLinejoin="round"><path d="m20 6-11 11-5-5" /></svg>
+          <span>
+            <strong>Ordered.</strong> A purchase order was created for{' '}
+            {part.part_number}. It restocks when the PO is received.
+          </span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="wo-stock-banner">
+      <div className="wsb-head">
+        <span className="wsb-thumb">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+            stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"
+            strokeLinejoin="round">
+            <path d="M12 2 3 7v10l9 5 9-5V7z" /><path d="M3 7l9 5 9-5M12 12v10" />
+          </svg>
+        </span>
+        <span className="wsb-title">
+          <strong>{part.description || part.part_number}</strong>
+          <span className="wsb-sub mono">
+            {part.part_number}{part.vendor_name ? ` · ${part.vendor_name}` : ''}
+            {' · qty '}{need}
+          </span>
+        </span>
+        <span className="wsb-price">
+          <span className="mono">{money(part.cost)}</span>
+          <span className="wsb-out">OUT</span>
+        </span>
+      </div>
+
+      <div className="wsb-decide">
+        <div className="wsb-alert">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+            strokeLinejoin="round">
+            <path d="M10.3 3.5 1.8 18a1.5 1.5 0 0 0 1.3 2.2h17.8A1.5 1.5 0 0 0 22.2 18L13.7 3.5a1.5 1.5 0 0 0-2.6 0z" />
+            <path d="M12 9v4M12 17h.01" />
+          </svg>
+          <span>
+            <strong>{oh} of {need} in stock.</strong>{' '}
+            <span className="muted">How do you want to fill it?</span>
+          </span>
+        </div>
+
+        <div className="wsb-tiles">
+          <div className="wsb-tile">
+            <span className="wsb-tile-label">Order new</span>
+            <span className="wsb-tile-price mono">{money(part.cost)}</span>
+            <span className="wsb-tile-meta mono">
+              {part.vendor_name || 'vendor'} · restock
+            </span>
+            <button className="btn btn-primary btn-xs wsb-buy"
+              onClick={() => setBuyOpen(true)}>QuickBuy</button>
+          </div>
+
+          {alt ? (
+            <div className="wsb-tile is-alt">
+              <span className="wsb-tile-label ok">In stock now</span>
+              <span className="wsb-tile-price mono ok">{money(alt.cost)}</span>
+              <span className="wsb-tile-meta mono">
+                {alt.part_number} · {alt.on_hand} on hand
+              </span>
+              <button className="btn btn-ghost btn-xs" disabled={swapping}
+                onClick={async () => {
+                  setSwapping(true)
+                  try { await onSwap(alt) } finally { setSwapping(false) }
+                }}>
+                {swapping ? 'Swapping…' : 'Swap'}
+              </button>
+            </div>
+          ) : (
+            <div className="wsb-tile is-empty">
+              <span className="wsb-tile-meta mono">
+                No in-stock alternative in {part.category || 'this category'}.
+                Order it or add it to a PO in Purchasing.
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {buyOpen && (
+        <CreatePoModal quickPart={part}
+          onClose={() => setBuyOpen(false)}
+          onCreated={() => { setBuyOpen(false); setOrdered(true); onBought() }} />
+      )}
+    </div>
+  )
+}
+
 // ----- Drawer de detalle (pipeline + líneas) -----------------------------
 // Exportado: el perfil de unidad (H3) lo reusa para abrir órdenes.
 export function WoDrawer({ woId, mechanics, onClose }: {
@@ -1236,6 +1375,25 @@ export function WoDrawer({ woId, mechanics, onClose }: {
       refreshWo(await deleteWoLine(wo.id, lineId))
     } catch (e) {
       notifyErr('Could not delete line', e)
+    }
+  }
+
+  // Banner de stock: swap de una línea sin stock por una alternativa en stock
+  // (borra la línea original + agrega la alternativa con la misma cantidad).
+  async function swapLine(line: { id: number; qty: number }, alt: Part) {
+    if (!wo) return
+    try {
+      await deleteWoLine(wo.id, line.id)
+      const updated = await addWoLine(wo.id, {
+        kind: 'part', description: alt.description || alt.part_number,
+        qty: line.qty || 1, unit_cost: alt.cost || 0,
+        part_number: alt.part_number,
+      })
+      refreshWo(updated)
+      qc.invalidateQueries({ queryKey: ['parts'] })
+      notifyOk('Swapped', `${alt.part_number} · in stock`)
+    } catch (e) {
+      notifyErr('Could not swap the part', e)
     }
   }
 
@@ -1744,29 +1902,55 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                   {(wo.lines ?? []).length > 0 && (
                     <table className="wo-lines">
                       <tbody>
-                        {(wo.lines ?? []).map((ln) => (
-                          <tr key={ln.id}>
-                            <td>
-                              <span className={`wo-line-kind k-${ln.kind}`}>
-                                {ln.kind === 'part' ? 'Part' : 'Labor'}
-                              </span>
-                            </td>
-                            <td className="wo-line-desc">
-                              {ln.part_number && (
-                                <span className="wo-line-pn">{ln.part_number}</span>
+                        {(wo.lines ?? []).map((ln) => {
+                          // ¿Parte sin stock suficiente en el catálogo? (solo
+                          // mientras la WO está activa: al facturar se consume).
+                          const cp = ln.kind === 'part' && ln.part_number
+                            ? findPart(catalog, ln.part_number) : undefined
+                          const short = !!cp
+                            && (cp.on_hand ?? 0) < (ln.qty || 1)
+                            && !['completed', 'invoiced'].includes(wo.status)
+                          const alt = short && cp
+                            ? bestAlternative(catalog, cp) : null
+                          return (
+                            <Fragment key={ln.id}>
+                              <tr className={short ? 'wo-line-short' : undefined}>
+                                <td>
+                                  <span className={`wo-line-kind k-${ln.kind}`}>
+                                    {ln.kind === 'part' ? 'Part' : 'Labor'}
+                                  </span>
+                                </td>
+                                <td className="wo-line-desc">
+                                  {ln.part_number && (
+                                    <span className="wo-line-pn">{ln.part_number}</span>
+                                  )}
+                                  {ln.description}
+                                </td>
+                                <td className="num mono">
+                                  {ln.qty} × {money(ln.unit_cost)}
+                                </td>
+                                <td className="num mono">{money(ln.total)}</td>
+                                <td>
+                                  <button className="icon-x" title="Remove line"
+                                    onClick={() => removeLine(ln.id)}>✕</button>
+                                </td>
+                              </tr>
+                              {short && cp && (
+                                <tr className="wo-line-banner-row">
+                                  <td colSpan={5}>
+                                    <WoStockBanner part={cp} alt={alt}
+                                      need={ln.qty || 1}
+                                      onSwap={(a) => swapLine(ln, a)}
+                                      onBought={() => {
+                                        qc.invalidateQueries({ queryKey: ['parts'] })
+                                        qc.invalidateQueries({ queryKey: ['purchase-orders'] })
+                                      }} />
+                                  </td>
+                                </tr>
                               )}
-                              {ln.description}
-                            </td>
-                            <td className="num mono">
-                              {ln.qty} × {money(ln.unit_cost)}
-                            </td>
-                            <td className="num mono">{money(ln.total)}</td>
-                            <td>
-                              <button className="icon-x" title="Remove line"
-                                onClick={() => removeLine(ln.id)}>✕</button>
-                            </td>
-                          </tr>
-                        ))}
+                            </Fragment>
+                          )
+                        })}
                       </tbody>
                     </table>
                   )}

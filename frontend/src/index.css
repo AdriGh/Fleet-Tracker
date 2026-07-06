@@ -8667,3 +8667,62 @@ iframe.wo-preview { border: 1px solid var(--border); }
   cursor: pointer; padding: 4px 6px; border-radius: 6px;
 }
 .pd-foot .icon-x:hover { background: var(--ui-danger-bg); }
+
+/* ==================================================================
+   WO decision banner (Treatment A inline) — parte sin stock en la WO
+   ================================================================== */
+.wo-line-short td:first-child { box-shadow: inset 2px 0 0 var(--ui-danger); }
+.wo-line-banner-row td { padding: 0 0 10px !important; border: none !important; }
+
+.wo-stock-banner {
+  border: 1px solid var(--ui-danger); border-radius: 10px; overflow: hidden;
+  background: var(--surface); box-shadow: var(--shadow-sm);
+}
+.wsb-head {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+}
+.wsb-thumb {
+  width: 34px; height: 34px; flex: none; border-radius: 8px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  display: grid; place-items: center; color: var(--text-muted);
+}
+.wsb-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.wsb-title strong { font-size: 12.5px; }
+.wsb-sub { font-size: 10px; color: var(--text-muted); }
+.wsb-price { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.wsb-price .mono { font-size: 14px; font-weight: 700; }
+.wsb-out {
+  font-size: 8px; font-weight: 700; letter-spacing: 0.05em;
+  color: var(--ui-danger); background: var(--ui-danger-bg);
+  padding: 1px 5px; border-radius: 5px;
+}
+.wsb-decide {
+  border-top: 1px solid var(--ui-danger); background: var(--ui-danger-bg);
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 9px;
+}
+.wsb-alert {
+  display: flex; align-items: center; gap: 8px; font-size: 11.5px;
+  color: var(--text);
+}
+.wsb-alert svg { color: var(--ui-danger); flex: none; }
+.wsb-alert .muted { color: var(--text-muted); }
+.wo-stock-banner.is-ordered { border-color: var(--ui-success); }
+.wo-stock-banner.is-ordered .wsb-alert { padding: 11px 12px; }
+.wo-stock-banner.is-ordered .wsb-alert svg { color: var(--ui-success); }
+.wsb-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+@media (max-width: 560px) { .wsb-tiles { grid-template-columns: 1fr; } }
+.wsb-tile {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 9px; padding: 8px 9px; display: flex; flex-direction: column;
+  gap: 2px;
+}
+.wsb-tile.is-empty { justify-content: center; }
+.wsb-tile-label {
+  font-size: 8px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-muted);
+}
+.wsb-tile-label.ok { color: var(--ui-success); }
+.wsb-tile-price { font-size: 13px; font-weight: 700; }
+.wsb-tile-price.ok { color: var(--ui-success); }
+.wsb-tile-meta { font-size: 8.5px; color: var(--text-muted); line-height: 1.3; }
+.wsb-tile .btn { margin-top: 5px; width: 100%; justify-content: center; }
