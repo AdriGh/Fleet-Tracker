@@ -983,6 +983,15 @@ def parts_requests_cancel(req_id: int):
     return {"ok": True}
 
 
+# ----- Permisos (matriz rol → capacidad, READ-ONLY) ------------------------
+# Increment 5 del handoff: expone en la UI (Settings) exactamente los scopes
+# RBAC que el middleware enforce. GET => solo requiere estar autenticado.
+
+@router.get("/permissions/matrix")
+def permissions_matrix():
+    return permissions.matrix()
+
+
 @router.delete("/workorders/{wo_id}/lines/{line_id}")
 def wo_del_line(wo_id: int, line_id: int):
     wo = workorders.delete_line(wo_id, line_id)

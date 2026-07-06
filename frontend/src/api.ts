@@ -2294,6 +2294,20 @@ export async function cancelPartsRequest(id: number): Promise<void> {
   if (!res.ok) throw new Error(await readError(res))
 }
 
+// --- Permisos (matriz rol → capacidad, read-only, Inc 5) -----------------
+export interface PermMatrix {
+  roles: string[]
+  scopes: { id: string; label: string }[]
+  matrix: Record<string, Record<string, 'view' | 'edit'>>
+  editable: boolean
+}
+
+export async function getPermissionsMatrix(): Promise<PermMatrix> {
+  const res = await fetch('/api/permissions/matrix')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
 // --- Marketplace de partes (scaffold, Increment B) -----------------------
 // Búsqueda en un marketplace externo (FindItParts/PartsTech). Mientras no
 // haya cuenta de API conectada, el backend devuelve datos demo (mock) y

@@ -7,6 +7,24 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.47.0] - 2026-07-06
+
+### Añadido
+- **Roles & permissions — matriz read-only** (Increment 5 del handoff, cierra
+  el conjunto). En Settings (solo admin) una sección "Roles & permissions"
+  expone la **matriz RBAC completa** que el backend enforce: filas = las 8
+  capacidades (scopes con etiqueta legible), columnas = los 5 roles (**Admin**
+  lockeado con candado, Dispatcher, Safety, Mechanic, Viewer), cada celda
+  **View / Edit**. Como la lectura (GET) nunca exige scope, todo rol tiene al
+  menos "View"; tener el scope es "Edit". Es un **reflejo en vivo** de
+  `core/permissions.py` (`ROLE_SCOPES`) — si cambian los scopes, la matriz
+  cambia. Endpoint `GET /api/permissions/matrix`.
+
+### Nota técnica
+- Read-only por diseño: editar roles a medida necesitaría un store de RBAC
+  por-org (hoy los roles son fijos en el backend). No se toca el path de
+  enforcement.
+
 ## [1.46.0] - 2026-07-06
 
 ### Añadido

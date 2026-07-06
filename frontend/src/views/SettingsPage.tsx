@@ -25,6 +25,7 @@ import { Button } from '../components/ds'
 import Skeleton from '../components/Skeleton'
 import Modal from '../components/Modal'
 import RosterPage from './RosterPage'
+import PermissionsMatrix from '../components/PermissionsMatrix'
 
 const PAGE_SIZE = 50
 
@@ -272,6 +273,7 @@ export default function SettingsPage(
       {isAdmin && <TerminalsCard activeUnits={activeUnits} />}
       {isAdmin && <TeamsCard activeUnits={activeUnits} />}
       {isAdmin && <UsersCard />}
+      {isAdmin && <PermissionsCard />}
 
       {/* ----- Alertas de flota (G3) ----- */}
       <AlertsCard />
@@ -1114,6 +1116,33 @@ const ROLE_HINTS: Record<string, string> = {
   safety: 'Compliance: DVIR/PM/DOT, notices, driver PII. No invoicing/dispatch.',
   mechanic: 'Work orders, PM/DOT and fleet. No invoicing, notices or PII.',
   viewer: 'Read-only across the app.',
+}
+
+// Matriz de permisos (Increment 5): expone los scopes RBAC por rol (read-only).
+function PermissionsCard() {
+  const [open, setOpen] = useState(false)
+  return (
+    <section className="card settings-card">
+      <button className="collapse-head" onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}>
+        <svg className={`collapse-chevron ${open ? 'open' : ''}`}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+        <div>
+          <h2>Roles &amp; permissions</h2>
+          <span className="sub">What each role can do — the access your
+            backend enforces</span>
+        </div>
+      </button>
+      {open && (
+        <div className="card-body">
+          <PermissionsMatrix />
+        </div>
+      )}
+    </section>
+  )
 }
 
 function UsersCard() {
