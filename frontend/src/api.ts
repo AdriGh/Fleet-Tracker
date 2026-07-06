@@ -1981,11 +1981,18 @@ export interface Part {
   part_number: string
   description: string
   category: string
+  manufacturer: string
   cost: number
+  avg_cost: number        // costo promedio (cae al cost si no se registró)
   vendor_id: number | null
   vendor_name: string
   on_hand: number
-  reorder_point: number   // punto de reorden; ≤ on_hand → "Low" (0 = sin alerta)
+  reorder_point: number   // = mínimo; ≤ on_hand → "Low" (0 = sin alerta)
+  max_qty: number         // objetivo de stock (para la barra min·max)
+  bin: string             // ubicación física
+  upc: string
+  fits: string            // compatibilidad / a qué unidades entra
+  source: string          // origen (manual | scan | …)
   notes: string
 }
 

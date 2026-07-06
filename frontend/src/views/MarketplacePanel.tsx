@@ -47,6 +47,13 @@ function resultToPart(r: MarketplaceResult): Part {
     on_hand: 0,
     reorder_point: 0,
     notes: '',
+    manufacturer: r.brand ?? '',
+    avg_cost: r.price,
+    max_qty: 0,
+    bin: '',
+    upc: '',
+    fits: '',
+    source: 'marketplace',
   }
 }
 

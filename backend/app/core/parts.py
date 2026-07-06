@@ -108,11 +108,19 @@ def _part_dict(p: Part, vendor_name: str = "") -> dict:
         "part_number": p.part_number,
         "description": p.description,
         "category": p.category,
+        "manufacturer": p.manufacturer,
         "cost": round(p.cost, 2),
+        # Costo promedio: si no se registró, cae al costo estándar.
+        "avg_cost": round(p.avg_cost or p.cost, 2),
         "vendor_id": p.vendor_id,
         "vendor_name": vendor_name,
         "on_hand": p.on_hand,
-        "reorder_point": p.reorder_point,
+        "reorder_point": p.reorder_point,   # = mínimo
+        "max_qty": p.max_qty,               # objetivo de stock
+        "bin": p.bin,
+        "upc": p.upc,
+        "fits": p.fits,
+        "source": p.source,
         "notes": p.notes,
     }
 
@@ -208,6 +216,27 @@ def _apply_part(p: Part, data: dict) -> None:
     if "vendor_id" in data:
         vid = data["vendor_id"]
         p.vendor_id = int(vid) if vid not in (None, "", 0, "0") else None
+    # Campos ricos del catálogo (v1.48).
+    if "manufacturer" in data:
+        p.manufacturer = str(data["manufacturer"]).strip()[:80]
+    if "bin" in data:
+        p.bin = str(data["bin"]).strip()[:40]
+    if "upc" in data:
+        p.upc = str(data["upc"]).strip()[:40]
+    if "fits" in data:
+        p.fits = str(data["fits"]).strip()[:200]
+    if "source" in data:
+        p.source = str(data["source"]).strip()[:30]
+    if "max_qty" in data:
+        try:
+            p.max_qty = max(0.0, float(data["max_qty"] or 0))
+        except (TypeError, ValueError):
+            pass
+    if "avg_cost" in data:
+        try:
+            p.avg_cost = max(0.0, float(data["avg_cost"] or 0))
+        except (TypeError, ValueError):
+            pass
 
 
 def delete_part(part_id: int) -> bool:

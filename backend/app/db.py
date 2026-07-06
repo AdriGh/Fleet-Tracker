@@ -384,9 +384,19 @@ class Part(OrgScoped, Base):
     vendor_id: Mapped[int | None] = mapped_column(
         ForeignKey("vendor.id"), nullable=True)
     on_hand: Mapped[float] = mapped_column(Float, default=0.0)
-    # Inventory: umbral de re-pedido (0 = sin seguimiento de low-stock).
+    # Inventory: umbral de re-pedido = mínimo (0 = sin seguimiento de low-stock).
     reorder_point: Mapped[float] = mapped_column(Float, default=0.0)
     notes: Mapped[str] = mapped_column(String(300), default="")
+    # Campos ricos del catálogo (fase Parts, v1.48). Aditivos: se agregan por
+    # migración Alembic (batch_alter_table + server_default) — el deploy corre
+    # `alembic upgrade head`, así que aparecen en la Postgres viva sin romper.
+    manufacturer: Mapped[str] = mapped_column(String(80), default="")
+    bin: Mapped[str] = mapped_column(String(40), default="")  # ubicación física
+    max_qty: Mapped[float] = mapped_column(Float, default=0.0)  # stock objetivo
+    avg_cost: Mapped[float] = mapped_column(Float, default=0.0)  # costo promedio
+    upc: Mapped[str] = mapped_column(String(40), default="")
+    fits: Mapped[str] = mapped_column(String(200), default="")  # compatibilidad
+    source: Mapped[str] = mapped_column(String(30), default="manual")  # origen
     created_at: Mapped[datetime] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime)
 
@@ -711,6 +721,20 @@ def _migrate() -> None:
         if "reorder_point" not in part_cols:
             conn.exec_driver_sql(
                 "ALTER TABLE part ADD COLUMN reorder_point FLOAT DEFAULT 0")
+        # Campos ricos del catálogo (v1.48): aditivos (paridad con la
+        # migración Alembic c4f7a9e12b8d que los agrega en Postgres).
+        for col, ddl in {
+            "manufacturer": "VARCHAR(80) DEFAULT ''",
+            "bin": "VARCHAR(40) DEFAULT ''",
+            "max_qty": "FLOAT DEFAULT 0",
+            "avg_cost": "FLOAT DEFAULT 0",
+            "upc": "VARCHAR(40) DEFAULT ''",
+            "fits": "VARCHAR(200) DEFAULT ''",
+            "source": "VARCHAR(30) DEFAULT 'manual'",
+        }.items():
+            if col not in part_cols:
+                conn.exec_driver_sql(
+                    f"ALTER TABLE part ADD COLUMN {col} {ddl}")
         # H6 fase 3: cada fila pertenece a una organizacion (tenant). El
         # usuario y las 11 tablas de datos llevan org_id; las DBs viejas no
         # tienen la columna, asi que se agrega y se backfillea a 'default'.
