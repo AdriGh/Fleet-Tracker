@@ -104,6 +104,39 @@ def adjust(part_number: str, delta: float, reason: str,
                 "on_hand": _current_on_hand(session, part_number)}
 
 
+def apply_in_session(session, part_number: str, delta: float, reason: str,
+                     ref_type: str = "", ref_id: str = "",
+                     note: str = "") -> bool:
+    """Aplica un movimiento DENTRO de la sesión del caller (NO commitea: lo
+    hace el caller). Devuelve True si se aplicó, False si el guard de
+    idempotencia (reason, ref_type, ref_id) ya lo tenía registrado.
+
+    A diferencia de `adjust` (que abre su propia sesión y commitea), esto
+    permite que el movimiento + los cambios del caller (p.ej. qty_received de
+    una PO) commiteen ATÓMICAMENTE en la MISMA transacción: si el caller hace
+    rollback, el movimiento también se deshace (no queda stock huérfano ni
+    qty_received sin su movimiento)."""
+    part_number = (part_number or "").strip()[:60]
+    if not part_number:
+        raise ValueError("part_number is required")
+    if reason not in REASONS:
+        raise ValueError(f"invalid reason: {reason}")
+    delta = float(delta)
+    if ref_type and ref_id:
+        existing = session.scalar(select(PartStockMovement.id).where(
+            PartStockMovement.reason == reason,
+            PartStockMovement.ref_type == ref_type,
+            PartStockMovement.ref_id == str(ref_id)))
+        if existing is not None:
+            return False
+    session.add(PartStockMovement(
+        part_number=part_number, delta=delta, reason=reason,
+        ref_type=ref_type[:20], ref_id=str(ref_id)[:40],
+        note=(note or "").strip()[:200], created_at=datetime.now()))
+    _bump_on_hand(session, part_number, delta)
+    return True
+
+
 def _current_on_hand(session, part_number: str) -> float | None:
     p = session.scalar(select(Part).where(Part.part_number == part_number))
     return p.on_hand if p is not None else None

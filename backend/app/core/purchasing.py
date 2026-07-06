@@ -30,6 +30,7 @@ STATUSES = ("draft", "ordered", "received")
 
 
 def _line_dict(ln: POLine) -> dict:
+    recv = round(ln.qty_received or 0.0, 4)
     return {
         "id": ln.id,
         "part_number": ln.part_number or "",
@@ -37,7 +38,21 @@ def _line_dict(ln: POLine) -> dict:
         "qty": ln.qty,
         "unit_cost": ln.unit_cost,
         "total": round(ln.qty * ln.unit_cost, 2),
+        # Recepción parcial: cuánto llegó y cuánto falta de esta línea.
+        "qty_received": recv,
+        "qty_outstanding": round(max(0.0, ln.qty - recv), 4),
     }
+
+
+def _receiving_state(po: PurchaseOrder) -> str:
+    """Estado DERIVADO de recepción (no se guarda; no toca el pipeline de
+    status): 'full' si la PO está recibida, 'partial' si llegó algo pero no
+    todo, 'none' si no llegó nada."""
+    if po.status == "received":
+        return "full"
+    recv = sum(min(ln.qty_received or 0.0, ln.qty) for ln in po.lines
+               if (ln.part_number or "").strip())
+    return "partial" if recv > 1e-9 else "none"
 
 
 def _po_dict(po: PurchaseOrder, with_lines: bool = False) -> dict:
@@ -51,6 +66,9 @@ def _po_dict(po: PurchaseOrder, with_lines: bool = False) -> dict:
         "notes": po.notes or "",
         "total": total,
         "n_lines": len(po.lines),
+        "received_at": po.received_at.isoformat() if po.received_at else None,
+        "backorder_of_po_id": po.backorder_of_po_id,
+        "receiving_state": _receiving_state(po),
     }
     if with_lines:
         out["lines"] = [_line_dict(ln) for ln in po.lines]
@@ -123,28 +141,116 @@ def update_po(po_id: int, fields: dict) -> dict | None:
                 raise ValueError(f"invalid status: {target}")
             received_now = target == "received"
             po.status = target
-        po.updated_at = datetime.now()
+        now = datetime.now()
+        po.updated_at = now
         _recalc_total(po)
-        # Capturar (line_id, part_number, qty) ANTES de cerrar la sesión, para
-        # alimentar el hook de inventario sin re-consultar (las líneas son
-        # lazy y la PO sale del scope al salir del with).
-        recv_lines = [(ln.id, ln.part_number, ln.qty) for ln in po.lines
-                      if (ln.part_number or "").strip()] if received_now else []
+        # Al pasar a 'received' se repone SOLO lo que falta de cada línea
+        # (qty - qty_received), no la qty entera. El movimiento se crea EN LA
+        # MISMA sesión (atómico con qty_received): si algo falla, se deshace
+        # todo. ref_id ':full' -> idempotente re-marcar received.
+        if received_now:
+            from . import inventory
+            for ln in po.lines:
+                if not (ln.part_number or "").strip():
+                    continue
+                remaining = round(ln.qty - (ln.qty_received or 0.0), 4)
+                if remaining <= 1e-9:
+                    continue
+                applied = inventory.apply_in_session(
+                    session, ln.part_number, remaining, "po_receive",
+                    ref_type="po_line", ref_id=f"{ln.id}:full",
+                    note=f"PO #{po_id} received")
+                if applied:
+                    ln.qty_received = ln.qty
+                    ln.received_at = now
+            po.received_at = po.received_at or now
+        session.commit()
+        return _po_dict(po, with_lines=True)
+
+
+def receive_po(po_id: int, receipts: list[dict], token: str = "",
+               create_backorder: bool = True) -> dict | None:
+    """Recepción por línea (parcial o total) de una PO.
+
+    `receipts` = [{line_id, qty_now}] con la cantidad que llegó AHORA por
+    línea. Aplica solo el delta (clamp a lo pendiente), repone stock de forma
+    idempotente (ref_id versionado por `token` del evento) y — si se pidió
+    (`create_backorder`) y quedan faltantes — auto-genera UNA PO de backorder
+    (draft) con las líneas cortas y cierra la PO original como 'received'.
+    Idempotente: reenviar el mismo (payload + token) es no-op (ni suma stock
+    ni incrementa qty_received).
+    """
+    tok = (str(token or "").strip().replace(" ", "") or "e")[:24]
+    now = datetime.now()
+    short_lines: list[dict] = []
+    parent_vendor = ""
+    received_any = False
+    with SessionLocal() as session:
+        from . import inventory
+        po = session.get(PurchaseOrder, po_id)
+        if po is None:
+            return None
+        parent_vendor = po.vendor or ""
+        by_id = {ln.id: ln for ln in po.lines}
+        for r in (receipts or []):
+            if r.get("line_id") is None:
+                continue
+            ln = by_id.get(int(r["line_id"]))
+            if ln is None or not (ln.part_number or "").strip():
+                continue
+            remaining = round(ln.qty - (ln.qty_received or 0.0), 4)
+            take = min(max(0.0, float(r.get("qty_now") or 0)), max(0.0, remaining))
+            if take <= 1e-9:
+                continue
+            # Movimiento EN-SESIÓN: atómico con qty_received e idempotente por
+            # (line_id, token). Si el evento ya se aplicó, devuelve False y NO
+            # tocamos qty_received (no diverge del stock ante reintentos).
+            applied = inventory.apply_in_session(
+                session, ln.part_number, take, "po_receive",
+                ref_type="po_line", ref_id=f"{ln.id}:{tok}",
+                note=f"PO #{po_id} received (qty {take:g})")
+            if not applied:
+                continue
+            ln.qty_received = round((ln.qty_received or 0.0) + take, 4)
+            ln.received_at = now
+            received_any = True
+        # Solo si algo se recibió realmente: decidir cierre / backorder.
+        # (Con receipts vacío o todo ya recibido -> no-op, sin cerrar ni
+        # backordear.)
+        if received_any:
+            for ln in po.lines:
+                if not (ln.part_number or "").strip():
+                    continue
+                short = round(ln.qty - (ln.qty_received or 0.0), 4)
+                if short > 1e-9:
+                    short_lines.append({
+                        "part_number": ln.part_number,
+                        "description": ln.description,
+                        "qty": short, "unit_cost": ln.unit_cost,
+                    })
+            will_backorder = create_backorder and bool(short_lines)
+            # Se cierra si llegó todo (sin faltantes) o si se backordea el resto.
+            if not short_lines or will_backorder:
+                po.status = "received"
+                po.received_at = now
+        po.updated_at = now
+        _recalc_total(po)
         session.commit()
         result = _po_dict(po, with_lines=True)
 
-    # Hook de inventario (fase Inventory): al pasar a 'received' se repone el
-    # stock de cada línea con part_number conocido. Idempotente vía el guard de
-    # (reason, ref_type, ref_id) en inventory.adjust: re-pasar a received (o
-    # ir y volver de estado) NO duplica el conteo. Fuera del with: adjust abre
-    # su propia sesión.
-    if received_now:
-        from . import inventory
-        for line_id, pn, qty in recv_lines:
-            inventory.adjust(pn, float(qty or 0), "po_receive",
-                             ref_type="po_line", ref_id=line_id,
-                             note=f"PO #{po_id} received")
-    return result
+    # Backorder: si quedaron faltantes y se pidió, crear PO draft linkeada.
+    backorder = None
+    if create_backorder and received_any and short_lines:
+        child = create_po(vendor=parent_vendor,
+                          notes=f"Backorder of PO #{po_id}", lines=short_lines)
+        with SessionLocal() as session:
+            cpo = session.get(PurchaseOrder, child["id"])
+            if cpo is not None:
+                cpo.backorder_of_po_id = po_id
+                session.commit()
+                backorder = _po_dict(cpo, with_lines=True)
+        backorder = backorder or child
+    return {"po": result, "backorder": backorder}
 
 
 def add_line(po_id: int, part_number: str, description: str,

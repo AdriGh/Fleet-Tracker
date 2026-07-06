@@ -559,6 +559,20 @@ class PurchaseOrderPatch(BaseModel):
     status: str | None = None           # draft | ordered | received
 
 
+class ReceiptLineIn(BaseModel):
+    line_id: int
+    qty_now: float = 0                   # cantidad que llegó AHORA en esta línea
+
+
+class ReceivePoIn(BaseModel):
+    receipts: list[ReceiptLineIn] = []
+    # Token del evento (uno por click de "Receive"): hace la recepción
+    # idempotente (reenviar el mismo payload es no-op).
+    token: str = ""
+    # ¿Auto-crear una PO de backorder con lo que falta y cerrar esta PO?
+    create_backorder: bool = True
+
+
 class PartsRequestIn(BaseModel):
     part_number: str = ""
     description: str = ""
@@ -922,6 +936,22 @@ def po_delete(po_id: int):
     if not purchasing.delete_po(po_id):
         raise HTTPException(status_code=404, detail="PO not found")
     return {"ok": True}
+
+
+@router.post("/purchase-orders/{po_id}/receive")
+def po_receive(po_id: int, body: ReceivePoIn):
+    """Recepción por línea (parcial o total). Repone stock idempotentemente y,
+    si se pide y quedan faltantes, auto-genera una PO de backorder. Bajo el
+    prefijo /api/purchase-orders => scope maint.edit (igual que el resto)."""
+    try:
+        res = purchasing.receive_po(
+            po_id, [r.model_dump() for r in body.receipts],
+            token=body.token, create_backorder=body.create_backorder)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if res is None:
+        raise HTTPException(status_code=404, detail="PO not found")
+    return res
 
 
 @router.post("/purchase-orders/{po_id}/lines")

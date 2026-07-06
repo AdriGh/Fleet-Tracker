@@ -446,6 +446,15 @@ class PurchaseOrder(OrgScoped, Base):
     # Total cacheado (lo que muestra el listado); el serializer recalcula
     # desde las líneas para que sea siempre consistente.
     total: Mapped[float] = mapped_column(Float, default=0.0)
+    # Recepción con backorders (v2.3): cuándo llegó completa (NULL = pendiente)
+    # y, si es una PO de backorder auto-generada, a qué PO padre pertenece.
+    # `backorder_of_po_id` es un Integer PLANO (no FK) a propósito: la app
+    # siempre lo setea a un padre válido y así create_all y la migración
+    # Alembic producen exactamente la misma columna (sin discrepancia de FK;
+    # además una self-FK con nombre no es portable a SQLite en batch mode).
+    received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    backorder_of_po_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, index=True)
 
     lines: Mapped[list["POLine"]] = relationship(
         back_populates="po", cascade="all, delete-orphan")
@@ -462,6 +471,10 @@ class POLine(OrgScoped, Base):
     description: Mapped[str] = mapped_column(String(160), default="")
     qty: Mapped[float] = mapped_column(Float, default=1.0)
     unit_cost: Mapped[float] = mapped_column(Float, default=0.0)
+    # Recepción parcial (v2.3): qty acumulada recibida (0 = nada; == qty =
+    # completa; entre medio = parcial → el faltante va a una PO de backorder).
+    qty_received: Mapped[float] = mapped_column(Float, default=0.0)
+    received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     po: Mapped[PurchaseOrder] = relationship(back_populates="lines")
 
@@ -751,6 +764,33 @@ def _migrate() -> None:
             if col not in part_cols:
                 conn.exec_driver_sql(
                     f"ALTER TABLE part ADD COLUMN {col} {ddl}")
+        # Recepción con backorders (v2.3): aditivo (paridad con la migración
+        # Alembic f1a2b3c4d5e6). Idempotente.
+        poline_cols = {r[1] for r in conn.exec_driver_sql(
+            "PRAGMA table_info(po_line)").fetchall()}
+        for col, ddl in {
+            "qty_received": "FLOAT DEFAULT 0",
+            "received_at": "DATETIME",
+        }.items():
+            if col not in poline_cols:
+                conn.exec_driver_sql(
+                    f"ALTER TABLE po_line ADD COLUMN {col} {ddl}")
+        po_cols = {r[1] for r in conn.exec_driver_sql(
+            "PRAGMA table_info(purchase_order)").fetchall()}
+        for col, ddl in {
+            "received_at": "DATETIME",
+            "backorder_of_po_id": "INTEGER REFERENCES purchase_order(id)",
+        }.items():
+            if col not in po_cols:
+                conn.exec_driver_sql(
+                    f"ALTER TABLE purchase_order ADD COLUMN {col} {ddl}")
+        # Backfill: las POs ya 'received' (pre-feature) se marcan completas
+        # (qty_received = qty) para que no se "re-reciban" con la lógica de
+        # remaining. Solo toca líneas todavía en 0 (no pisa parciales).
+        conn.exec_driver_sql(
+            "UPDATE po_line SET qty_received = qty WHERE qty_received = 0 "
+            "AND po_id IN (SELECT id FROM purchase_order "
+            "WHERE status='received')")
         # H6 fase 3: cada fila pertenece a una organizacion (tenant). El
         # usuario y las 11 tablas de datos llevan org_id; las DBs viejas no
         # tienen la columna, asi que se agrega y se backfillea a 'default'.

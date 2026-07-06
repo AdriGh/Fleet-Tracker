@@ -10,7 +10,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   addPoLine, createPurchaseOrder, deletePoLine, deletePurchaseOrder,
   getPurchaseOrder, listParts, listPurchaseOrders, listVendors,
-  patchPurchaseOrder,
+  patchPurchaseOrder, receivePurchaseOrder,
   type Part, type POLineInput, type POStatus, type PurchaseOrder, type Vendor,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
@@ -397,6 +397,10 @@ function PoDrawer({ poId, onClose }: {
   const [lineQty, setLineQty] = useState('1')
   const [lineCost, setLineCost] = useState('')
   const [busy, setBusy] = useState(false)
+  // Recepción parcial: qty que llegó por línea (default = pendiente).
+  const [recvQty, setRecvQty] = useState<Record<number, string>>({})
+  const [backorderRest, setBackorderRest] = useState(true)
+  const [receiving, setReceiving] = useState(false)
 
   function refreshPo(updated: PurchaseOrder) {
     qc.setQueryData(['purchase-order', updated.id], updated)
@@ -422,6 +426,43 @@ function PoDrawer({ poId, onClose }: {
       notifyErr('Could not change status', e)
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function doReceive() {
+    if (!po) return
+    const receivable = (po.lines ?? []).filter(
+      (l) => (l.part_number || '').trim() && l.qty_outstanding > 0)
+    const receipts = receivable.map((l) => ({
+      line_id: l.id,
+      qty_now: recvQty[l.id] !== undefined
+        ? Number(recvQty[l.id]) || 0 : l.qty_outstanding,
+    })).filter((r) => r.qty_now > 0)
+    if (receipts.length === 0) {
+      notifyErr('Nothing to receive', 'Enter a qty on at least one line')
+      return
+    }
+    // Un token por click => idempotente ante reenvíos.
+    const token = (crypto.randomUUID?.() ?? String(Date.now()))
+      .replace(/-/g, '').slice(0, 16)
+    setReceiving(true)
+    try {
+      const res = await receivePurchaseOrder(
+        po.id, receipts, token, backorderRest)
+      refreshPo(res.po)
+      qc.invalidateQueries({ queryKey: ['parts'] })   // on_hand cambió
+      setRecvQty({})
+      if (res.backorder) {
+        qc.invalidateQueries({ queryKey: ['purchase-orders'] })
+        notifyOk('Received + backorder created',
+          `Backorder PO #${res.backorder.id} for the missing qty`)
+      } else {
+        notifyOk('Shipment received', `PO #${po.id}`)
+      }
+    } catch (e) {
+      notifyErr('Could not receive', e)
+    } finally {
+      setReceiving(false)
     }
   }
 
@@ -489,6 +530,16 @@ function PoDrawer({ poId, onClose }: {
                     <span className={`wo-status ${PO_STATUS_META[po.status].cls}`}>
                       {PO_STATUS_META[po.status].label}
                     </span>
+                    {po.receiving_state === 'partial' && (
+                      <span className="wo-status wo-assigned">
+                        Partially received
+                      </span>
+                    )}
+                    {po.backorder_of_po_id != null && (
+                      <span className="po-bo-tag">
+                        ↳ Backorder of PO #{po.backorder_of_po_id}
+                      </span>
+                    )}
                   </span>
                 </div>
                 <button className="icon-btn" onClick={onClose}
@@ -552,6 +603,7 @@ function PoDrawer({ poId, onClose }: {
                             <th>Part #</th>
                             <th>Description</th>
                             <th className="num">Qty</th>
+                            <th className="num">Recv</th>
                             <th className="num">Unit</th>
                             <th className="num">Total</th>
                             {editable && <th aria-label="Actions" />}
@@ -564,6 +616,12 @@ function PoDrawer({ poId, onClose }: {
                                 || <span className="muted">—</span>}</td>
                               <td>{ln.description}</td>
                               <td className="num">{ln.qty}</td>
+                              <td className="num mono">
+                                <span className={ln.qty_received >= ln.qty
+                                  && ln.qty > 0 ? 'po-recv-full' : ''}>
+                                  {ln.qty_received}/{ln.qty}
+                                </span>
+                              </td>
                               <td className="num mono">{money(ln.unit_cost)}</td>
                               <td className="num mono">{money(ln.total)}</td>
                               {editable && (
@@ -616,6 +674,48 @@ function PoDrawer({ poId, onClose }: {
                     </div>
                   )}
                 </section>
+
+                {editable && po.status !== 'received'
+                  && (po.lines ?? []).some((l) =>
+                    (l.part_number || '').trim() && l.qty_outstanding > 0) && (
+                  <section className="ud-sec po-receive">
+                    <h3>Receive shipment</h3>
+                    <p className="muted sm" style={{ marginTop: -4 }}>
+                      Enter what arrived per line. Short lines can auto-backorder.
+                    </p>
+                    <div className="po-recv-lines">
+                      {(po.lines ?? [])
+                        .filter((l) => (l.part_number || '').trim()
+                          && l.qty_outstanding > 0)
+                        .map((l) => (
+                          <div className="po-recv-line" key={l.id}>
+                            <span className="po-recv-name">
+                              <span className="mono">{l.part_number}</span>
+                              <span className="muted sm">{l.description}</span>
+                            </span>
+                            <span className="po-recv-ctl">
+                              <input className="cell-input po-recv-input"
+                                type="number" min="0" max={l.qty_outstanding}
+                                step="any"
+                                value={recvQty[l.id] ?? String(l.qty_outstanding)}
+                                onChange={(e) => setRecvQty({
+                                  ...recvQty, [l.id]: e.target.value })} />
+                              <span className="muted sm">of {l.qty_outstanding}</span>
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                    <label className="po-recv-bo">
+                      <input type="checkbox" checked={backorderRest}
+                        onChange={(e) => setBackorderRest(e.target.checked)} />
+                      <span>Backorder the rest &amp; close this PO</span>
+                    </label>
+                    <button className="btn btn-primary" disabled={receiving}
+                      onClick={doReceive}>
+                      {receiving ? 'Receiving…' : 'Receive shipment'}
+                    </button>
+                  </section>
+                )}
 
                 {editable && (
                   <div className="settings-actions" style={{ marginTop: 18 }}>
