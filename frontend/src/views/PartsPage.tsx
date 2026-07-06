@@ -3,14 +3,17 @@
 // (proveedores). Se reusan al cargar líneas de una work order.
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import QRCode from 'qrcode'
 import {
   adjustPartStock, deletePart, deleteVendor, listPartMovements,
   listParts, listPurchaseOrders, listVendors, savePart, saveVendor,
-  type Part, type PartInput, type StockMovement, type Vendor,
-  type VendorInput,
+  searchMarketplace,
+  type MarketplaceResult, type Part, type PartInput, type StockMovement,
+  type Vendor, type VendorInput,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 import { Button, Tabs } from '../components/ds'
+import Barcode from '../components/Barcode'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
@@ -78,6 +81,29 @@ const CATEGORY_COLOR: Record<string, string> = {
 }
 const catColor = (c: string) => CATEGORY_COLOR[c] || '#8b8b95'
 
+// Adivina una categoría del catálogo a partir de la descripción (Smart Fill).
+// Respeta la capitalización de una categoría ya existente si coincide.
+function guessCategory(desc: string, known: string[]): string {
+  const d = (desc || '').toLowerCase()
+  const rules: [RegExp, string][] = [
+    [/brake|pad|rotor|caliper|chamber/, 'Brakes'],
+    [/filter|separator|element|cartridge/, 'Filters'],
+    [/oil|fluid|coolant|antifreeze|grease|\bdef\b/, 'Fluids'],
+    [/tire|tyre|wheel|\brim\b/, 'Tires'],
+    [/lamp|light|led|bulb|headlight/, 'Lighting'],
+    [/batter|alternator|starter|sensor|wir|harness|solenoid|relay/, 'Electrical'],
+    [/belt|hose|pump|gasket|seal|bearing|engine|turbo|injector|dpf/, 'Engine'],
+    [/spring|shock|bushing|suspension|air\s?bag/, 'Suspension'],
+    [/cab|hvac|mirror|seat|wiper|door/, 'Cab'],
+  ]
+  for (const [re, cat] of rules) {
+    if (re.test(d)) {
+      return known.find((k) => k.toLowerCase() === cat.toLowerCase()) ?? cat
+    }
+  }
+  return ''
+}
+
 type PartsView = 'overview' | 'list' | 'grid'
 
 // ----- Pestaña Parts (3 vistas: Overview / List / Data grid) --------------
@@ -97,6 +123,7 @@ function PartsTab() {
   const [editing, setEditing] = useState<Part | null>(null)
   const [adding, setAdding] = useState(false)
   const [adjusting, setAdjusting] = useState<Part | null>(null)
+  const [labeling, setLabeling] = useState<Part | null>(null)
 
   const parts = partsQ.data?.parts ?? []
   const usage = partsQ.data?.usage ?? {}
@@ -331,6 +358,7 @@ function PartsTab() {
           rows={filtered} selectedPn={selectedPn} onSelect={setSelectedPn}
           selected={selected} usage={usage} pos={posQ.data?.purchase_orders ?? []}
           onEdit={setEditing} onAdjust={setAdjusting} onDelete={remove}
+          onLabel={setLabeling}
           onQuickbuyDone={() => {
             qc.invalidateQueries({ queryKey: ['purchase-orders'] })
             refreshInventory()
@@ -355,6 +383,10 @@ function PartsTab() {
         <AdjustStockModal part={adjusting}
           onClose={() => setAdjusting(null)}
           onAdjusted={refreshInventory} />
+      )}
+
+      {labeling && (
+        <PartLabelModal part={labeling} onClose={() => setLabeling(null)} />
       )}
     </>
   )
@@ -497,7 +529,7 @@ function PartsOverview({
 // ----- List: master-detail (lista + ficha de parte) -----------------------
 function PartsList({
   rows, selectedPn, onSelect, selected, usage, pos,
-  onEdit, onAdjust, onDelete, onQuickbuyDone,
+  onEdit, onAdjust, onDelete, onLabel, onQuickbuyDone,
 }: {
   rows: Part[]
   selectedPn: string | null
@@ -508,6 +540,7 @@ function PartsList({
   onEdit: (p: Part) => void
   onAdjust: (p: Part) => void
   onDelete: (p: Part) => void
+  onLabel: (p: Part) => void
   onQuickbuyDone: () => void
 }) {
   return (
@@ -550,7 +583,7 @@ function PartsList({
                 l.part_number === selected.part_number)
                 || po.notes?.includes(selected.part_number))}
               onEdit={onEdit} onAdjust={onAdjust} onDelete={onDelete}
-              onQuickbuyDone={onQuickbuyDone} />
+              onLabel={onLabel} onQuickbuyDone={onQuickbuyDone} />
           : <div className="card"><div className="empty mini"
               style={{ padding: 30 }}><p>Select a part to see its detail.</p>
             </div></div>}
@@ -560,7 +593,7 @@ function PartsList({
 }
 
 // Ficha de parte (columna derecha del master-detail).
-function PartDetail({ part, used, pos, onEdit, onAdjust, onDelete,
+function PartDetail({ part, used, pos, onEdit, onAdjust, onDelete, onLabel,
   onQuickbuyDone }: {
   part: Part
   used: number
@@ -568,6 +601,7 @@ function PartDetail({ part, used, pos, onEdit, onAdjust, onDelete,
   onEdit: (p: Part) => void
   onAdjust: (p: Part) => void
   onDelete: (p: Part) => void
+  onLabel: (p: Part) => void
   onQuickbuyDone: () => void
 }) {
   const low = isLow(part)
@@ -596,6 +630,8 @@ function PartDetail({ part, used, pos, onEdit, onAdjust, onDelete,
             Edit</button>
           <button className="btn btn-ghost btn-xs" onClick={() => onAdjust(part)}>
             Adjust</button>
+          <button className="btn btn-ghost btn-xs" onClick={() => onLabel(part)}>
+            Label</button>
         </div>
       </div>
 
@@ -888,6 +924,43 @@ function PartModal({ part, vendors, categories, onClose, onSaved }: {
   const [saving, setSaving] = useState(false)
   const set = (patch: Partial<typeof f>) => setF({ ...f, ...patch })
 
+  // Smart Fill: busca el part# en el marketplace (FinditParts/PartsTech) y
+  // ofrece coincidencias para autollenar descripción, fabricante y categoría.
+  // Con el mock (sin API conectada) devuelve muestras marcadas como demo.
+  const [sfLoading, setSfLoading] = useState(false)
+  const [sfResults, setSfResults] = useState<MarketplaceResult[] | null>(null)
+  const [sfDemo, setSfDemo] = useState(false)
+
+  async function smartFill() {
+    const pn = String(f.part_number ?? '').trim()
+    if (!pn) {
+      notifyErr('Enter a part number first', 'Smart Fill looks it up by number')
+      return
+    }
+    setSfLoading(true)
+    try {
+      const res = await searchMarketplace(pn, 6)
+      setSfResults(res.results)
+      setSfDemo(!res.configured)
+      if (res.results.length === 0) notifyOk('No matches', `Nothing found for ${pn}`)
+    } catch (e) {
+      notifyErr('Smart Fill failed', e)
+    } finally {
+      setSfLoading(false)
+    }
+  }
+
+  function applyResult(r: MarketplaceResult) {
+    set({
+      description: r.description || f.description,
+      manufacturer: r.brand || f.manufacturer,
+      category: f.category || guessCategory(r.description, categories),
+      cost: (!f.cost && r.price) ? r.price : f.cost,
+    })
+    setSfResults(null)
+    notifyOk('Filled from catalog', r.part_number)
+  }
+
   async function submit() {
     if (!String(f.part_number ?? '').trim()) {
       notifyErr('Missing part number', 'A part number is required')
@@ -909,12 +982,24 @@ function PartModal({ part, vendors, categories, onClose, onSaved }: {
       onClose={onClose}>
       <div className="wo-form">
         <div className="wo-form-row">
-          <label className="ud-field">
-            <span>Part number</span>
+          <div className="ud-field">
+            <span className="ud-field-head">
+              <span>Part number</span>
+              <button type="button" className="smartfill-btn"
+                onClick={smartFill} disabled={sfLoading}
+                title="Look this part number up and fill the details">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none"
+                  stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                  strokeLinejoin="round">
+                  <path d="M5 3v4M3 5h4M6 17v4M4 19h4M13 3l2.3 6.2L21 11l-5.7 1.8L13 19l-2.3-6.2L5 11l5.7-1.8z" />
+                </svg>
+                {sfLoading ? 'Filling…' : 'Smart Fill'}
+              </button>
+            </span>
             <input className="cell-input" autoFocus value={f.part_number ?? ''}
               placeholder="BRK-100"
               onChange={(e) => set({ part_number: e.target.value })} />
-          </label>
+          </div>
           <label className="ud-field">
             <span>Category</span>
             <input className="cell-input" list="part-cats" value={f.category ?? ''}
@@ -924,6 +1009,35 @@ function PartModal({ part, vendors, categories, onClose, onSaved }: {
             </datalist>
           </label>
         </div>
+
+        {sfResults && (
+          <div className="smartfill-panel">
+            <div className="smartfill-head">
+              <span>{sfResults.length} catalog match{sfResults.length === 1 ? '' : 'es'}</span>
+              {sfDemo && <span className="smartfill-demo">demo data</span>}
+              <button type="button" className="smartfill-x"
+                onClick={() => setSfResults(null)} aria-label="Dismiss">×</button>
+            </div>
+            {sfResults.length === 0 ? (
+              <p className="muted sm" style={{ margin: '2px' }}>No matches found.</p>
+            ) : (
+              <ul className="smartfill-list">
+                {sfResults.map((r, i) => (
+                  <li key={i}>
+                    <button type="button" className="smartfill-row"
+                      onClick={() => applyResult(r)}>
+                      <span className="sf-main">
+                        <span className="sf-desc">{r.description}</span>
+                        <span className="sf-sub mono">{r.part_number} · {r.brand}</span>
+                      </span>
+                      {r.price ? <span className="sf-price mono">{money(r.price)}</span> : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         <label className="ud-field">
           <span>Description</span>
           <input className="cell-input" value={f.description ?? ''}
@@ -1014,6 +1128,79 @@ function PartModal({ part, vendors, categories, onClose, onSaved }: {
           <button className="btn btn-primary" onClick={submit} disabled={saving}>
             {saving ? 'Saving…' : part ? 'Save part' : 'Add part'}
           </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ----- Etiqueta imprimible: Code 128 + QR ----------------------------------
+// Para pegar en el bin y escanear: el USB scanner lee el Code 128; el QR, el
+// teléfono. Ambos codifican el part number. Imprime en una ventana aparte.
+function PartLabelModal({ part, onClose }: { part: Part; onClose: () => void }) {
+  const [qrSvg, setQrSvg] = useState('')
+  useEffect(() => {
+    let alive = true
+    QRCode.toString(part.part_number || ' ',
+      { type: 'svg', margin: 0, errorCorrectionLevel: 'M' })
+      .then((svg) => { if (alive) setQrSvg(svg) })
+      .catch(() => { if (alive) setQrSvg('') })
+    return () => { alive = false }
+  }, [part.part_number])
+
+  function printLabel() {
+    const node = document.getElementById('part-label-card')
+    if (!node) return
+    const w = window.open('', '_blank', 'width=460,height=380')
+    if (!w) {
+      notifyErr('Popup blocked', 'Allow popups to print the label')
+      return
+    }
+    w.document.write(
+      '<!doctype html><html><head><meta charset="utf-8">'
+      + `<title>Label ${part.part_number}</title><style>`
+      + 'body{margin:0;font-family:system-ui,Segoe UI,sans-serif;'
+      + 'display:flex;justify-content:center;padding:24px}'
+      + '.part-label-card{border:1px solid #000;border-radius:8px;'
+      + 'padding:14px 16px;width:320px;box-sizing:border-box}'
+      + '.pl-desc{font-size:15px;font-weight:700;display:block}'
+      + '.pl-meta{font-size:12px;color:#444;display:block;margin-bottom:8px}'
+      + '.pl-body{display:flex;gap:12px;align-items:flex-end}'
+      + '.pl-bars{flex:1;min-width:0}.barcode{width:100%;height:56px;display:block}'
+      + '.pl-pn{font-family:ui-monospace,monospace;font-size:14px;font-weight:700;'
+      + 'letter-spacing:1px;text-align:center;margin-top:4px}'
+      + '.pl-qr{width:84px;height:84px;flex:none}.pl-qr svg{width:100%;height:100%}'
+      + '</style></head><body>' + node.outerHTML + '</body></html>')
+    w.document.close()
+    w.focus()
+    setTimeout(() => { w.print() }, 150)
+  }
+
+  return (
+    <Modal title={`Label · ${part.part_number}`} width={420} onClose={onClose}>
+      <div className="part-label-wrap">
+        <div className="part-label-card" id="part-label-card">
+          <span className="pl-desc">{part.description || part.part_number}</span>
+          <span className="pl-meta">
+            {[part.manufacturer, part.bin ? `BIN ${part.bin}` : '', part.category]
+              .filter(Boolean).join(' · ') || 'Rigsmith part'}
+          </span>
+          <div className="pl-body">
+            <div className="pl-bars">
+              <Barcode value={part.part_number} />
+              <div className="pl-pn">{part.part_number}</div>
+            </div>
+            {qrSvg && (
+              <div className="pl-qr" dangerouslySetInnerHTML={{ __html: qrSvg }} />
+            )}
+          </div>
+        </div>
+        <p className="field-hint" style={{ textAlign: 'center' }}>
+          Code 128 (desktop scanner) + QR (phone). Both encode the part number.
+        </p>
+        <div className="settings-actions">
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
+          <button className="btn btn-primary" onClick={printLabel}>Print label</button>
         </div>
       </div>
     </Modal>

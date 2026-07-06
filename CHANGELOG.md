@@ -7,6 +7,26 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.2.0] - 2026-07-06
+
+### Añadido
+- **Smart Fill de partes** (referencia SquareRigger). En el modal de parte, un
+  botón **Smart Fill** junto al número busca la parte en el marketplace
+  (FinditParts/PartsTech vía `core/parts_marketplace`) y muestra las
+  coincidencias; al elegir una, autollena **descripción, fabricante, categoría**
+  (inferida por keywords) y **costo**. Sin API conectada, el proveedor mock
+  devuelve muestras marcadas con un chip **"demo data"**; al conectar el real,
+  el mismo botón trae datos vivos (cero cambios de UI).
+- **Etiqueta imprimible por parte** (barcode + QR). Botón **Label** en la ficha:
+  genera un **código de barras Code 128** (para el escáner USB de mostrador) y
+  un **QR** (para el teléfono), ambos con el número de parte, más
+  descripción/fabricante/bin. Botón **Print label** (imprime solo la etiqueta).
+
+### Dependencias
+- Suma `qrcode` (+ `@types/qrcode`) al frontend para generar los QR. El código
+  de barras Code 128 es una implementación propia en SVG (`components/Barcode.tsx`,
+  sin dependencia).
+
 ## [2.1.0] - 2026-07-06
 
 ### Añadido
