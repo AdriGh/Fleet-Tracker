@@ -7,6 +7,32 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.49.0] - 2026-07-06
+
+### Añadido
+- **RBAC editable por-org** — la matriz de permisos ahora se puede **editar**.
+  Nueva tabla `role_scope` (migración Alembic `e7b3c9d15a42`) que guarda, por
+  organización, los scopes concedidos a cada rol. En Settings › Roles &
+  permissions (admin), cada celda **View / Edit** es clickeable (columna Admin
+  lockeada) y **Save permissions** persiste la matriz de la org.
+- Endpoint `POST /api/permissions/matrix` (admin-only por el fail-closed de
+  `_scope_for` → `settings.manage`).
+
+### Seguridad
+- **Sin overrides, el enforcement es IDÉNTICO al de siempre** (los defaults
+  hardcodeados de `permissions.ROLE_SCOPES`): una org que no toca la matriz se
+  comporta byte-por-byte igual (verificado en test). `admin` SIEMPRE tiene
+  todos los scopes (no editable) → nadie se auto-bloquea. **Fail-safe**: ante
+  error de lectura se cae a los defaults (no deja a nadie afuera).
+  `has_scope`/`scopes_for` toman `org_id` y consultan la matriz efectiva
+  (cache en memoria invalidado al guardar; el deploy es single-worker).
+  Probado: defaults intactos + override se aplica solo a su org + admin full +
+  round-trip del endpoint con auth real.
+
+### Nota
+- "New role" (roles a medida) queda pendiente — necesita plumbing de asignación
+  de rol en toda la app. Esto edita los 5 roles existentes.
+
 ## [1.48.0] - 2026-07-06
 
 ### Añadido

@@ -495,6 +495,22 @@ class PartsRequest(OrgScoped, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class RoleScope(OrgScoped, Base):
+    """Override por-org de la matriz RBAC (Increment 5b, RBAC editable).
+
+    Cada fila = un `scope` concedido a un `role` EN ESTA ORG. Si la org tiene
+    AL MENOS una fila (incluida la fila marcador `__custom__`/`__custom__`),
+    su matriz es AUTORITATIVA: los roles sin filas quedan sin scopes. Si la
+    org no tiene ninguna fila, se usan los defaults hardcodeados de
+    `core/permissions.ROLE_SCOPES`. `admin` NUNCA se guarda (siempre tiene
+    todo, no editable). org-scoped (multi-tenant)."""
+    __tablename__ = "role_scope"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    role: Mapped[str] = mapped_column(String(30), index=True)
+    scope: Mapped[str] = mapped_column(String(30))
+
+
 class Unit(OrgScoped, Base):
     """Unidad agregada a mano (Fleet -> Add New Unit). Complementa el fleet
     vivo de Samsara para terminales/clientes que no estan en Samsara, y

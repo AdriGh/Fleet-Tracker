@@ -2315,6 +2315,18 @@ export async function getPermissionsMatrix(): Promise<PermMatrix> {
   return res.json()
 }
 
+// Guarda la matriz de la org: { rol: [scopes concedidos] } (admin se ignora).
+export async function savePermissionsMatrix(
+  grants: Record<string, string[]>,
+): Promise<PermMatrix> {
+  const res = await fetch('/api/permissions/matrix', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ grants }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
 // --- Marketplace de partes (scaffold, Increment B) -----------------------
 // Búsqueda en un marketplace externo (FindItParts/PartsTech). Mientras no
 // haya cuenta de API conectada, el backend devuelve datos demo (mock) y
