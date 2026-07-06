@@ -6506,9 +6506,8 @@ table.defects-table td {
 .nav-item:hover:not(:disabled) .nav-ico { transform: translateX(1.5px) scale(1.08); }
 .nav-item.active .nav-ico { transform: scale(1.06); }
 
-/* Marca: guiño al pasar el cursor */
-.brand-logo { transition: transform 0.3s var(--ease-spring); }
-.brand:hover .brand-logo { transform: rotate(-4deg) scale(1.05); }
+/* Marca: al pasar el cursor la llave ratchetea y un destello barre la R
+   (.rs-wrench / .rs-gleam). El logo NO se inclina (pedido del usuario). */
 
 /* ----- Tarjetas y listas ----- */
 .dash-list-item {
@@ -6550,9 +6549,8 @@ table.defects-table td {
     transition: none;
   }
   .btn:hover:not(:disabled),
-  .dash-list-item:hover,
-  .brand:hover .brand-logo { transform: none; }
-  .rs-wrench { animation: none !important; }
+  .dash-list-item:hover { transform: none; }
+  .rs-wrench, .rs-gleam { animation: none !important; }
 }
 
 /* ==================================================================
@@ -8468,6 +8466,30 @@ iframe.wo-preview { border: 1px solid var(--border); }
   52% { transform: rotate(-24deg); }
   66% { transform: rotate(3deg); }
   74% { transform: rotate(0deg); }
+}
+
+/* Marca theme-aware: en dark el chip es oscuro y la R casi blanca; en light
+   el chip es claro y la R casi negra. El chip se conserva para dar contraste
+   sobre cualquier superficie (ej. el hero oscuro del login). La llave es
+   roja fija en ambos temas. */
+.rs-tile { fill: #131316; }
+.rs-tile-border { stroke: rgba(255, 255, 255, 0.14); }
+[data-theme='light'] .rs-tile { fill: #ffffff; }
+[data-theme='light'] .rs-tile-border { stroke: rgba(0, 0, 0, 0.10); }
+.rs-r { fill: var(--text); }
+
+/* Destello: banda blanca que barre la R al hover (junto con el ratchet). */
+.rs-gleam { opacity: 0; }
+.rs-logo:hover .rs-gleam,
+.brand:hover .rs-gleam,
+.login-panel-brand:hover .rs-gleam {
+  animation: rsGleam 1.6s ease-in-out infinite;
+}
+@keyframes rsGleam {
+  0%   { opacity: 0; transform: translateX(-30px); }
+  22%  { opacity: 1; }
+  58%  { opacity: 0; transform: translateX(84px); }
+  100% { opacity: 0; transform: translateX(84px); }
 }
 
 /* Skeletons DENTRO del instrumento: shimmer oscuro (la placa es always-dark
