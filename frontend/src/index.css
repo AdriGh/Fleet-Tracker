@@ -1058,6 +1058,53 @@ body::after {
   letter-spacing: 0.04em;
   color: var(--text-muted);
 }
+
+/* ----- Riel por-ítem (Icon rail · 74px): flyout de un solo label ----- */
+.nav-flyout-solo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--text);
+  color: var(--surface);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 7px 12px;
+  border-radius: 9px;
+  white-space: nowrap;
+  box-shadow: var(--shadow-md);
+}
+.nav-flyout-solo .nav-badge { margin-left: 2px; }
+
+/* Badge de conteo (p.ej. Purchasing) en el nav expandido y en el flyout */
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+.nav-item .nav-badge { margin-left: auto; }
+
+/* Punto rojo del badge sobre el icono en el riel colapsado */
+.nav-rail-btn { position: relative; }
+.nav-rail-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  border: 2px solid var(--surface);
+}
 @media (prefers-reduced-motion: reduce) {
   .nav-flyout { transition: opacity 0.01s; transform: none; }
 }
@@ -3428,6 +3475,51 @@ td.dur-high {
 }
 .dash-tag.is-danger { background: rgba(220, 38, 38, 0.14); color: #ef4444; }
 .dash-tag.is-warn { background: rgba(245, 158, 11, 0.16); color: #d97706; }
+
+/* ---- Cockpit de taller (Shop operations, Dashboard v2) ---- */
+.dash-band-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 26px 2px 4px;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.dash-band-label:first-of-type { margin-top: 6px; }
+.dash-band-rule { flex: 1 1 auto; height: 1px; background: var(--border); }
+.dash-band-label .btn-link {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.shop-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 14px 0 6px;
+}
+@media (max-width: 860px) {
+  .shop-actions { grid-template-columns: 1fr; }
+}
+.shop-actions > .card { animation: ft-fade-up 0.32s ease both; }
+.action-card { border-left: 3px solid var(--border); }
+.action-card.is-danger { border-left-color: #dc2626; }
+.action-card.is-warn { border-left-color: #d97706; }
+.action-list .dash-list-name { flex: 1 1 auto; }
+.reorder-qty {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 
 .dash-shortcuts {
   display: grid;

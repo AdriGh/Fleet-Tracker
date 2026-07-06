@@ -4,7 +4,7 @@ import {
 import { Toaster } from 'sonner'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  authStatus, getHealth, listAlertEvents, logout,
+  authStatus, getHealth, listAlertEvents, listPartsRequests, logout,
   type AuthUser, type OrgBranding,
 } from './api'
 import { PermsContext, type Perms } from './perms'
@@ -20,6 +20,7 @@ import UnitProfilePage from './views/UnitProfilePage'
 import ReeferPage from './views/ReeferPage'
 import WorkOrdersPage from './views/WorkOrdersPage'
 import PartsPage from './views/PartsPage'
+import PurchasingPage from './views/PurchasingPage'
 import DriversPage from './views/DriversPage'
 import ReportsPage from './views/ReportsPage'
 import SettingsPage from './views/SettingsPage'
@@ -51,44 +52,18 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: 'Maintenance & Compliance',
+    title: 'Maintenance & Shop',
     items: [
       { id: 'flota', label: 'Fleet' },
       { id: 'pm', label: 'PM Tracker' },
       { id: 'dot', label: 'DOT Inspections' },
       { id: 'workorders', label: 'Work Orders' },
-      { id: 'parts', label: 'Parts & Vendors' },
+      { id: 'parts', label: 'Parts' },
+      { id: 'purchasing', label: 'Purchasing' },
       { id: 'drivers', label: 'Driver Compliance' },
     ],
   },
 ]
-
-// Icono representativo de cada grupo para el riel colapsado (estilo
-// Samsara: un icono por grupo, hover despliega el flyout con sus ítems).
-const GROUP_ICONS: Record<string, ReactElement> = {
-  'Overview': (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="8" height="8" rx="1.5" />
-      <rect x="13" y="3" width="8" height="5" rx="1.5" />
-      <rect x="13" y="10" width="8" height="11" rx="1.5" />
-      <rect x="3" y="13" width="8" height="8" rx="1.5" />
-    </svg>
-  ),
-  'Operations': (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3l8 3v5c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z" />
-      <path d="m9 12 2 2 4-4" />
-    </svg>
-  ),
-  'Maintenance & Compliance': (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L4 16.8 7.2 20l5.3-5.3a4 4 0 0 0 5.2-5.4l-2.5 2.5-2.3-.5-.5-2.3z" />
-    </svg>
-  ),
-}
 
 // Sección de administración (al fondo del sidebar). El Roster vive DENTRO
 // de Settings (Driver roster & privacy) — fuera del layout frontal.
@@ -129,6 +104,14 @@ const ICONS: Record<string, ReactElement> = {
       strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
       <path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" />
+    </svg>
+  ),
+  purchasing: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="20" r="1.4" />
+      <circle cx="18" cy="20" r="1.4" />
+      <path d="M2.5 3H4.8l2 11.4a1.5 1.5 0 0 0 1.5 1.2h8.2a1.5 1.5 0 0 0 1.5-1.2L20.5 7H5.2" />
     </svg>
   ),
   dvir: (
@@ -322,6 +305,16 @@ export default function App() {
     refetchInterval: 60_000,
     enabled: authed,
   })
+  // Badge de Purchasing: nº de requests de partes pendientes de ordenar.
+  const requestsQuery = useQuery({
+    queryKey: ['parts-requests', 'pending'],
+    queryFn: () => listPartsRequests('pending'),
+    enabled: authed,
+    staleTime: 60_000,
+  })
+  const navBadges: Record<string, number> = {
+    purchasing: requestsQuery.data?.stats?.pending ?? 0,
+  }
   const lastAlertId = useRef<number | null>(null)
   useEffect(() => {
     const events = alertsQuery.data
@@ -447,56 +440,51 @@ export default function App() {
         <div className="sidebar-scroll">
           {navCollapsed && !isMobile ? (
             <>
-              {/* Riel colapsado: un icono por grupo; hover -> flyout con
-                  los ítems (estilo Samsara, no por click). */}
-              {NAV_SECTIONS.map((group) => {
-                const groupActive = group.items.some((i) => i.id === section)
-                const enabled = group.items.filter((i) => !i.soon)
-                return (
-                  <div className="nav-rail-group" key={group.title}>
-                    <button
-                      className={`nav-item nav-rail-btn ${groupActive ? 'active' : ''}`}
-                      title={group.title}
-                      onClick={() => {
-                        if (enabled.length === 1) navigate(enabled[0].id)
-                      }}
-                    >
-                      <span className="nav-ico">
-                        {GROUP_ICONS[group.title] ?? ICONS[group.items[0].id]}
-                      </span>
-                    </button>
-                    <div className="nav-flyout">
-                      <div className="nav-flyout-panel">
-                        <span className="nav-flyout-title">{group.title}</span>
-                        {group.items.map((item) => (
-                          <button
-                            key={item.id}
-                            className={`nav-flyout-item ${section === item.id ? 'active' : ''}`}
-                            disabled={item.soon}
-                            onClick={() => !item.soon && navigate(item.id)}
-                          >
-                            <span className="nav-ico">{ICONS[item.id]}</span>
-                            <span>{item.label}</span>
-                            {item.soon && <span className="soon">soon</span>}
-                          </button>
-                        ))}
+              {/* Riel colapsado (Icon rail · 74px): un icono por ÍTEM; el
+                  hover despliega un flyout con el label (estilo diseñador). */}
+              {NAV_SECTIONS.map((group) => (
+                <nav className="nav nav-rail" key={group.title}>
+                  <span className="nav-group-label">{group.title}</span>
+                  {group.items.filter((i) => !i.soon).map((item) => (
+                    <div className="nav-rail-group" key={item.id}>
+                      <button
+                        className={`nav-item nav-rail-btn ${section === item.id ? 'active' : ''}`}
+                        title={item.label}
+                        onClick={() => navigate(item.id)}
+                      >
+                        <span className="nav-ico">{ICONS[item.id]}</span>
+                        {navBadges[item.id]
+                          ? <span className="nav-rail-dot" /> : null}
+                      </button>
+                      <div className="nav-flyout">
+                        <span className="nav-flyout-solo">
+                          {item.label}
+                          {navBadges[item.id]
+                            ? <span className="nav-badge">{navBadges[item.id]}</span>
+                            : null}
+                        </span>
                       </div>
                     </div>
-                  </div>
-                )
-              })}
-              <div className="nav-bottom nav-rail-bottom">
+                  ))}
+                </nav>
+              ))}
+              <nav className="nav nav-bottom nav-rail">
+                <span className="nav-group-label">Admin</span>
                 {ADMIN_ITEMS.map((item) => (
-                  <button
-                    key={item.id}
-                    className={`nav-item nav-rail-btn ${section === item.id ? 'active' : ''}`}
-                    title={item.label}
-                    onClick={() => navigate(item.id)}
-                  >
-                    <span className="nav-ico">{ICONS[item.id]}</span>
-                  </button>
+                  <div className="nav-rail-group" key={item.id}>
+                    <button
+                      className={`nav-item nav-rail-btn ${section === item.id ? 'active' : ''}`}
+                      title={item.label}
+                      onClick={() => navigate(item.id)}
+                    >
+                      <span className="nav-ico">{ICONS[item.id]}</span>
+                    </button>
+                    <div className="nav-flyout">
+                      <span className="nav-flyout-solo">{item.label}</span>
+                    </div>
+                  </div>
                 ))}
-              </div>
+              </nav>
             </>
           ) : (
             <>
@@ -512,6 +500,9 @@ export default function App() {
                     >
                       <span className="nav-ico">{ICONS[item.id]}</span>
                       <span className="nav-text">{item.label}</span>
+                      {navBadges[item.id]
+                        ? <span className="nav-badge">{navBadges[item.id]}</span>
+                        : null}
                       {item.soon && <span className="soon">soon</span>}
                     </button>
                   ))}
@@ -618,6 +609,7 @@ export default function App() {
           {section === 'coldchain' && <ReeferPage />}
           {section === 'workorders' && <WorkOrdersPage />}
           {section === 'parts' && <PartsPage />}
+          {section === 'purchasing' && <PurchasingPage />}
           {section === 'drivers' && <DriversPage />}
           {section === 'reports' && <ReportsPage />}
           {section === 'settings' && (
