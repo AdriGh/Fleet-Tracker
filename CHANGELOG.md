@@ -7,6 +7,28 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.48.0] - 2026-07-06
+
+### Añadido
+- **Campos ricos del catálogo de Parts**. El modelo `Part` suma
+  **manufacturer, bin** (ubicación física), **max_qty** (objetivo de stock),
+  **avg_cost** (costo promedio), **upc**, **fits** (compatibilidad) y
+  **source** (origen). Vía **migración Alembic** `c4f7a9e12b8d`
+  (`batch_alter_table` + `server_default`, portable SQLite/Postgres). Superficies:
+  - **PartModal**: campos Manufacturer, Bin, Min (reorder) + Max, UPC, Fits.
+  - **Ficha de parte** (List): MFG y UPC en el subtítulo, chip **BIN**, gauge
+    On hand con **min·max real**, "avg $X" bajo Unit cost, líneas Fits y Source.
+  - **Data grid**: columnas MFG, Bin y Min/Max.
+  - **Export CSV**: incluye MFG, Bin, Min, Max, Avg cost, UPC, Fits.
+
+### Nota técnica
+- Confirmado (corrige una suposición previa): el deploy **YA corre Alembic** —
+  `CMD` = `FLEET_SKIP_DB_INIT=1; python scripts/db_migrate.py && uvicorn …`;
+  `db_migrate.py` adopta la base viva con `stamp head` (sin DDL) y aplica
+  deltas con `upgrade head`. Por eso agregar columnas a tablas existentes es
+  seguro por migración. Paridad en dev: `db._migrate()` agrega las mismas
+  columnas en el camino `create_all` de SQLite.
+
 ## [1.47.0] - 2026-07-06
 
 ### Añadido

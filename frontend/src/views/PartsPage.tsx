@@ -190,11 +190,13 @@ function PartsTab() {
   }
 
   function exportCsv() {
-    const head = ['Part #', 'Description', 'Category', 'Vendor', 'On hand',
-      'Reorder', 'Unit cost', '90d use', 'Status']
+    const head = ['Part #', 'Description', 'MFG', 'Category', 'Bin', 'Vendor',
+      'On hand', 'Min', 'Max', 'Unit cost', 'Avg cost', 'UPC', 'Fits',
+      '90d use', 'Status']
     const rows = filtered.map((p) => [
-      p.part_number, p.description, p.category, p.vendor_name,
-      p.on_hand || 0, p.reorder_point || 0, p.cost.toFixed(2),
+      p.part_number, p.description, p.manufacturer, p.category, p.bin,
+      p.vendor_name, p.on_hand || 0, p.reorder_point || 0, p.max_qty || 0,
+      p.cost.toFixed(2), (p.avg_cost || p.cost).toFixed(2), p.upc, p.fits,
       usage[p.part_number] || 0, isLow(p) ? 'Low' : 'OK',
     ])
     const csv = [head, ...rows]
@@ -572,7 +574,9 @@ function PartDetail({ part, used, pos, onEdit, onAdjust, onDelete,
   onQuickbuyDone: () => void
 }) {
   const low = isLow(part)
-  const max = part.reorder_point > 0 ? part.reorder_point * 3 : 0
+  const max = part.max_qty > 0
+    ? part.max_qty
+    : (part.reorder_point > 0 ? part.reorder_point * 3 : 0)
   const fillPct = max ? Math.min(1, (part.on_hand || 0) / max) : 0
   return (
     <div className="card part-detail">
@@ -586,7 +590,9 @@ function PartDetail({ part, used, pos, onEdit, onAdjust, onDelete,
         </span>
         <div className="pd-title">
           <h2>{part.description || part.part_number}</h2>
-          <span className="pd-pn mono">{part.part_number}</span>
+          <span className="pd-pn mono">{part.part_number}
+            {part.manufacturer ? ` · ${part.manufacturer}` : ''}
+            {part.upc ? ` · UPC ${part.upc}` : ''}</span>
         </div>
         <div className="pd-actions">
           <button className="btn btn-ghost btn-xs" onClick={() => onEdit(part)}>
@@ -600,17 +606,20 @@ function PartDetail({ part, used, pos, onEdit, onAdjust, onDelete,
         {part.vendor_name && <span className="intg-chip">{part.vendor_name}</span>}
         {part.category && <span className="intg-chip"
           style={{ color: catColor(part.category) }}>{part.category}</span>}
+        {part.bin && <span className="intg-chip">BIN {part.bin}</span>}
         <span className={`badge-soft ${low ? 'danger' : 'ok'}`}>
           {low ? 'LOW STOCK' : 'IN STOCK'}</span>
       </div>
 
-      {/* Mini instrumento: on hand / unit cost / used */}
+      {/* Mini instrumento: on hand (min·max) / unit cost (avg) / used */}
       <StatCluster className="pd-stats" columns="repeat(3, minmax(0, 1fr))">
         <StatCard label="On hand" value={part.on_hand || 0}
-          sub={part.reorder_point ? `reorder ${part.reorder_point}` : 'no reorder'}
+          sub={(part.reorder_point || part.max_qty)
+            ? `min ${part.reorder_point || 0} · max ${part.max_qty || '—'}`
+            : 'no min/max'}
           tone={low ? 'danger' : 'ok'} progress={fillPct} />
         <StatCard label="Unit cost" value={money(part.cost)}
-          sub="internal" tone="info" />
+          sub={`avg ${money(part.avg_cost)}`} tone="info" />
         <StatCard label="Used 90d" value={used} sub="on work orders"
           tone="default" />
       </StatCluster>
@@ -649,11 +658,14 @@ function PartDetail({ part, used, pos, onEdit, onAdjust, onDelete,
         </section>
       </div>
 
+      {part.fits && (
+        <p className="pd-fits"><strong>Fits:</strong> {part.fits}</p>
+      )}
       {part.notes && <p className="pd-notes">{part.notes}</p>}
 
       <div className="pd-foot">
         <span className="muted mono sm">
-          Source · manual entry {max ? `· suggested max ${max}` : ''}
+          Source · {part.source || 'manual'}
         </span>
         <button className="icon-x" title="Delete part"
           onClick={() => onDelete(part)}>Delete</button>
@@ -677,10 +689,10 @@ function PartsDataGrid({ rows, usage, onOpen }: {
         <div className="table-wrap">
           <table className="defects-table dense parts-grid">
             <thead><tr>
-              <th>Part #</th><th>Name</th><th>Category</th><th>Vendor</th>
-              <th className="num">On hand</th><th className="num">Reorder</th>
-              <th className="num">Unit cost</th><th className="num">90d use</th>
-              <th>Status</th>
+              <th>Part #</th><th>Name</th><th>MFG</th><th>Category</th>
+              <th>Bin</th><th className="num">On hand</th>
+              <th className="num">Min/Max</th><th className="num">Unit cost</th>
+              <th className="num">90d use</th><th>Status</th>
             </tr></thead>
             <tbody>
               {rows.map((p) => {
@@ -690,13 +702,14 @@ function PartsDataGrid({ rows, usage, onOpen }: {
                     onClick={() => onOpen(p.part_number)}>
                     <td className="mono"><strong>{p.part_number}</strong></td>
                     <td>{p.description || <span className="muted">—</span>}</td>
+                    <td>{p.manufacturer || <span className="muted">—</span>}</td>
                     <td>{p.category
                       ? <span className="intg-chip"
                           style={{ color: catColor(p.category) }}>{p.category}</span>
                       : <span className="muted">—</span>}</td>
-                    <td>{p.vendor_name || <span className="muted">—</span>}</td>
+                    <td className="mono">{p.bin || <span className="muted">—</span>}</td>
                     <td className="num mono">{p.on_hand || 0}</td>
-                    <td className="num mono">{p.reorder_point || '—'}</td>
+                    <td className="num mono">{p.reorder_point || 0}/{p.max_qty || '—'}</td>
                     <td className="num mono">{money(p.cost)}</td>
                     <td className="num mono">{usage[p.part_number] || 0}×</td>
                     <td>{low
@@ -864,10 +877,15 @@ function PartModal({ part, vendors, categories, onClose, onSaved }: {
     part_number: part?.part_number ?? '',
     description: part?.description ?? '',
     category: part?.category ?? '',
+    manufacturer: part?.manufacturer ?? '',
     cost: part?.cost ?? 0,
     vendor_id: part?.vendor_id ?? null,
     on_hand: part?.on_hand ?? 0,
     reorder_point: part?.reorder_point ?? 0,
+    max_qty: part?.max_qty ?? 0,
+    bin: part?.bin ?? '',
+    upc: part?.upc ?? '',
+    fits: part?.fits ?? '',
     notes: part?.notes ?? '',
   }))
   const [saving, setSaving] = useState(false)
@@ -917,6 +935,20 @@ function PartModal({ part, vendors, categories, onClose, onSaved }: {
         </label>
         <div className="wo-form-row">
           <label className="ud-field">
+            <span>Manufacturer</span>
+            <input className="cell-input" value={f.manufacturer ?? ''}
+              placeholder="Bendix"
+              onChange={(e) => set({ manufacturer: e.target.value })} />
+          </label>
+          <label className="ud-field">
+            <span>Bin / location</span>
+            <input className="cell-input" value={f.bin ?? ''}
+              placeholder="B-11"
+              onChange={(e) => set({ bin: e.target.value })} />
+          </label>
+        </div>
+        <div className="wo-form-row">
+          <label className="ud-field">
             <span>Cost (internal)</span>
             <input className="cell-input" type="number" step="0.01"
               value={f.cost ?? 0}
@@ -929,17 +961,27 @@ function PartModal({ part, vendors, categories, onClose, onSaved }: {
               onChange={(e) => set({ on_hand: Number(e.target.value) })} />
           </label>
         </div>
-        <label className="ud-field">
-          <span>Reorder point</span>
-          <input className="cell-input" type="number" min="0"
-            value={f.reorder_point ?? 0}
-            placeholder="0 = no low-stock alert"
-            onChange={(e) => set({ reorder_point: Number(e.target.value) })} />
-          <small className="field-hint">
-            Flags this part as <strong>Low</strong> when on hand drops to or
-            below this number. Leave 0 to disable the alert.
-          </small>
-        </label>
+        <div className="wo-form-row">
+          <label className="ud-field">
+            <span>Min (reorder point)</span>
+            <input className="cell-input" type="number" min="0"
+              value={f.reorder_point ?? 0}
+              placeholder="0 = no low-stock alert"
+              onChange={(e) => set({ reorder_point: Number(e.target.value) })} />
+          </label>
+          <label className="ud-field">
+            <span>Max (target stock)</span>
+            <input className="cell-input" type="number" min="0"
+              value={f.max_qty ?? 0}
+              placeholder="restock target"
+              onChange={(e) => set({ max_qty: Number(e.target.value) })} />
+          </label>
+        </div>
+        <small className="field-hint">
+          Flags <strong>Low</strong> when on hand ≤ Min. Max is the restock
+          target used by the stock gauge and Purchasing. Leave Min 0 to disable
+          the alert.
+        </small>
         <label className="ud-field">
           <span>Vendor</span>
           <select className="cell-input" value={f.vendor_id ?? ''}
@@ -951,6 +993,20 @@ function PartModal({ part, vendors, categories, onClose, onSaved }: {
             ))}
           </select>
         </label>
+        <div className="wo-form-row">
+          <label className="ud-field">
+            <span>UPC</span>
+            <input className="cell-input" value={f.upc ?? ''}
+              placeholder="Barcode"
+              onChange={(e) => set({ upc: e.target.value })} />
+          </label>
+          <label className="ud-field">
+            <span>Fits</span>
+            <input className="cell-input" value={f.fits ?? ''}
+              placeholder="Units / systems it fits"
+              onChange={(e) => set({ fits: e.target.value })} />
+          </label>
+        </div>
         <label className="ud-field">
           <span>Notes</span>
           <input className="cell-input" value={f.notes ?? ''}
