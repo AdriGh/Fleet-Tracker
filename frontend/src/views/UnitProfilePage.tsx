@@ -4,9 +4,10 @@ import { useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   addMaintRecord, decodeVin, deleteUnitDoc, deleteWorkOrder, downloadUnitDoc,
-  getReefer, getUnitCampaigns, listFleet, listOpenDefects, listUnitDocs,
-  listWorkOrders, toggleUnitCampaign, uploadUnitDocs,
-  type MaintKind, type UnitCampaign, type WorkOrder, type WoStatus,
+  getReefer, getUnitCampaigns, getUnitPartsUsed, listFleet, listOpenDefects,
+  listUnitDocs, listWorkOrders, toggleUnitCampaign, uploadUnitDocs,
+  type MaintKind, type PartUsed, type UnitCampaign, type WorkOrder,
+  type WoStatus,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 import { analyzeUnit } from '../defectGroups'
@@ -14,12 +15,13 @@ import type { Kind } from '../truckZones'
 import TruckDiagram from '../components/TruckDiagram'
 import { PIPELINE, STATUS_META, WoDrawer } from './WorkOrdersPage'
 
-type Tab = 'campaigns' | 'active' | 'history' | 'docs'
+type Tab = 'campaigns' | 'active' | 'history' | 'parts' | 'docs'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'campaigns', label: 'Components & PMs' },
   { key: 'active', label: 'Active Services' },
   { key: 'history', label: 'Service History' },
+  { key: 'parts', label: 'Parts used' },
   { key: 'docs', label: 'Attachments' },
 ]
 
@@ -84,6 +86,11 @@ export default function UnitProfilePage({ unit, onClose }: {
   const docsQ = useQuery({
     queryKey: ['unit-docs', unit],
     queryFn: () => listUnitDocs(unit),
+  })
+  const partsQ = useQuery({
+    queryKey: ['unit-parts-used', unit],
+    queryFn: () => getUnitPartsUsed(unit),
+    enabled: tab === 'parts',
   })
 
   // Defectos ABIERTOS de esta unidad: alimentan el diagrama por zonas (rojo =
@@ -448,6 +455,10 @@ export default function UnitProfilePage({ unit, onClose }: {
             }
           }} />
       )}
+      {tab === 'parts' && (
+        <PartsUsedTab data={partsQ.data} loading={partsQ.isPending}
+          onOpenWo={setOpenWo} />
+      )}
       {tab === 'docs' && (
         <DocsTab unit={unit} data={docsQ.data}
           onChanged={() =>
@@ -460,6 +471,73 @@ export default function UnitProfilePage({ unit, onClose }: {
           qc.invalidateQueries({ queryKey: ['unit-wos', unit] })
         }} />
     </div>
+  )
+}
+
+// ----- Parts used ----------------------------------------------------------
+function PartsUsedTab({ data, loading, onOpenWo }: {
+  data: import('../api').PartsUsedResult | undefined
+  loading: boolean
+  onOpenWo: (id: number) => void
+}) {
+  const money = (n: number) =>
+    n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+
+  if (loading || !data) {
+    return <div className="card"><div className="card-body empty mini">
+      <p>Loading parts…</p></div></div>
+  }
+
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2>Parts used on this unit</h2>
+        {data.total_lines > 0 && (
+          <span className="sub">
+            {data.distinct_parts} part{data.distinct_parts === 1 ? '' : 's'}
+            {' · '}{money(data.total_spend)} spent
+          </span>
+        )}
+      </div>
+      <div className="card-body">
+        {data.total_lines === 0 ? (
+          <div className="empty mini">
+            <p>No parts have been used on this unit's work orders yet.</p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="defects-table wo-table">
+              <thead>
+                <tr>
+                  <th>Part #</th>
+                  <th>Description</th>
+                  <th className="num">Qty</th>
+                  <th className="num">Unit</th>
+                  <th className="num">Total</th>
+                  <th>WO</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.items.map((p: PartUsed, i: number) => (
+                  <tr key={i} onClick={() => onOpenWo(p.wo_id)}>
+                    <td className="mono">
+                      {p.part_number || <span className="muted">—</span>}
+                    </td>
+                    <td className="wo-title">{p.description}</td>
+                    <td className="num">{p.qty}</td>
+                    <td className="num mono">{money(p.unit_cost)}</td>
+                    <td className="num mono">{money(p.total)}</td>
+                    <td><span className="mono">#{p.wo_no}</span></td>
+                    <td className="muted">{p.date || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
 

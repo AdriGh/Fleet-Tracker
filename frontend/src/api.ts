@@ -1081,6 +1081,34 @@ export async function listUnitDocs(unit: string): Promise<{
   return res.json()
 }
 
+// Parts used: una parte usada en una WO de esta unidad (línea kind='part').
+export interface PartUsed {
+  part_number: string
+  description: string
+  qty: number
+  unit_cost: number
+  total: number
+  wo_id: number
+  wo_no: string
+  wo_status: WoStatus
+  date: string
+}
+
+export interface PartsUsedResult {
+  items: PartUsed[]
+  total_lines: number
+  distinct_parts: number
+  total_qty: number
+  total_spend: number
+}
+
+export async function getUnitPartsUsed(unit: string): Promise<PartsUsedResult> {
+  const res = await fetch(
+    `/api/units/${encodeURIComponent(unit)}/parts-used`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
 export async function uploadUnitDocs(
   unit: string, kind: string, files: File[],
 ): Promise<{ saved: UnitDoc[]; errors: string[] }> {

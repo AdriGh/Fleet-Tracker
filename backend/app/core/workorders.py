@@ -416,6 +416,47 @@ def mechanics() -> list[str]:
         return sorted({m for m in rows if m})
 
 
+def parts_used_by_unit(unit: str) -> dict:
+    """Partes usadas en las WOs de una unidad (líneas kind='part'): el registro
+    por línea con contexto de su WO + un resumen. Para la pestaña 'Parts used'
+    del perfil de unidad."""
+    unit = (unit or "").strip()
+    with SessionLocal() as session:
+        rows = session.execute(
+            select(WorkOrderLine, WorkOrder)
+            .join(WorkOrder, WorkOrderLine.wo_id == WorkOrder.id)
+            .where(WorkOrder.unit == unit, WorkOrderLine.kind == "part")
+            .order_by(WorkOrder.id.desc(), WorkOrderLine.id.asc())).all()
+        items: list[dict] = []
+        total_spend = 0.0
+        total_qty = 0.0
+        for ln, wo in rows:
+            line_total = round(ln.qty * ln.unit_cost, 2)
+            total_spend += line_total
+            total_qty += ln.qty
+            items.append({
+                "part_number": ln.part_number or "",
+                "description": ln.description or "",
+                "qty": ln.qty,
+                "unit_cost": ln.unit_cost,
+                "total": line_total,
+                "wo_id": wo.id,
+                "wo_no": _display_no(wo),
+                "wo_status": wo.status,
+                "date": (wo.service_date
+                         or (wo.created_at.date().isoformat()
+                             if wo.created_at else "")),
+            })
+        return {
+            "items": items,
+            "total_lines": len(items),
+            "distinct_parts": len({i["part_number"] for i in items
+                                   if i["part_number"]}),
+            "total_qty": round(total_qty, 2),
+            "total_spend": round(total_spend, 2),
+        }
+
+
 def stats() -> dict:
     month_ago = datetime.now() - timedelta(days=30)
     with SessionLocal() as session:

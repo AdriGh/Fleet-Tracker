@@ -2095,6 +2095,12 @@ def unit_campaign_toggle(unit: str, body: CampaignIn):
     return {"ok": True}
 
 
+@router.get("/units/{unit}/parts-used")
+def unit_parts_used(unit: str):
+    """Pestaña Parts used: partes usadas en las WOs de esta unidad + resumen."""
+    return workorders.parts_used_by_unit(unit)
+
+
 @router.get("/units/{unit}/docs")
 def unit_docs_list(unit: str):
     return {"docs": unitdocs.list_docs(unit),

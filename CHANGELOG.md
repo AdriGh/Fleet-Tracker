@@ -7,6 +7,21 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.4.0] - 2026-07-06
+
+### Añadido
+- **Perfil de unidad › pestaña "Parts used"** (del walkthrough del diseñador):
+  registro de todas las partes usadas en las WOs de esa unidad (líneas
+  `kind='part'`), cada una con qty, costo, la WO de origen (`#nº`) y la fecha,
+  más un resumen (partes distintas · gasto total). Cada fila abre su WO.
+  Endpoint `GET /api/units/{unit}/parts-used` (`workorders.parts_used_by_unit`,
+  join WorkOrderLine↔WorkOrder org-scoped; sin migración).
+- **PM completado "apremiante"**: cuando una unidad tiene su PM/campaña en
+  **On track**, el pill de estado (Components & PMs) muestra un **✓** y un
+  **pulso verde sutil cada ~12s** (keyframes `pm-done-pulse`), para que "esta
+  unidad completó su PM" quede visualmente notorio. Respeta
+  `prefers-reduced-motion`.
+
 ## [2.3.0] - 2026-07-06
 
 ### Añadido
