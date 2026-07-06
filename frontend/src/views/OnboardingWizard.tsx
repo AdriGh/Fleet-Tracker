@@ -213,7 +213,7 @@ export default function OnboardingWizard({ onDone }: Props) {
             </span>
             <h1>All set</h1>
             <p className="wiz-sub">
-              Next stop: <strong>Settings → Connectivity</strong> to
+              Next stop: <strong>Settings → Integrations</strong> to
               connect your ELD, email and SMS. The Live Map and Dashboard
               light up on their own once data flows in.
             </p>

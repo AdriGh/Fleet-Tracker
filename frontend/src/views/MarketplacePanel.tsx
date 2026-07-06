@@ -105,7 +105,7 @@ export default function MarketplacePanel() {
           </svg>
           <span>
             <strong>Demo data</strong> — connect a parts supplier API
-            (FindItParts / PartsTech) in <strong>Settings → Connectivity</strong>
+            (FindItParts / PartsTech) in <strong>Settings → Integrations</strong>
             {' '}to get live pricing &amp; availability.
           </span>
         </div>

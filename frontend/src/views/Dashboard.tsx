@@ -64,12 +64,6 @@ const SHORTCUTS = [
     ),
   },
   {
-    id: 'avisos',
-    label: 'Notices',
-    desc: 'Notify drivers by SMS or email.',
-    icon: <path d="M3 5h18v14H3zm1 2 8 6 8-6" />,
-  },
-  {
     id: 'flota',
     label: 'Fleet',
     desc: 'Live unit inventory.',

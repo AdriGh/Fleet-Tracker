@@ -729,6 +729,11 @@ body::after {
   align-items: stretch;
 }
 
+/* Barra superior móvil + scrim del drawer: ocultos en desktop; el media
+   query <=760px los activa. */
+.topbar { display: none; }
+.drawer-scrim { display: none; }
+
 /* ---------- Sidebar ---------------------------------------------- */
 .sidebar {
   width: var(--sidebar-w);
@@ -1149,49 +1154,78 @@ body::after {
   .container:has(> .page-wide) { padding-left: 44px; padding-right: 44px; }
 }
 
-/* Sidebar → barra superior en pantallas angostas */
-@media (max-width: 820px) {
-  .app {
-    flex-direction: column;
-  }
-  .sidebar {
-    width: auto;
-    height: auto;
-    flex-direction: row;
+/* Sidebar → drawer deslizante en pantallas angostas (<=760px).
+   Barra superior fija con hamburguesa; el sidebar completo se desliza desde
+   la izquierda sobre un scrim (patrón del handoff de Design). */
+@media (max-width: 760px) {
+  .app { display: block; }
+
+  .topbar {
+    display: flex;
     align-items: center;
-    gap: 4px;
-    border-right: none;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 150;
+    padding: 9px 14px;
+    background: var(--surface);
     border-bottom: 1px solid var(--border);
-    padding: 10px 14px;
-    overflow-x: auto;
   }
-  .brand {
-    flex-direction: row;
-    padding: 0 8px 0 2px;
+  .topbar-burger { width: 40px; height: 40px; flex: none; }
+  .topbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
   }
-  .brand-logo {
-    width: 54px;
-    padding: 3px 5px;
+  .topbar-brand .brand-logo { width: 32px; height: 32px; flex: none; }
+  .topbar-brand strong {
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
   }
-  .brand-text {
-    display: none;
+
+  /* El sidebar sale de flujo y se convierte en el panel del drawer. */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 284px;
+    max-width: 84vw;
+    height: 100vh;
+    height: 100dvh;
+    z-index: 200;
+    transform: translateX(-100%);
+    transition: transform 0.26s var(--ease-out-soft, ease);
+    box-shadow: var(--shadow-md);
+    border-right: 1px solid var(--border);
   }
-  .nav {
-    flex-direction: row;
+  .app.drawer-open .sidebar { transform: translateX(0); }
+  /* El toggle de colapsar no aplica dentro del drawer. */
+  .sidebar .nav-collapse { display: none; }
+
+  .drawer-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 190;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.26s ease;
   }
-  .nav-bottom { margin-top: 0; flex-direction: row; }
-  .nav-item .soon {
-    display: none;
-  }
-  .sidebar-foot {
-    margin-top: 0;
-    margin-left: auto;
-    border-top: none;
-    padding: 0 0 0 8px;
-  }
-  .container {
-    padding: 24px 18px 48px;
-  }
+  .app.drawer-open .drawer-scrim { opacity: 1; pointer-events: auto; }
+
+  body.drawer-lock { overflow: hidden; }
+
+  .container { padding: 22px 16px 48px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
+  .drawer-scrim { transition: none; }
 }
 
 /* ---------- Card -------------------------------------------------- */

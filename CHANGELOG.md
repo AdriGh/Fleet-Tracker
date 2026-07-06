@@ -7,6 +7,34 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.43.0] - 2026-07-06
+
+### Eliminado
+- **Notices** (avisos a conductores por SMS/email): se retira la sección
+  completa — página, ítem del sidebar (Operations), acceso rápido del
+  Dashboard y enlace "Open Notices →" de Settings. También se borran
+  `NotifyPage.tsx` y `BroadcastModal.tsx`. Decisión de producto: el foco de
+  comunicación es el taller (Work Orders), no el broadcast a conductores.
+- **Messaging hub → Shop notifications**: en Settings › Integrations el grupo
+  "Messaging" pasa a "Shop notifications" y queda **solo Telegram** (aviso al
+  grupo del taller cuando se asigna una WO). Se retiran las cards de Email
+  (Gmail SMTP), SMS (Twilio) y Media (Cloudinary), que solo alimentaban
+  Notices; también salen de `_TESTABLE`/`_CONFIGURABLE`.
+
+### Añadido
+- **Drawer móvil (<=760px)**: el sidebar se convierte en un panel deslizante
+  sobre un scrim, detrás de una barra superior fija con hamburguesa y marca.
+  Reemplaza la vieja barra horizontal con scroll. En este modo el nav se
+  muestra siempre completo (el riel de iconos con flyout depende de hover);
+  navegar, tocar el scrim o pulsar Escape lo cierra, y el scroll del body
+  se bloquea mientras está abierto. Viewport-aware (`isMobile`), respeta
+  `prefers-reduced-motion`.
+
+### Cambiado
+- Consistencia de copy tras el rename v1.42.0: las tres referencias residuales
+  a "Settings → Connectivity" (Cold Chain, Onboarding, Marketplace) ahora
+  dicen "Settings → Integrations".
+
 ## [1.42.0] - 2026-07-03
 
 ### Cambiado

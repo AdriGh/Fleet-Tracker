@@ -31,12 +31,11 @@ const PAGE_SIZE = 50
 type Props = {
   theme: 'light' | 'dark'
   onTheme: (t: 'light' | 'dark') => void
-  onNavigate: (section: string) => void
   isAdmin?: boolean
 }
 
 export default function SettingsPage(
-  { theme, onTheme, onNavigate, isAdmin = false }: Props,
+  { theme, onTheme, isAdmin = false }: Props,
 ) {
   const qc = useQueryClient()
   const settingsQuery = useQuery({ queryKey: ['settings'], queryFn: getSettings })
@@ -213,13 +212,9 @@ export default function SettingsPage(
             <div>
               <h2>Integrations</h2>
               <span className="sub">
-                Your ELD, messaging and data sources
+                Your ELD, shop notifications and data sources
               </span>
             </div>
-          </button>
-          <button className="btn-link" style={{ marginRight: 16,
-            whiteSpace: 'nowrap' }} onClick={() => onNavigate('avisos')}>
-            Open Notices →
           </button>
         </div>
         {connOpen && (

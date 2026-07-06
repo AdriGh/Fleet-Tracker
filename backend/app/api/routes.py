@@ -1590,11 +1590,11 @@ async def eld_fleet_preview(provider: str,
 
 
 # Qué proveedores soportan test/configure desde la UI.
-_TESTABLE = {"samsara", "motive", "twilio", "cloudinary", "gmail",
+_TESTABLE = {"samsara", "motive",
              "gplaces", "telegram", "docscan",
              "traccar", "lynx", "thermoking"}
-_CONFIGURABLE = {"samsara", "motive", "twilio", "cloudinary",
-                 "gplaces", "gmail", "telegram", "docscan", "traccar",
+_CONFIGURABLE = {"samsara", "motive",
+                 "gplaces", "telegram", "docscan", "traccar",
                  "lynx", "thermoking"}
 
 
@@ -1606,47 +1606,14 @@ def integrations_status():
     backend/*.local.json hasta que llegue la edición en-app, fase G6/G7).
     Estados: connected | live | dry_run | not_configured | available | planned.
     """
-    email = mailer.load_settings()
-    sms = sms_service.load_settings()
-    media = media_host.load_settings()
-
-    def chan(settings) -> str:
-        if not settings.configured:
-            return "not_configured"
-        return "dry_run" if settings.dry_run else "live"
-
     out = {
         "groups": [
             providers.hub_group(),
             {
-                "id": "messaging",
-                "label": "Messaging",
-                "note": "",
+                "id": "notifications",
+                "label": "Shop notifications",
+                "note": "Ping the shop group when a work order is assigned.",
                 "providers": [
-                    {
-                        "id": "gmail", "name": "Email · Gmail SMTP",
-                        "kind": "Notices channel",
-                        "status": chan(email),
-                        "detail": email.sender or "No sender configured",
-                        "items": [],
-                    },
-                    {
-                        "id": "twilio", "name": "SMS · Twilio",
-                        "kind": "Notices channel",
-                        "status": chan(sms),
-                        "detail": (sms.from_number
-                                   or sms.messaging_service_sid
-                                   or "No credentials configured"),
-                        "items": [],
-                    },
-                    {
-                        "id": "cloudinary", "name": "Media · Cloudinary",
-                        "kind": "MMS attachments hosting",
-                        "status": chan(media),
-                        "detail": (media.cloud_name
-                                   or "No credentials configured"),
-                        "items": [],
-                    },
                     {
                         "id": "telegram", "name": "Telegram · shop bot",
                         "kind": "Work order notifications",
