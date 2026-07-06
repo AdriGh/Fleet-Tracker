@@ -7,6 +7,38 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.6.0] - 2026-07-06
+
+### Añadido
+- **Warranty tracking — el último moat.** La **misma parte reusada en la misma
+  unidad dentro de su ventana de garantía** = la parte falló antes de tiempo →
+  se genera un **reclamo** para recuperarle el costo al proveedor. Es plata que
+  hoy se pierde por no cruzar el historial a mano.
+  - **`Part.warranty_months`** (ventana de garantía; > 0 = la parte se rastrea).
+    Editable en el modal de parte; chip **X mo warranty** en la ficha.
+  - El **scan** recorre el historial de WOs, agrupa por (unidad, parte) y por
+    cada re-instalación dentro de `install_date + warranty_months` crea un
+    **WarrantyClaim** abierto con install/failure WO+fecha, `warranty_until`,
+    vendor y **monto recuperable** (costo del reemplazo). **Idempotente** por
+    `ref` = `{failure_wo}:{part}`. Tabla nueva `warranty_claim` + migración
+    Alembic `c3d4e5f6a7b8`.
+  - **Pestaña "Warranty"** en Purchasing con sub-tabs Open/Submitted/Recovered/
+    Dismissed, ciclo de estados (**Submit → Recovered / Dismiss / Reopen**) y
+    KPIs: **claims abiertos**, **$ recuperable** y **$ recuperado**. Endpoints
+    `GET /api/warranty`, `POST /api/warranty/scan`,
+    `POST /api/warranty/{id}/status` (bajo `maint.edit`).
+
+### Verificación
+- Tests (`backend/tests/test_warranty.py`): detección dentro/fuera de ventana,
+  parte sin garantía, idempotencia, ciclo de estados + stats, y monto sumado
+  en WOs multi-línea con reversas ignoradas.
+- Revisión adversarial multi-agente → **3 hallazgos reales, los 3 corregidos**:
+  el monto de una WO con varias líneas de la misma parte ahora **suma** todas
+  (antes contaba una sola → subestimaba el reclamo); el **scan salió del GET** a
+  un `POST /warranty/scan` (se dispara al abrir Purchasing, ya no muta ni corre
+  dos escaneos en paralelo en cada lectura); y se **ignoran líneas con qty ≤ 0**
+  (reversas/créditos) para no generar reclamos con monto negativo.
+
 ## [2.5.0] - 2026-07-06
 
 ### Añadido

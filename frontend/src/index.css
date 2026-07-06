@@ -8423,6 +8423,14 @@ iframe.wo-preview { border: 1px solid var(--border); }
   cursor: pointer;
 }
 .po-recv-bo input { width: 15px; height: 15px; accent-color: var(--accent); }
+
+/* Acciones de un reclamo de garantía (v2.6) */
+.wl-actions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
 /* QuickBuy + borrar en la celda de acciones del catálogo de Parts */
 .parts-row-actions {
   display: flex;

@@ -79,7 +79,8 @@ def _scope_for(method: str, path: str) -> str | None:
     # Mantenimiento: PM/DOT, parts, vendors, órdenes de compra (QuickBuy),
     # campañas/docs de unidad.
     if path.startswith(("/api/parts", "/api/vendors", "/api/purchase-orders",
-                        "/api/cores", "/api/maint/", "/api/pm/")):
+                        "/api/cores", "/api/warranty", "/api/maint/",
+                        "/api/pm/")):
         return "maint.edit"
     if path.startswith("/api/units/"):
         # /units/settings = device settings (flota); el resto (campaigns,

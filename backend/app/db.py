@@ -401,6 +401,10 @@ class Part(OrgScoped, Base):
     # la parte lleva core (se debe devolver la unidad vieja al proveedor para
     # recuperar el depósito). 0 = sin core.
     core_charge: Mapped[float] = mapped_column(Float, default=0.0)
+    # Warranty tracking (v2.6): ventana de garantía en meses. > 0 = si la misma
+    # parte se reusa en la misma unidad dentro de esta ventana, se marca un
+    # reclamo de garantía. 0 = sin seguimiento de garantía.
+    warranty_months: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime)
 
@@ -510,6 +514,34 @@ class CoreItem(OrgScoped, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
     returned_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True)
+
+
+class WarrantyClaim(OrgScoped, Base):
+    """Reclamo de garantía (v2.6, moat de warranty tracking).
+
+    Se detecta cuando la MISMA parte (con `warranty_months > 0`) se reusa en la
+    MISMA unidad dentro de la ventana de garantía de su instalación previa: la
+    parte falló prematuramente y el proveedor debería cubrir el reemplazo.
+    Idempotente por `ref` (= '{failure_wo}:{part_number}'): re-escanear no
+    duplica. `status`: open -> submitted -> recovered | dismissed. org-scoped."""
+    __tablename__ = "warranty_claim"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    part_number: Mapped[str] = mapped_column(String(60), index=True)
+    description: Mapped[str] = mapped_column(String(160), default="")
+    unit: Mapped[str] = mapped_column(String(64), index=True)
+    vendor: Mapped[str] = mapped_column(String(120), default="")
+    install_wo: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    install_date: Mapped[str] = mapped_column(String(10), default="")
+    failure_wo: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    failure_date: Mapped[str] = mapped_column(String(10), default="")
+    warranty_until: Mapped[str] = mapped_column(String(10), default="")
+    amount: Mapped[float] = mapped_column(Float, default=0.0)
+    ref: Mapped[str] = mapped_column(String(80), default="", index=True)
+    # open | submitted | recovered | dismissed
+    status: Mapped[str] = mapped_column(String(12), default="open", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
 
 
 class PartsRequest(OrgScoped, Base):
@@ -793,7 +825,8 @@ def _migrate() -> None:
             "upc": "VARCHAR(40) DEFAULT ''",
             "fits": "VARCHAR(200) DEFAULT ''",
             "source": "VARCHAR(30) DEFAULT 'manual'",
-            "core_charge": "FLOAT DEFAULT 0",   # core tracking (v2.5)
+            "core_charge": "FLOAT DEFAULT 0",       # core tracking (v2.5)
+            "warranty_months": "INTEGER DEFAULT 0",  # warranty tracking (v2.6)
         }.items():
             if col not in part_cols:
                 conn.exec_driver_sql(
