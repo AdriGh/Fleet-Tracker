@@ -7,6 +7,30 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.45.0] - 2026-07-06
+
+### Añadido
+- **Decision banner en la Work Order** (Treatment A inline, Increment 3 del
+  handoff de Design). Cuando una línea de parte de una WO **activa** referencia
+  una parte sin stock suficiente en el catálogo, aparece un banner inline bajo
+  esa línea:
+  - Cabecera con thumbnail + nombre/PN/vendor/qty + precio + chip **OUT**.
+  - Alerta "**N of M in stock. How do you want to fill it?**" con dos salidas
+    reales:
+    - **Order new** → **QuickBuy** (abre el modal de PO; al crearla el banner
+      pasa a "Ordered — restocks when the PO is received").
+    - **In stock now** → **Swap** por la mejor alternativa en stock de la
+      misma categoría (elegida por solape de descripción, para no sugerir algo
+      no equivalente); borra la línea original y agrega la alternativa con la
+      misma cantidad.
+  - Solo se muestra en WOs open/assigned/in_progress: el stock se consume al
+    facturar, así que `on_hand` es fiable hasta entonces (no hay falsos
+    positivos en órdenes ya facturadas).
+
+### Nota
+- El estado "parts request" (cola de pedidos → PO por vendor) del handoff llega
+  con el Increment 4 (Purchasing).
+
 ## [1.44.0] - 2026-07-06
 
 ### Añadido
