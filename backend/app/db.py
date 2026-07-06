@@ -397,6 +397,10 @@ class Part(OrgScoped, Base):
     upc: Mapped[str] = mapped_column(String(40), default="")
     fits: Mapped[str] = mapped_column(String(200), default="")  # compatibilidad
     source: Mapped[str] = mapped_column(String(30), default="manual")  # origen
+    # Core tracking (v2.5): depósito reembolsable del core por unidad. > 0 =
+    # la parte lleva core (se debe devolver la unidad vieja al proveedor para
+    # recuperar el depósito). 0 = sin core.
+    core_charge: Mapped[float] = mapped_column(Float, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime)
 
@@ -477,6 +481,35 @@ class POLine(OrgScoped, Base):
     received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     po: Mapped[PurchaseOrder] = relationship(back_populates="lines")
+
+
+class CoreItem(OrgScoped, Base):
+    """Core pendiente de devolver (v2.5, el moat de core tracking).
+
+    Al recibir una PO de una parte con `core_charge > 0`, se crea un CoreItem
+    por evento de recepción: representa las unidades viejas ("cores") que hay
+    que **devolver al proveedor** para recuperar el depósito. `status`:
+        pending   -> el core sigue en el taller (depósito afuera)
+        returned  -> se devolvió al proveedor y se recuperó el crédito
+    Idempotente por `ref` (= el ref_id del movimiento de stock que lo originó):
+    re-recibir la misma PO NO duplica el core. org-scoped."""
+    __tablename__ = "core_item"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    part_number: Mapped[str] = mapped_column(String(60), index=True)
+    description: Mapped[str] = mapped_column(String(160), default="")
+    vendor: Mapped[str] = mapped_column(String(120), default="")
+    # Depósito por unidad (snapshot del core_charge de la parte al recibir) y
+    # cantidad de cores (unidades) de este evento.
+    core_charge: Mapped[float] = mapped_column(Float, default=0.0)
+    qty: Mapped[float] = mapped_column(Float, default=1.0)
+    po_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ref: Mapped[str] = mapped_column(String(60), default="", index=True)
+    status: Mapped[str] = mapped_column(String(12), default="pending",
+                                        index=True)  # pending | returned
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    returned_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
 
 
 class PartsRequest(OrgScoped, Base):
@@ -760,6 +793,7 @@ def _migrate() -> None:
             "upc": "VARCHAR(40) DEFAULT ''",
             "fits": "VARCHAR(200) DEFAULT ''",
             "source": "VARCHAR(30) DEFAULT 'manual'",
+            "core_charge": "FLOAT DEFAULT 0",   # core tracking (v2.5)
         }.items():
             if col not in part_cols:
                 conn.exec_driver_sql(

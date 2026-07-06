@@ -640,6 +640,11 @@ function PartDetail({ part, used, pos, onEdit, onAdjust, onDelete, onLabel,
         {part.category && <span className="intg-chip"
           style={{ color: catColor(part.category) }}>{part.category}</span>}
         {part.bin && <span className="intg-chip">BIN {part.bin}</span>}
+        {part.core_charge > 0 && (
+          <span className="intg-chip" title="Refundable core deposit per unit">
+            CORE {money(part.core_charge)}
+          </span>
+        )}
         <span className={`badge-soft ${low ? 'danger' : 'ok'}`}>
           {low ? 'LOW STOCK' : 'IN STOCK'}</span>
       </div>
@@ -919,6 +924,7 @@ function PartModal({ part, vendors, categories, onClose, onSaved }: {
     bin: part?.bin ?? '',
     upc: part?.upc ?? '',
     fits: part?.fits ?? '',
+    core_charge: part?.core_charge ?? 0,
     notes: part?.notes ?? '',
   }))
   const [saving, setSaving] = useState(false)
@@ -1118,6 +1124,18 @@ function PartModal({ part, vendors, categories, onClose, onSaved }: {
               onChange={(e) => set({ fits: e.target.value })} />
           </label>
         </div>
+        <label className="ud-field">
+          <span>Core charge (deposit)</span>
+          <input className="cell-input" type="number" min="0" step="0.01"
+            value={f.core_charge ?? 0}
+            placeholder="0 = no core"
+            onChange={(e) => set({ core_charge: Number(e.target.value) })} />
+          <small className="field-hint">
+            Refundable core deposit per unit. When you receive a PO of this part,
+            a pending core is added to the Core bank; return the old unit to
+            recover the deposit.
+          </small>
+        </label>
         <label className="ud-field">
           <span>Notes</span>
           <input className="cell-input" value={f.notes ?? ''}

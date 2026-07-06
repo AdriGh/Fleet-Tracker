@@ -121,6 +121,7 @@ def _part_dict(p: Part, vendor_name: str = "") -> dict:
         "upc": p.upc,
         "fits": p.fits,
         "source": p.source,
+        "core_charge": round(p.core_charge or 0.0, 2),
         "notes": p.notes,
     }
 
@@ -235,6 +236,11 @@ def _apply_part(p: Part, data: dict) -> None:
     if "avg_cost" in data:
         try:
             p.avg_cost = max(0.0, float(data["avg_cost"] or 0))
+        except (TypeError, ValueError):
+            pass
+    if "core_charge" in data:
+        try:
+            p.core_charge = max(0.0, float(data["core_charge"] or 0))
         except (TypeError, ValueError):
             pass
 

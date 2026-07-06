@@ -54,6 +54,7 @@ function resultToPart(r: MarketplaceResult): Part {
     upc: '',
     fits: '',
     source: 'marketplace',
+    core_charge: 0,
   }
 }
 

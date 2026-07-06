@@ -93,6 +93,20 @@ def _recalc_total(po: PurchaseOrder) -> None:
     po.total = round(sum(ln.qty * ln.unit_cost for ln in po.lines), 2)
 
 
+def _record_core(session, ln: POLine, vendor: str, qty: float,
+                 po_id: int, ref: str) -> None:
+    """Core tracking: si la parte de la línea lleva core (`core_charge > 0`),
+    registra el core pendiente de devolver DENTRO de la sesión (atómico con el
+    movimiento de stock; idempotente por `ref` = el ref_id del movimiento)."""
+    from . import cores
+    p = session.scalar(select(Part).where(
+        Part.part_number == ln.part_number))
+    if p is not None and (p.core_charge or 0.0) > 0:
+        cores.add_core_in_session(
+            session, ln.part_number, ln.description or p.description,
+            vendor, p.core_charge, qty, po_id, ref)
+
+
 def create_po(vendor: str = "", notes: str = "",
               lines: list[dict] | None = None) -> dict:
     """Crea una PO en estado draft. `lines` (opcional) es una lista de
@@ -163,6 +177,8 @@ def update_po(po_id: int, fields: dict) -> dict | None:
                 if applied:
                     ln.qty_received = ln.qty
                     ln.received_at = now
+                    _record_core(session, ln, po.vendor or "", remaining,
+                                 po_id, f"{ln.id}:full")
             po.received_at = po.received_at or now
         session.commit()
         return _po_dict(po, with_lines=True)
@@ -211,6 +227,8 @@ def receive_po(po_id: int, receipts: list[dict], token: str = "",
                 note=f"PO #{po_id} received (qty {take:g})")
             if not applied:
                 continue
+            _record_core(session, ln, parent_vendor, take, po_id,
+                         f"{ln.id}:{tok}")
             ln.qty_received = round((ln.qty_received or 0.0) + take, 4)
             ln.received_at = now
             received_any = True
