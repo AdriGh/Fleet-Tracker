@@ -559,6 +559,20 @@ class PurchaseOrderPatch(BaseModel):
     status: str | None = None           # draft | ordered | received
 
 
+class PartsRequestIn(BaseModel):
+    part_number: str = ""
+    description: str = ""
+    qty: float = 1
+    unit_cost: float = 0
+    vendor: str = ""
+    source: str = "manual"              # low_stock | wo | manual
+    source_ref: str = ""
+
+
+class BundleRequestsIn(BaseModel):
+    request_ids: list[int] = []
+
+
 @router.get("/workorders")
 def wo_list(status: str = "", unit: str = ""):
     return {"workorders": workorders.list_wos(status, unit),
@@ -923,6 +937,50 @@ def po_del_line(po_id: int, line_id: int):
     if po is None:
         raise HTTPException(status_code=404, detail="PO not found")
     return po
+
+
+# ----- Parts Requests (cola de faltantes -> bundle por vendor -> PO) --------
+# Increment 4. GET = lectura; POST/DELETE exigen maint.edit (el prefijo
+# /api/parts-requests cae bajo /api/parts en _scope_for). Las rutas estáticas
+# (generate-low-stock, bundle) van ANTES de la dinámica /{req_id}.
+
+@router.get("/parts-requests")
+def parts_requests_list(status: str = "pending"):
+    return {"requests": purchasing.list_requests(status),
+            "stats": purchasing.request_stats()}
+
+
+@router.post("/parts-requests")
+def parts_requests_create(body: PartsRequestIn, request: Request):
+    u = getattr(request.state, "user", None) or {}
+    by = u.get("name") or u.get("username") or ""
+    try:
+        return purchasing.create_request(
+            part_number=body.part_number, description=body.description,
+            qty=body.qty, unit_cost=body.unit_cost, vendor=body.vendor,
+            source=body.source, source_ref=body.source_ref, requested_by=by)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/parts-requests/generate-low-stock")
+def parts_requests_generate():
+    return purchasing.generate_low_stock_requests()
+
+
+@router.post("/parts-requests/bundle")
+def parts_requests_bundle(body: BundleRequestsIn):
+    try:
+        return purchasing.bundle_requests(body.request_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/parts-requests/{req_id}")
+def parts_requests_cancel(req_id: int):
+    if not purchasing.cancel_request(req_id):
+        raise HTTPException(status_code=404, detail="Request not found")
+    return {"ok": True}
 
 
 @router.delete("/workorders/{wo_id}/lines/{line_id}")

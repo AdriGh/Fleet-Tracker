@@ -4,7 +4,8 @@ import {
   keepPreviousData, useQuery, useQueryClient,
 } from '@tanstack/react-query'
 import {
-  addWoLine, createWorkOrder, deleteWoInvoiceFile, deleteWoLine,
+  addWoLine, createPartsRequest, createWorkOrder, deleteWoInvoiceFile,
+  deleteWoLine,
   deleteWorkOrder, downloadWoInvoiceFile, fetchWoInvoiceThumbUrl,
   getOrg, getUnitOdometer,
   getWorkOrder, listFleet, listParts, listWorkOrders, patchWorkOrder,
@@ -1097,16 +1098,19 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
 // hacer swap por una alternativa en stock de la misma categoría. El stock se
 // consume recién al facturar, así que on_hand es fiable mientras la WO está
 // activa.
-function WoStockBanner({ part, alt, need, onSwap, onBought }: {
+function WoStockBanner({ part, alt, need, onSwap, onBought, onRequest }: {
   part: Part
   alt: Part | null
   need: number
   onSwap: (alt: Part) => Promise<void>
   onBought: () => void
+  onRequest: () => Promise<void>
 }) {
   const [buyOpen, setBuyOpen] = useState(false)
   const [ordered, setOrdered] = useState(false)
+  const [requested, setRequested] = useState(false)
   const [swapping, setSwapping] = useState(false)
+  const [requesting, setRequesting] = useState(false)
   const oh = part.on_hand || 0
 
   if (ordered) {
@@ -1119,6 +1123,22 @@ function WoStockBanner({ part, alt, need, onSwap, onBought }: {
           <span>
             <strong>Ordered.</strong> A purchase order was created for{' '}
             {part.part_number}. It restocks when the PO is received.
+          </span>
+        </div>
+      </div>
+    )
+  }
+
+  if (requested) {
+    return (
+      <div className="wo-stock-banner is-requested">
+        <div className="wsb-alert">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+            strokeLinejoin="round"><path d="m20 6-11 11-5-5" /></svg>
+          <span>
+            <strong>Queued as a parts request.</strong> Bundle it into a PO in{' '}
+            <strong>Purchasing</strong>.
           </span>
         </div>
       </div>
@@ -1192,11 +1212,19 @@ function WoStockBanner({ part, alt, need, onSwap, onBought }: {
             <div className="wsb-tile is-empty">
               <span className="wsb-tile-meta mono">
                 No in-stock alternative in {part.category || 'this category'}.
-                Order it or add it to a PO in Purchasing.
+                Order it, or queue a request below.
               </span>
             </div>
           )}
         </div>
+        <button className="wsb-fallback" disabled={requesting}
+          onClick={async () => {
+            setRequesting(true)
+            try { await onRequest(); setRequested(true) }
+            finally { setRequesting(false) }
+          }}>
+          {requesting ? 'Requesting…' : 'or create a parts request →'}
+        </button>
       </div>
 
       {buyOpen && (
@@ -1944,6 +1972,20 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                                       onBought={() => {
                                         qc.invalidateQueries({ queryKey: ['parts'] })
                                         qc.invalidateQueries({ queryKey: ['purchase-orders'] })
+                                      }}
+                                      onRequest={async () => {
+                                        await createPartsRequest({
+                                          part_number: cp.part_number,
+                                          description: cp.description || cp.part_number,
+                                          qty: ln.qty || 1,
+                                          unit_cost: cp.cost || 0,
+                                          vendor: cp.vendor_name || '',
+                                          source: 'wo',
+                                          source_ref: `WO #${wo.id}`,
+                                        })
+                                        qc.invalidateQueries({ queryKey: ['parts-requests'] })
+                                        notifyOk('Parts request queued',
+                                          `${cp.part_number} · see Purchasing`)
                                       }} />
                                   </td>
                                 </tr>

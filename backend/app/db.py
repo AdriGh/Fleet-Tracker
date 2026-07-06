@@ -456,6 +456,35 @@ class POLine(OrgScoped, Base):
     po: Mapped[PurchaseOrder] = relationship(back_populates="lines")
 
 
+class PartsRequest(OrgScoped, Base):
+    """Pedido de parte pendiente de compra (fase Purchasing / Increment 4).
+
+    Un faltante —de bajo stock (auto), de una work order, o manual— que espera
+    ser AGRUPADO por vendor en una orden de compra. El parts manager selecciona
+    varios del mismo vendor y los funde en una sola PO. `status`:
+        pending   -> aún sin comprar (aparece en la cola de Requests)
+        ordered   -> ya entró en una PO (po_id la liga)
+        cancelled -> descartado
+    `source`: low_stock | wo | manual. `source_ref` da el origen legible
+    (p.ej. 'WO #3'). org-scoped (multi-tenant)."""
+    __tablename__ = "parts_request"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    part_number: Mapped[str] = mapped_column(String(60), default="", index=True)
+    description: Mapped[str] = mapped_column(String(160), default="")
+    qty: Mapped[float] = mapped_column(Float, default=1.0)
+    unit_cost: Mapped[float] = mapped_column(Float, default=0.0)
+    vendor: Mapped[str] = mapped_column(String(120), default="", index=True)
+    source: Mapped[str] = mapped_column(String(20), default="manual")
+    source_ref: Mapped[str] = mapped_column(String(60), default="")
+    requested_by: Mapped[str] = mapped_column(String(60), default="")
+    status: Mapped[str] = mapped_column(String(12), default="pending",
+                                        index=True)
+    po_id: Mapped[int | None] = mapped_column(
+        ForeignKey("purchase_order.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class Unit(OrgScoped, Base):
     """Unidad agregada a mano (Fleet -> Add New Unit). Complementa el fleet
     vivo de Samsara para terminales/clientes que no estan en Samsara, y

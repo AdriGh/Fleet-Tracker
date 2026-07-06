@@ -7,6 +7,36 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.46.0] - 2026-07-06
+
+### Añadido
+- **Purchasing — cola de Parts Requests → PO por vendor** (Increment 4 del
+  handoff de Design). Nueva tabla `parts_request` (backend) + pantalla
+  **Purchasing** (la pestaña "Purchase Orders" de Parts & Vendors pasa a
+  "Purchasing" con sub-vistas Requests / Purchase orders):
+  - Los faltantes —de **bajo stock** (auto), de una **work order**, o
+    manuales— caen en una **cola de Requests agrupada por vendor**. El parts
+    manager selecciona varios del **mismo vendor** y con **Create PO** los
+    funde en una sola orden de compra; seleccionar vendors mezclados
+    deshabilita el botón.
+  - KPIs de cabecera: Pending requests · Est. value · POs in flight ·
+    Received 30d.
+  - **Generate from low stock**: crea un request pendiente por cada parte
+    en/bajo su reorder point (cantidad sugerida = reponer a 2× el punto de
+    reorden), idempotente por part_number.
+  - El **banner de decisión de la WO** cierra el loop: su fallback
+    "**or create a parts request →**" encola el faltante (source=wo) para
+    bundlearlo después en Purchasing.
+- Endpoints nuevos: `GET/POST /api/parts-requests`,
+  `POST /api/parts-requests/generate-low-stock`,
+  `POST /api/parts-requests/bundle`, `DELETE /api/parts-requests/{id}`
+  (escritura = scope `maint.edit`, bajo el prefijo `/api/parts`).
+
+### Nota técnica
+- `parts_request` es una **tabla nueva** — segura con `create_all` (el deploy
+  la crea sola; la restricción de no-ALTER solo aplica a columnas nuevas en
+  tablas existentes). El stock lo sigue reponiendo la PO al recibirse.
+
 ## [1.45.0] - 2026-07-06
 
 ### Añadido
