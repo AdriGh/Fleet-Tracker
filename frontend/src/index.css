@@ -5879,6 +5879,154 @@ table.defects-table td {
   color: var(--accent);
 }
 
+/* ===== Work Orders v2: grid de tarjetas + board (kanban) ===== */
+/* Colores de status que faltaban (assigned/invoiced) para pills y dots */
+.wo-status.wo-assigned { background: rgba(99, 102, 241, 0.14); color: #6366f1; }
+.wo-status.wo-invoiced { background: rgba(100, 116, 139, 0.16); color: #64748b; }
+
+/* Tarjeta reutilizada por Grid y Board */
+.wo-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 13px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease, transform 0.14s ease;
+}
+.wo-card:hover { border-color: var(--accent); box-shadow: var(--shadow-sm); }
+.wo-card.is-draggable { cursor: grab; }
+.wo-card.is-draggable:active { cursor: grabbing; }
+.wo-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wo-card-id { font-size: 0.8rem; font-weight: 700; color: var(--text-muted); }
+.wo-card-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.wo-card-meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.wo-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.wo-card-mech {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wo-card-total {
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Grid de tarjetas */
+.wo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+/* Board (kanban) */
+.wo-board-wrap { display: flex; flex-direction: column; gap: 8px; }
+.wo-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(220px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .wo-board {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 82%;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+  }
+  .wo-col { scroll-snap-align: start; }
+}
+.wo-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 120px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 8px;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+.wo-col.is-drop { border-color: var(--accent); background: var(--accent-soft); }
+.wo-col-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 10px;
+}
+.wo-col-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex: none;
+}
+.wo-col-dot.wo-open { background: #d97706; }
+.wo-col-dot.wo-assigned { background: #6366f1; }
+.wo-col-dot.wo-progress { background: #3b82f6; }
+.wo-col-dot.wo-done { background: #16a34a; }
+.wo-col-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: -0.01em;
+}
+.wo-col-count {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+.wo-col-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 40px;
+}
+.wo-col-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  padding: 12px 0;
+}
+.wo-board-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 2px 2px 0;
+}
+
 /* Formulario de creación */
 .wo-form { display: flex; flex-direction: column; gap: 12px; }
 .wo-form-row {

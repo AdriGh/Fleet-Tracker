@@ -1,4 +1,6 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Fragment, useEffect, useMemo, useRef, useState, type DragEvent,
+} from 'react'
 import { Drawer } from 'vaul'
 import {
   keepPreviousData, useQuery, useQueryClient,
@@ -35,6 +37,16 @@ export const STATUS_META: Record<WoStatus, { label: string; cls: string }> = {
 export const PIPELINE: WoStatus[] = [
   'open', 'assigned', 'in_progress', 'completed', 'invoiced',
 ]
+// Vistas de la misma data (v2, patrón de 3-vistas de Parts): planilla, grid
+// de tarjetas, kanban por estado, e History (facturadas, separadas).
+type WoView = 'list' | 'grid' | 'board' | 'history'
+// Estados activos (invoiced vive en History): alimentan el filtro de status
+// de List/Grid y las columnas del kanban (Board).
+const ACTIVE_PIPELINE: WoStatus[] = [
+  'open', 'assigned', 'in_progress', 'completed',
+]
+// Forma del cache de la lista (para updates optimistas del kanban).
+type WoListData = Awaited<ReturnType<typeof listWorkOrders>>
 const PRIORITY_META: Record<WoPriority, { label: string; cls: string }> = {
   low: { label: 'Low', cls: 'pr-low' },
   normal: { label: 'Normal', cls: 'pr-normal' },
@@ -44,6 +56,50 @@ const PRIORITY_META: Record<WoPriority, { label: string; cls: string }> = {
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 const dateOf = (iso: string | null) => (iso ? iso.slice(0, 10) : '—')
+
+// Tarjeta de WO reutilizada por Grid y Board (kanban). `draggable` solo si el
+// usuario puede editar (para arrastrar entre columnas del board).
+function WoCard({ w, onOpen, draggable, onDragStart }: {
+  w: WorkOrder
+  onOpen: (id: number) => void
+  draggable?: boolean
+  onDragStart?: (e: DragEvent) => void
+}) {
+  return (
+    <article
+      className={`wo-card ${draggable ? 'is-draggable' : ''}`}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onClick={() => onOpen(w.id)}
+    >
+      <div className="wo-card-top">
+        <span className="mono wo-card-id">#{w.display_no}</span>
+        <span className={`wo-status ${STATUS_META[w.status].cls}`}>
+          {STATUS_META[w.status].label}
+        </span>
+      </div>
+      <div className="wo-card-title" title={w.title}>{w.title}</div>
+      <div className="wo-card-meta">
+        <span className="unit-code">{w.unit}</span>
+        {w.is_pm && <span className="wo-pm-tag">PM</span>}
+        {w.waiting_parts && (
+          <span className="wo-wait-tag" title="Waiting for parts">parts</span>
+        )}
+      </div>
+      <div className="wo-card-foot">
+        <span className={`wo-priority ${PRIORITY_META[w.priority].cls}`}>
+          {PRIORITY_META[w.priority].label}
+        </span>
+        <span className="wo-card-mech" title={w.mechanic}>
+          {w.mechanic || '—'}
+        </span>
+        <span className="mono wo-card-total">
+          {w.total ? money(w.total) : '—'}
+        </span>
+      </div>
+    </article>
+  )
+}
 // Fecha + hora corta (MM-DD · HH:MM) para la línea de tiempo de actividad.
 const stampOf = (iso: string | null) => {
   if (!iso) return '—'
@@ -223,17 +279,20 @@ export default function WorkOrdersPage() {
   const qc = useQueryClient()
   const { can } = usePerms()
   const { terminalOf, labelOf, present } = useTerminals()
+  const [view, setView] = useState<WoView>('list')
   const [statusFilter, setStatusFilter] = useState('')
   const [terminal, setTerminal] = useState('')
   const [q, setQ] = useState('')
   const [openWo, setOpenWo] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
+  // Columna del kanban resaltada mientras se arrastra una tarjeta sobre ella.
+  const [dragCol, setDragCol] = useState<WoStatus | null>(null)
 
+  // Un solo fetch (todas las WOs); las 4 vistas filtran client-side. Las
+  // stats del backend son globales, así que no dependen del filtro.
   const listQ = useQuery({
-    queryKey: ['workorders', statusFilter],
-    queryFn: () => listWorkOrders(statusFilter),
-    // Conserva la tabla previa al cambiar de status: sin esto `wos`
-    // queda [] durante el refetch y los chips parpadean (se desmontan).
+    queryKey: ['workorders', ''],
+    queryFn: () => listWorkOrders(''),
     placeholderData: keepPreviousData,
   })
   const wos = listQ.data?.workorders ?? []
@@ -254,19 +313,65 @@ export default function WorkOrdersPage() {
     if (terminal && !woTerminals.includes(terminal)) setTerminal('')
   }, [terminal, woTerminals])
 
-  const filtered = useMemo(() => {
+  const editable = can('maint.edit')
+
+  // List/Grid: activos (invoiced vive en History), con filtro de status.
+  const listShown = useMemo(() => {
     const s = q.trim().toLowerCase()
     return wos.filter((w) =>
+      w.status !== 'invoiced' &&
+      (!statusFilter || w.status === statusFilter) &&
       (!terminal || terminalOf(w.unit, w.company) === terminal) &&
-      (!s ||
-        w.unit.toLowerCase().includes(s) ||
+      (!s || w.unit.toLowerCase().includes(s) ||
         w.title.toLowerCase().includes(s) ||
-        w.mechanic.toLowerCase().includes(s) ||
-        String(w.id) === s))
+        w.mechanic.toLowerCase().includes(s) || String(w.id) === s))
+  }, [wos, statusFilter, q, terminal, terminalOf])
+
+  // History: solo facturadas.
+  const historyShown = useMemo(() => {
+    const s = q.trim().toLowerCase()
+    return wos.filter((w) =>
+      w.status === 'invoiced' &&
+      (!terminal || terminalOf(w.unit, w.company) === terminal) &&
+      (!s || w.unit.toLowerCase().includes(s) ||
+        w.title.toLowerCase().includes(s) ||
+        w.mechanic.toLowerCase().includes(s) || String(w.id) === s))
   }, [wos, q, terminal, terminalOf])
+
+  // Board (kanban): todos los activos (sin filtro de status: las columnas SON
+  // el status), agrupados luego por columna.
+  const boardWos = useMemo(() => {
+    const s = q.trim().toLowerCase()
+    return wos.filter((w) =>
+      w.status !== 'invoiced' &&
+      (!terminal || terminalOf(w.unit, w.company) === terminal) &&
+      (!s || w.unit.toLowerCase().includes(s) ||
+        w.title.toLowerCase().includes(s) ||
+        w.mechanic.toLowerCase().includes(s) || String(w.id) === s))
+  }, [wos, q, terminal, terminalOf])
+
+  const shown = view === 'history' ? historyShown : listShown
 
   function refresh() {
     qc.invalidateQueries({ queryKey: ['workorders'] })
+  }
+
+  // Mover una WO de columna (kanban): optimista + patch. Si un gate del backend
+  // bloquea el avance (p.ej. "assign a mechanic"), revierte y muestra el motivo.
+  async function moveWo(id: number, status: WoStatus) {
+    const key = ['workorders', ''] as const
+    const prev = qc.getQueryData<WoListData>(key)
+    qc.setQueryData<WoListData>(key, (old) =>
+      old ? { ...old, workorders: old.workorders.map((w) =>
+        w.id === id ? { ...w, status } : w) } : old)
+    setDragCol(null)
+    try {
+      await patchWorkOrder(id, { status })
+      qc.invalidateQueries({ queryKey: ['workorders'] })
+    } catch (e) {
+      if (prev) qc.setQueryData(key, prev)
+      notifyErr("Couldn't move this work order", e)
+    }
   }
 
   return (
@@ -319,11 +424,25 @@ export default function WorkOrdersPage() {
       <div className="card">
         <div className="card-body filters-row">
           <Tabs
-            tabs={[{ id: '', label: 'All' },
-              ...PIPELINE.map((s) => ({ id: s, label: STATUS_META[s].label }))]}
-            value={statusFilter}
-            onChange={(id) => setStatusFilter(id as typeof statusFilter)}
+            aria-label="View"
+            tabs={[
+              { id: 'list', label: 'List' },
+              { id: 'grid', label: 'Grid' },
+              { id: 'board', label: 'Board' },
+              { id: 'history', label: 'History' },
+            ]}
+            value={view}
+            onChange={(id) => setView(id as WoView)}
           />
+          {(view === 'list' || view === 'grid') && (
+            <Tabs
+              aria-label="Status"
+              tabs={[{ id: '', label: 'All' },
+                ...ACTIVE_PIPELINE.map((s) => ({ id: s, label: STATUS_META[s].label }))]}
+              value={statusFilter}
+              onChange={(id) => setStatusFilter(id as typeof statusFilter)}
+            />
+          )}
           {woTerminals.length > 1 && (
             <Tabs
               aria-label="Terminal"
@@ -339,74 +458,145 @@ export default function WorkOrdersPage() {
         </div>
       </div>
 
-      <section className="card">
-        <div className="card-head">
-          <h2>Orders</h2>
-          <span className="sub">{filtered.length} shown</span>
-        </div>
-        <div className="card-body">
-          {listQ.isPending ? (
-            <div className="skel-rows">
-              {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} h={38} />)}
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="empty mini">
-              <p>
-                No work orders{statusFilter ? ' in this status' : ' yet'}.
-                Create one here or from an open defect in Fleet.
-              </p>
-            </div>
-          ) : (
-            <div className="table-wrap">
-              <table className="defects-table wo-table">
-                <thead>
-                  <tr>
-                    <th>WO#</th>
-                    <th>Unit</th>
-                    <th>Title</th>
-                    <th>Mechanic</th>
-                    <th>Priority</th>
-                    <th>Status</th>
-                    <th className="num">Total</th>
-                    <th>Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((w) => (
-                    <tr key={w.id} onClick={() => setOpenWo(w.id)}
-                      className={w.parent_id ? 'wo-row-child' : ''}>
-                      <td className="mono">#{w.display_no}</td>
-                      <td><span className="unit-code">{w.unit}</span>
-                        {w.is_pm && <span className="wo-pm-tag">PM</span>}
-                      </td>
-                      <td className="wo-title">{w.title}</td>
-                      <td>{w.mechanic || <span className="muted">—</span>}</td>
-                      <td>
-                        <span className={`wo-priority ${PRIORITY_META[w.priority].cls}`}>
-                          {PRIORITY_META[w.priority].label}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={`wo-status ${STATUS_META[w.status].cls}`}>
-                          {STATUS_META[w.status].label}
-                        </span>
-                        {w.waiting_parts && (
-                          <span className="wo-wait-tag"
-                            title="Waiting for parts">parts</span>
-                        )}
-                      </td>
-                      <td className="num mono">
-                        {w.total ? money(w.total) : '—'}
-                      </td>
-                      <td className="muted">{dateOf(w.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+      {listQ.isPending ? (
+        <section className="card"><div className="card-body">
+          <div className="skel-rows">
+            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} h={38} />)}
+          </div>
+        </div></section>
+      ) : view === 'board' ? (
+        /* ===== Board (kanban): arrastrar tarjetas entre estados ===== */
+        <section className="wo-board-wrap">
+          <div className="wo-board"
+            onDragEnd={() => setDragCol(null)}>
+            {ACTIVE_PIPELINE.map((col) => {
+              const cards = boardWos.filter((w) => w.status === col)
+              return (
+                <div key={col}
+                  className={`wo-col ${dragCol === col ? 'is-drop' : ''}`}
+                  onDragOver={editable
+                    ? (e) => { e.preventDefault(); if (dragCol !== col) setDragCol(col) }
+                    : undefined}
+                  onDragLeave={editable
+                    ? (e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                        setDragCol((c) => (c === col ? null : c))
+                      }
+                    }
+                    : undefined}
+                  onDrop={editable
+                    ? (e) => {
+                      e.preventDefault()
+                      const id = Number(e.dataTransfer.getData('text/plain'))
+                      const card = wos.find((w) => w.id === id)
+                      if (id && card && card.status !== col) moveWo(id, col)
+                      else setDragCol(null)
+                    }
+                    : undefined}>
+                  <div className="wo-col-head">
+                    <span className={`wo-col-dot ${STATUS_META[col].cls}`} />
+                    <span className="wo-col-label">{STATUS_META[col].label}</span>
+                    <span className="wo-col-count">{cards.length}</span>
+                  </div>
+                  <div className="wo-col-body">
+                    {cards.length === 0 ? (
+                      <p className="wo-col-empty">—</p>
+                    ) : cards.map((w) => (
+                      <WoCard key={w.id} w={w} onOpen={setOpenWo}
+                        draggable={editable}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', String(w.id))
+                          e.dataTransfer.effectAllowed = 'move'
+                        }} />
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          {editable && (
+            <p className="wo-board-hint">
+              Drag a card to another column to change its status.
+            </p>
           )}
-        </div>
-      </section>
+        </section>
+      ) : (
+        /* ===== List / Grid / History ===== */
+        <section className="card">
+          <div className="card-head">
+            <h2>{view === 'history' ? 'Invoiced history' : 'Orders'}</h2>
+            <span className="sub">{shown.length} shown</span>
+          </div>
+          <div className="card-body">
+            {shown.length === 0 ? (
+              <div className="empty mini">
+                <p>
+                  {view === 'history'
+                    ? 'No invoiced work orders yet.'
+                    : `No work orders${statusFilter ? ' in this status' : ' yet'}. `
+                      + 'Create one here or from an open defect in Fleet.'}
+                </p>
+              </div>
+            ) : view === 'grid' ? (
+              <div className="wo-grid">
+                {shown.map((w) => (
+                  <WoCard key={w.id} w={w} onOpen={setOpenWo} />
+                ))}
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table className="defects-table wo-table">
+                  <thead>
+                    <tr>
+                      <th>WO#</th>
+                      <th>Unit</th>
+                      <th>Title</th>
+                      <th>Mechanic</th>
+                      <th>Priority</th>
+                      <th>Status</th>
+                      <th className="num">Total</th>
+                      <th>{view === 'history' ? 'Invoiced' : 'Created'}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shown.map((w) => (
+                      <tr key={w.id} onClick={() => setOpenWo(w.id)}
+                        className={w.parent_id ? 'wo-row-child' : ''}>
+                        <td className="mono">#{w.display_no}</td>
+                        <td><span className="unit-code">{w.unit}</span>
+                          {w.is_pm && <span className="wo-pm-tag">PM</span>}
+                        </td>
+                        <td className="wo-title">{w.title}</td>
+                        <td>{w.mechanic || <span className="muted">—</span>}</td>
+                        <td>
+                          <span className={`wo-priority ${PRIORITY_META[w.priority].cls}`}>
+                            {PRIORITY_META[w.priority].label}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`wo-status ${STATUS_META[w.status].cls}`}>
+                            {STATUS_META[w.status].label}
+                          </span>
+                          {w.waiting_parts && (
+                            <span className="wo-wait-tag"
+                              title="Waiting for parts">parts</span>
+                          )}
+                        </td>
+                        <td className="num mono">
+                          {w.total ? money(w.total) : '—'}
+                        </td>
+                        <td className="muted">
+                          {dateOf(view === 'history' ? w.invoiced_at : w.created_at)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {creating && (
         <CreateWoModal mechanics={mechanics}

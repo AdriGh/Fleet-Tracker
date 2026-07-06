@@ -7,6 +7,27 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.1.0] - 2026-07-06
+
+### Añadido
+- **Work Orders — vistas múltiples de la misma data** (patrón de 3-vistas de
+  Parts, referencia SquareRigger). Un switcher **List · Grid · Board · History**:
+  - **List**: la planilla de siempre.
+  - **Grid**: tarjetas de WO en grilla responsiva.
+  - **Board (kanban)**: 4 columnas por estado (Open → Assigned → In Progress →
+    Completed) con **drag & drop** para cambiar el status. El drop hace update
+    **optimista** + `PATCH`; si un gate del backend bloquea (p.ej. "assign a
+    mechanic before moving past Open" o "add lines before invoicing"), **revierte**
+    y muestra el motivo. Solo arrastrable con permiso `maint.edit`.
+  - **History**: las WOs **facturadas** (invoiced), separadas del pipeline activo.
+- El filtro de status (List/Grid) y las columnas del board excluyen *invoiced*
+  (vive en History). Un solo fetch alimenta las 4 vistas (filtrado client-side;
+  cambiar de status/filtro ya no re-consulta al backend).
+
+### Corregido
+- Los status **Assigned** e **Invoiced** no tenían color (pills sin fondo);
+  ahora índigo y slate respectivamente, en pills y en los puntos del board.
+
 ## [2.0.2] - 2026-07-06
 
 ### Corregido
