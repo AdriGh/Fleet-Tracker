@@ -7982,6 +7982,33 @@ table.defects-table td {
   background: color-mix(in srgb, var(--st-never) 15%, var(--surface));
   color: var(--st-never-ink);
 }
+/* PM completada (on_track): un ✓ + un pulso verde sutil cada ~12s para que
+   "esta unidad completó su PM" quede visualmente apremiante (video del
+   diseñador). Respeta prefers-reduced-motion. */
+.mnt-status-pill.s-on_track {
+  animation: pm-done-pulse 12s ease-in-out infinite;
+}
+.mnt-status-pill.s-on_track::before {
+  content: '✓';
+  font-weight: 800;
+  margin-right: 4px;
+}
+@keyframes pm-done-pulse {
+  0%, 86%, 100% {
+    box-shadow: 0 0 0 0 transparent;
+    background: color-mix(in srgb, var(--st-on-track) 15%, var(--surface));
+  }
+  91% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-on-track) 32%, transparent);
+    background: color-mix(in srgb, var(--st-on-track) 30%, var(--surface));
+  }
+  96% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--st-on-track) 0%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mnt-status-pill.s-on_track { animation: none; }
+}
 
 .up-camp-grid {
   display: grid;
