@@ -7,6 +7,20 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.43.1] - 2026-07-06
+
+### Cambiado
+- **Logo theme-aware**: la "R" ahora sigue el tema — casi blanca en dark,
+  casi negra en light (`fill: var(--text)`); el chip también se adapta
+  (oscuro en dark, claro en light) para mantener contraste sobre cualquier
+  superficie (ej. el hero oscuro del login). La llave sigue roja fija.
+- Se **quita la inclinación** del logo al hover (`rotate/scale`); se mantiene
+  el ratchet de la llave.
+- Se **añade un destello** que barre la "R" al hover (junto con el ratchet):
+  barrido tipo reflejo con núcleo blanco y flancos sutiles, para que resalte
+  tanto sobre la R blanca (dark) como sobre la negra (light). Respeta
+  `prefers-reduced-motion`.
+
 ## [1.43.0] - 2026-07-06
 
 ### Eliminado
