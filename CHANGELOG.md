@@ -7,6 +7,32 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [1.44.0] - 2026-07-06
+
+### Añadido
+- **Parts — rework a 3 vistas** (Increment 2 del handoff de Design). La
+  pestaña Parts pasa de una tabla simple a un cockpit con 4 KPIs de
+  instrumento (Inventory value · Low stock · Open POs con valor en vuelo ·
+  Parts blocking WOs) y tres sub-vistas conmutables:
+  - **Overview**: treemap "Inventory by category" (tiles proporcionales por
+    valor de stock, clic filtra el catálogo) + lista Low stock con QuickBuy +
+    Fast movers (o Top parts by value si aún no hay uso en WOs).
+  - **List**: master-detail — lista scrolleable con badge de stock por parte
+    + **ficha de parte** (thumbnail, badges vendor/categoría/estado,
+    mini-instrumento On hand·Unit cost·Used 90d, Vendor & pricing con
+    QuickBuy, Purchase history, notas y línea de origen).
+  - **Data grid**: tabla densa de 9 columnas (Part # · Name · Category ·
+    Vendor · On hand · Reorder · Unit cost · 90d use · Status) con filas de
+    bajo stock resaltadas.
+- **Export CSV** del catálogo (respeta búsqueda + filtro por categoría).
+- Cabecera de Parts con eyebrow/título/subtítulo al estilo del handoff.
+
+### Nota técnica
+- Sin cambios de esquema (prod despliega con `create_all`): las 3 vistas se
+  construyen sobre los datos existentes (on_hand/reorder_point/cost/vendor/
+  usage/POs). Los campos ricos del handoff (bin, min/max separados,
+  enrichment persistido) quedan para cuando el deploy corra migraciones.
+
 ## [1.43.1] - 2026-07-06
 
 ### Cambiado
