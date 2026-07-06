@@ -1,11 +1,11 @@
 // Catálogo de Partes + Vendors (fase H3, estilo Fullbay). Dos pestañas:
 // Parts (catálogo con costo interno, vendor, inventario manual) y Vendors
 // (proveedores). Se reusan al cargar líneas de una work order.
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   adjustPartStock, deletePart, deleteVendor, listPartMovements,
-  listParts, listVendors, savePart, saveVendor,
+  listParts, listPurchaseOrders, listVendors, savePart, saveVendor,
   type Part, type PartInput, type StockMovement, type Vendor,
   type VendorInput,
 } from '../api'
@@ -72,13 +72,30 @@ export default function PartsPage() {
   )
 }
 
-// ----- Pestaña Parts -------------------------------------------------------
+// Color por categoría (treemap + chips). Fallback gris para categorías nuevas.
+const CATEGORY_COLOR: Record<string, string> = {
+  Filters: '#34d399', Fluids: '#fbbf24', Tires: '#38bdf8', Brakes: '#fb7185',
+  Electrical: '#a78bfa', Cab: '#f472b6', Engine: '#22d3ee',
+  Suspension: '#f59e0b', Lighting: '#818cf8',
+}
+const catColor = (c: string) => CATEGORY_COLOR[c] || '#8b8b95'
+
+type PartsView = 'overview' | 'list' | 'grid'
+
+// ----- Pestaña Parts (3 vistas: Overview / List / Data grid) --------------
 function PartsTab() {
   const qc = useQueryClient()
   const partsQ = useQuery({ queryKey: ['parts'], queryFn: listParts })
   const vendorsQ = useQuery({ queryKey: ['vendors'], queryFn: listVendors })
+  const posQ = useQuery({
+    queryKey: ['purchase-orders', ''], queryFn: () => listPurchaseOrders(),
+  })
+
+  const [view, setView] = useState<PartsView>('overview')
   const [q, setQ] = useState('')
-  const [lowOnly, setLowOnly] = useState(false)   // segmento "solo bajo stock"
+  const [selectedPn, setSelectedPn] = useState<string | null>(null)
+  const [spendCat, setSpendCat] = useState<string | null>(null)
+  const [lowOnly, setLowOnly] = useState(false)
   const [editing, setEditing] = useState<Part | null>(null)
   const [adding, setAdding] = useState(false)
   const [adjusting, setAdjusting] = useState<Part | null>(null)
@@ -86,26 +103,75 @@ function PartsTab() {
   const parts = partsQ.data?.parts ?? []
   const usage = partsQ.data?.usage ?? {}
   const vendors = vendorsQ.data ?? []
+  const categories = partsQ.data?.categories ?? []
+  const stats = posQ.data?.stats
 
-  const lowCount = useMemo(() => parts.filter(isLow).length, [parts])
+  // KPIs
+  const totalValue = useMemo(
+    () => parts.reduce((s, p) => s + p.cost * (p.on_hand || 0), 0), [parts])
+  const lowParts = useMemo(() => parts.filter(isLow), [parts])
+  const blocking = useMemo(
+    () => parts.filter((p) => (p.on_hand || 0) <= 0
+      && (usage[p.part_number] || 0) > 0), [parts, usage])
+  const openPOs = (stats?.draft || 0) + (stats?.ordered || 0)
+  const openValue = stats?.open_value || 0
 
+  // Valor de inventario por categoría (on_hand × costo): siempre poblado,
+  // ata al KPI "Inventory value". (El gasto real por período llegará cuando
+  // haya historial de recepción de POs.)
+  const valueByCat = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const p of parts) {
+      const v = p.cost * (p.on_hand || 0)
+      if (v > 0) {
+        const k = p.category || 'Uncategorized'
+        m[k] = (m[k] || 0) + v
+      }
+    }
+    return Object.entries(m).map(([cat, val]) => ({ cat, val }))
+      .sort((a, b) => b.val - a.val)
+  }, [parts])
+  const totalCatValue = valueByCat.reduce((s, x) => s + x.val, 0)
+
+  // Fast movers: por uso en WOs; si aún no hay historial, top por valor.
+  const anyUsage = useMemo(
+    () => parts.some((p) => usage[p.part_number]), [parts, usage])
+  const fastMovers = useMemo(() => {
+    const sorted = [...parts]
+    if (anyUsage) {
+      sorted.sort((a, b) =>
+        (usage[b.part_number] || 0) - (usage[a.part_number] || 0))
+    } else {
+      sorted.sort((a, b) =>
+        b.cost * (b.on_hand || 0) - a.cost * (a.on_hand || 0))
+    }
+    return sorted.slice(0, 6)
+  }, [parts, usage, anyUsage])
+
+  // Lista filtrada (List + Data grid comparten búsqueda + filtro por categoría).
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
     let rows = parts
     if (lowOnly) rows = rows.filter(isLow)
+    if (spendCat) rows = rows.filter((p) => (p.category || '') === spendCat)
     if (!s) return rows
     return rows.filter((p) =>
       p.part_number.toLowerCase().includes(s) ||
       p.description.toLowerCase().includes(s) ||
       p.category.toLowerCase().includes(s) ||
       p.vendor_name.toLowerCase().includes(s))
-  }, [parts, q, lowOnly])
+  }, [parts, q, lowOnly, spendCat])
 
-  const totalValue = useMemo(
-    () => parts.reduce((s, p) => s + p.cost * (p.on_hand || 0), 0), [parts])
+  const selected = useMemo(
+    () => parts.find((p) => p.part_number === selectedPn) ?? null,
+    [parts, selectedPn])
 
-  // Refresca el catálogo: on_hand/reorder y, derivado de ahí, el KPI de bajo
-  // stock y el filtro se recalculan solos (invalidación → refetch de 'parts').
+  // Al entrar a List sin selección, elige la primera de la lista filtrada.
+  const listFirst = filtered[0]?.part_number
+  useEffect(() => {
+    if (view === 'list' && !selectedPn && listFirst) setSelectedPn(listFirst)
+  }, [view, selectedPn, listFirst])
+
   function refreshInventory() {
     qc.invalidateQueries({ queryKey: ['parts'] })
   }
@@ -115,156 +181,169 @@ function PartsTab() {
     try {
       await deletePart(p.id)
       qc.invalidateQueries({ queryKey: ['parts'] })
+      if (selectedPn === p.part_number) setSelectedPn(null)
       notifyOk('Part deleted', p.part_number)
     } catch (e) {
       notifyErr("Couldn't delete part", e)
     }
   }
 
+  function exportCsv() {
+    const head = ['Part #', 'Description', 'Category', 'Vendor', 'On hand',
+      'Reorder', 'Unit cost', '90d use', 'Status']
+    const rows = filtered.map((p) => [
+      p.part_number, p.description, p.category, p.vendor_name,
+      p.on_hand || 0, p.reorder_point || 0, p.cost.toFixed(2),
+      usage[p.part_number] || 0, isLow(p) ? 'Low' : 'OK',
+    ])
+    const csv = [head, ...rows]
+      .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+    const a = document.createElement('a')
+    a.href = url; a.download = 'rigsmith-parts.csv'; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const partsCount = parts.length
+  const shownCount = filtered.length
+
   return (
     <>
       {partsQ.isFetching && <div className="loadbar" aria-hidden="true" />}
-      <StatCluster className="kpi-row">
-        <StatCard label="Parts" value={parts.length} tone="info" />
-        <StatCard label="Categories"
-          value={(partsQ.data?.categories ?? []).length} tone="default" />
-        <StatCard label="Inventory value" value={money(totalValue)}
-          tone="accent" />
-        {/* KPI de bajo stock: clic = filtra el catálogo a esas partes. */}
-        <button type="button"
-          className={`kpi-card-btn${lowOnly ? ' is-active' : ''}`}
-          onClick={() => setLowOnly((v) => !v)}
-          title={lowCount
-            ? 'Show only parts at/under reorder point'
-            : 'No parts under reorder point'}>
-          <StatCard label="Low stock" value={lowCount}
-            sub={lowOnly ? 'filter on · click to clear'
-              : lowCount ? 'click to filter' : 'all stocked'}
-            tone={lowCount ? 'warn' : 'ok'} />
-        </button>
-      </StatCluster>
 
-      <section className="card">
-        <div className="card-head">
-          <h2>Parts catalog</h2>
-          {lowOnly && (
-            <button type="button" className="low-filter-chip"
-              onClick={() => setLowOnly(false)}
-              title="Clear low-stock filter">
-              Low stock only · clear ✕
-            </button>
-          )}
-          <span className="head-spacer" />
-          <input className="cell-input" placeholder="Search part, vendor…"
-            value={q} onChange={(e) => setQ(e.target.value)} />
-          <Button variant="primary" onClick={() => setAdding(true)}
+      {/* Cabecera de Parts (eyebrow / h1 / sub + acciones) */}
+      <div className="parts-head">
+        <div>
+          <span className="parts-eyebrow">Shop · Catalog + Inventory</span>
+          <h2 className="parts-title">Parts</h2>
+          <p className="parts-sub">
+            Master catalog and stock. Purchase orders live in the{' '}
+            <strong>Purchase Orders</strong> tab.
+          </p>
+        </div>
+        <div className="parts-head-actions">
+          <button className="btn btn-ghost btn-sm" onClick={exportCsv}
+            disabled={!partsCount}>
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+              stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"
+              strokeLinejoin="round">
+              <path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+            </svg>
+            Export CSV
+          </button>
+          <Button variant="primary" size="sm" onClick={() => setAdding(true)}
             icon={
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                strokeWidth="2" width="16" height="16" strokeLinecap="round">
+                strokeWidth="2" width="15" height="15" strokeLinecap="round">
                 <path d="M12 5v14M5 12h14" />
               </svg>
             }>
-            Add part
+            New part
           </Button>
         </div>
-        <div className="card-body">
-          {partsQ.isPending ? (
-            <div className="skel-rows">
-              {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} h={36} />)}
-            </div>
-          ) : parts.length === 0 ? (
-            <div className="empty mini">
-              <p>No parts yet. Add the parts you stock or buy often.</p>
-              <button className="btn btn-primary" onClick={() => setAdding(true)}>
-                Add the first part
-              </button>
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="empty mini">
-              <p>
-                {lowOnly
-                  ? 'No parts are at or under their reorder point. Nice — fully stocked.'
-                  : 'No parts match your search.'}
-              </p>
-              {lowOnly && (
-                <button className="btn btn-ghost" onClick={() => setLowOnly(false)}>
-                  Show all parts
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="table-wrap">
-              <table className="defects-table">
-                <thead>
-                  <tr>
-                    <th>Part #</th>
-                    <th>Description</th>
-                    <th>Category</th>
-                    <th className="num">Cost</th>
-                    <th>Vendor</th>
-                    <th className="num">On hand</th>
-                    <th className="num">Reorder</th>
-                    <th className="num">Used</th>
-                    <th aria-label="Actions" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((p) => {
-                    const low = isLow(p)
-                    return (
-                    <tr key={p.id} className={low ? 'row-low' : undefined}
-                      onClick={() => setEditing(p)}>
-                      <td className="mono"><strong>{p.part_number}</strong></td>
-                      <td>{p.description || <span className="muted">—</span>}</td>
-                      <td>{p.category
-                        ? <span className="intg-chip">{p.category}</span>
-                        : <span className="muted">—</span>}</td>
-                      <td className="num mono">{money(p.cost)}</td>
-                      <td>{p.vendor_name || <span className="muted">—</span>}</td>
-                      <td className="num">
-                        <span className="oh-cell">
-                          {p.on_hand || 0}
-                          {low && <span className="low-pill">Low</span>}
-                        </span>
-                      </td>
-                      <td className="num">
-                        {p.reorder_point > 0
-                          ? p.reorder_point
-                          : <span className="muted">—</span>}
-                      </td>
-                      <td className="num">
-                        {usage[p.part_number]
-                          ? <span className="wo-pm-tag">{usage[p.part_number]}×</span>
-                          : <span className="muted">—</span>}
-                      </td>
-                      <td className="num parts-row-actions"
-                        onClick={(e) => e.stopPropagation()}>
-                        <button className="btn btn-ghost btn-xs"
-                          title={`Adjust stock for ${p.part_number}`}
-                          onClick={() => setAdjusting(p)}>
-                          Adjust
-                        </button>
-                        <QuickBuyButton part={p}
-                          onBought={() => {
-                            qc.invalidateQueries({ queryKey: ['purchase-orders'] })
-                            refreshInventory()
-                          }} />
-                        <button className="icon-x" title="Delete part"
-                          onClick={() => remove(p)}>✕</button>
-                      </td>
-                    </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+      </div>
+
+      {/* KPIs */}
+      <StatCluster className="kpi-row" columns="repeat(4, minmax(0, 1fr))">
+        <StatCard label="Inventory value" value={money(totalValue)}
+          sub={`${partsCount} parts · ${categories.length} categories`}
+          tone="info" />
+        <StatCard label="Low stock" value={lowParts.length}
+          sub="below reorder"
+          tone={lowParts.length ? 'danger' : 'ok'}
+          progress={partsCount ? lowParts.length / partsCount : 0} />
+        <StatCard label="Open POs" value={openPOs}
+          sub={openValue ? `${money(openValue)} in flight` : 'none open'}
+          tone={openPOs ? 'warn' : 'default'} />
+        <StatCard label="Parts blocking WOs" value={blocking.length}
+          sub={blocking.length
+            ? `${blocking[0].part_number} +${blocking.length - 1} more`
+            : 'none'}
+          tone={blocking.length ? 'accent' : 'ok'}
+          progress={partsCount ? blocking.length / partsCount : 0} />
+      </StatCluster>
+
+      {/* Toolbar: sub-vistas + búsqueda + conteo */}
+      <div className="parts-toolbar">
+        <Tabs
+          tabs={[{ id: 'overview', label: 'Overview' },
+            { id: 'list', label: 'List' },
+            { id: 'grid', label: 'Data grid' }]}
+          value={view}
+          onChange={(id) => setView(id as PartsView)}
+        />
+        <span className="head-spacer" />
+        {view !== 'overview' && (
+          <input className="cell-input parts-search"
+            placeholder="Search part, number, vendor…"
+            value={q} onChange={(e) => setQ(e.target.value)} />
+        )}
+        <span className="parts-count mono">
+          {shownCount} of {partsCount} parts · {lowParts.length} low
+        </span>
+      </div>
+
+      {(spendCat || lowOnly) && (
+        <div className="parts-active-filters">
+          {spendCat && (
+            <button className="low-filter-chip" onClick={() => setSpendCat(null)}>
+              Category: {spendCat} · clear ✕
+            </button>
+          )}
+          {lowOnly && (
+            <button className="low-filter-chip" onClick={() => setLowOnly(false)}>
+              Low stock only · clear ✕
+            </button>
           )}
         </div>
-      </section>
+      )}
+
+      {partsQ.isPending ? (
+        <section className="card"><div className="card-body">
+          <div className="skel-rows">
+            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} h={40} />)}
+          </div>
+        </div></section>
+      ) : partsCount === 0 ? (
+        <section className="card"><div className="card-body">
+          <div className="empty mini">
+            <p>No parts yet. Add the parts you stock or buy often.</p>
+            <button className="btn btn-primary" onClick={() => setAdding(true)}>
+              Add the first part
+            </button>
+          </div>
+        </div></section>
+      ) : view === 'overview' ? (
+        <PartsOverview
+          valueByCat={valueByCat} totalCatValue={totalCatValue}
+          spendCat={spendCat} onSpendCat={setSpendCat}
+          lowParts={lowParts} fastMovers={fastMovers} usage={usage}
+          anyUsage={anyUsage}
+          onOpenPart={(pn) => { setSelectedPn(pn); setView('list') }}
+          onQuickbuyDone={() => {
+            qc.invalidateQueries({ queryKey: ['purchase-orders'] })
+            refreshInventory()
+          }}
+        />
+      ) : view === 'list' ? (
+        <PartsList
+          rows={filtered} selectedPn={selectedPn} onSelect={setSelectedPn}
+          selected={selected} usage={usage} pos={posQ.data?.purchase_orders ?? []}
+          onEdit={setEditing} onAdjust={setAdjusting} onDelete={remove}
+          onQuickbuyDone={() => {
+            qc.invalidateQueries({ queryKey: ['purchase-orders'] })
+            refreshInventory()
+          }}
+        />
+      ) : (
+        <PartsDataGrid rows={filtered} usage={usage}
+          onOpen={(pn) => { setSelectedPn(pn); setView('list') }} />
+      )}
 
       {(adding || editing) && (
         <PartModal part={editing} vendors={vendors}
-          categories={partsQ.data?.categories ?? []}
+          categories={categories}
           onClose={() => { setAdding(false); setEditing(null) }}
           onSaved={() => {
             setAdding(false); setEditing(null)
@@ -278,6 +357,358 @@ function PartsTab() {
           onAdjusted={refreshInventory} />
       )}
     </>
+  )
+}
+
+// ----- Overview: treemap por categoría + bajo stock + fast movers ---------
+function PartsOverview({
+  valueByCat, totalCatValue, spendCat, onSpendCat, lowParts, fastMovers, usage,
+  anyUsage, onOpenPart, onQuickbuyDone,
+}: {
+  valueByCat: { cat: string; val: number }[]
+  totalCatValue: number
+  spendCat: string | null
+  onSpendCat: (c: string | null) => void
+  lowParts: Part[]
+  fastMovers: Part[]
+  usage: Record<string, number>
+  anyUsage: boolean
+  onOpenPart: (pn: string) => void
+  onQuickbuyDone: () => void
+}) {
+  return (
+    <div className="parts-overview">
+      <div className="parts-ov-grid">
+        {/* Inventario por categoría — treemap (tira proporcional) */}
+        <section className="card">
+          <div className="card-head">
+            <h2>Inventory by category</h2>
+            <span className="head-spacer" />
+            <span className="muted mono sm">
+              current value · {money(totalCatValue)}
+            </span>
+          </div>
+          <div className="card-body">
+            {totalCatValue === 0 ? (
+              <div className="empty mini"><p>
+                No stock on hand yet — add parts with quantities to see the
+                inventory split by category.
+              </p></div>
+            ) : (
+              <div className="treemap">
+                {valueByCat.map(({ cat, val }) => {
+                  const pct = Math.round((val / totalCatValue) * 100)
+                  const active = spendCat === cat
+                  return (
+                    <button key={cat}
+                      className={`treemap-tile${active ? ' is-active' : ''}`}
+                      style={{ flexGrow: Math.max(val, totalCatValue * 0.06),
+                        background: catColor(cat) }}
+                      onClick={() => onSpendCat(active ? null : cat)}
+                      title={`${cat} · ${money(val)} · ${pct}%`}>
+                      <span className="tm-cat">{cat}</span>
+                      <span className="tm-amt mono">{money(val)}</span>
+                      <span className="tm-pct mono">{pct}%</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Low stock */}
+        <section className="card">
+          <div className="card-head">
+            <h2>Low stock</h2>
+            <span className="head-spacer" />
+            <span className="badge-soft danger">{lowParts.length}</span>
+          </div>
+          <div className="card-body">
+            {lowParts.length === 0 ? (
+              <div className="empty mini"><p>Fully stocked — nothing at or
+                under its reorder point.</p></div>
+            ) : (
+              <ul className="ov-list">
+                {lowParts.slice(0, 6).map((p) => (
+                  <li key={p.id}>
+                    <button className="ov-list-main"
+                      onClick={() => onOpenPart(p.part_number)}>
+                      <span className="ov-name">{p.description
+                        || p.part_number}</span>
+                      <span className="ov-sub mono">
+                        {p.part_number} · {p.on_hand || 0} on hand ·
+                        reorder {p.reorder_point}
+                      </span>
+                    </button>
+                    <QuickBuyButton part={p} onBought={onQuickbuyDone} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+      </div>
+
+      {/* Fast movers (o top por valor si aún no hay uso en WOs) */}
+      <section className="card">
+        <div className="card-head">
+          <h2>{anyUsage ? 'Fast movers' : 'Top parts by value'}</h2>
+          <span className="head-spacer" />
+          <span className="muted mono sm">
+            {anyUsage ? 'most-used parts' : 'by stock value'}
+          </span>
+        </div>
+        <div className="card-body no-pad">
+          {fastMovers.length === 0 ? (
+            <div className="empty mini" style={{ padding: 20 }}>
+              <p>No parts yet.</p>
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table className="defects-table dense">
+                <thead><tr>
+                  <th>Part</th><th className="num">Used 90d</th>
+                  <th className="num">On hand</th><th>Status</th>
+                </tr></thead>
+                <tbody>
+                  {fastMovers.map((p) => (
+                    <tr key={p.id} onClick={() => onOpenPart(p.part_number)}>
+                      <td><strong>{p.description || p.part_number}</strong>
+                        <span className="muted mono sm"> · {p.part_number}</span>
+                      </td>
+                      <td className="num mono">{usage[p.part_number] || 0}×</td>
+                      <td className="num mono">{p.on_hand || 0}</td>
+                      <td>{isLow(p)
+                        ? <span className="badge-soft danger">Low</span>
+                        : <span className="badge-soft ok">In stock</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+// ----- List: master-detail (lista + ficha de parte) -----------------------
+function PartsList({
+  rows, selectedPn, onSelect, selected, usage, pos,
+  onEdit, onAdjust, onDelete, onQuickbuyDone,
+}: {
+  rows: Part[]
+  selectedPn: string | null
+  onSelect: (pn: string) => void
+  selected: Part | null
+  usage: Record<string, number>
+  pos: import('../api').PurchaseOrder[]
+  onEdit: (p: Part) => void
+  onAdjust: (p: Part) => void
+  onDelete: (p: Part) => void
+  onQuickbuyDone: () => void
+}) {
+  return (
+    <div className="parts-md">
+      {/* Master list */}
+      <div className="card parts-md-list">
+        <div className="pl-scroll">
+          {rows.length === 0 ? (
+            <div className="empty mini" style={{ padding: 20 }}>
+              <p>No parts match.</p>
+            </div>
+          ) : rows.map((p) => {
+            const low = isLow(p)
+            const sel = p.part_number === selectedPn
+            return (
+              <button key={p.id}
+                className={`pl-row${sel ? ' is-sel' : ''}`}
+                onClick={() => onSelect(p.part_number)}>
+                <span className="pl-row-main">
+                  <span className="pl-name">{p.description || p.part_number}</span>
+                  <span className="pl-sub mono">{p.part_number}
+                    {p.vendor_name ? ` · ${p.vendor_name}` : ''}</span>
+                </span>
+                <span className="pl-row-meta">
+                  <span className={`badge-soft ${low ? 'danger' : 'ok'}`}>
+                    {p.on_hand || 0} {low ? 'low' : 'in stock'}
+                  </span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Detail */}
+      <div className="parts-md-detail">
+        {selected
+          ? <PartDetail part={selected} used={usage[selected.part_number] || 0}
+              pos={pos.filter((po) => (po.lines || []).some((l) =>
+                l.part_number === selected.part_number)
+                || po.notes?.includes(selected.part_number))}
+              onEdit={onEdit} onAdjust={onAdjust} onDelete={onDelete}
+              onQuickbuyDone={onQuickbuyDone} />
+          : <div className="card"><div className="empty mini"
+              style={{ padding: 30 }}><p>Select a part to see its detail.</p>
+            </div></div>}
+      </div>
+    </div>
+  )
+}
+
+// Ficha de parte (columna derecha del master-detail).
+function PartDetail({ part, used, pos, onEdit, onAdjust, onDelete,
+  onQuickbuyDone }: {
+  part: Part
+  used: number
+  pos: import('../api').PurchaseOrder[]
+  onEdit: (p: Part) => void
+  onAdjust: (p: Part) => void
+  onDelete: (p: Part) => void
+  onQuickbuyDone: () => void
+}) {
+  const low = isLow(part)
+  const max = part.reorder_point > 0 ? part.reorder_point * 3 : 0
+  const fillPct = max ? Math.min(1, (part.on_hand || 0) / max) : 0
+  return (
+    <div className="card part-detail">
+      <div className="pd-head">
+        <span className="pd-thumb" style={{ borderColor: catColor(part.category) }}>
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none"
+            stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"
+            strokeLinejoin="round">
+            <path d="M12 2 3 7v10l9 5 9-5V7z" /><path d="M3 7l9 5 9-5M12 12v10" />
+          </svg>
+        </span>
+        <div className="pd-title">
+          <h2>{part.description || part.part_number}</h2>
+          <span className="pd-pn mono">{part.part_number}</span>
+        </div>
+        <div className="pd-actions">
+          <button className="btn btn-ghost btn-xs" onClick={() => onEdit(part)}>
+            Edit</button>
+          <button className="btn btn-ghost btn-xs" onClick={() => onAdjust(part)}>
+            Adjust</button>
+        </div>
+      </div>
+
+      <div className="pd-badges">
+        {part.vendor_name && <span className="intg-chip">{part.vendor_name}</span>}
+        {part.category && <span className="intg-chip"
+          style={{ color: catColor(part.category) }}>{part.category}</span>}
+        <span className={`badge-soft ${low ? 'danger' : 'ok'}`}>
+          {low ? 'LOW STOCK' : 'IN STOCK'}</span>
+      </div>
+
+      {/* Mini instrumento: on hand / unit cost / used */}
+      <StatCluster className="pd-stats" columns="repeat(3, minmax(0, 1fr))">
+        <StatCard label="On hand" value={part.on_hand || 0}
+          sub={part.reorder_point ? `reorder ${part.reorder_point}` : 'no reorder'}
+          tone={low ? 'danger' : 'ok'} progress={fillPct} />
+        <StatCard label="Unit cost" value={money(part.cost)}
+          sub="internal" tone="info" />
+        <StatCard label="Used 90d" value={used} sub="on work orders"
+          tone="default" />
+      </StatCluster>
+
+      <div className="pd-cols">
+        {/* Vendor & pricing */}
+        <section className="pd-sec">
+          <h3>Vendor &amp; pricing</h3>
+          {part.vendor_name ? (
+            <div className="pd-vendor-row">
+              <span>{part.vendor_name}</span>
+              <span className="mono">{money(part.cost)}</span>
+            </div>
+          ) : <p className="muted sm">No vendor set for this part.</p>}
+          <div className="pd-qb">
+            <QuickBuyButton part={part} onBought={onQuickbuyDone} />
+          </div>
+        </section>
+
+        {/* Purchase history */}
+        <section className="pd-sec">
+          <h3>Purchase history</h3>
+          {pos.length === 0 ? (
+            <p className="muted sm">No purchase orders reference this part yet.</p>
+          ) : (
+            <ul className="pd-po-list">
+              {pos.slice(0, 4).map((po) => (
+                <li key={po.id}>
+                  <span className="mono">PO-{po.id} · {po.vendor}</span>
+                  <span className={`badge-soft ${po.status === 'received'
+                    ? 'ok' : 'warn'}`}>{po.status}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+
+      {part.notes && <p className="pd-notes">{part.notes}</p>}
+
+      <div className="pd-foot">
+        <span className="muted mono sm">
+          Source · manual entry {max ? `· suggested max ${max}` : ''}
+        </span>
+        <button className="icon-x" title="Delete part"
+          onClick={() => onDelete(part)}>Delete</button>
+      </div>
+    </div>
+  )
+}
+
+// ----- Data grid: tabla ancha de 9 columnas -------------------------------
+function PartsDataGrid({ rows, usage, onOpen }: {
+  rows: Part[]
+  usage: Record<string, number>
+  onOpen: (pn: string) => void
+}) {
+  return (
+    <section className="card"><div className="card-body no-pad">
+      {rows.length === 0 ? (
+        <div className="empty mini" style={{ padding: 20 }}>
+          <p>No parts match your search.</p></div>
+      ) : (
+        <div className="table-wrap">
+          <table className="defects-table dense parts-grid">
+            <thead><tr>
+              <th>Part #</th><th>Name</th><th>Category</th><th>Vendor</th>
+              <th className="num">On hand</th><th className="num">Reorder</th>
+              <th className="num">Unit cost</th><th className="num">90d use</th>
+              <th>Status</th>
+            </tr></thead>
+            <tbody>
+              {rows.map((p) => {
+                const low = isLow(p)
+                return (
+                  <tr key={p.id} className={low ? 'row-low' : undefined}
+                    onClick={() => onOpen(p.part_number)}>
+                    <td className="mono"><strong>{p.part_number}</strong></td>
+                    <td>{p.description || <span className="muted">—</span>}</td>
+                    <td>{p.category
+                      ? <span className="intg-chip"
+                          style={{ color: catColor(p.category) }}>{p.category}</span>
+                      : <span className="muted">—</span>}</td>
+                    <td>{p.vendor_name || <span className="muted">—</span>}</td>
+                    <td className="num mono">{p.on_hand || 0}</td>
+                    <td className="num mono">{p.reorder_point || '—'}</td>
+                    <td className="num mono">{money(p.cost)}</td>
+                    <td className="num mono">{usage[p.part_number] || 0}×</td>
+                    <td>{low
+                      ? <span className="badge-soft danger">Low</span>
+                      : <span className="badge-soft ok">OK</span>}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div></section>
   )
 }
 
