@@ -7,6 +7,36 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.3.0] - 2026-07-06
+
+### Añadido
+- **Recepción parcial de POs con backorder** (referencia SquareRigger). En el
+  drawer de una PO ahora hay un panel **Receive shipment**: se ingresa la
+  cantidad que llegó por línea (default = lo pendiente), y con **"Backorder the
+  rest & close this PO"** el faltante genera **automáticamente una PO de
+  backorder** (draft) linkeada al padre (`backorder_of_po_id`) y cierra la
+  original. La tabla de líneas muestra una columna **Recv** (`recibido/pedido`)
+  y el drawer un badge **Partially received** + link al backorder.
+- Endpoint `POST /api/purchase-orders/{id}/receive` (idempotente por token de
+  evento). Modelo: `POLine.qty_received/received_at`,
+  `PurchaseOrder.received_at/backorder_of_po_id` (migración Alembic
+  `f1a2b3c4d5e6`, batch + server_default, backfill de POs ya recibidas).
+
+### Detalles técnicos / seguridad de stock
+- **Idempotencia + atomicidad**: cada recepción repone SOLO el delta recibido
+  (clamp a lo pendiente, nunca sobre-stock). El movimiento de inventario se
+  crea en la **MISMA transacción** que `qty_received` (nuevo
+  `inventory.apply_in_session`), con `ref_id='{line_id}:{token}'`: reenviar el
+  mismo evento es no-op y `qty_received` nunca diverge del stock aunque falle a
+  mitad. El camino legacy (botón **Received**) completa el remanente una sola
+  vez (`ref_id='{line_id}:full'`). Recepción de `receipts` vacío = no-op.
+- **Estado `receiving_state`** ('none'|'partial'|'full') es **derivado** (no
+  toca el pipeline draft→ordered→received ni sus consumidores).
+- Verificado con tests (`backend/tests/test_receiving.py`: parcial, idempotencia,
+  clamp, auto-cierre, backorder, legacy, no-op) + revisión adversarial
+  multi-agente (se corrigieron: atomicidad del movimiento, consistencia
+  modelo/migración de `backorder_of_po_id`, no-op de receipts vacío).
+
 ## [2.2.0] - 2026-07-06
 
 ### Añadido

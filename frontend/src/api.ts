@@ -2134,7 +2134,12 @@ export interface POLine {
   qty: number
   unit_cost: number
   total: number
+  qty_received: number      // acumulado recibido de esta línea
+  qty_outstanding: number   // qty - qty_received
 }
+
+// Estado DERIVADO de recepción (no es el status del pipeline).
+export type ReceivingState = 'none' | 'partial' | 'full'
 
 export interface PurchaseOrder {
   id: number
@@ -2145,6 +2150,9 @@ export interface PurchaseOrder {
   notes: string
   total: number
   n_lines: number
+  received_at: string | null
+  backorder_of_po_id: number | null
+  receiving_state: ReceivingState
   lines?: POLine[]
 }
 
@@ -2198,6 +2206,24 @@ export async function patchPurchaseOrder(
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// Recepción por línea (parcial o total). `token` (uno por click) hace la
+// operación idempotente. Con createBackorder, el faltante genera una PO draft
+// linkeada y cierra esta PO. Devuelve la PO y el backorder (o null).
+export async function receivePurchaseOrder(
+  id: number,
+  receipts: { line_id: number; qty_now: number }[],
+  token: string,
+  createBackorder = true,
+): Promise<{ po: PurchaseOrder; backorder: PurchaseOrder | null }> {
+  const res = await fetch(`/api/purchase-orders/${id}/receive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ receipts, token, create_backorder: createBackorder }),
   })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()

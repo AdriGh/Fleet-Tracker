@@ -8351,6 +8351,51 @@ iframe.wo-preview { border: 1px solid var(--border); }
 .po-line-row {
   grid-template-columns: 96px 1fr 58px 80px auto;
 }
+
+/* ----- Recepción parcial de POs (v2.3) ----- */
+.po-bo-tag {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.po-recv-full { color: #16a34a; font-weight: 700; }
+.po-receive {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.po-recv-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 10px;
+}
+.po-recv-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.po-recv-name { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.po-recv-name .mono { font-weight: 700; font-size: 0.84rem; }
+.po-recv-name .muted {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.po-recv-ctl { display: flex; align-items: center; gap: 7px; flex: none; }
+.po-recv-input { width: 76px; text-align: right; }
+.po-recv-bo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text);
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+.po-recv-bo input { width: 15px; height: 15px; accent-color: var(--accent); }
 /* QuickBuy + borrar en la celda de acciones del catálogo de Parts */
 .parts-row-actions {
   display: flex;
