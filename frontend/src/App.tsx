@@ -96,14 +96,15 @@ const ICONS: Record<string, ReactElement> = {
   workorders: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
       strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L4 16.8 7.2 20l5.3-5.3a4 4 0 0 0 5.2-5.4l-2.5 2.5-2.3-.5-.5-2.3z" />
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5M9 13h6M9 17h4" />
     </svg>
   ),
   parts: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
       strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" />
+      <path d="M21 8 12 3 3 8v8l9 5 9-5V8z" />
+      <path d="m3 8 9 5 9-5M12 13v8" />
     </svg>
   ),
   purchasing: (
@@ -202,7 +203,7 @@ export default function App() {
   // (si no, el perfil se superpone y el clic en el sidebar "no hace nada")
   // y cierra el drawer móvil.
   const navigate = (id: string) => {
-    setProfileUnit(null); setSection(id); setDrawerOpen(false)
+    setProfileUnit(null); setSection(id); setDrawerOpen(false); setRailTip(null)
   }
   // Sesión real (fase G7): el token vive en localStorage ('ft-token');
   // /api/auth/status decide entre wizard, login o app.
@@ -315,6 +316,11 @@ export default function App() {
   const navBadges: Record<string, number> = {
     purchasing: requestsQuery.data?.stats?.pending ?? 0,
   }
+  // Tooltip del riel colapsado: se posiciona `fixed` a la altura del icono
+  // hovereado, así el riel puede scrollear sin recortar ni encimar el label.
+  const [railTip, setRailTip] = useState<
+    { label: string; badge?: number; y: number } | null
+  >(null)
   const lastAlertId = useRef<number | null>(null)
   useEffect(() => {
     const events = alertsQuery.data
@@ -440,49 +446,51 @@ export default function App() {
         <div className="sidebar-scroll">
           {navCollapsed && !isMobile ? (
             <>
-              {/* Riel colapsado (Icon rail · 74px): un icono por ÍTEM; el
-                  hover despliega un flyout con el label (estilo diseñador). */}
+              {/* Riel colapsado (Icon rail · 74px): un icono por ÍTEM. El riel
+                  scrollea si no entra; el label es un tooltip `fixed` (ver
+                  railTip) para no recortarse ni encimar el pie. */}
               {NAV_SECTIONS.map((group) => (
                 <nav className="nav nav-rail" key={group.title}>
                   <span className="nav-group-label">{group.title}</span>
                   {group.items.filter((i) => !i.soon).map((item) => (
-                    <div className="nav-rail-group" key={item.id}>
-                      <button
-                        className={`nav-item nav-rail-btn ${section === item.id ? 'active' : ''}`}
-                        title={item.label}
-                        onClick={() => navigate(item.id)}
-                      >
-                        <span className="nav-ico">{ICONS[item.id]}</span>
-                        {navBadges[item.id]
-                          ? <span className="nav-rail-dot" /> : null}
-                      </button>
-                      <div className="nav-flyout">
-                        <span className="nav-flyout-solo">
-                          {item.label}
-                          {navBadges[item.id]
-                            ? <span className="nav-badge">{navBadges[item.id]}</span>
-                            : null}
-                        </span>
-                      </div>
-                    </div>
+                    <button
+                      key={item.id}
+                      className={`nav-item nav-rail-btn ${section === item.id ? 'active' : ''}`}
+                      title={item.label}
+                      onClick={() => navigate(item.id)}
+                      onMouseEnter={(e) => {
+                        const r = e.currentTarget.getBoundingClientRect()
+                        setRailTip({
+                          label: item.label,
+                          badge: navBadges[item.id] || undefined,
+                          y: r.top + r.height / 2,
+                        })
+                      }}
+                      onMouseLeave={() => setRailTip(null)}
+                    >
+                      <span className="nav-ico">{ICONS[item.id]}</span>
+                      {navBadges[item.id]
+                        ? <span className="nav-rail-dot" /> : null}
+                    </button>
                   ))}
                 </nav>
               ))}
               <nav className="nav nav-bottom nav-rail">
                 <span className="nav-group-label">Admin</span>
                 {ADMIN_ITEMS.map((item) => (
-                  <div className="nav-rail-group" key={item.id}>
-                    <button
-                      className={`nav-item nav-rail-btn ${section === item.id ? 'active' : ''}`}
-                      title={item.label}
-                      onClick={() => navigate(item.id)}
-                    >
-                      <span className="nav-ico">{ICONS[item.id]}</span>
-                    </button>
-                    <div className="nav-flyout">
-                      <span className="nav-flyout-solo">{item.label}</span>
-                    </div>
-                  </div>
+                  <button
+                    key={item.id}
+                    className={`nav-item nav-rail-btn ${section === item.id ? 'active' : ''}`}
+                    title={item.label}
+                    onClick={() => navigate(item.id)}
+                    onMouseEnter={(e) => {
+                      const r = e.currentTarget.getBoundingClientRect()
+                      setRailTip({ label: item.label, y: r.top + r.height / 2 })
+                    }}
+                    onMouseLeave={() => setRailTip(null)}
+                  >
+                    <span className="nav-ico">{ICONS[item.id]}</span>
+                  </button>
                 ))}
               </nav>
             </>
@@ -587,6 +595,14 @@ export default function App() {
           <span className="version">v{version ?? '0.4.0'}</span>
         </div>
       </aside>
+
+      {navCollapsed && !isMobile && railTip && (
+        <div className="nav-rail-tip" style={{ top: railTip.y }}>
+          {railTip.label}
+          {railTip.badge
+            ? <span className="nav-badge">{railTip.badge}</span> : null}
+        </div>
+      )}
 
       <div className="main-area">
         <main className="container">

@@ -7,6 +7,18 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.0.2] - 2026-07-06
+
+### Corregido
+- **Sidebar colapsado ya no se desborda sobre el pie.** Con el riel por-ítem
+  (bastantes más iconos que el viejo por-grupo), en pantallas de poca altura el
+  nav se **encimaba** con avatar/tema/logout. Ahora el riel **scrollea**
+  (`overflow-y: auto`) y el label del hover es un tooltip **`position: fixed`**
+  fuera del contenedor de scroll (así no se recorta ni empuja el pie).
+- **Icono de Parts** era un **sol** (círculo con rayos) → ahora un **cubo**
+  (caja de repuestos). Además **Work Orders** usaba el **mismo** icono que
+  PM Tracker (llave) → ahora un **documento**, para distinguirlos en el riel.
+
 ## [2.0.1] - 2026-07-06
 
 Primera versión de la serie **2.x**. Reorganiza el producto alrededor de la

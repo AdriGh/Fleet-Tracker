@@ -967,12 +967,40 @@ body::after {
 .sidebar.collapsed .version { display: none; }
 .sidebar.collapsed .foot-user { padding-bottom: 0; }
 
-/* ----- Riel colapsado: un icono por grupo + flyout al hover (Samsara) - */
+/* ----- Riel colapsado por-ítem: scrollea si no entra; el label es un
+   tooltip `fixed` (.nav-rail-tip) fuera del scroll, no un flyout interno - */
 .sidebar.collapsed .sidebar-scroll {
-  overflow: visible;            /* que el flyout no quede recortado */
+  overflow-y: auto;             /* si hay muchos ítems, el riel scrollea */
+  overflow-x: hidden;           /* el tooltip vive fuera (position: fixed) */
   display: flex;
   flex-direction: column;
   gap: 5px;
+  scrollbar-width: thin;
+}
+.sidebar.collapsed .sidebar-scroll::-webkit-scrollbar { width: 6px; }
+.sidebar.collapsed .sidebar-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+/* Tooltip del riel: `fixed`, a la altura del icono hovereado (JS pone `top`) */
+.nav-rail-tip {
+  position: fixed;
+  left: 84px;
+  transform: translateY(-50%);
+  z-index: 200;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--text);
+  color: var(--surface);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 7px 12px;
+  border-radius: 9px;
+  white-space: nowrap;
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
 }
 .nav-rail-group {
   position: relative;
