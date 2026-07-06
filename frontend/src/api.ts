@@ -2022,6 +2022,7 @@ export interface Part {
   fits: string            // compatibilidad / a qué unidades entra
   source: string          // origen (manual | scan | …)
   core_charge: number     // depósito de core por unidad (0 = sin core)
+  warranty_months: number // ventana de garantía en meses (0 = sin tracking)
   notes: string
 }
 
@@ -2396,6 +2397,60 @@ export async function returnCore(id: number): Promise<CoreItem> {
 
 export async function unreturnCore(id: number): Promise<CoreItem> {
   const res = await fetch(`/api/cores/${id}/unreturn`, { method: 'POST' })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// --- Warranty tracking (reclamos de garantía, v2.6) ----------------------
+// La misma parte reusada en la misma unidad dentro de su ventana de garantía.
+export type ClaimStatus = 'open' | 'submitted' | 'recovered' | 'dismissed'
+
+export interface WarrantyClaim {
+  id: number
+  part_number: string
+  description: string
+  unit: string
+  vendor: string
+  install_wo: number | null
+  install_date: string
+  failure_wo: number | null
+  failure_date: string
+  warranty_until: string
+  amount: number          // monto recuperable (costo del reemplazo)
+  status: ClaimStatus
+}
+
+export interface WarrantyStats {
+  open: number
+  open_amount: number       // $ recuperable en claims abiertos
+  submitted: number
+  recovered: number
+  recovered_amount: number  // $ ya recuperado
+}
+
+export async function listWarranty(
+  status = 'open',
+): Promise<{ claims: WarrantyClaim[]; stats: WarrantyStats }> {
+  const res = await fetch(`/api/warranty?status=${encodeURIComponent(status)}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function setClaimStatus(
+  id: number, status: ClaimStatus,
+): Promise<WarrantyClaim> {
+  const res = await fetch(`/api/warranty/${id}/status`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// Escanea el historial y materializa claims nuevos (write). Se dispara al
+// abrir Purchasing, no en cada lectura, para no mutar en cada GET.
+export async function scanWarranty(): Promise<{ created: number }> {
+  const res = await fetch('/api/warranty/scan', { method: 'POST' })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }

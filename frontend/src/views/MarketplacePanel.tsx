@@ -55,6 +55,7 @@ function resultToPart(r: MarketplaceResult): Part {
     fits: '',
     source: 'marketplace',
     core_charge: 0,
+    warranty_months: 0,
   }
 }
 

@@ -2,12 +2,13 @@
 // (faltantes de bajo stock / WO / manual) se agrupa por vendor y se funde en
 // una sola PO. Dos sub-vistas: Requests (esta cola) y Purchase orders (reusa
 // PurchaseOrdersPage). El stock lo repone la PO al recibirse (pipeline de POs).
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   bundleRequests, cancelPartsRequest, generateLowStockRequests,
-  listCores, listPartsRequests, listPurchaseOrders, returnCore,
-  unreturnCore, type CoreItem, type PartsRequest,
+  listCores, listPartsRequests, listPurchaseOrders, listWarranty, returnCore,
+  scanWarranty, setClaimStatus, unreturnCore,
+  type ClaimStatus, type CoreItem, type PartsRequest, type WarrantyClaim,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 import { Button, Tabs, StatCluster } from '../components/ds'
@@ -15,7 +16,7 @@ import StatCard from '../components/StatCard'
 import Skeleton from '../components/Skeleton'
 import PurchaseOrdersPage from './PurchaseOrdersPage'
 
-type PurchTab = 'requests' | 'pos' | 'cores'
+type PurchTab = 'requests' | 'pos' | 'cores' | 'warranty'
 
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
@@ -27,6 +28,16 @@ const fmtDate = (iso: string) => (iso ? iso.slice(0, 10) : '—')
 
 export default function PurchasingPage() {
   const [tab, setTab] = useState<PurchTab>('requests')
+  const qc = useQueryClient()
+  // Escaneo de garantía al abrir Purchasing (una vez): materializa claims
+  // nuevos sin mutar en cada lectura. Al terminar, refresca las queries de
+  // ['warranty'] (label + KPIs + tab).
+  useEffect(() => {
+    scanWarranty()
+      .then((r) => { if (r.created) qc.invalidateQueries({ queryKey: ['warranty'] }) })
+      .catch(() => { /* silencioso: el tab igual muestra los claims ya guardados */ })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const reqQ = useQuery({
     queryKey: ['parts-requests', 'pending'],
     queryFn: () => listPartsRequests('pending'),
@@ -39,12 +50,19 @@ export default function PurchasingPage() {
   const coresQ = useQuery({
     queryKey: ['cores', 'pending'], queryFn: () => listCores('pending'),
   })
+  // Reclamos de garantía abiertos (materializados por el scan de arriba) para
+  // el label + KPIs.
+  const warrQ = useQuery({
+    queryKey: ['warranty', 'open'], queryFn: () => listWarranty('open'),
+  })
 
   const stats = reqQ.data?.stats
   const requests = reqQ.data?.requests ?? []
   const poCount = posQ.data?.purchase_orders.length ?? 0
   const coreStats = coresQ.data?.stats
   const coreCount = coreStats?.pending ?? 0
+  const warrStats = warrQ.data?.stats
+  const warrCount = warrStats?.open ?? 0
 
   return (
     <div className="page page-wide">
@@ -93,11 +111,27 @@ export default function PurchasingPage() {
         </StatCluster>
       )}
 
+      {tab === 'warranty' && (
+        <StatCluster className="kpi-row" columns="repeat(3, minmax(0, 1fr))">
+          <StatCard label="Open claims" value={warrStats?.open ?? 0}
+            sub="parts failed under warranty"
+            tone={warrStats?.open ? 'warn' : 'ok'} />
+          <StatCard label="Recoverable"
+            value={money(warrStats?.open_amount ?? 0)}
+            sub="claimable from vendors"
+            tone={warrStats?.open_amount ? 'accent' : 'default'} />
+          <StatCard label="Recovered"
+            value={money(warrStats?.recovered_amount ?? 0)}
+            sub={`${warrStats?.recovered ?? 0} claims closed`} tone="ok" />
+        </StatCluster>
+      )}
+
       <div className="parts-toolbar">
         <Tabs
           tabs={[{ id: 'requests', label: `Requests · ${stats?.pending ?? 0}` },
             { id: 'pos', label: `Purchase orders · ${poCount}` },
-            { id: 'cores', label: `Cores · ${coreCount}` }]}
+            { id: 'cores', label: `Cores · ${coreCount}` },
+            { id: 'warranty', label: `Warranty · ${warrCount}` }]}
           value={tab}
           onChange={(id) => setTab(id as PurchTab)}
         />
@@ -108,7 +142,131 @@ export default function PurchasingPage() {
       )}
       {tab === 'pos' && <PurchaseOrdersPage />}
       {tab === 'cores' && <CoresTab />}
+      {tab === 'warranty' && <WarrantyTab />}
     </div>
+  )
+}
+
+// ----- Reclamos de garantía: parte reusada dentro de garantía -------------
+const CLAIM_META: Record<string, { label: string; cls: string }> = {
+  open: { label: 'Open', cls: 'wo-open' },
+  submitted: { label: 'Submitted', cls: 'wo-progress' },
+  recovered: { label: 'Recovered', cls: 'wo-done' },
+  dismissed: { label: 'Dismissed', cls: 'wo-invoiced' },
+}
+
+function WarrantyTab() {
+  const qc = useQueryClient()
+  const [view, setView] = useState<'open' | 'submitted' | 'recovered' | 'dismissed'>('open')
+  const claimsQ = useQuery({
+    queryKey: ['warranty', view], queryFn: () => listWarranty(view),
+  })
+  const [busy, setBusy] = useState<number | null>(null)
+  const claims = claimsQ.data?.claims ?? []
+
+  async function act(c: WarrantyClaim, status: ClaimStatus) {
+    setBusy(c.id)
+    try {
+      await setClaimStatus(c.id, status)
+      qc.invalidateQueries({ queryKey: ['warranty'] })
+      notifyOk(`Claim ${CLAIM_META[status]?.label ?? status}`,
+        `${c.part_number} · ${c.unit}`)
+    } catch (e) {
+      notifyErr("Couldn't update claim", e)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2>Warranty claims — {CLAIM_META[view]?.label.toLowerCase()}</h2>
+        <span className="head-spacer" />
+        <Tabs
+          tabs={[{ id: 'open', label: 'Open' },
+            { id: 'submitted', label: 'Submitted' },
+            { id: 'recovered', label: 'Recovered' },
+            { id: 'dismissed', label: 'Dismissed' }]}
+          value={view}
+          onChange={(id) => setView(id as typeof view)}
+        />
+      </div>
+      <div className="card-body">
+        {claimsQ.isPending ? (
+          <div className="skel-rows">
+            {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} h={40} />)}
+          </div>
+        ) : claims.length === 0 ? (
+          <div className="empty mini">
+            <p>{view === 'open'
+              ? 'No open warranty claims. A claim is flagged when a part with a '
+                + 'warranty window is reused on the same unit before it expires.'
+              : `No ${view} claims.`}</p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="defects-table wo-table">
+              <thead>
+                <tr>
+                  <th>Part #</th>
+                  <th>Unit</th>
+                  <th>Vendor</th>
+                  <th>Installed</th>
+                  <th>Failed</th>
+                  <th>Warranty until</th>
+                  <th className="num">Recoverable</th>
+                  <th aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {claims.map((c) => (
+                  <tr key={c.id}>
+                    <td className="mono" title={c.description}>{c.part_number}</td>
+                    <td><span className="unit-code">{c.unit}</span></td>
+                    <td>{c.vendor || <span className="muted">—</span>}</td>
+                    <td className="muted">
+                      {c.install_date}
+                      {c.install_wo ? ` · #${c.install_wo}` : ''}
+                    </td>
+                    <td className="muted">
+                      {c.failure_date}
+                      {c.failure_wo ? ` · #${c.failure_wo}` : ''}
+                    </td>
+                    <td className="muted">{c.warranty_until}</td>
+                    <td className="num mono">{money(c.amount)}</td>
+                    <td className="num">
+                      <span className="wl-actions">
+                        {c.status === 'open' && (
+                          <button className="btn btn-xs btn-primary"
+                            disabled={busy === c.id}
+                            onClick={() => act(c, 'submitted')}>Submit</button>
+                        )}
+                        {c.status === 'submitted' && (
+                          <button className="btn btn-xs btn-primary"
+                            disabled={busy === c.id}
+                            onClick={() => act(c, 'recovered')}>Recovered</button>
+                        )}
+                        {(c.status === 'open' || c.status === 'submitted') && (
+                          <button className="btn btn-xs btn-ghost"
+                            disabled={busy === c.id}
+                            onClick={() => act(c, 'dismissed')}>Dismiss</button>
+                        )}
+                        {(c.status === 'recovered' || c.status === 'dismissed') && (
+                          <button className="btn btn-xs btn-ghost"
+                            disabled={busy === c.id}
+                            onClick={() => act(c, 'open')}>Reopen</button>
+                        )}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
 

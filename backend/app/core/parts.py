@@ -122,6 +122,7 @@ def _part_dict(p: Part, vendor_name: str = "") -> dict:
         "fits": p.fits,
         "source": p.source,
         "core_charge": round(p.core_charge or 0.0, 2),
+        "warranty_months": int(p.warranty_months or 0),
         "notes": p.notes,
     }
 
@@ -241,6 +242,11 @@ def _apply_part(p: Part, data: dict) -> None:
     if "core_charge" in data:
         try:
             p.core_charge = max(0.0, float(data["core_charge"] or 0))
+        except (TypeError, ValueError):
+            pass
+    if "warranty_months" in data:
+        try:
+            p.warranty_months = max(0, int(data["warranty_months"] or 0))
         except (TypeError, ValueError):
             pass
 

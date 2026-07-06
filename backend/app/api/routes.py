@@ -28,7 +28,8 @@ from ..core import (
     sms_service,
     teams,
     telegram_notify, terminals, thermoking, tms, traccar, tracking,
-    unit_settings, unitdocs, vin_decode, wo_invoice, wo_invoices, workorders,
+    unit_settings, unitdocs, vin_decode, warranty, wo_invoice, wo_invoices,
+    workorders,
 )
 from ..core import notice_templates
 from ..core.contacts import name_key
@@ -996,6 +997,38 @@ def core_unreturn(core_id: int):
     c = cores.unreturn_core(core_id)
     if c is None:
         raise HTTPException(status_code=404, detail="Core not found")
+    return c
+
+
+# ----- Warranty tracking (reclamos de garantía, v2.6) -----------------------
+# El moat: parte reusada dentro de garantía en la misma unidad => claim. El GET
+# es solo lectura; el escaneo (que escribe claims) vive en un POST aparte para
+# no mutar en cada lectura ni correr dos escaneos concurrentes en paralelo. El
+# front dispara /scan al abrir Purchasing. Todo /api/warranty => maint.edit.
+
+@router.get("/warranty")
+def warranty_list(status: str = "open"):
+    return {"claims": warranty.list_claims(status),
+            "stats": warranty.claim_stats()}
+
+
+@router.post("/warranty/scan")
+def warranty_scan():
+    return {"created": warranty.scan()}
+
+
+class WarrantyStatusIn(BaseModel):
+    status: str          # open | submitted | recovered | dismissed
+
+
+@router.post("/warranty/{claim_id}/status")
+def warranty_status(claim_id: int, body: WarrantyStatusIn):
+    try:
+        c = warranty.set_status(claim_id, body.status)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if c is None:
+        raise HTTPException(status_code=404, detail="Claim not found")
     return c
 
 
