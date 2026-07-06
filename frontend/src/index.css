@@ -8778,3 +8778,36 @@ iframe.wo-preview { border: 1px solid var(--border); }
   .purch-row { grid-template-columns: 22px minmax(0, 1fr) auto auto; }
   .purch-src, .purch-by { display: none; }
 }
+
+/* ==================================================================
+   Roles & permissions — matriz rol × capacidad (read-only, Inc 5)
+   ================================================================== */
+.perm-note {
+  font-size: 12.5px; color: var(--text-muted); margin-bottom: 14px;
+  max-width: 74ch; line-height: 1.5;
+}
+.perm-note strong { color: var(--text); font-weight: 600; }
+.perm-table {
+  width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums;
+}
+.perm-table th, .perm-table td {
+  padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left;
+}
+.perm-table thead th {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-muted); background: var(--surface-2);
+}
+.perm-role { text-align: center; }
+.perm-lock { margin-left: 5px; opacity: 0.55; vertical-align: middle; }
+.perm-cap { min-width: 230px; }
+.perm-cap strong { display: block; font-size: 12.5px; }
+.perm-scope { font-size: 9.5px; color: var(--text-muted); }
+.perm-cell { text-align: center; }
+.perm-seg {
+  display: inline-flex; border: 1px solid var(--border); border-radius: 7px;
+  overflow: hidden; font-size: 9px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.perm-seg span { padding: 3px 9px; color: var(--text-muted); }
+.perm-seg.view span.on { background: var(--surface-3); color: var(--text); }
+.perm-seg.edit span.on { background: var(--accent-soft); color: var(--accent); }

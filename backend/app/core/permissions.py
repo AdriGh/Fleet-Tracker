@@ -63,3 +63,21 @@ def scopes_for(role: str) -> list[str]:
     if role == "admin":
         return list(SCOPES)
     return [s for s in SCOPES if s in ROLE_SCOPES.get(role, set())]
+
+
+def matrix() -> dict:
+    """Matriz completa rol → capacidad para la UI de permisos (READ-ONLY).
+
+    Refleja EXACTAMENTE lo que enforce el middleware (`_scope_for`). Como la
+    lectura (GET) nunca exige scope, cada rol tiene al menos 'view' en todo;
+    tener el scope es 'edit'. El admin es 'edit' en todo (lockeado)."""
+    roles = list(ROLE_SCOPES.keys())  # admin, dispatcher, safety, mechanic, viewer
+    return {
+        "roles": roles,
+        "scopes": [{"id": s, "label": SCOPE_LABELS.get(s, s)} for s in SCOPES],
+        "matrix": {
+            r: {s: ("edit" if has_scope(r, s) else "view") for s in SCOPES}
+            for r in roles
+        },
+        "editable": False,  # los roles son fijos por ahora (sin store por-org)
+    }
