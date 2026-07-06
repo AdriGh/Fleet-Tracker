@@ -14,7 +14,6 @@ import Logo from './components/Logo'
 import Dashboard from './views/Dashboard'
 import DvirPage from './views/DvirPage'
 import DefectsPage from './views/DefectsPage'
-import NotifyPage from './views/NotifyPage'
 import FleetPage from './views/FleetPage'
 import MaintBoardPage from './views/MaintBoardPage'
 import UnitProfilePage from './views/UnitProfilePage'
@@ -48,7 +47,6 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { id: 'dvir', label: 'DVIR' },
       { id: 'defectos', label: 'Defects' },
-      { id: 'avisos', label: 'Notices' },
       { id: 'coldchain', label: 'Cold Chain' },
     ],
   },
@@ -147,13 +145,6 @@ const ICONS: Record<string, ReactElement> = {
       <path d="M12 9v4M12 17h.01" />
     </svg>
   ),
-  avisos: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="5" width="18" height="14" rx="2" />
-      <path d="m4 7 8 6 8-6" />
-    </svg>
-  ),
   flota: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
       strokeLinecap="round" strokeLinejoin="round">
@@ -215,9 +206,21 @@ export default function App() {
   const [section, setSection] = useState('dashboard')
   // H3: perfil completo de unidad (se superpone a la sección actual).
   const [profileUnit, setProfileUnit] = useState<string | null>(null)
+  // Drawer móvil (<760px): el sidebar se esconde tras una barra superior con
+  // hamburguesa; navegar o tocar el scrim lo cierra.
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  // Viewport-aware: <=760px es el modo drawer. En ese modo el nav se muestra
+  // SIEMPRE completo (el riel de iconos con flyout depende de hover, inútil
+  // en touch).
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth <= 760,
+  )
   // Navegar a una sección SIEMPRE cierra el perfil de unidad abierto
-  // (si no, el perfil se superpone y el clic en el sidebar "no hace nada").
-  const navigate = (id: string) => { setProfileUnit(null); setSection(id) }
+  // (si no, el perfil se superpone y el clic en el sidebar "no hace nada")
+  // y cierra el drawer móvil.
+  const navigate = (id: string) => {
+    setProfileUnit(null); setSection(id); setDrawerOpen(false)
+  }
   // Sesión real (fase G7): el token vive en localStorage ('ft-token');
   // /api/auth/status decide entre wizard, login o app.
   const [sessionUser, setSessionUser] = useState<AuthUser | null>(null)
@@ -285,6 +288,31 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('ft-sidebar-collapsed', navCollapsed ? '1' : '0')
   }, [navCollapsed])
+
+  useEffect(() => {
+    const onResize = () => {
+      const mobile = window.innerWidth <= 760
+      setIsMobile(mobile)
+      if (!mobile) setDrawerOpen(false) // al agrandar, cerrar el drawer
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  // Drawer móvil: Escape lo cierra; se bloquea el scroll del body mientras
+  // está abierto para que el gesto quede contenido en el panel.
+  useEffect(() => {
+    if (!drawerOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDrawerOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    document.body.classList.add('drawer-lock')
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.classList.remove('drawer-lock')
+    }
+  }, [drawerOpen])
 
   // Alertas de flota (G3): poll ligero y toast SOLO para eventos nuevos
   // (el primer fetch fija la línea base sin avisar).
@@ -358,7 +386,7 @@ export default function App() {
 
   return (
     <PermsContext.Provider value={perms}>
-    <div className="app">
+    <div className={`app ${drawerOpen ? 'drawer-open' : ''}`}>
       <Toaster
         theme={theme}
         position="top-right"
@@ -366,6 +394,34 @@ export default function App() {
         closeButton
         toastOptions={{ style: { fontFamily: 'inherit' } }}
       />
+
+      {/* Barra superior móvil (<760px): hamburguesa + marca. En desktop
+          queda oculta por CSS. */}
+      <header className="topbar">
+        <button
+          className="icon-btn topbar-burger"
+          onClick={() => setDrawerOpen(true)}
+          aria-label="Open menu"
+          aria-expanded={drawerOpen}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 6h18M3 12h18M3 18h18" />
+          </svg>
+        </button>
+        <span className="topbar-brand">
+          <Logo />
+          <strong>{branding?.app_name || 'Rigsmith'}</strong>
+        </span>
+      </header>
+
+      {/* Scrim: cierra el drawer al tocar fuera. */}
+      <div
+        className="drawer-scrim"
+        onClick={() => setDrawerOpen(false)}
+        aria-hidden="true"
+      />
+
       <aside className={`sidebar ${navCollapsed ? 'collapsed' : ''}`}>
         <div className="brand">
           <Logo />
@@ -389,7 +445,7 @@ export default function App() {
 
         {/* Zona scrolleable: el nav nunca desborda la pantalla */}
         <div className="sidebar-scroll">
-          {navCollapsed ? (
+          {navCollapsed && !isMobile ? (
             <>
               {/* Riel colapsado: un icono por grupo; hover -> flyout con
                   los ítems (estilo Samsara, no por click). */}
@@ -556,7 +612,6 @@ export default function App() {
           )}
           {section === 'dvir' && <DvirPage />}
           {section === 'defectos' && <DefectsPage />}
-          {section === 'avisos' && <NotifyPage />}
           {section === 'flota' && <FleetPage onOpenUnit={setProfileUnit} />}
           {section === 'pm' && <MaintBoardPage kind="pm" />}
           {section === 'dot' && <MaintBoardPage kind="dot" />}
@@ -569,7 +624,6 @@ export default function App() {
             <SettingsPage
               theme={theme}
               onTheme={setTheme}
-              onNavigate={navigate}
               isAdmin={sessionUser?.role === 'admin'}
             />
           )}

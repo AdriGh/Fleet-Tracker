@@ -419,7 +419,7 @@ export default function ReeferPage() {
             aftermarket hardware (a tracker + temp probe like Teltonika
             FMC130 + DS18B20) reporting to a self-hosted{' '}
             <strong>Traccar</strong>. Set it in{' '}
-            <strong>Settings → Connectivity → Cold chain</strong> (guides:
+            <strong>Settings → Integrations → Cold chain</strong> (guides:
             backend/LYNX_SETUP.md, THERMOKING_SETUP.md, REEFER_SETUP.md).
             The dashboard, alerts and exports are already wired.
           </span>
