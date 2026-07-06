@@ -6,13 +6,16 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   bundleRequests, cancelPartsRequest, generateLowStockRequests,
-  listPartsRequests, listPurchaseOrders, type PartsRequest,
+  listCores, listPartsRequests, listPurchaseOrders, returnCore,
+  unreturnCore, type CoreItem, type PartsRequest,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 import { Button, Tabs, StatCluster } from '../components/ds'
 import StatCard from '../components/StatCard'
 import Skeleton from '../components/Skeleton'
 import PurchaseOrdersPage from './PurchaseOrdersPage'
+
+type PurchTab = 'requests' | 'pos' | 'cores'
 
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
@@ -23,7 +26,7 @@ const SOURCE_LABEL: Record<string, string> = {
 const fmtDate = (iso: string) => (iso ? iso.slice(0, 10) : '—')
 
 export default function PurchasingPage() {
-  const [tab, setTab] = useState<'requests' | 'pos'>('requests')
+  const [tab, setTab] = useState<PurchTab>('requests')
   const reqQ = useQuery({
     queryKey: ['parts-requests', 'pending'],
     queryFn: () => listPartsRequests('pending'),
@@ -32,10 +35,16 @@ export default function PurchasingPage() {
   const posQ = useQuery({
     queryKey: ['purchase-orders', ''], queryFn: () => listPurchaseOrders(),
   })
+  // Banco de cores (pendientes de devolver) para el label + KPIs.
+  const coresQ = useQuery({
+    queryKey: ['cores', 'pending'], queryFn: () => listCores('pending'),
+  })
 
   const stats = reqQ.data?.stats
   const requests = reqQ.data?.requests ?? []
   const poCount = posQ.data?.purchase_orders.length ?? 0
+  const coreStats = coresQ.data?.stats
+  const coreCount = coreStats?.pending ?? 0
 
   return (
     <div className="page page-wide">
@@ -69,19 +78,132 @@ export default function PurchasingPage() {
         </StatCluster>
       )}
 
+      {tab === 'cores' && (
+        <StatCluster className="kpi-row" columns="repeat(3, minmax(0, 1fr))">
+          <StatCard label="Cores to return" value={coreStats?.pending ?? 0}
+            sub={`${coreStats?.vendors ?? 0} vendors`}
+            tone={coreStats?.pending ? 'warn' : 'ok'} />
+          <StatCard label="Deposits outstanding"
+            value={money(coreStats?.pending_deposit ?? 0)}
+            sub="tied up until returned"
+            tone={coreStats?.pending_deposit ? 'accent' : 'default'} />
+          <StatCard label="Credited 30d"
+            value={money(coreStats?.credited_30d ?? 0)}
+            sub={`${coreStats?.returned_30d ?? 0} cores returned`} tone="ok" />
+        </StatCluster>
+      )}
+
       <div className="parts-toolbar">
         <Tabs
           tabs={[{ id: 'requests', label: `Requests · ${stats?.pending ?? 0}` },
-            { id: 'pos', label: `Purchase orders · ${poCount}` }]}
+            { id: 'pos', label: `Purchase orders · ${poCount}` },
+            { id: 'cores', label: `Cores · ${coreCount}` }]}
           value={tab}
-          onChange={(id) => setTab(id as 'requests' | 'pos')}
+          onChange={(id) => setTab(id as PurchTab)}
         />
       </div>
 
-      {tab === 'requests'
-        ? <RequestsQueue requests={requests} pending={reqQ.isPending} />
-        : <PurchaseOrdersPage />}
+      {tab === 'requests' && (
+        <RequestsQueue requests={requests} pending={reqQ.isPending} />
+      )}
+      {tab === 'pos' && <PurchaseOrdersPage />}
+      {tab === 'cores' && <CoresTab />}
     </div>
+  )
+}
+
+// ----- Banco de cores: pendientes de devolver + devolución -----------------
+function CoresTab() {
+  const qc = useQueryClient()
+  const [showReturned, setShowReturned] = useState(false)
+  const status = showReturned ? 'returned' : 'pending'
+  const coresQ = useQuery({
+    queryKey: ['cores', status], queryFn: () => listCores(status),
+  })
+  const [busy, setBusy] = useState<number | null>(null)
+  const cores = coresQ.data?.cores ?? []
+
+  async function toggle(c: CoreItem) {
+    setBusy(c.id)
+    try {
+      if (c.status === 'pending') await returnCore(c.id)
+      else await unreturnCore(c.id)
+      qc.invalidateQueries({ queryKey: ['cores'] })
+      notifyOk(c.status === 'pending'
+        ? 'Core returned' : 'Core reopened',
+        `${c.part_number} · ${money(c.deposit)}`)
+    } catch (e) {
+      notifyErr("Couldn't update core", e)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2>{showReturned ? 'Returned cores' : 'Core bank — pending return'}</h2>
+        <span className="head-spacer" />
+        <button className="btn btn-ghost btn-sm"
+          onClick={() => setShowReturned((v) => !v)}>
+          {showReturned ? 'Show pending' : 'Show returned'}
+        </button>
+      </div>
+      <div className="card-body">
+        {coresQ.isPending ? (
+          <div className="skel-rows">
+            {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} h={34} />)}
+          </div>
+        ) : cores.length === 0 ? (
+          <div className="empty mini">
+            <p>{showReturned
+              ? 'No cores returned yet.'
+              : 'No cores to return. Cores appear here when you receive a PO '
+                + 'of a part that carries a core charge.'}</p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="defects-table wo-table">
+              <thead>
+                <tr>
+                  <th>Part #</th>
+                  <th>Description</th>
+                  <th>Vendor</th>
+                  <th className="num">Qty</th>
+                  <th className="num">Deposit</th>
+                  <th>{showReturned ? 'Returned' : 'Received'}</th>
+                  <th aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {cores.map((c) => (
+                  <tr key={c.id}>
+                    <td className="mono">{c.part_number}</td>
+                    <td className="wo-title">{c.description}</td>
+                    <td>{c.vendor || <span className="muted">—</span>}</td>
+                    <td className="num">{c.qty}</td>
+                    <td className="num mono">{money(c.deposit)}</td>
+                    <td className="muted">
+                      {fmtDate(showReturned
+                        ? (c.returned_at ?? '') : c.created_at)}
+                    </td>
+                    <td className="num">
+                      <button className="btn btn-xs btn-primary"
+                        disabled={busy === c.id}
+                        onClick={() => toggle(c)}>
+                        {c.status === 'pending'
+                          ? (busy === c.id ? 'Returning…' : 'Mark returned')
+                          : (busy === c.id ? 'Reopening…' : 'Reopen')}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
 

@@ -2021,6 +2021,7 @@ export interface Part {
   upc: string
   fits: string            // compatibilidad / a qué unidades entra
   source: string          // origen (manual | scan | …)
+  core_charge: number     // depósito de core por unidad (0 = sin core)
   notes: string
 }
 
@@ -2353,6 +2354,50 @@ export async function bundleRequests(
 export async function cancelPartsRequest(id: number): Promise<void> {
   const res = await fetch(`/api/parts-requests/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(await readError(res))
+}
+
+// --- Core tracking (banco de cores, v2.5) --------------------------------
+// Cores pendientes de devolver al proveedor para recuperar el depósito.
+export interface CoreItem {
+  id: number
+  part_number: string
+  description: string
+  vendor: string
+  core_charge: number     // depósito por unidad
+  qty: number
+  deposit: number         // core_charge × qty
+  po_id: number | null
+  status: 'pending' | 'returned'
+  created_at: string
+  returned_at: string | null
+}
+
+export interface CoreStats {
+  pending: number
+  pending_deposit: number   // $ inmovilizado en depósitos pendientes
+  vendors: number
+  returned_30d: number
+  credited_30d: number      // créditos recuperados en 30 días
+}
+
+export async function listCores(
+  status = 'pending',
+): Promise<{ cores: CoreItem[]; stats: CoreStats }> {
+  const res = await fetch(`/api/cores?status=${encodeURIComponent(status)}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function returnCore(id: number): Promise<CoreItem> {
+  const res = await fetch(`/api/cores/${id}/return`, { method: 'POST' })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function unreturnCore(id: number): Promise<CoreItem> {
+  const res = await fetch(`/api/cores/${id}/unreturn`, { method: 'POST' })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
 }
 
 // --- Permisos (matriz rol → capacidad, read-only, Inc 5) -----------------

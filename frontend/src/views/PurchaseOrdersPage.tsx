@@ -421,6 +421,11 @@ function PoDrawer({ poId, onClose }: {
     setBusy(true)
     try {
       refreshPo(await patchPurchaseOrder(po.id, { status: s }))
+      if (s === 'received') {
+        // El camino legacy 'received' repone stock y puede crear cores.
+        qc.invalidateQueries({ queryKey: ['parts'] })
+        qc.invalidateQueries({ queryKey: ['cores'] })
+      }
       notifyOk(`PO #${po.id}: ${PO_STATUS_META[s].label}`)
     } catch (e) {
       notifyErr('Could not change status', e)
@@ -451,6 +456,7 @@ function PoDrawer({ poId, onClose }: {
         po.id, receipts, token, backorderRest)
       refreshPo(res.po)
       qc.invalidateQueries({ queryKey: ['parts'] })   // on_hand cambió
+      qc.invalidateQueries({ queryKey: ['cores'] })   // pudo crear cores
       setRecvQty({})
       if (res.backorder) {
         qc.invalidateQueries({ queryKey: ['purchase-orders'] })

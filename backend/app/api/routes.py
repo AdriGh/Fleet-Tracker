@@ -17,8 +17,8 @@ from pydantic import BaseModel
 from fastapi import Header
 
 from ..core import (
-    alerts, app_config, auth, batch, companies, docscan, driver_contacts,
-    engine,
+    alerts, app_config, auth, batch, companies, cores, docscan,
+    driver_contacts, engine,
     excel, integrations_admin, inventory, local_config, lynx, mailer, maint,
     manual_units, media_host, notify_service, open_defects, org_config,
     parts, parts_marketplace, permissions, pm, pois, pretrip, providers,
@@ -972,6 +972,31 @@ def po_del_line(po_id: int, line_id: int):
     if po is None:
         raise HTTPException(status_code=404, detail="PO not found")
     return po
+
+
+# ----- Core tracking (banco de cores, v2.5) ---------------------------------
+# El moat: cores pendientes de devolver al proveedor para recuperar el
+# depósito. GET = lectura; return/unreturn caen bajo /api/cores => maint.edit.
+
+@router.get("/cores")
+def cores_list(status: str = "pending"):
+    return {"cores": cores.list_cores(status), "stats": cores.core_stats()}
+
+
+@router.post("/cores/{core_id}/return")
+def core_return(core_id: int):
+    c = cores.return_core(core_id)
+    if c is None:
+        raise HTTPException(status_code=404, detail="Core not found")
+    return c
+
+
+@router.post("/cores/{core_id}/unreturn")
+def core_unreturn(core_id: int):
+    c = cores.unreturn_core(core_id)
+    if c is None:
+        raise HTTPException(status_code=404, detail="Core not found")
+    return c
 
 
 # ----- Parts Requests (cola de faltantes -> bundle por vendor -> PO) --------

@@ -7,6 +7,36 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.5.0] - 2026-07-06
+
+### Añadido
+- **Core tracking — el moat** (el flanco que ni Fullbay/SquareRigger/Fleetio
+  cubren bien). Las partes reman llevan un **depósito de core** reembolsable;
+  hay que devolver la unidad vieja al proveedor para recuperarlo.
+  - **`Part.core_charge`** (depósito por unidad; > 0 = la parte lleva core).
+    Editable en el modal de parte; chip **CORE $X** en la ficha.
+  - Al **recibir** una PO de una parte con core se crea automáticamente un
+    **CoreItem pendiente** (por evento de recepción), **atómico** con el
+    movimiento de stock e **idempotente** por el mismo `ref` (no duplica al
+    re-recibir). Tabla nueva `core_item` (migración Alembic `b2c3d4e5f6a7`).
+  - **Pestaña "Cores"** en Purchasing (banco de cores): pendientes de devolver
+    con vendor/qty/depósito/fecha y **Mark returned**; toggle de devueltos; y
+    KPIs: **cores a devolver**, **depósitos afuera** (plata inmovilizada) y
+    **créditos recuperados 30d**. Endpoints `GET /api/cores`,
+    `POST /api/cores/{id}/return|unreturn` (bajo `maint.edit`).
+
+### Corregido
+- `doReceive` y el botón legacy **Received** en el drawer de PO ahora invalidan
+  la caché `['cores']` (recibir una parte con core puede crear cores → el banco
+  de cores refresca al instante).
+
+### Verificación
+- Tests (`backend/tests/test_cores.py`): creación solo para partes con core,
+  idempotencia, ciclo return/credit/unreturn, stats. Revisión adversarial
+  multi-agente: su único hallazgo "crítico" (cross-tenant vía `session.get`)
+  se **verificó como falso positivo** (en este codebase `session.get` respeta
+  el org-scoping de `with_loader_criteria`); el resto, seguro.
+
 ## [2.4.0] - 2026-07-06
 
 ### Añadido
