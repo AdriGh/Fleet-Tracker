@@ -15,7 +15,8 @@ import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 import { StatCluster } from '../components/ds'
-import PurchaseOrdersPage, { QuickBuyButton } from './PurchaseOrdersPage'
+import { QuickBuyButton } from './PurchaseOrdersPage'
+import PurchasingPage from './PurchasingPage'
 import MarketplacePanel from './MarketplacePanel'
 
 // ¿La parte está en/bajo su punto de reorden? (solo cuenta si reorder_point > 0)
@@ -56,7 +57,7 @@ export default function PartsPage() {
           <Tabs
             tabs={[{ id: 'parts', label: 'Parts' },
               { id: 'vendors', label: 'Vendors' },
-              { id: 'pos', label: 'Purchase Orders' },
+              { id: 'pos', label: 'Purchasing' },
               { id: 'marketplace', label: 'Marketplace' }]}
             value={tab}
             onChange={(id) => setTab(id as Tab)}
@@ -66,7 +67,7 @@ export default function PartsPage() {
 
       {tab === 'parts' && <PartsTab />}
       {tab === 'vendors' && <VendorsTab />}
-      {tab === 'pos' && <PurchaseOrdersPage />}
+      {tab === 'pos' && <PurchasingPage />}
       {tab === 'marketplace' && <MarketplacePanel />}
     </div>
   )

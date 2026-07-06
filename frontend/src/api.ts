@@ -2223,6 +2223,77 @@ export async function deletePoLine(
   return res.json()
 }
 
+// --- Parts Requests (cola de faltantes → bundle por vendor → PO, Inc 4) ---
+export interface PartsRequest {
+  id: number
+  part_number: string
+  description: string
+  qty: number
+  unit_cost: number
+  total: number
+  vendor: string
+  source: string          // low_stock | wo | manual
+  source_ref: string
+  requested_by: string
+  status: string          // pending | ordered
+  po_id: number | null
+  created_at: string
+}
+
+export interface RequestStats {
+  pending: number
+  pending_value: number
+  vendors: number
+  pos_in_flight: number
+  in_flight_value: number
+  received_30d_value: number
+  received_30d_count: number
+}
+
+export async function listPartsRequests(
+  status = 'pending',
+): Promise<{ requests: PartsRequest[]; stats: RequestStats }> {
+  const res = await fetch(
+    `/api/parts-requests?status=${encodeURIComponent(status)}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function createPartsRequest(body: {
+  part_number?: string; description?: string; qty?: number
+  unit_cost?: number; vendor?: string; source?: string; source_ref?: string
+}): Promise<PartsRequest> {
+  const res = await fetch('/api/parts-requests', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function generateLowStockRequests(): Promise<{ created: number }> {
+  const res = await fetch('/api/parts-requests/generate-low-stock',
+    { method: 'POST' })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function bundleRequests(
+  requestIds: number[],
+): Promise<{ po: PurchaseOrder; n: number }> {
+  const res = await fetch('/api/parts-requests/bundle', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ request_ids: requestIds }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function cancelPartsRequest(id: number): Promise<void> {
+  const res = await fetch(`/api/parts-requests/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
 // --- Marketplace de partes (scaffold, Increment B) -----------------------
 // Búsqueda en un marketplace externo (FindItParts/PartsTech). Mientras no
 // haya cuenta de API conectada, el backend devuelve datos demo (mock) y

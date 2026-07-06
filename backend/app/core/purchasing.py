@@ -17,11 +17,14 @@ cacheado en la fila nunca queda desincronizado.
 
 from __future__ import annotations
 
-from datetime import datetime
+import math
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
 
-from ..db import POLine, PurchaseOrder, SessionLocal
+from ..db import (
+    Part, PartsRequest, POLine, PurchaseOrder, SessionLocal, Vendor,
+)
 
 STATUSES = ("draft", "ordered", "received")
 
@@ -202,3 +205,174 @@ def stats() -> dict:
             "received": by_status.get("received", 0),
             "open_value": round(float(open_total), 2),
         }
+
+
+# ===== Parts Requests (cola de faltantes -> bundle por vendor -> PO) =========
+# Increment 4 del handoff. Un faltante entra a la cola (bajo stock auto, WO o
+# manual), el parts manager agrupa varios del mismo vendor y los funde en una
+# sola PO. La PO en sí sigue el mismo pipeline draft->ordered->received de
+# arriba (recibir repone stock).
+
+def _req_dict(r: PartsRequest) -> dict:
+    return {
+        "id": r.id,
+        "part_number": r.part_number or "",
+        "description": r.description or "",
+        "qty": r.qty,
+        "unit_cost": r.unit_cost,
+        "total": round(r.qty * r.unit_cost, 2),
+        "vendor": r.vendor or "",
+        "source": r.source or "manual",
+        "source_ref": r.source_ref or "",
+        "requested_by": r.requested_by or "",
+        "status": r.status,
+        "po_id": r.po_id,
+        "created_at": r.created_at.isoformat(),
+    }
+
+
+def list_requests(status: str = "pending", limit: int = 300) -> list[dict]:
+    with SessionLocal() as session:
+        q = (select(PartsRequest)
+             .order_by(PartsRequest.vendor, PartsRequest.id.desc())
+             .limit(limit))
+        if status:
+            q = q.where(PartsRequest.status == status)
+        return [_req_dict(r) for r in session.scalars(q).all()]
+
+
+def request_stats() -> dict:
+    """KPIs de la cabecera de Purchasing: faltantes pendientes + su valor,
+    POs en vuelo (draft+ordered), y valor recibido en los últimos 30 días."""
+    cutoff = datetime.now() - timedelta(days=30)
+    with SessionLocal() as session:
+        pend = session.scalars(
+            select(PartsRequest).where(PartsRequest.status == "pending")).all()
+        pending_n = len(pend)
+        pending_value = round(sum(r.qty * r.unit_cost for r in pend), 2)
+        vendors_n = len({(r.vendor or "").strip().lower()
+                         for r in pend if (r.vendor or "").strip()})
+        pos_in_flight = session.scalar(
+            select(func.count()).select_from(PurchaseOrder)
+            .where(PurchaseOrder.status.in_(("draft", "ordered")))) or 0
+        in_flight_value = session.scalar(
+            select(func.coalesce(func.sum(PurchaseOrder.total), 0.0))
+            .where(PurchaseOrder.status.in_(("draft", "ordered")))) or 0.0
+        recv_30 = session.execute(
+            select(func.coalesce(func.sum(PurchaseOrder.total), 0.0),
+                   func.count())
+            .where(PurchaseOrder.status == "received",
+                   PurchaseOrder.updated_at >= cutoff)).one()
+        return {
+            "pending": pending_n,
+            "pending_value": pending_value,
+            "vendors": vendors_n,
+            "pos_in_flight": int(pos_in_flight),
+            "in_flight_value": round(float(in_flight_value), 2),
+            "received_30d_value": round(float(recv_30[0] or 0.0), 2),
+            "received_30d_count": int(recv_30[1] or 0),
+        }
+
+
+def create_request(part_number: str = "", description: str = "",
+                   qty: float = 1.0, unit_cost: float = 0.0,
+                   vendor: str = "", source: str = "manual",
+                   source_ref: str = "", requested_by: str = "") -> dict:
+    part_number = (part_number or "").strip()
+    description = (description or "").strip()
+    if not part_number and not description:
+        raise ValueError("part number or description is required")
+    r = PartsRequest(
+        part_number=part_number[:60],
+        description=(description or part_number)[:160],
+        qty=max(0.0, float(qty or 0) or 1.0),
+        unit_cost=max(0.0, float(unit_cost or 0)),
+        vendor=(vendor or "").strip()[:120],
+        source=(source or "manual")[:20],
+        source_ref=(source_ref or "")[:60],
+        requested_by=(requested_by or "")[:60],
+        status="pending",
+        created_at=datetime.now(),
+    )
+    with SessionLocal() as session:
+        session.add(r)
+        session.commit()
+        return _req_dict(r)
+
+
+def generate_low_stock_requests() -> dict:
+    """Crea un request pendiente por cada parte en/bajo su reorder_point que
+    todavía no tenga uno pendiente. Cantidad sugerida: reponer hasta 2× el
+    punto de reorden. Idempotente por part_number (no duplica)."""
+    with SessionLocal() as session:
+        existing = {pn for (pn,) in session.execute(
+            select(PartsRequest.part_number)
+            .where(PartsRequest.status == "pending")).all()}
+        low = session.scalars(
+            select(Part).where(Part.reorder_point > 0,
+                               Part.on_hand <= Part.reorder_point)).all()
+        vmap = {v.id: v.name for v in session.scalars(
+            select(__import__("app.db", fromlist=["Vendor"]).Vendor)).all()}
+        created = 0
+        for p in low:
+            if p.part_number in existing:
+                continue
+            target = p.reorder_point * 2
+            qty = max(1.0, math.ceil(target - p.on_hand))
+            session.add(PartsRequest(
+                part_number=p.part_number[:60],
+                description=(p.description or p.part_number)[:160],
+                qty=qty, unit_cost=p.cost or 0.0,
+                vendor=(vmap.get(p.vendor_id, "") or "")[:120],
+                source="low_stock", source_ref="auto",
+                requested_by="system", status="pending",
+                created_at=datetime.now(),
+            ))
+            created += 1
+        session.commit()
+        return {"created": created}
+
+
+def bundle_requests(request_ids: list[int]) -> dict:
+    """Funde varios requests PENDIENTES del MISMO vendor en una sola PO draft.
+    Marca los requests como 'ordered' y los liga a la PO. Rechaza selección
+    de vendors mezclados o vacía."""
+    ids = [int(i) for i in (request_ids or [])]
+    if not ids:
+        raise ValueError("select at least one request")
+    with SessionLocal() as session:
+        reqs = session.scalars(
+            select(PartsRequest).where(
+                PartsRequest.id.in_(ids),
+                PartsRequest.status == "pending")).all()
+        if not reqs:
+            raise ValueError("no pending requests found for that selection")
+        vendors = {(r.vendor or "").strip() for r in reqs}
+        if len(vendors) > 1:
+            raise ValueError("all requests must share the same vendor")
+        vendor = next(iter(vendors))
+        lines = [{"part_number": r.part_number, "description": r.description,
+                  "qty": r.qty, "unit_cost": r.unit_cost} for r in reqs]
+
+    # create_po abre su propia sesión (org-scoped por el contexto del request).
+    po = create_po(vendor=vendor, notes="Bundled from parts requests",
+                   lines=lines)
+
+    with SessionLocal() as session:
+        for r in session.scalars(
+                select(PartsRequest).where(PartsRequest.id.in_(ids))).all():
+            if r.status == "pending":
+                r.status = "ordered"
+                r.po_id = po["id"]
+        session.commit()
+    return {"po": po, "n": len(reqs)}
+
+
+def cancel_request(request_id: int) -> bool:
+    with SessionLocal() as session:
+        r = session.get(PartsRequest, request_id)
+        if r is None:
+            return False
+        session.delete(r)
+        session.commit()
+        return True
