@@ -8500,6 +8500,61 @@ iframe.wo-preview { border: 1px solid var(--border); }
 }
 .rp-split-bar i { display: block; height: 100%; }
 
+/* ===== Preventive vs reactive — el "CPM story" honesto (prevengo o apago
+   incendios). Número grande + barra split verde/rojo + leyenda + benchmark.
+   Aquí el verde/rojo SÍ es semántico: verde = planificado, rojo = gasto de
+   falla. ===== */
+.rp-prev-wrap { display: flex; flex-direction: column; gap: 18px; }
+.rp-prev-lede {
+  display: flex; align-items: baseline; gap: 22px; flex-wrap: wrap;
+}
+.rp-prev-big {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 2.7rem; font-weight: 800; line-height: 1;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+  display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap;
+}
+.rp-prev-unit { font-size: 0.95rem; font-weight: 600; color: var(--text-muted); }
+.rp-prev-read {
+  margin: 0; font-size: 0.95rem; line-height: 1.5;
+  flex: 1 1 260px; min-width: 240px; color: var(--text-muted);
+}
+.rp-prev-big.rp-prev-ok    { color: var(--st-on-track); }
+.rp-prev-big.rp-prev-info  { color: #38bdf8; }
+.rp-prev-big.rp-prev-warn  { color: var(--st-overdue); }
+.rp-prev-big.rp-prev-muted { color: var(--text-muted); }
+
+.rp-prev-stack {
+  display: flex; width: 100%; height: 22px; border-radius: 999px;
+  overflow: hidden; background: var(--surface-2); border: 1px solid var(--border);
+}
+.rp-prev-seg { display: block; height: 100%; min-width: 0; transition: width 0.4s ease; }
+.rp-prev-seg-pm { background: var(--st-on-track); box-shadow: inset -1px 0 0 var(--surface); }
+.rp-prev-seg-re { background: var(--st-overdue); }
+
+.rp-prev-legend {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 10px 24px;
+}
+.rp-prev-leg { display: flex; align-items: center; gap: 10px; }
+.rp-prev-chip { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.rp-prev-chip-pm { background: var(--st-on-track); }
+.rp-prev-chip-re { background: var(--st-overdue); }
+.rp-prev-leg-lbl { font-size: 0.9rem; color: var(--text-muted); }
+.rp-prev-leg-amt {
+  margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.rp-prev-leg-pct {
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.85rem;
+  color: var(--text-muted); min-width: 3.5ch; text-align: right;
+}
+.rp-prev-bench {
+  margin: 0; font-size: 0.82rem; line-height: 1.5; color: var(--text-muted);
+  border-top: 1px solid var(--border); padding-top: 12px;
+}
+.rp-prev-bench strong { color: var(--text); }
+
 /* Grid de paneles: 2 columnas que colapsan a 1 en angosto. */
 .rp-grid {
   display: grid;
