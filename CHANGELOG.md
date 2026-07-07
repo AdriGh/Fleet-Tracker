@@ -7,6 +7,31 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.7.0] - 2026-07-07
+
+### Añadido
+- **Preventive vs Reactive — el primer ladrillo del "cost-per-mile story"**
+  (dashboard profundo en telematics, Fase 1 · Tier-1, provider-agnóstico:
+  funciona con cualquier flota sin importar su ELD). El KPI más honesto de
+  mantenimiento —**¿prevenís o apagás incendios?**— sin necesidad de millas.
+  - `spend_report` ahora parte el gasto **por WO** en **planificado** (la orden
+    es PM explícito o de campaña pm/dot/kingpins/dpf/clutch) vs **reactivo**
+    (todo lo demás): nuevos `pm_spend`, `reactive_spend`, `pm_pct`. El invariante
+    `pm_spend + reactive_spend == total_spend` se mantiene.
+  - **Mediana por WO** (`median_per_wo`) junto al promedio: dos overhauls caros
+    inflan el avg pero no la mediana → lectura más honesta del ticket típico.
+  - **Sección "Preventive vs reactive"** en Reports & Analytics: % de prevención
+    grande, barra split verde/rojo con $ y %, lectura en lenguaje claro según el
+    ratio (reactive-heavy / balanced / strongly preventive) y su benchmark
+    (~80/20 planificado/reactivo). Ambos van al CSV export.
+
+### Verificación
+- Tests (`backend/tests/test_reports_prevention.py`): split PM/reactivo **por
+  WO** (no por línea), mediana robusta a outliers, `pm_pct` y el invariante de
+  suma, rango vacío sin romper, y campos viejos intactos (backward-compat).
+- Visual (Playwright, light + dark): la sección renderiza con los montos y el
+  read correctos en ambos temas.
+
 ## [2.6.0] - 2026-07-06
 
 ### Añadido

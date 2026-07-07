@@ -166,6 +166,32 @@ def _effective_date(wo: WorkOrder) -> date | None:
     return None
 
 
+def _is_planned(wo: WorkOrder) -> bool:
+    """¿Es trabajo PLANIFICADO (preventivo) o REACTIVO (falla/reparación)?
+
+    Planificado = la orden es un PM explícito (`is_pm`) o pertenece a una
+    campaña programada (pm/dot/kingpins/dpf/clutch): todas son trabajo de
+    calendario/programa, no una falla. Todo lo demás es reactivo. Es la base
+    del ratio preventivo-vs-reactivo (la métrica más honesta de "prevengo o
+    apago incendios", sin necesidad de millas)."""
+    if bool(wo.is_pm):
+        return True
+    return bool((wo.campaign or "").strip())
+
+
+def _median(vals: list[float]) -> float:
+    """Mediana de una lista de montos (0.0 si vacía). Se usa junto al promedio
+    por WO: dos overhauls caros distorsionan el avg pero no la mediana."""
+    if not vals:
+        return 0.0
+    s = sorted(vals)
+    n = len(s)
+    mid = n // 2
+    if n % 2:
+        return round(s[mid], 2)
+    return round((s[mid - 1] + s[mid]) / 2, 2)
+
+
 # ---------------------------------------------------------------------------
 # Agregacion principal
 # ---------------------------------------------------------------------------
@@ -214,7 +240,10 @@ def spend_report(date_from: str = "", date_to: str = "",
         total_spend = 0.0
         parts_spend = 0.0
         labor_spend = 0.0
+        pm_spend = 0.0                       # gasto en trabajo planificado (PM)
+        reactive_spend = 0.0                 # gasto en fallas/reparaciones
         wo_count = 0
+        wo_totals: list[float] = []          # total por WO facturada (mediana)
         by_category: dict[str, float] = {}
         by_unit: dict[str, float] = {}
         by_month: dict[str, float] = {}      # 'YYYY-MM' -> gasto
@@ -233,13 +262,13 @@ def spend_report(date_from: str = "", date_to: str = "",
 
             month_key = eff.strftime("%Y-%m")
             unit_key = (wo.unit or "").strip() or "—"
-            wo_billed = False   # ¿esta orden aporto al menos una linea > 0?
+            wo_total = 0.0      # gasto de ESTA orden (para PM/reactivo + mediana)
 
             for ln in wo.lines:
                 amount = round((ln.qty or 0) * (ln.unit_cost or 0), 2)
                 if amount == 0:
                     continue
-                wo_billed = True
+                wo_total += amount
                 total_spend += amount
                 if (ln.kind or "").strip().lower() == "labor":
                     labor_spend += amount
@@ -266,14 +295,25 @@ def spend_report(date_from: str = "", date_to: str = "",
 
             # Solo cuenta como WO del reporte si aporto gasto real (>0). Asi
             # las ordenes vacias/abiertas sin lineas no inflan el conteo ni
-            # bajan el promedio por WO.
-            if wo_billed:
+            # bajan el promedio por WO. El total de la orden alimenta el split
+            # planificado-vs-reactivo (por WO, no por linea) y la mediana.
+            if wo_total > 0:
                 wo_count += 1
+                wo_totals.append(round(wo_total, 2))
+                if _is_planned(wo):
+                    pm_spend += wo_total
+                else:
+                    reactive_spend += wo_total
 
     total_spend = round(total_spend, 2)
     parts_spend = round(parts_spend, 2)
     labor_spend = round(labor_spend, 2)
+    pm_spend = round(pm_spend, 2)
+    reactive_spend = round(reactive_spend, 2)
     avg_per_wo = round(total_spend / wo_count, 2) if wo_count else 0.0
+    median_per_wo = _median(wo_totals)
+    # % del gasto en prevención (planificado). El resto es reactivo.
+    pm_pct = round(pm_spend / total_spend * 100, 1) if total_spend else 0.0
 
     # ----- Armado de los arrays para charts -----
     # Categorias: en el orden canonico (reglas + labor + other), solo las que
@@ -316,8 +356,12 @@ def spend_report(date_from: str = "", date_to: str = "",
             "total_spend": total_spend,
             "parts_spend": parts_spend,
             "labor_spend": labor_spend,
+            "pm_spend": pm_spend,
+            "reactive_spend": reactive_spend,
+            "pm_pct": pm_pct,
             "wo_count": wo_count,
             "avg_per_wo": avg_per_wo,
+            "median_per_wo": median_per_wo,
         },
         "by_category": category_series,
         "by_unit": unit_series,

@@ -2542,8 +2542,12 @@ export interface SpendTotals {
   total_spend: number   // parts + labor
   parts_spend: number
   labor_spend: number
+  pm_spend: number         // gasto en trabajo planificado (PM/campañas)
+  reactive_spend: number   // gasto en fallas/reparaciones
+  pm_pct: number           // % del gasto en prevención (planificado)
   wo_count: number      // WOs distintas en rango
   avg_per_wo: number    // total_spend / wo_count (0 si no hay)
+  median_per_wo: number    // mediana del total por WO (robusta a outliers)
 }
 
 // Fila de un ranking por categoría (key estable + label de display).

@@ -10,7 +10,7 @@ import {
 } from '@tanstack/react-query'
 import {
   getSpendReport,
-  type SpendBar, type SpendPart, type SpendReport,
+  type SpendBar, type SpendPart, type SpendReport, type SpendTotals,
 } from '../api'
 import { notifyErr } from '../toast'
 import { useTerminals } from '../terminal'
@@ -197,8 +197,12 @@ export default function ReportsPage() {
       rows.push(['Total spend', t!.total_spend])
       rows.push(['Parts', t!.parts_spend])
       rows.push(['Labor', t!.labor_spend])
+      rows.push(['Preventive (planned)', t!.pm_spend])
+      rows.push(['Reactive (breakdown)', t!.reactive_spend])
+      rows.push(['Preventive %', t!.pm_pct])
       rows.push(['Work orders', t!.wo_count])
       rows.push(['Avg per WO', t!.avg_per_wo])
+      rows.push(['Median per WO', t!.median_per_wo])
       rows.push([])
       rows.push(['By category', 'Spend'])
       for (const c of data.by_category) rows.push([c.label, c.value])
@@ -348,9 +352,22 @@ export default function ReportsPage() {
             <StatCard
               label="Avg per WO"
               value={<>$<CountUp value={t!.avg_per_wo} format={money} /></>}
-              sub="cost per closed order"
+              sub={`median $${money(t!.median_per_wo)} · per order`}
             />
           </StatCluster>
+
+          {/* ----- Preventive vs reactive (el "CPM story" honesto: prevengo o
+                   apago incendios). Split del gasto por WO planificada vs de
+                   falla. No necesita millas — es 100% de nuestros datos. ----- */}
+          <section className="card rp-prev">
+            <div className="card-head">
+              <h2>Preventive vs reactive</h2>
+              <span className="sub">planned maintenance as a share of shop $</span>
+            </div>
+            <div className="card-body">
+              <PreventionSplit totals={t!} />
+            </div>
+          </section>
 
           {/* ----- Gasto por categoría (chart segmentado, hero a ancho
                    completo: la barra apilada + el desglose llenan el panel sin
@@ -498,6 +515,77 @@ function CategoryBreakdown(
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Preventive vs reactive — el ratio más honesto del "cost story" (sin millas).
+// Cada WO facturada es planificada (PM/campaña) o reactiva (falla). Muestra el
+// % de prevención grande, una barra split verde/rojo con $ y %, y una lectura
+// en lenguaje claro con su benchmark. Más prevención = menos breakdowns que
+// pagás. La señal real está en la TENDENCIA mes a mes, no en el absoluto.
+// ---------------------------------------------------------------------------
+function PreventionSplit({ totals }: { totals: SpendTotals }) {
+  const pm = totals.pm_spend
+  const re = totals.reactive_spend
+  const total = pm + re
+  const pmPct = total > 0 ? (pm / total) * 100 : 0
+  const rePct = 100 - pmPct
+
+  // Lectura + tono según cuánto del gasto es preventivo. El estándar de oro
+  // de mantenimiento es ~80/20 planificado/reactivo; casi ninguna flota llega,
+  // así que los umbrales son realistas, no idealizados.
+  const read =
+    total <= 0
+      ? { cls: 'muted', text: 'No spend to split yet in this range.' }
+      : pmPct >= 60
+        ? { cls: 'ok', text: 'Strongly preventive — you’re ahead of breakdowns, not chasing them.' }
+        : pmPct >= 35
+          ? { cls: 'info', text: 'Balanced — solid prevention, with room to shift more dollars to planned work.' }
+          : { cls: 'warn', text: 'Reactive-heavy — most dollars go to breakdowns. Every point you move to PM is a breakdown you didn’t pay for.' }
+
+  return (
+    <div className="rp-prev-wrap">
+      <div className="rp-prev-lede">
+        <div className={`rp-prev-big rp-prev-${read.cls}`}>
+          <CountUp value={Math.round(pmPct)} />
+          <span className="rp-prev-unit">% preventive</span>
+        </div>
+        <p className={`rp-prev-read rp-prev-${read.cls}`}>{read.text}</p>
+      </div>
+
+      {/* Barra split: verde = planificado, rojo = reactivo. */}
+      <div className="rp-prev-stack" role="img"
+        aria-label={`${Math.round(pmPct)} percent preventive, ${Math.round(rePct)} percent reactive`}>
+        <span className="rp-prev-seg rp-prev-seg-pm"
+          style={{ width: `${pmPct}%` }}
+          title={`Preventive · $${money(pm)} · ${Math.round(pmPct)}%`} />
+        <span className="rp-prev-seg rp-prev-seg-re"
+          style={{ width: `${rePct}%` }}
+          title={`Reactive · $${money(re)} · ${Math.round(rePct)}%`} />
+      </div>
+
+      <div className="rp-prev-legend">
+        <div className="rp-prev-leg">
+          <span className="rp-prev-chip rp-prev-chip-pm" />
+          <span className="rp-prev-leg-lbl">Planned / PM</span>
+          <span className="rp-prev-leg-amt rp-money"><i>$</i>{money(pm)}</span>
+          <span className="rp-prev-leg-pct">{Math.round(pmPct)}%</span>
+        </div>
+        <div className="rp-prev-leg">
+          <span className="rp-prev-chip rp-prev-chip-re" />
+          <span className="rp-prev-leg-lbl">Reactive / breakdown</span>
+          <span className="rp-prev-leg-amt rp-money"><i>$</i>{money(re)}</span>
+          <span className="rp-prev-leg-pct">{Math.round(rePct)}%</span>
+        </div>
+      </div>
+
+      <p className="rp-prev-bench">
+        Maintenance gold standard is roughly <strong>80% planned / 20% reactive</strong>;
+        most fleets run well below it. Watch the month-over-month trend more than
+        the absolute — the direction is the signal.
+      </p>
     </div>
   )
 }
