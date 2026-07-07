@@ -11,11 +11,24 @@ from fastapi.staticfiles import StaticFiles
 
 from . import __version__, config
 from .api.routes import router
-from .core import alerts, auth, permissions, tenant
+from .core import alerts, auth, odometer, permissions, tenant
+from .db import default_org_id
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    # Backfill del odómetro (v2.8, habilitador del CPM): siembra
+    # `odometer_reading` desde los mileage ya cargados en WOs/PM para que el
+    # cost-per-mile tenga datos desde el arranque. Idempotente y barato; nunca
+    # tumba el server. Single-tenant -> org 'default' (como el loop de alertas).
+    try:
+        org_token = tenant.set_current_org(default_org_id())
+        try:
+            odometer.backfill_from_history()
+        finally:
+            tenant.reset_current_org(org_token)
+    except Exception:
+        pass
     # Motor de alertas (G3): corre cada 60 s; no hace nada si no hay
     # reglas habilitadas. Se cancela limpio al apagar el server.
     task = asyncio.create_task(alerts.run_loop())
@@ -80,7 +93,9 @@ def _scope_for(method: str, path: str) -> str | None:
     # campañas/docs de unidad.
     if path.startswith(("/api/parts", "/api/vendors", "/api/purchase-orders",
                         "/api/cores", "/api/warranty", "/api/maint/",
-                        "/api/pm/")):
+                        "/api/pm/", "/api/reports")):
+        # /api/reports: los GET son abiertos (arriba); el único write es
+        # /reports/cpm/refresh (materializa odómetro) => maint.edit.
         return "maint.edit"
     if path.startswith("/api/units/"):
         # /units/settings = device settings (flota); el resto (campaigns,

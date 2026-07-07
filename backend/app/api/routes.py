@@ -20,7 +20,8 @@ from ..core import (
     alerts, app_config, auth, batch, companies, cores, docscan,
     driver_contacts, engine,
     excel, integrations_admin, inventory, local_config, lynx, mailer, maint,
-    manual_units, media_host, notify_service, open_defects, org_config,
+    manual_units, media_host, notify_service, odometer, open_defects,
+    org_config,
     parts, parts_marketplace, permissions, pm, pois, pretrip, providers,
     purchasing, ratelimit, reefer,
     reports,
@@ -104,6 +105,31 @@ def reports_spend(from_: str = Query("", alias="from"), to: str = "",
     return reports.spend_report(
         date_from=from_, date_to=to, terminal=terminal,
         top_units=top_units, top_parts=top_parts)
+
+
+# Cost per mile (v2.8): gasto de WOs / millas del odómetro persistido. GET es
+# lectura (basta autenticado). El POST /refresh materializa lecturas (backfill
+# de WO/PM + snapshot Samsara) => maint.edit vía _scope_for (/api/reports).
+@router.get("/reports/cpm")
+def reports_cpm(from_: str = Query("", alias="from"), to: str = "",
+                terminal: str = ""):
+    """Cost-per-mile de mantenimiento por flota y por unidad.
+
+    Solo agrega al Fleet CPM las unidades CON millas en el rango; el resto se
+    reporta aparte (units_without_miles). `coverage.since` dice desde cuándo hay
+    datos (no hay backfill previo al primer registro de odómetro)."""
+    return reports.cpm_report(date_from=from_, date_to=to, terminal=terminal)
+
+
+@router.post("/reports/cpm/refresh")
+async def reports_cpm_refresh():
+    """Recalcula la base de millas: backfilllea odómetro de los mileage ya
+    cargados en WOs/PM y toma un snapshot del odómetro de Samsara. Idempotente.
+    Útil tras cargar millaje a mano. Devuelve cuántas lecturas agregó."""
+    backfilled = odometer.backfill_from_history()
+    snapped = await odometer.snapshot_now()
+    return {"backfilled": backfilled, "snapshot": snapped,
+            "coverage": odometer.coverage()}
 
 
 @router.get("/reports/{report_id}/download")

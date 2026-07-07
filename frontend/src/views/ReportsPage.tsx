@@ -9,10 +9,11 @@ import {
   keepPreviousData, useQuery, useQueryClient,
 } from '@tanstack/react-query'
 import {
-  getSpendReport,
+  getCpmReport, getSpendReport, refreshCpm,
+  type CpmReport, type CpmUnitRow,
   type SpendBar, type SpendPart, type SpendReport, type SpendTotals,
 } from '../api'
-import { notifyErr } from '../toast'
+import { notifyErr, notifyOk } from '../toast'
 import { useTerminals } from '../terminal'
 import { Button, Tabs, StatCard, StatCluster } from '../components/ds'
 import CountUp from '../components/CountUp'
@@ -149,6 +150,14 @@ export default function ReportsPage() {
   const data: SpendReport | undefined = query.data
   const t = data?.totals
 
+  // Cost per mile: mismo rango/terminal. Query aparte (une gasto con millas
+  // del odómetro persistido). Puede tardar más que spend, no bloquea el resto.
+  const cpmQuery = useQuery({
+    queryKey: ['cpm-report', range.from, range.to, terminal],
+    queryFn: () => getCpmReport({ from: range.from, to: range.to, terminal }),
+    placeholderData: keepPreviousData,
+  })
+
   // Reparto parts/labor en % para el sub del KPI.
   const partsPct = t && t.total_spend > 0
     ? Math.round((t.parts_spend / t.total_spend) * 100) : 0
@@ -180,6 +189,25 @@ export default function ReportsPage() {
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: ['spend-report'] })
     await query.refetch({ cancelRefetch: true })
+  }
+
+  // Materializa la base de millas (backfill de WO/PM + snapshot Samsara) y
+  // refresca el CPM. Útil tras cargar millaje a mano a una WO.
+  const [cpmBusy, setCpmBusy] = useState(false)
+  async function updateCpm() {
+    setCpmBusy(true)
+    try {
+      const r = await refreshCpm()
+      const added = r.backfilled + r.snapshot
+      notifyOk(added
+        ? `Mileage updated — ${added} new odometer reading${added === 1 ? '' : 's'}`
+        : 'Mileage is already up to date')
+      await queryClient.invalidateQueries({ queryKey: ['cpm-report'] })
+    } catch (e) {
+      notifyErr("Couldn't update mileage data", e)
+    } finally {
+      setCpmBusy(false)
+    }
   }
 
   function exportCSV() {
@@ -355,6 +383,29 @@ export default function ReportsPage() {
               sub={`median $${money(t!.median_per_wo)} · per order`}
             />
           </StatCluster>
+
+          {/* ----- Cost per mile (el número de Dario): gasto / millas del
+                   odómetro persistido. Solo cuenta unidades con millas; honesto
+                   sobre la cobertura. ----- */}
+          <section className="card rp-cpm">
+            <div className="card-head">
+              <h2>Cost per mile</h2>
+              <span className="sub">maintenance $ ÷ miles driven</span>
+              <span className="head-spacer" />
+              <Button variant="ghost" onClick={updateCpm} loading={cpmBusy}
+                title="Backfill odometer from work-order mileage + pull the latest ELD reading"
+                icon={
+                  <svg viewBox="0 0 24 24" {...STROKE}>
+                    <path d="M20 11a8 8 0 1 0-2.3 6.3M20 5v6h-6" />
+                  </svg>
+                }>
+                Update mileage
+              </Button>
+            </div>
+            <div className="card-body">
+              <CpmView data={cpmQuery.data} loading={cpmQuery.isPending} />
+            </div>
+          </section>
 
           {/* ----- Preventive vs reactive (el "CPM story" honesto: prevengo o
                    apago incendios). Split del gasto por WO planificada vs de
@@ -586,6 +637,115 @@ function PreventionSplit({ totals }: { totals: SpendTotals }) {
         most fleets run well below it. Watch the month-over-month trend more than
         the absolute — the direction is the signal.
       </p>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Cost per mile — el número ancla. Fleet CPM grande (coloreado por benchmark)
+// + cobertura honesta + tabla por unidad (peores $/mi primero). Solo cuenta
+// unidades CON millas del odómetro; las que tienen gasto pero sin odómetro se
+// declaran aparte para no inflar el número.
+// ---------------------------------------------------------------------------
+const cpmFmt = (n: number) => `$${n.toFixed(2)}`
+// Tono según benchmark R&M heavy-duty ($0.15–0.20 típico; >0.25 bandera roja).
+const cpmTone = (n: number) => (n <= 0.20 ? 'ok' : n <= 0.25 ? 'warn' : 'danger')
+const plural = (n: number) => (n === 1 ? '' : 's')
+
+function CpmView({ data, loading }: { data?: CpmReport; loading: boolean }) {
+  if (loading && !data) {
+    return (
+      <div className="skel-rows">
+        {Array.from({ length: 4 }, (_, i) => <Skeleton key={i} h={32} />)}
+      </div>
+    )
+  }
+  if (!data) return null
+
+  // Sin Fleet CPM todavía: hace falta ≥2 lecturas de odómetro por unidad.
+  if (data.fleet_cpm == null) {
+    return (
+      <div className="rp-cpm-empty">
+        <svg viewBox="0 0 24 24" {...STROKE} className="rp-cpm-empty-ic">
+          <path d="M3 12h4l2-7 4 14 2-7h6" />
+        </svg>
+        <h3>Cost per mile is warming up</h3>
+        <p>
+          It needs at least two odometer readings per unit to measure the miles
+          driven in a period. Readings come from{' '}
+          <strong>work-order mileage</strong> and the{' '}
+          <strong>daily ELD sync</strong> — there’s no backfill before the first
+          reading, so the number grows as data accrues.
+          {data.units_without_miles > 0 && (
+            <> Right now {data.units_without_miles} unit
+              {plural(data.units_without_miles)} ha
+              {data.units_without_miles === 1 ? 's' : 've'} spend but no mileage.</>
+          )}
+          {' '}Add a meter reading to a work order, then hit{' '}
+          <strong>Update mileage</strong>.
+        </p>
+      </div>
+    )
+  }
+
+  const rows = data.by_unit.filter((u) => u.cpm != null)
+  const tone = cpmTone(data.fleet_cpm)
+
+  return (
+    <div className="rp-cpm-wrap">
+      <div className="rp-cpm-lede">
+        <div className={`rp-cpm-big rp-cpm-${tone}`}>
+          {cpmFmt(data.fleet_cpm)}<span className="rp-cpm-unit">/mi</span>
+        </div>
+        <div className="rp-cpm-side">
+          <p className="rp-cpm-sub">
+            Fleet maintenance cost per mile across{' '}
+            <strong>{data.units_with_miles}</strong> unit
+            {plural(data.units_with_miles)} with odometer data —{' '}
+            <strong>{data.fleet_miles.toLocaleString('en-US')}</strong> mi ·{' '}
+            <strong>${money(data.fleet_spend)}</strong> spend.
+          </p>
+          <p className="rp-cpm-bench">
+            Heavy-duty benchmark <strong>$0.15–0.20/mi</strong>; a red flag above{' '}
+            <strong>$0.25</strong> sustained.
+            {data.coverage.since && <> Data since {data.coverage.since}.</>}
+          </p>
+        </div>
+      </div>
+
+      {data.units_without_miles > 0 && (
+        <p className="rp-cpm-note">
+          {data.units_without_miles} unit{plural(data.units_without_miles)}{' '}
+          (${money(data.spend_without_miles)} spend) ha
+          {data.units_without_miles === 1 ? 's' : 've'} no odometer data yet and
+          {' '}are excluded from the fleet number. Trailers don’t have odometers.
+        </p>
+      )}
+
+      <div className="table-wrap">
+        <table className="mnt-table rp-cpm-table">
+          <thead>
+            <tr>
+              <th className="rp-left">Unit</th>
+              <th className="num">Spend</th>
+              <th className="num">Miles</th>
+              <th className="num">$ / mi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((u: CpmUnitRow) => (
+              <tr key={u.unit}>
+                <td className="rp-left"><strong>{u.unit}</strong></td>
+                <td className="num rp-cell-money"><i>$</i>{money(u.spend)}</td>
+                <td className="num">{u.miles.toLocaleString('en-US')}</td>
+                <td className={`num rp-cpm-cell rp-cpm-${cpmTone(u.cpm as number)}`}>
+                  {cpmFmt(u.cpm as number)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

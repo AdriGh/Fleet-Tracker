@@ -2596,3 +2596,55 @@ export async function getSpendReport(
   if (!res.ok) throw new Error(await readError(res))
   return (await res.json()) as SpendReport
 }
+
+// --- Cost per mile (v2.8, el número ancla de Dario) ----------------------
+// Gasto de mantenimiento / millas manejadas (del odómetro persistido). El
+// Fleet CPM solo agrega unidades CON millas; las que tienen gasto pero no
+// odómetro se cuentan aparte. `coverage.since` = desde cuándo hay datos.
+export interface CpmUnitRow {
+  unit: string
+  spend: number
+  miles: number
+  cpm: number | null   // null = la unidad no tiene millas en el rango
+}
+
+export interface CpmCoverage {
+  readings: number
+  since: string | null
+  latest: string | null
+}
+
+export interface CpmReport {
+  range: SpendRange
+  fleet_cpm: number | null   // null = todavía no hay millas suficientes
+  fleet_miles: number
+  fleet_spend: number
+  total_spend: number
+  units_with_miles: number
+  units_without_miles: number
+  spend_without_miles: number
+  coverage: CpmCoverage
+  by_unit: CpmUnitRow[]
+}
+
+export async function getCpmReport(
+  params: SpendReportParams = {},
+): Promise<CpmReport> {
+  const qs = new URLSearchParams()
+  if (params.from) qs.set('from', params.from)
+  if (params.to) qs.set('to', params.to)
+  if (params.terminal) qs.set('terminal', params.terminal)
+  const q = qs.toString()
+  const res = await fetch(`/api/reports/cpm${q ? `?${q}` : ''}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()) as CpmReport
+}
+
+// Materializa la base de millas (backfill de WO/PM + snapshot Samsara).
+export async function refreshCpm(): Promise<
+  { backfilled: number; snapshot: number; coverage: CpmCoverage }
+> {
+  const res = await fetch('/api/reports/cpm/refresh', { method: 'POST' })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}

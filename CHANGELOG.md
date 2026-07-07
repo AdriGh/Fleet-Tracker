@@ -7,6 +7,44 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.8.0] - 2026-07-07
+
+### Añadido
+- **Cost per mile — el número de Dario** (dashboard telematics, Fase 2). El KPI
+  ancla de flota: gasto de mantenimiento ÷ millas manejadas. Provider-agnóstico
+  por diseño (un futuro adapter de Panda ELD alimenta la misma tabla).
+  - **Persistencia de odómetro** (`odometer_reading`, migración Alembic
+    `d4e5f6a7b8c9`): serie temporal por unidad+fecha para poder medir "millas en
+    un período" = odo_fin − odo_inicio (delta conservador, solo dentro del
+    rango). Se llena por dos vías: **backfill** de los `mileage` ya cargados en
+    WorkOrder/MaintRecord (da CPM desde el día uno, sin esperar) + **snapshot
+    diario** del odómetro de Samsara en el loop de alertas. Idempotente por
+    (org, unit, date, source). Sin backfill previo al primer registro.
+  - **`reports.cpm_report`**: Fleet CPM + Per-Unit CPM (peores $/mi primero).
+    Honesto: solo agrega al número de flota las unidades **con** millas; las que
+    tienen gasto pero sin odómetro se declaran aparte (no inflan el CPM).
+  - **Sección "Cost per mile"** en Reports & Analytics: Fleet CPM grande
+    coloreado por benchmark ($0.15–0.20/mi típico; >$0.25 bandera roja), tabla
+    por unidad con las millas al lado, rótulo "data since X", y botón **Update
+    mileage** (backfill + snapshot on-demand). Endpoints `GET /api/reports/cpm`
+    y `POST /api/reports/cpm/refresh` (este último bajo `maint.edit`).
+
+### Verificación
+- Tests (`backend/tests/test_odometer.py`): backfill idempotente desde WO/PM,
+  cálculo de millas por delta de odómetro (conservador, acotado al rango), y
+  Fleet/Per-Unit CPM con unidades sin millas contadas aparte. Migración aplicada
+  sobre SQLite fresca (`d4e5f6a7b8c9` es el nuevo head).
+- Visual (Playwright, light + dark) con datos reales: Fleet CPM $0.11/mi,
+  desglose por unidad y cobertura correctos en ambos temas.
+
+### Notas
+- **NO se puede hacer todavía**, y se declara en la UI: revenue-per-mile/margen
+  (no hay fuente de ingresos), MPG/combustible-por-milla (Samsara da nivel de
+  tanque, no galones). El CPM aquí es **de mantenimiento** (~10–15% del costo
+  operativo total), etiquetado como tal.
+- Pendiente para que Dario vea SU CPM: adapter de **Panda ELD** (su flota no usa
+  Samsara) — la persistencia ya es provider-agnóstica y lo espera.
+
 ## [2.7.0] - 2026-07-07
 
 ### Añadido
