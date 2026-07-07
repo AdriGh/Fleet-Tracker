@@ -34,7 +34,7 @@ from ..db import (
 )
 from . import tenant
 from . import (
-    mailer, reefer, reefer_wo, sms_service, tracking, unit_settings,
+    mailer, odometer, reefer, reefer_wo, sms_service, tracking, unit_settings,
 )
 
 SETTING_KEY = "alerts"
@@ -405,6 +405,9 @@ async def run_loop() -> None:
         # deberia iterar las organizaciones evaluando cada una con su contexto.
         org_token = tenant.set_current_org(default_org_id())
         try:
+            # Ingesta diaria de odómetro (v2.8, habilitador del CPM): corre
+            # independiente de las reglas de alerta, a lo sumo una vez por día.
+            await odometer.maybe_snapshot()
             cfg = get_settings()
             if any_rule_enabled(cfg):
                 created: list[dict] = []

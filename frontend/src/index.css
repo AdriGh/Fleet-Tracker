@@ -8555,6 +8555,57 @@ iframe.wo-preview { border: 1px solid var(--border); }
 }
 .rp-prev-bench strong { color: var(--text); }
 
+/* ===== Cost per mile — el número ancla. Fleet CPM grande coloreado por
+   benchmark ($/mi) + cobertura honesta + tabla por unidad (peores primero).
+   verde/ámbar/rojo = semántico del benchmark, no acento. ===== */
+.rp-cpm-wrap { display: flex; flex-direction: column; gap: 16px; }
+.rp-cpm-lede { display: flex; align-items: center; gap: 26px; flex-wrap: wrap; }
+.rp-cpm-big {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 2.9rem; font-weight: 800; line-height: 1; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  display: inline-flex; align-items: baseline;
+}
+.rp-cpm-unit {
+  font-size: 1rem; font-weight: 600; color: var(--text-muted); margin-left: 3px;
+}
+.rp-cpm-big.rp-cpm-ok { color: var(--st-on-track); }
+.rp-cpm-big.rp-cpm-warn { color: #d99a00; }
+.rp-cpm-big.rp-cpm-danger { color: var(--st-overdue); }
+.rp-cpm-side {
+  flex: 1 1 300px; min-width: 260px; display: flex; flex-direction: column;
+  gap: 5px;
+}
+.rp-cpm-sub { margin: 0; font-size: 0.95rem; line-height: 1.5; color: var(--text-muted); }
+.rp-cpm-sub strong { color: var(--text); }
+.rp-cpm-bench { margin: 0; font-size: 0.82rem; line-height: 1.45; color: var(--text-muted); }
+.rp-cpm-bench strong { color: var(--text); }
+.rp-cpm-note {
+  margin: 0; font-size: 0.82rem; line-height: 1.5; color: var(--text-muted);
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 9px 13px;
+}
+.rp-cpm-cell {
+  font-family: var(--font-mono, ui-monospace, monospace); font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.rp-cpm-cell.rp-cpm-ok { color: var(--st-on-track); }
+.rp-cpm-cell.rp-cpm-warn { color: #d99a00; }
+.rp-cpm-cell.rp-cpm-danger { color: var(--st-overdue); }
+
+/* Estado "warming up" (aún sin millas). */
+.rp-cpm-empty {
+  text-align: center; padding: 22px 16px; display: flex; flex-direction: column;
+  align-items: center; gap: 8px;
+}
+.rp-cpm-empty-ic { width: 40px; height: 40px; color: var(--text-muted); opacity: 0.55; }
+.rp-cpm-empty h3 { margin: 0; font-size: 1.05rem; color: var(--text); }
+.rp-cpm-empty p {
+  margin: 0; max-width: 580px; font-size: 0.9rem; line-height: 1.55;
+  color: var(--text-muted);
+}
+.rp-cpm-empty strong { color: var(--text); }
+
 /* Grid de paneles: 2 columnas que colapsan a 1 en angosto. */
 .rp-grid {
   display: grid;

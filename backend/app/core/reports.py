@@ -32,7 +32,7 @@ from datetime import date, datetime
 from sqlalchemy import select
 
 from ..db import Part, SessionLocal, WorkOrder
-from . import terminals
+from . import odometer, terminals
 
 # Estados que NO cuentan como gasto: el unico "borrador" del pipeline seria
 # una orden vacia. No hay status "draft" real (el pipeline arranca en "open"),
@@ -367,4 +367,93 @@ def spend_report(date_from: str = "", date_to: str = "",
         "by_unit": unit_series,
         "by_month": month_series,
         "top_parts": parts_series,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Cost per mile (CPM) — el número ancla de Dario
+# ---------------------------------------------------------------------------
+
+def _unit_spend(d_from: date | None, d_to: date | None,
+                term: str) -> tuple[dict[str, float], float]:
+    """Gasto comprometido por unidad en el rango (mismos filtros que
+    spend_report). Devuelve ({unit -> $}, total). A diferencia de by_unit,
+    no recorta a top-N: el CPM necesita TODAS las unidades para el join."""
+    by_unit: dict[str, float] = {}
+    total = 0.0
+    with SessionLocal() as session:
+        for wo in session.scalars(select(WorkOrder)).all():
+            eff = _effective_date(wo)
+            if eff is None:
+                continue
+            if d_from is not None and eff < d_from:
+                continue
+            if d_to is not None and eff > d_to:
+                continue
+            if term and terminals.resolve(wo.unit, wo.company) != term:
+                continue
+            unit = (wo.unit or "").strip() or "—"
+            wo_total = 0.0
+            for ln in wo.lines:
+                amount = round((ln.qty or 0) * (ln.unit_cost or 0), 2)
+                if amount:
+                    wo_total += amount
+            if wo_total > 0:
+                by_unit[unit] = by_unit.get(unit, 0.0) + wo_total
+                total += wo_total
+    return by_unit, round(total, 2)
+
+
+def cpm_report(date_from: str = "", date_to: str = "",
+               terminal: str = "") -> dict:
+    """Cost-per-mile de mantenimiento: gasto de WOs / millas manejadas (del
+    odómetro persistido). Solo agrega al Fleet CPM las unidades que TIENEN
+    millas en el rango; las que tienen gasto pero no odómetro se cuentan aparte
+    (sin ellas el número mentiría). Muestra las millas junto al CPM para que el
+    dueño juzgue. Trailers y unidades nuevas sin lecturas no aplican."""
+    d_from = _parse_date(date_from)
+    d_to = _parse_date(date_to)
+    term = (terminal or "").strip().upper()
+
+    spend_by_unit, total_spend = _unit_spend(d_from, d_to, term)
+    miles = odometer.miles_by_unit(d_from, d_to)   # {unit -> millas}
+    cov = odometer.coverage()
+
+    rows: list[dict] = []
+    fleet_spend = 0.0        # gasto de unidades CON millas (numerador honesto)
+    fleet_miles = 0          # millas de esas unidades (denominador)
+    without_miles = 0
+    spend_without_miles = 0.0
+    for unit, spend in spend_by_unit.items():
+        mi = miles.get(unit, 0)
+        if mi > 0:
+            rows.append({"unit": unit, "spend": round(spend, 2), "miles": mi,
+                         "cpm": round(spend / mi, 3)})
+            fleet_spend += spend
+            fleet_miles += mi
+        else:
+            without_miles += 1
+            spend_without_miles += spend
+            rows.append({"unit": unit, "spend": round(spend, 2), "miles": 0,
+                         "cpm": None})
+
+    # Peores primero (mayor $/milla); las sin millas al final.
+    rows.sort(key=lambda r: (r["cpm"] is None, -(r["cpm"] or 0)))
+    fleet_cpm = round(fleet_spend / fleet_miles, 3) if fleet_miles else None
+
+    return {
+        "range": {
+            "from": d_from.isoformat() if d_from else None,
+            "to": d_to.isoformat() if d_to else None,
+            "terminal": term or None,
+        },
+        "fleet_cpm": fleet_cpm,
+        "fleet_miles": fleet_miles,
+        "fleet_spend": round(fleet_spend, 2),
+        "total_spend": total_spend,
+        "units_with_miles": len(rows) - without_miles,
+        "units_without_miles": without_miles,
+        "spend_without_miles": round(spend_without_miles, 2),
+        "coverage": cov,       # {readings, since, latest}
+        "by_unit": rows,
     }

@@ -544,6 +544,35 @@ class WarrantyClaim(OrgScoped, Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class OdometerReading(OrgScoped, Base):
+    """Lectura de odómetro por unidad y fecha (v2.8, habilitador del CPM).
+
+    Serie temporal del odómetro para poder computar "millas manejadas en un
+    período" = odo_fin − odo_inicio (el denominador del cost-per-mile). Se
+    llena por dos vías:
+      - BACKFILL de los `mileage` ya capturados en WorkOrder y MaintRecord
+        (source 'wo' / 'maint'): historial real que ya existe, da CPM desde ya.
+      - SNAPSHOT diario del odómetro de Samsara (source 'samsara') en el loop
+        de alertas. No hay backfill posible antes del primer snapshot.
+    Idempotente: UNA lectura por (org, unit, date, source) — re-snapshotear o
+    re-backfillear el mismo día no duplica. org-scoped (multi-tenant).
+    NOTA: los trailers no tienen odómetro (no aplican al CPM/milla)."""
+    __tablename__ = "odometer_reading"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    unit: Mapped[str] = mapped_column(String(64), index=True)
+    date: Mapped[str] = mapped_column(String(10), index=True)    # YYYY-MM-DD
+    miles: Mapped[int] = mapped_column(Integer)                  # odómetro (mi)
+    # samsara | wo | maint  (de dónde vino la lectura)
+    source: Mapped[str] = mapped_column(String(16), default="samsara")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+    __table_args__ = (
+        UniqueConstraint("org_id", "unit", "date", "source",
+                         name="uq_odo_org_unit_date_source"),
+    )
+
+
 class PartsRequest(OrgScoped, Base):
     """Pedido de parte pendiente de compra (fase Purchasing / Increment 4).
 
