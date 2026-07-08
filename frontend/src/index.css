@@ -7824,6 +7824,47 @@ table.defects-table td {
 .up-card-sky { background: color-mix(in srgb, #0284c7 12%, var(--surface)); }
 .up-card-sky strong { color: color-mix(in srgb, #0284c7 60%, var(--text)); }
 
+/* Card de odómetro con botón "+ Log" en la esquina (el atajo del CPM sin ELD). */
+.up-card-odo { position: relative; }
+.up-odo-log {
+  position: absolute; top: 6px; right: 6px;
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: 10.5px;
+  font-weight: 600; letter-spacing: 0.02em; cursor: pointer;
+  color: color-mix(in srgb, #0284c7 60%, var(--text));
+  background: color-mix(in srgb, #0284c7 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, #0284c7 30%, var(--border));
+  border-radius: 6px; padding: 2px 8px; line-height: 1.4;
+  transition: background 0.12s ease;
+}
+.up-odo-log:hover { background: color-mix(in srgb, #0284c7 24%, var(--surface)); }
+
+/* Form inline de "Log reading": inputs chicos + botones + hint. */
+.up-odo-form {
+  display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px;
+  margin: -4px 0 16px; padding: 12px 14px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.up-odo-form label {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 0.72rem; color: var(--text-muted); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.up-odo-form input {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.9rem; font-variant-numeric: tabular-nums;
+  padding: 6px 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); min-width: 130px;
+}
+.up-odo-form input:focus {
+  outline: none; border-color: color-mix(in srgb, #0284c7 55%, var(--border));
+}
+.up-odo-hint {
+  flex: 1 1 200px; min-width: 180px; align-self: center;
+  font-size: 0.78rem; color: var(--text-muted); line-height: 1.4;
+}
+
 /* Panel "Maintenance status": bajo las tarjetas resumen, rellena el espacio y
    da la salud de PMs/componentes de un vistazo (misma identidad --st-*). */
 .up-status {

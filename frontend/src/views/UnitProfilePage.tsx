@@ -4,7 +4,8 @@ import { useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   addMaintRecord, decodeVin, deleteUnitDoc, deleteWorkOrder, downloadUnitDoc,
-  getReefer, getUnitCampaigns, getUnitPartsUsed, listFleet, listOpenDefects,
+  getReefer, getUnitCampaigns, getOdometerLog, getUnitPartsUsed, listFleet,
+  listOpenDefects, logOdometer,
   listUnitDocs, listWorkOrders, toggleUnitCampaign, uploadUnitDocs,
   type MaintKind, type PartUsed, type UnitCampaign, type WorkOrder,
   type WoStatus,
@@ -92,6 +93,38 @@ export default function UnitProfilePage({ unit, onClose }: {
     queryFn: () => getUnitPartsUsed(unit),
     enabled: tab === 'parts',
   })
+  // Odómetro registrado de esta unidad (manual + backfill de WOs/PM). Es el
+  // atajo para el CPM sin integración ELD: si el taller carga el odómetro acá,
+  // el cost-per-mile ya funciona. Se muestra como fallback si no hay dato live.
+  const odoQ = useQuery({
+    queryKey: ['unit-odometer', unit],
+    queryFn: () => getOdometerLog(unit),
+  })
+  // Form inline de "Log reading".
+  const [odoOpen, setOdoOpen] = useState(false)
+  const [odoMiles, setOdoMiles] = useState('')
+  const [odoDate, setOdoDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [odoBusy, setOdoBusy] = useState(false)
+  async function saveOdo() {
+    const mi = Math.round(Number(odoMiles))
+    if (!Number.isFinite(mi) || mi <= 0) {
+      notifyErr('Enter a valid mileage', new Error('mileage must be a positive number'))
+      return
+    }
+    setOdoBusy(true)
+    try {
+      await logOdometer(unit, mi, odoDate)
+      notifyOk(`Odometer logged — ${mi.toLocaleString('en-US')} mi`)
+      setOdoOpen(false)
+      setOdoMiles('')
+      qc.invalidateQueries({ queryKey: ['unit-odometer', unit] })
+      qc.invalidateQueries({ queryKey: ['cpm-report'] })  // el CPM usa esta lectura
+    } catch (e) {
+      notifyErr("Couldn't log the reading", e)
+    } finally {
+      setOdoBusy(false)
+    }
+  }
 
   // Defectos ABIERTOS de esta unidad: alimentan el diagrama por zonas (rojo =
   // con defecto). Misma fuente que DefectsPage, filtrada por unidad.
@@ -199,17 +232,24 @@ export default function UnitProfilePage({ unit, onClose }: {
           <strong>{active.length}</strong>
           <span>Active service orders</span>
         </div>
-        <div className="up-card up-card-sky">
+        <div className="up-card up-card-sky up-card-odo">
+          <button type="button" className="up-odo-log"
+            title="Log an odometer reading"
+            onClick={() => setOdoOpen((v) => !v)}>+ Log</button>
           <strong>
             {campQ.data?.current_miles != null
               ? `${fmtMi(campQ.data.current_miles)} mi`
-              : '—'}
+              : odoQ.data?.latest
+                ? `${fmtMi(odoQ.data.latest.miles)} mi`
+                : '—'}
           </strong>
           <span>
             Odometer
-            {campQ.data?.current_source
+            {campQ.data?.current_miles != null && campQ.data?.current_source
               ? ` · ${campQ.data.current_source}`
-              : ''}
+              : odoQ.data?.latest
+                ? ` · logged ${odoQ.data.latest.date}`
+                : ''}
             {pmCamp?.to_due != null
               ? ` · PM in ${fmtMi(Math.abs(pmCamp.to_due))} mi`
                 .replace('in -', 'overdue by ')
@@ -217,6 +257,32 @@ export default function UnitProfilePage({ unit, onClose }: {
           </span>
         </div>
       </div>
+
+      {/* Log de odómetro: el atajo del CPM sin ELD. Dos lecturas en el tiempo
+          = cost-per-mile de esta unidad. */}
+      {odoOpen && (
+        <div className="up-odo-form">
+          <label>Miles
+            <input type="number" min={0} value={odoMiles} autoFocus
+              placeholder="Current odometer"
+              onChange={(e) => setOdoMiles(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') saveOdo() }} />
+          </label>
+          <label>Date
+            <input type="date" value={odoDate}
+              max={new Date().toISOString().slice(0, 10)}
+              onChange={(e) => setOdoDate(e.target.value)} />
+          </label>
+          <button className="btn btn-primary btn-xs" disabled={odoBusy}
+            onClick={saveOdo}>{odoBusy ? 'Saving…' : 'Save reading'}</button>
+          <button className="btn btn-ghost btn-xs"
+            onClick={() => setOdoOpen(false)}>Cancel</button>
+          <span className="up-odo-hint">
+            Two readings over time turn on cost-per-mile for this unit — no ELD
+            needed.
+          </span>
+        </div>
+      )}
 
       {camps.length > 0 && (
         <div className="up-status">

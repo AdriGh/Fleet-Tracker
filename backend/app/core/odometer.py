@@ -215,3 +215,52 @@ def coverage() -> dict:
         "since": dates[0] if dates else None,
         "latest": dates[-1] if dates else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Entrada MANUAL (el atajo sin integración ELD: el CPM funciona con lo que el
+# taller registre a mano, además del backfill de WOs/PM)
+# ---------------------------------------------------------------------------
+
+def log_reading(unit: str, date_str: str, miles) -> dict | None:
+    """Registra (o corrige) una lectura MANUAL de odómetro para una unidad.
+    Fecha vacía = hoy. Idempotente por día: re-registrar la misma fecha
+    ACTUALIZA el valor (corrección), no duplica. Devuelve la lectura o None si
+    los datos son inválidos (millaje no positivo o fecha presente pero mala)."""
+    u = (unit or "").strip()
+    raw = (date_str or "").strip()
+    d = date.today().isoformat() if not raw else _norm_date(raw)
+    try:
+        mi = int(miles)
+    except (TypeError, ValueError):
+        return None
+    if not u or not d or mi <= 0:
+        return None
+    now = datetime.now()
+    with SessionLocal() as s:
+        row = s.scalars(select(OdometerReading).where(
+            OdometerReading.unit == u, OdometerReading.date == d,
+            OdometerReading.source == "manual")).first()
+        if row is not None:
+            row.miles = mi
+        else:
+            s.add(OdometerReading(unit=u, date=d, miles=mi, source="manual",
+                                  created_at=now))
+        s.commit()
+    return {"unit": u, "date": d, "miles": mi, "source": "manual"}
+
+
+def unit_readings(unit: str, limit: int = 24) -> dict:
+    """Lecturas de odómetro de una unidad (todas las fuentes), más nuevas
+    primero, para el perfil. Devuelve {latest, count, readings:[...]}."""
+    u = (unit or "").strip()
+    with SessionLocal() as s:
+        rows = s.execute(
+            select(OdometerReading.date, OdometerReading.miles,
+                   OdometerReading.source)
+            .where(OdometerReading.unit == u)).all()
+    items = sorted(
+        ({"date": d, "miles": mi, "source": src} for d, mi, src in rows),
+        key=lambda r: r["date"], reverse=True)
+    return {"latest": items[0] if items else None,
+            "count": len(items), "readings": items[:limit]}

@@ -7,6 +7,28 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.9.0] - 2026-07-08
+
+### Añadido
+- **Registro manual de odómetro por unidad — el atajo del CPM sin ELD.** El
+  cost-per-mile ahora funciona sin ninguna integración: si el taller carga el
+  odómetro a mano, alimenta el mismo `odometer_reading` que el backfill/Samsara.
+  (Desbloquea el CPM para el piloto de Dario, que usa Panda ELD — sin esperar
+  al adapter.)
+  - `odometer.log_reading` (idempotente por día: re-registrar la misma fecha
+    corrige, no duplica) + `unit_readings`. Endpoints `GET/POST
+    /api/units/{unit}/odometer` (POST bajo `maint.edit`).
+  - En el **perfil de unidad**: botón **"+ Log"** en la tarjeta Odometer + form
+    inline (millaje + fecha, default hoy). Al guardar, invalida el CPM. Si no
+    hay dato live (ELD), la tarjeta muestra la última lectura registrada.
+
+### Verificación
+- Tests (`backend/tests/test_odometer.py`): entrada manual idempotente por día,
+  validación (millaje no positivo / fecha inválida), y que alimenta el cálculo
+  de millas del CPM.
+- Visual (Playwright): tarjeta + form + guardado end-to-end (lectura persistida,
+  el CPM la consume).
+
 ## [2.8.0] - 2026-07-07
 
 ### Añadido
