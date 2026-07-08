@@ -2185,6 +2185,29 @@ def unit_parts_used(unit: str):
     return workorders.parts_used_by_unit(unit)
 
 
+class OdometerIn(BaseModel):
+    date: str = ""      # YYYY-MM-DD; vacío = hoy
+    miles: int
+
+
+@router.get("/units/{unit}/odometer")
+def unit_odometer(unit: str):
+    """Lecturas de odómetro de la unidad (para el CPM sin integración ELD)."""
+    return odometer.unit_readings(unit)
+
+
+@router.post("/units/{unit}/odometer")
+def unit_odometer_log(unit: str, body: OdometerIn):
+    """Registra (o corrige) una lectura MANUAL de odómetro. Alimenta el mismo
+    `odometer_reading` que el backfill/Samsara => el CPM funciona con lo que el
+    taller cargue a mano. Bajo maint.edit (prefijo /api/units en _scope_for)."""
+    r = odometer.log_reading(unit, body.date, body.miles)
+    if r is None:
+        raise HTTPException(
+            400, "Enter a positive mileage and a valid date (YYYY-MM-DD).")
+    return r
+
+
 @router.get("/units/{unit}/docs")
 def unit_docs_list(unit: str):
     return {"docs": unitdocs.list_docs(unit),

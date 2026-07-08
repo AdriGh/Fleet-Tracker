@@ -1109,6 +1109,39 @@ export async function getUnitPartsUsed(unit: string): Promise<PartsUsedResult> {
   return res.json()
 }
 
+// --- Odómetro por unidad (v2.9, el atajo del CPM sin integración ELD) -----
+export interface OdometerReadingRow {
+  date: string           // YYYY-MM-DD
+  miles: number
+  source: string         // samsara | wo | maint | manual
+}
+
+export interface UnitOdometer {
+  latest: OdometerReadingRow | null
+  count: number
+  readings: OdometerReadingRow[]
+}
+
+export async function getOdometerLog(unit: string): Promise<UnitOdometer> {
+  const res = await fetch(
+    `/api/units/${encodeURIComponent(unit)}/odometer`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// Registra (o corrige) una lectura manual. Fecha vacía = hoy.
+export async function logOdometer(
+  unit: string, miles: number, date = '',
+): Promise<OdometerReadingRow> {
+  const res = await fetch(
+    `/api/units/${encodeURIComponent(unit)}/odometer`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ miles, date }),
+    })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
 export async function uploadUnitDocs(
   unit: string, kind: string, files: File[],
 ): Promise<{ saved: UnitDoc[]; errors: string[] }> {

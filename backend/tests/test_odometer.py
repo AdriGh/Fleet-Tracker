@@ -93,6 +93,33 @@ def test_backfill_miles_and_cpm():
     print("OK backfill + millas por delta (conservador) + Fleet/Per-Unit CPM")
 
 
+def test_manual_logging():
+    """La entrada MANUAL de odómetro alimenta el mismo cálculo de millas y es
+    idempotente por día (re-registrar la misma fecha corrige, no duplica)."""
+    # Unidad nueva sin WOs: solo lecturas manuales.
+    a = odometer.log_reading("M1", "2026-03-01", 700000)
+    assert a and a["source"] == "manual", a
+    # Corrección el mismo día: actualiza, no duplica.
+    b = odometer.log_reading("M1", "2026-03-01", 701000)
+    assert b["miles"] == 701000, b
+    odometer.log_reading("M1", "2026-06-01", 713000)   # +12000
+
+    ur = odometer.unit_readings("M1")
+    assert ur["count"] == 2, ur          # 2 fechas (no 3: el mismo día se fusionó)
+    assert ur["latest"]["miles"] == 713000, ur["latest"]
+
+    # Alimenta miles_by_unit: 713000 - 701000 = 12000.
+    assert odometer.miles_by_unit(None, None).get("M1") == 12000
+
+    # Datos inválidos -> None (millaje no positivo / fecha mala).
+    assert odometer.log_reading("M1", "2026-07-01", 0) is None
+    assert odometer.log_reading("M1", "not-a-date", 720000) is None
+    # Fecha vacía -> hoy (no rompe).
+    assert odometer.log_reading("M1", "", 715000) is not None
+    print("OK entrada manual: idempotente por día + alimenta millas + valida")
+
+
 if __name__ == "__main__":
     test_backfill_miles_and_cpm()
+    test_manual_logging()
     print("\nALL ODOMETER/CPM TESTS PASSED")
