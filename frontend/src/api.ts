@@ -914,6 +914,53 @@ export async function saveTmsDriver(
   return res.json()
 }
 
+// --- Compliance de conductores AGREGADO (Reports, v2.11) ------------------
+// Vino de la página Driver Compliance, que se reemplazó por el buscador +
+// drawer. Sin PII de contacto: es un reporte compartible.
+export type DocState = 'missing' | 'expired' | 'soon' | 'valid'
+
+export interface DriverDocRow {
+  key: string
+  label: string
+  expired: number
+  soon: number
+  valid: number
+  missing: number
+}
+
+export interface DriverAttentionRow {
+  name: string
+  doc: string
+  label: string
+  date: string
+  state: DocState
+  days: number | null
+  truck: string
+}
+
+export interface DriverComplianceReport {
+  totals: {
+    drivers: number
+    with_profile: number
+    without_profile: number
+    needs_attention: number
+    expired: number
+    expiring_soon: number
+    missing_dates: number
+    with_truck: number
+    without_truck: number
+  }
+  by_doc: DriverDocRow[]
+  role_mix: { key: string; label: string; count: number }[]
+  attention: DriverAttentionRow[]
+}
+
+export async function getDriverCompliance(): Promise<DriverComplianceReport> {
+  const res = await fetch('/api/reports/driver-compliance')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
 // --- Work Orders (fase G5 — reemplazo de Fullbay) ------------------------
 export type WoStatus =
   'open' | 'assigned' | 'in_progress' | 'completed' | 'invoiced'

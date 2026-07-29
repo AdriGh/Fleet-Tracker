@@ -17,11 +17,12 @@ import DefectsPage from './views/DefectsPage'
 import FleetPage from './views/FleetPage'
 import MaintBoardPage from './views/MaintBoardPage'
 import UnitProfilePage from './views/UnitProfilePage'
+import DriverSearch from './components/DriverSearch'
+import DriverDrawer from './components/DriverDrawer'
 import ReeferPage from './views/ReeferPage'
 import WorkOrdersPage from './views/WorkOrdersPage'
 import PartsPage from './views/PartsPage'
 import PurchasingPage from './views/PurchasingPage'
-import DriversPage from './views/DriversPage'
 import ReportsPage from './views/ReportsPage'
 import SettingsPage from './views/SettingsPage'
 import LoginPage from './views/LoginPage'
@@ -60,7 +61,6 @@ const NAV_SECTIONS: NavSection[] = [
       { id: 'workorders', label: 'Work Orders' },
       { id: 'parts', label: 'Parts' },
       { id: 'purchasing', label: 'Purchasing' },
-      { id: 'drivers', label: 'Driver Compliance' },
     ],
   },
 ]
@@ -158,14 +158,6 @@ const ICONS: Record<string, ReactElement> = {
       <circle cx="12" cy="17.5" r="1.6" />
     </svg>
   ),
-  drivers: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="12" r="2.6" />
-      <path d="M12 3v6.4M12 14.6V21M4 14.5l6.1-1.6M13.9 11.1 20 9.5" />
-    </svg>
-  ),
   settings: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
       strokeLinecap="round" strokeLinejoin="round">
@@ -190,6 +182,8 @@ export default function App() {
   const [section, setSection] = useState('dashboard')
   // H3: perfil completo de unidad (se superpone a la sección actual).
   const [profileUnit, setProfileUnit] = useState<string | null>(null)
+  // Conductor abierto en el drawer (se llega por el buscador de la sidebar).
+  const [driverName, setDriverName] = useState<string | null>(null)
   // Drawer móvil (<760px): el sidebar se esconde tras una barra superior con
   // hamburguesa; navegar o tocar el scrim lo cierra.
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -444,6 +438,26 @@ export default function App() {
 
         {/* Zona scrolleable: el nav nunca desborda la pantalla */}
         <div className="sidebar-scroll">
+          {/* Buscador de conductores: reemplaza a la página Driver Compliance
+              (v2.11). Va acá y no en la topbar porque la topbar es solo móvil
+              (display:none en desktop), así que ahí quedaría escondido. En el
+              riel colapsado se degrada a un icono que expande la sidebar. */}
+          {navCollapsed && !isMobile ? (
+            <button className="nav-item nav-rail-btn dsr-rail"
+              title="Find a driver"
+              onClick={() => setNavCollapsed(false)}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+            </button>
+          ) : (
+            <DriverSearch onPick={(n) => {
+              setDriverName(n)
+              setDrawerOpen(false)      // cierra el drawer de nav en móvil
+            }} />
+          )}
           {navCollapsed && !isMobile ? (
             <>
               {/* Riel colapsado (Icon rail · 74px): un icono por ÍTEM. El riel
@@ -626,7 +640,6 @@ export default function App() {
           {section === 'workorders' && <WorkOrdersPage />}
           {section === 'parts' && <PartsPage />}
           {section === 'purchasing' && <PurchasingPage />}
-          {section === 'drivers' && <DriversPage />}
           {section === 'reports' && <ReportsPage />}
           {section === 'settings' && (
             <SettingsPage
@@ -638,6 +651,10 @@ export default function App() {
           </>}
         </main>
       </div>
+
+      {/* Drawer del conductor: se abre desde el buscador, sobre cualquier
+          pantalla (por eso vive acá y no dentro de una vista). */}
+      <DriverDrawer name={driverName} onClose={() => setDriverName(null)} />
     </div>
     </PermsContext.Provider>
   )

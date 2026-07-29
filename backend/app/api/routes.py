@@ -121,6 +121,15 @@ def reports_cpm(from_: str = Query("", alias="from"), to: str = "",
     return reports.cpm_report(date_from=from_, date_to=to, terminal=terminal)
 
 
+@router.get("/reports/driver-compliance")
+async def reports_driver_compliance():
+    """Compliance de conductores AGREGADO (vino de la página Driver Compliance,
+    que se eliminó a favor del buscador + drawer). Vencimientos por documento,
+    fechas faltantes, mix de roles, cobertura de equipo y la cola de quiénes hay
+    que perseguir. Sin PII de contacto: es un reporte compartible."""
+    return reports.driver_compliance_report(await tms.list_drivers())
+
+
 @router.post("/reports/cpm/refresh")
 async def reports_cpm_refresh():
     """Recalcula la base de millas: backfilllea odómetro de los mileage ya
@@ -497,9 +506,23 @@ class TmsDriverIn(BaseModel):
 
 
 @router.get("/tms/drivers")
-async def tms_drivers():
-    """Roster vivo + perfil TMS por conductor."""
-    return {"drivers": await tms.list_drivers()}
+async def tms_drivers(request: Request):
+    """Roster vivo + perfil TMS por conductor.
+
+    Igual que /api/drivers: si el rol no tiene `pii.view`, el teléfono, el email
+    y la licencia salen ENMASCARADOS. Antes esta ruta los devolvía en claro a
+    cualquier autenticado (un mechanic o un viewer veía toda la PII del roster)."""
+    drivers = await tms.list_drivers()
+    user = _user_from(request)
+    masked = user is not None and not permissions.has_scope(
+        user.get("org_id"), user["role"], "pii.view")
+    if masked:
+        for d in drivers:
+            d["email"] = _mask_email(d.get("email", ""))
+            d["phone"] = _mask_phone(d.get("phone", ""))
+            lic = str(d.get("license_number") or "")
+            d["license_number"] = f"···{lic[-4:]}" if len(lic) > 4 else ""
+    return {"drivers": drivers, "pii_masked": masked}
 
 
 @router.post("/tms/drivers")
