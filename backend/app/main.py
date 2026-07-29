@@ -25,6 +25,10 @@ async def _lifespan(app: FastAPI):
         org_token = tenant.set_current_org(default_org_id())
         try:
             odometer.backfill_from_history()
+            # En modo demo, ademas se siembra historial pasado del simulador
+            # para que el cost-per-mile arranque con curva (no-op con un ELD
+            # real: de ahi no se puede backfillear).
+            odometer.seed_demo_history()
         finally:
             tenant.reset_current_org(org_token)
     except Exception:

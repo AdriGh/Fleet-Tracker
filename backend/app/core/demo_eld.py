@@ -8,6 +8,27 @@ y los trackers anden SIN credenciales. Ideal para portfolio/demo.
 Se activa con FLEET_DEMO=1 o, automaticamente, cuando no hay Samsara
 configurada (asi, al borrar samsara.local.json, la app cae sola en demo).
 
+DISENO: es un SIMULADOR, no una foto. Todo lo que en la realidad cambia con el
+tiempo aca es funcion del RELOJ, de forma DETERMINISTICA (misma fecha/hora =>
+mismo valor, reproducible entre procesos y en los tests):
+
+  - El odometro ACUMULA: odometer_at(unidad, dia) = base_en_epoch + suma de las
+    millas de cada dia. La MISMA funcion `_day_miles` alimenta el odometro y
+    `day_distance()`, asi el "millaje del dia" y el odometro nunca se
+    contradicen. Esto es lo que hace que el cost-per-mile (que necesita
+    odo_fin - odo_inicio) funcione en demo: antes el odometro era una constante
+    y todos los deltas daban 0.
+  - El PM es RELATIVO a hoy (dias_atras, millas_atras), no fechas absolutas.
+    Asi la distribucion de estados (on_track / upcoming / overdue / never) se
+    mantiene correcta para siempre, en vez de podrirse conforme pasa el tiempo
+    real y el odometro crece. Calibrado contra el intervalo por defecto de
+    20,000 mi (org_config "pm_interval_miles").
+  - El mapa SE MUEVE: cada camion en ruta interpola su posicion a lo largo de
+    un tramo (ida y vuelta), con rumbo, velocidad y combustible variables, y
+    con `moving_for_s` / `idle_for_s` que de verdad crecen — asi las reglas de
+    alerta por duracion se pueden ver cruzando su umbral. Una unidad queda
+    deliberadamente STALE (GPS viejo) para ejercitar ese camino.
+
 Toda la data de aca es GENERICA E INVENTADA (empresa "SUMMIT FREIGHT",
 unidades/numeros y conductores ficticios). NO hay ningun dato real de ninguna
 empresa. Si editas, manten esa regla.
@@ -16,12 +37,18 @@ empresa. Si editas, manten esa regla.
 from __future__ import annotations
 
 import datetime
+import math
 import random
 
 from .contacts import name_key
 
 # Empresa unica del demo (generica). Se usa en flota, defectos, roster, mapa.
 _COMPANY = "SUMMIT FREIGHT"
+
+# Dia 0 del simulador: desde aca se acumulan las millas sobre `_ODO_BASE`.
+# Mover esta fecha hacia atras da mas historial de odometro (y mas curva de
+# CPM); hacia adelante, menos.
+_EPOCH = datetime.date(2026, 1, 1)
 
 # Flota demo. (unidad, empresa, marca, modelo, anio).
 _TRUCKS: list[tuple[str, str, str, str, str]] = [
@@ -36,7 +63,11 @@ _TRUCKS: list[tuple[str, str, str, str, str]] = [
     ("503", _COMPANY, "Volvo", "VNL 760", "2022"),
     ("517", _COMPANY, "Freightliner", "Cascadia", "2023"),
 ]
-_TRAILERS: list[str] = ["53108", "53112", "7841", "7846", "4402", "4410"]
+# Trailers: (unidad, subtipo). El subtipo 'reefer' marca los de cadena de frio.
+_TRAILERS: list[tuple[str, str]] = [
+    ("53108", "reefer"), ("53112", "reefer"), ("7841", "dry_van"),
+    ("7846", "dry_van"), ("4402", "flatbed"), ("4410", "dry_van"),
+]
 _DRIVERS: list[str] = [
     "James Carter", "Miguel Santos", "Daniel Reyes", "Robert Lee",
     "David Nguyen", "Kevin Walsh", "Carlos Mendez", "Anthony Brooks",
@@ -57,26 +88,45 @@ _CONTACTS: list[tuple[str, str, str, str, str]] = [
     ("Victor Ramos", "(214) 555-0260", "vramos@summitfreight.com", "TX2199014", "TX"),
 ]
 
-# Odometro actual por camion (millas). Coherente con _PM para dar una buena
-# distribucion de estados PM (on_track / upcoming / overdue / never).
-_ODO: dict[str, int] = {
+# Odometro EN EL EPOCH (millas). El odometro de hoy se calcula acumulando las
+# millas diarias sobre estas bases (ver odometer_at).
+_ODO_BASE: dict[str, int] = {
     "412": 431050, "418": 388900, "421": 502100, "305": 521900,
     "308": 612300, "311": 298400, "207": 412500, "214": 305800,
     "503": 188300, "517": 96400,
 }
 
-# Ultimo PM por camion: (fecha M/D/YYYY, millas). None = nunca (Never Performed).
-_PM: dict[str, tuple[str, int] | None] = {
-    "412": ("3/2/2026", 418200),    # on_track  (faltan ~7,150 mi)
-    "418": ("4/10/2026", 376000),   # on_track
-    "421": ("3/20/2026", 489000),   # on_track
-    "305": ("4/18/2026", 502400),   # upcoming  (faltan ~500 mi)
-    "308": ("4/1/2026", 595000),    # upcoming
-    "311": ("5/5/2026", 280000),    # upcoming
-    "207": ("1/10/2026", 388000),   # overdue
-    "214": ("12/15/2025", 280200),  # overdue
-    "503": None,                    # never
-    "517": None,                    # never
+# Perfil de uso por camion: (millas promedio en dia laboral, variacion +/-).
+# Da una flota MIXTA: long-haul, regional y local. Es lo que hace interesante al
+# CPM por unidad y a la matriz costo-vs-uso (una unidad caraa que ademas rueda
+# poco es candidata a retiro).
+_MILES_PROFILE: dict[str, tuple[int, int]] = {
+    "412": (470, 80),   # long-haul
+    "418": (505, 70),   # long-haul
+    "421": (455, 85),   # long-haul
+    "305": (330, 70),   # regional
+    "308": (300, 65),   # regional
+    "311": (345, 75),   # regional
+    "207": (150, 50),   # local / city
+    "214": (135, 45),   # local / city (poca milla, buen caso de retiro)
+    "503": (420, 90),   # long-haul
+    "517": (390, 80),   # regional-plus
+}
+
+# Ultimo PM por camion, RELATIVO a hoy: (dias_atras, millas_atras).
+# None = nunca (Never Performed). Calibrado contra el intervalo de 20,000 mi:
+# restante = 20000 - millas_atras  =>  >5500 on_track, 0..5500 upcoming, <0 overdue.
+_PM_REL: dict[str, tuple[int, int] | None] = {
+    "412": (128, 12850),   # on_track  (faltan ~7,150 mi)
+    "418": (89, 12900),    # on_track
+    "421": (110, 13100),   # on_track
+    "305": (81, 19500),    # upcoming  (faltan ~500 mi)
+    "308": (98, 17300),    # upcoming
+    "311": (64, 18400),    # upcoming
+    "207": (179, 24500),   # overdue
+    "214": (205, 25600),   # overdue
+    "503": None,           # never
+    "517": None,           # never
 }
 
 # Defectos demo: (dias_atras, estado, unidad, kind, categoria, comentario, reportes).
@@ -106,18 +156,42 @@ _DEFECTS: list[tuple[int, str, str, str, str, str, int]] = [
     (75, "resolved", "53112", "trailer", "Tires", "LLO low tread", 1),
 ]
 
-# Posiciones del Live Map: (unidad, lat, lng, mph, duty, motor, lugar, fuel, def).
-_MAP: list[tuple[str, float, float, float, str, str, str, int, int]] = [
-    ("412", 32.7767, -96.7970, 0.0, "offDuty", "Off", "Dallas, TX", 78, 64),
-    ("418", 38.6270, -90.1994, 63.0, "driving", "On", "St. Louis, MO", 54, 71),
-    ("421", 36.1627, -86.7816, 58.0, "driving", "On", "Nashville, TN", 61, 49),
-    ("305", 33.7490, -84.3880, 0.0, "sleeperBed", "Off", "Atlanta, GA", 88, 80),
-    ("308", 41.8781, -87.6298, 0.0, "onDuty", "Idle", "Chicago, IL", 42, 33),
-    ("311", 39.0997, -94.5786, 67.0, "driving", "On", "Kansas City, MO", 70, 58),
-    ("207", 29.7604, -95.3698, 0.0, "offDuty", "Off", "Houston, TX", 35, 90),
-    ("214", 34.7465, -92.2896, 55.0, "driving", "On", "Little Rock, AR", 49, 22),
-    ("503", 39.7684, -86.1581, 0.0, "yardMove", "On", "Indianapolis, IN", 81, 67),
-    ("517", 35.4676, -97.5164, 0.0, "onDuty", "Idle", "Oklahoma City, OK", 66, 75),
+# Rutas del Live Map. Los que estan "driving" van interpolando entre `a` y `b`
+# (ida y vuelta); los parados se quedan en `a`. `mph` es la velocidad de
+# crucero base. `cycle_h` = horas de una pierna (ida). `stale=True` simula GPS
+# perdido (el front lo marca como dato dudoso).
+_ROUTES: list[dict] = [
+    {"unit": "412", "a": (32.7767, -96.7970), "b": (32.7767, -96.7970),
+     "place": "Dallas, TX", "mph": 0.0, "duty": "offDuty", "engine": "Off",
+     "fuel": 78, "def": 64, "cycle_h": 6},
+    {"unit": "418", "a": (38.6270, -90.1994), "b": (39.7684, -86.1581),
+     "place": "St. Louis, MO", "place_b": "Indianapolis, IN", "mph": 63.0,
+     "duty": "driving", "engine": "On", "fuel": 54, "def": 71, "cycle_h": 4},
+    {"unit": "421", "a": (36.1627, -86.7816), "b": (33.7490, -84.3880),
+     "place": "Nashville, TN", "place_b": "Atlanta, GA", "mph": 58.0,
+     "duty": "driving", "engine": "On", "fuel": 61, "def": 49, "cycle_h": 4},
+    {"unit": "305", "a": (33.7490, -84.3880), "b": (33.7490, -84.3880),
+     "place": "Atlanta, GA", "mph": 0.0, "duty": "sleeperBed", "engine": "Off",
+     "fuel": 88, "def": 80, "cycle_h": 6},
+    {"unit": "308", "a": (41.8781, -87.6298), "b": (41.8781, -87.6298),
+     "place": "Chicago, IL", "mph": 0.0, "duty": "onDuty", "engine": "Idle",
+     "fuel": 42, "def": 33, "cycle_h": 6},
+    {"unit": "311", "a": (39.0997, -94.5786), "b": (41.2565, -95.9345),
+     "place": "Kansas City, MO", "place_b": "Omaha, NE", "mph": 67.0,
+     "duty": "driving", "engine": "On", "fuel": 70, "def": 58, "cycle_h": 3},
+    {"unit": "207", "a": (29.7604, -95.3698), "b": (29.7604, -95.3698),
+     "place": "Houston, TX", "mph": 0.0, "duty": "offDuty", "engine": "Off",
+     "fuel": 35, "def": 90, "cycle_h": 6},
+    {"unit": "214", "a": (34.7465, -92.2896), "b": (35.1495, -90.0490),
+     "place": "Little Rock, AR", "place_b": "Memphis, TN", "mph": 55.0,
+     "duty": "driving", "engine": "On", "fuel": 49, "def": 22, "cycle_h": 3},
+    {"unit": "503", "a": (39.7684, -86.1581), "b": (39.7684, -86.1581),
+     "place": "Indianapolis, IN", "mph": 0.0, "duty": "yardMove",
+     "engine": "On", "fuel": 81, "def": 67, "cycle_h": 6},
+    # GPS perdido: ejercita el camino "stale" del front y de las alertas.
+    {"unit": "517", "a": (35.4676, -97.5164), "b": (35.4676, -97.5164),
+     "place": "Oklahoma City, OK", "mph": 0.0, "duty": "onDuty",
+     "engine": "Idle", "fuel": 66, "def": 75, "cycle_h": 6, "stale": True},
 ]
 
 _DUTY_KEYS = ("driving", "onDuty", "sleeperBed", "offDuty",
@@ -133,13 +207,6 @@ def _trucks_for(company: str | None):
     return [t for t in _TRUCKS if not cu or t[1] == cu]
 
 
-def _model_of(unit: str) -> str:
-    for u, _c, mk, md, yr in _TRUCKS:
-        if u == unit:
-            return " ".join(x for x in (yr, mk, md) if x)
-    return ""
-
-
 def _open_counts() -> dict[str, int]:
     out: dict[str, int] = {}
     for _d, st, unit, *_ in _DEFECTS:
@@ -148,42 +215,132 @@ def _open_counts() -> dict[str, int]:
     return out
 
 
+# ----- Millas y odometro (el corazon del simulador) ------------------------
+
+def _day_miles(unit: str, day: datetime.date) -> float:
+    """Millas que ESA unidad rodo ESE dia. Deterministico por (unidad, dia) y
+    consciente del dia de semana (domingo casi parado, sabado media jornada).
+
+    Es la UNICA fuente de millaje: alimenta tanto `day_distance()` como la
+    acumulacion del odometro, asi los dos nunca se contradicen."""
+    avg, spread = _MILES_PROFILE.get(unit, (300, 70))
+    r = random.Random(f"fleet-demo-miles-{unit}-{day.isoformat()}")
+    wd = day.weekday()                       # 0=lunes ... 6=domingo
+    if wd == 6:
+        factor = r.uniform(0.0, 0.25)        # domingo: casi sin rodar
+    elif wd == 5:
+        factor = r.uniform(0.30, 0.80)       # sabado: media jornada
+    else:
+        factor = r.uniform(0.75, 1.20)
+    return round(max(0.0, avg * factor + r.uniform(-spread, spread)), 1)
+
+
+# Cache del odometro acumulado: (unidad, dia ISO) -> millas. El acumulado es un
+# prefix-sum sobre `_day_miles`, asi que se calcula una vez por dia y se reusa
+# (el mapa puede pedirlo muchas veces por minuto).
+_odo_cache: dict[tuple[str, str], int] = {}
+
+
+def odometer_at(unit: str, day: datetime.date) -> int:
+    """Odometro de la unidad al FINAL de `day` (base del epoch + acumulado).
+    Devuelve 0 si la unidad no es del demo. Antes del epoch = la base."""
+    base = _ODO_BASE.get(unit)
+    if base is None:
+        return 0
+    if day < _EPOCH:
+        return base
+    key = (unit, day.isoformat())
+    hit = _odo_cache.get(key)
+    if hit is not None:
+        return hit
+    # Un solo recorrido cachea TODOS los dias del camino, no solo el pedido:
+    # asi sembrar 90 dias de historial es lineal y no cuadratico.
+    total = float(base)
+    d = _EPOCH
+    step = datetime.timedelta(days=1)
+    while d <= day:
+        total += _day_miles(unit, d)
+        _odo_cache[(unit, d.isoformat())] = int(round(total))
+        d += step
+    return _odo_cache[key]
+
+
+def odometers() -> dict[str, dict]:
+    """{unidad -> {miles, source}} con el odometro de HOY (forma de
+    samsara.vehicle_odometers()). Crece dia a dia."""
+    today = datetime.date.today()
+    return {unit: {"miles": odometer_at(unit, today), "source": "obd"}
+            for unit in _ODO_BASE}
+
+
+def units() -> list[str]:
+    """Unidades (camiones) del demo — para sembradores/tests."""
+    return [u for u, *_r in _TRUCKS]
+
+
+def day_distance(company: str | None, day: datetime.date) -> dict[str, float]:
+    """Millas por unidad en `day`. MISMA fuente que el odometro."""
+    return {unit: _day_miles(unit, day) for unit, *_r in _trucks_for(company)}
+
+
+# ----- Flota ---------------------------------------------------------------
+
 def fleet() -> list[dict]:
     """Flota sintetica con la forma de samsara.list_fleet()."""
     oc = _open_counts()
-    today = datetime.date.today().isoformat()
+    today = datetime.date.today()
+    rng = _rng(today, "fleet")
     out: list[dict] = []
     for i, (unit, company, make, model, year) in enumerate(_TRUCKS):
+        # El ultimo DVIR varia (hoy .. 6 dias) en vez de ser siempre hoy.
+        last = today - datetime.timedelta(days=rng.choice([0, 0, 0, 1, 1, 2, 4, 6]))
         out.append({
             "id": f"demo-{unit}", "unit": unit, "kind": "truck",
             "unit_type": "truck", "asset_type": "vehicle", "company": company,
-            "make": make, "model": model, "year": year,
+            "make": make, "model": model, "year": year, "subtype": "",
             "vin": f"1DEMO{i:05d}{unit}", "plate": f"DMO{1000 + i}",
-            "open_defects": oc.get(unit, 0), "last_dvir": today,
+            "plate_state": "TX", "source": "demo",
+            "open_defects": oc.get(unit, 0), "last_dvir": last.isoformat(),
             "dvir_known": True, "auto_eligible": True,
         })
-    for i, trl in enumerate(_TRAILERS):
+    for i, (trl, subtype) in enumerate(_TRAILERS):
         out.append({
             "id": f"demo-trl-{trl}", "unit": trl, "kind": "trailer",
             "unit_type": "trailer", "asset_type": "trailer",
             "company": _COMPANY, "make": "Wabash", "model": "DuraPlate",
-            "year": "2019", "vin": f"1WABDEMO{i:06d}", "plate": "",
+            "year": "2019", "subtype": subtype,
+            "vin": f"1WABDEMO{i:06d}", "plate": "", "plate_state": "TX",
+            "source": "demo",
             "open_defects": oc.get(trl, 0), "last_dvir": None,
             "dvir_known": False, "auto_eligible": False,
         })
     return out
 
 
+# ----- DVIR / pre-trip -----------------------------------------------------
+
+def _driver_assignment(company: str | None,
+                       day: datetime.date) -> dict[str, str]:
+    """{unidad -> conductor} de ese dia. La usan `dvir_rows` Y `pretrip`, asi
+    el conductor que firmo el DVIR es el mismo que registro el pre-trip (antes
+    cada uno sorteaba por su lado y solo coincidian por casualidad)."""
+    rng = _rng(day, "assign")
+    drivers = list(_DRIVERS)
+    rng.shuffle(drivers)
+    return {unit: drivers[i % len(drivers)]
+            for i, (unit, *_r) in enumerate(_trucks_for(company))}
+
+
 def dvir_rows(company: str | None, day: datetime.date) -> list[dict]:
     """Filas de DVIR del dia (forma del dvir_df del engine)."""
     rng = _rng(day, "dvir")
-    drivers = list(_DRIVERS)
-    rng.shuffle(drivers)
+    assign = _driver_assignment(company, day)
+    trailer_ids = [t for t, _sub in _TRAILERS]
     rows: list[dict] = []
-    for idx, (unit, _c, _mk, _md, _y) in enumerate(_trucks_for(company)):
+    for unit, _c, _mk, _md, _y in _trucks_for(company):
         if rng.random() < 0.15:        # 15% sin DVIR -> apareceran como NO DVIR
             continue
-        driver = drivers[idx % len(drivers)]
+        driver = assign.get(unit, _DRIVERS[0])
         status = "Unsafe" if rng.random() < 0.12 else "Safe"
         typ = "preTrip" if rng.random() < 0.7 else "postTrip"
         rows.append({
@@ -195,7 +352,7 @@ def dvir_rows(company: str | None, day: datetime.date) -> list[dict]:
         })
         if rng.random() < 0.4:         # a veces tambien inspecciona un trailer
             rows.append({
-                "Vehicle Name": "", "Trailer": rng.choice(_TRAILERS),
+                "Vehicle Name": "", "Trailer": rng.choice(trailer_ids),
                 "Author": driver,
                 "Signed At": f"{day.isoformat()}T12:05:00Z",
                 "Status": "Safe", "Type": typ, "Mechanic Notes": "",
@@ -204,18 +361,25 @@ def dvir_rows(company: str | None, day: datetime.date) -> list[dict]:
     return rows
 
 
-def day_distance(company: str | None, day: datetime.date) -> dict[str, float]:
-    rng = _rng(day, "dist")
-    return {unit: round(rng.uniform(20, 540), 1)
-            for unit, *_ in _trucks_for(company)}
-
-
 def pretrip(company: str | None, day: datetime.date) -> dict[str, dict]:
+    """{name_key(conductor) -> {pre, post}} en segundos (None = no registrado).
+
+    Respeta `company` (antes lo ignoraba) y emite POST-trip real, ademas de
+    algunos pre-trips deliberadamente CORTOS: asi se pueden ver los estados
+    'NO PRE-TRIP', 'NO POST-TRIP' y pre-trip demasiado breve."""
+    assign = _driver_assignment(company, day)
     rng = _rng(day, "pre")
     out: dict[str, dict] = {}
-    for d in _DRIVERS:
-        if rng.random() < 0.55:        # ~mitad registro el pre-trip
-            out[name_key(d)] = {"pre": rng.randint(8, 30) * 60, "post": None}
+    for unit in sorted(assign):
+        driver = assign[unit]
+        if rng.random() < 0.12:               # no registro pre-trip
+            continue
+        if rng.random() < 0.18:               # pre-trip demasiado corto
+            pre = rng.randint(2, 4) * 60
+        else:
+            pre = rng.randint(9, 26) * 60
+        post = None if rng.random() < 0.25 else rng.randint(6, 18) * 60
+        out[name_key(driver)] = {"pre": pre, "post": post}
     return out
 
 
@@ -228,6 +392,9 @@ def _defect_row(days_ago: int, status: str, unit: str, kind: str,
         api_status = "Open"
     else:
         api_status = "Resolved"
+    # El asset_id tiene que coincidir con el de fleet() (los trailers llevan
+    # prefijo 'demo-trl-'), si no el filtro de archivados no los reconoce.
+    asset_id = f"demo-trl-{unit}" if kind == "trailer" else f"demo-{unit}"
     return {
         "date_label": f"{day.month}.{day.day}",
         "block_date": day.isoformat(),
@@ -235,7 +402,7 @@ def _defect_row(days_ago: int, status: str, unit: str, kind: str,
         "driver": "",
         "unit": unit,
         "unit_kind": kind,
-        "asset_id": f"demo-{unit}",
+        "asset_id": asset_id,
         "dvir_type": "",
         "status": api_status,
         "detail": f"{category} - {comment}",
@@ -267,20 +434,24 @@ def defect_window(days: int) -> list[dict]:
     return out
 
 
-# ----- PM / odometros (PM board) -------------------------------------------
-
-def odometers() -> dict[str, dict]:
-    """{unidad -> {miles, source}} con el odometro actual (forma de
-    samsara.vehicle_odometers())."""
-    return {unit: {"miles": mi, "source": "obd"} for unit, mi in _ODO.items()}
-
+# ----- PM (PM board) -------------------------------------------------------
 
 def pm_rows() -> list[dict]:
-    """Filas con la forma de pm.load() (ultimo PM por unidad) para el PM board."""
+    """Filas con la forma de pm.load() (ultimo PM por unidad) para el PM board.
+
+    El ultimo PM se deriva de `_PM_REL` RELATIVO a hoy y al odometro actual, no
+    de fechas/millas absolutas: asi los estados no se podren con el tiempo."""
+    today = datetime.date.today()
     out: list[dict] = []
     for unit, _c, mk, md, _y in _TRUCKS:
-        pm = _PM.get(unit)
-        last_date, last_miles = (pm if pm else (None, None))
+        rel = _PM_REL.get(unit)
+        if rel:
+            days_ago, miles_ago = rel
+            d = today - datetime.timedelta(days=days_ago)
+            last_date = f"{d.month}/{d.day}/{d.year}"
+            last_miles = max(0, odometer_at(unit, today) - miles_ago)
+        else:
+            last_date, last_miles = None, None
         pm_type = "ISX" if "international" in mk.lower() else "DD"
         out.append({
             "unit": unit,
@@ -288,7 +459,7 @@ def pm_rows() -> list[dict]:
             "pm_type": pm_type,
             "last_pm_date": last_date,
             "last_pm_miles": last_miles,
-            "report_miles": _ODO.get(unit),
+            "report_miles": odometer_at(unit, today),
         })
     out.sort(key=lambda r: r["unit"])
     return out
@@ -296,40 +467,97 @@ def pm_rows() -> list[dict]:
 
 # ----- Live Map (tracking.load_live) ---------------------------------------
 
+def _bearing(a: tuple[float, float], b: tuple[float, float]) -> int:
+    """Rumbo aproximado a->b en grados (0=N, 90=E)."""
+    dlat = b[0] - a[0]
+    dlng = b[1] - a[1]
+    if abs(dlat) < 1e-9 and abs(dlng) < 1e-9:
+        return 0
+    deg = math.degrees(math.atan2(dlng, dlat))
+    return int(round(deg % 360))
+
+
+def _unit_offset(unit: str) -> float:
+    """Desfase estable por unidad, para que no se muevan todos sincronizados."""
+    return (sum(ord(c) for c in unit) % 97) / 97.0
+
+
 def map_payload() -> dict:
-    """Snapshot del mapa con la forma de tracking.load_live()."""
+    """Snapshot del mapa con la forma de tracking.load_live().
+
+    Las posiciones INTERPOLAN a lo largo de su tramo (ida y vuelta), asi que el
+    mapa se mueve entre refrescos; `moving_for_s` / `idle_for_s` crecen de
+    verdad y una unidad va con GPS viejo (stale)."""
     now = datetime.datetime.now(datetime.timezone.utc)
     gps_time = now.isoformat()
+    ts = now.timestamp()
     driver_by_unit = {u: _DRIVERS[i % len(_DRIVERS)]
                       for i, (u, *_rest) in enumerate(_TRUCKS)}
+    today = datetime.date.today()
     vehicles: list[dict] = []
     counts = dict.fromkeys(_DUTY_KEYS, 0)
     moving = 0
-    for unit, lat, lng, mph, duty, engine, loc, fuel, deff in _MAP:
-        if duty in counts:
-            counts[duty] += 1
+    for r in _ROUTES:
+        unit = r["unit"]
+        a, b = r["a"], r["b"]
+        duty, engine = r["duty"], r["engine"]
+        base_mph = float(r["mph"])
+        off = _unit_offset(unit)
+        leg_s = float(r.get("cycle_h", 4)) * 3600.0
+        cycle_s = leg_s * 2.0                      # ida + vuelta
+        # Fase 0..1 dentro del ciclo, desfasada por unidad.
+        x = ((ts + off * cycle_s) % cycle_s) / cycle_s
+        outbound = x < 0.5
+        leg_pos = (x * 2.0) if outbound else ((1.0 - x) * 2.0)   # 0..1
+        lat = a[0] + (b[0] - a[0]) * leg_pos
+        lng = a[1] + (b[1] - a[1]) * leg_pos
+        # Velocidad: crucero con variacion suave (nunca congelada).
+        if base_mph > 1.0:
+            mph = max(0.0, base_mph * (0.88 + 0.18 * math.sin(ts / 540.0 + off * 6.3)))
+        else:
+            mph = 0.0
         is_moving = mph > 1.0
         if is_moving:
             moving += 1
+        heading = _bearing(a, b) if outbound else _bearing(b, a)
+        # Duraciones REALES: crecen y se reinician con el ciclo/umbral.
+        moving_for_s = int((x % 0.5) * cycle_s) if is_moving else None
+        idle_for_s = (int((ts + off * 5400.0) % 5400.0)
+                      if engine == "Idle" else None)
+        # Combustible/DEF bajan con el avance del tramo (y se "recargan" al
+        # volver), asi los umbrales de low_fuel/low_def se ven moverse.
+        fuel = int(max(4, min(100, r["fuel"] - leg_pos * (22 if is_moving else 3))))
+        deff = float(max(2, min(100, r["def"] - leg_pos * (9 if is_moving else 1))))
+        stale = bool(r.get("stale"))
+        if stale:
+            # GPS viejo: no se reportan duraciones (igual que el camino real).
+            moving_for_s = None
+            idle_for_s = None
+            v_gps = (now - datetime.timedelta(minutes=41)).isoformat()
+        else:
+            v_gps = gps_time
+        if duty in counts:
+            counts[duty] += 1
         vehicles.append({
             "id": f"demo-{unit}",
             "unit": unit,
             "company": _COMPANY,
-            "lat": lat,
-            "lng": lng,
-            "heading": 90,
+            "lat": round(lat, 5),
+            "lng": round(lng, 5),
+            "heading": heading,
             "speed_mph": round(mph, 1),
-            "stale": False,
-            "location": loc,
-            "gps_time": gps_time,
+            "stale": stale,
+            "location": (r.get("place_b") if (is_moving and leg_pos > 0.55)
+                         else r["place"]),
+            "gps_time": v_gps,
             "engine": engine,
             "fuel_pct": fuel,
-            "def_pct": float(deff),
-            "odometer_mi": _ODO.get(unit),
+            "def_pct": round(deff, 1),
+            "odometer_mi": odometer_at(unit, today),
             "driver": driver_by_unit.get(unit, ""),
             "duty": duty,
-            "moving_for_s": (1800 if is_moving else None),
-            "idle_for_s": (600 if engine == "Idle" else None),
+            "moving_for_s": moving_for_s,
+            "idle_for_s": idle_for_s,
         })
     vehicles.sort(key=lambda x: (-(x["speed_mph"] or 0), x["unit"]))
     return {
@@ -340,7 +568,7 @@ def map_payload() -> dict:
         "generated_at": gps_time,
         "vehicles": vehicles,
         "summary": {
-            "drivers": len(_MAP),
+            "drivers": len(_ROUTES),
             "vehicles": len(vehicles),
             "moving": moving,
             "unknown": 0,
@@ -354,12 +582,13 @@ def map_payload() -> dict:
 def drivers() -> list[dict]:
     """Conductores demo con la forma de samsara.list_drivers()."""
     out: list[dict] = []
-    for i, (name, phone, _email, lic, st) in enumerate(_CONTACTS):
+    for i, (name, phone, email, lic, st) in enumerate(_CONTACTS):
         out.append({
             "id": f"demo-drv-{i}",
             "name": name,
             "company": _COMPANY,
             "phone": phone,
+            "email": email,
             "username": name.lower().replace(" ", "."),
             "license_number": lic,
             "license_state": st,

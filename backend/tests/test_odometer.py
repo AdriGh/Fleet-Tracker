@@ -119,7 +119,39 @@ def test_manual_logging():
     print("OK entrada manual: idempotente por día + alimenta millas + valida")
 
 
+def test_regression_does_not_drop_unit():
+    """Una lectura que BAJA (cambio de ECM / salto OBD->GPS) no debe borrar la
+    unidad del CPM: se ignora ESE tramo y se conservan las millas buenas.
+
+    Antes se calculaba `última − primera`, así que una regresión al final del
+    rango daba delta negativo y la unidad desaparecía EN SILENCIO."""
+    # R1: sube 100k->110k (10,000 mi buenas) y después una lectura que BAJA.
+    odometer.log_reading("R1", "2026-01-01", 100000)
+    odometer.log_reading("R1", "2026-03-01", 110000)
+    odometer.log_reading("R1", "2026-04-01", 5000)     # tablero reemplazado
+    miles = odometer.miles_by_unit(None, None)
+    assert miles.get("R1") == 10000, (
+        f"regresión perdió la unidad o las millas: {miles.get('R1')}")
+
+    # Y si después de la regresión sigue sumando, esas millas también cuentan.
+    odometer.log_reading("R1", "2026-05-01", 6500)      # +1,500 desde el reset
+    miles = odometer.miles_by_unit(None, None)
+    assert miles.get("R1") == 11500, miles.get("R1")
+
+    # Un salto ABSURDO (más de 1500 mi/día transcurrido) se descarta como ruido.
+    odometer.log_reading("R2", "2026-01-01", 200000)
+    odometer.log_reading("R2", "2026-01-02", 900000)    # +700k en un día: no
+    assert "R2" not in odometer.miles_by_unit(None, None), "aceptó un salto absurdo"
+
+    # Monótono normal: idéntico a última − primera (compatibilidad).
+    odometer.log_reading("R3", "2026-02-01", 50000)
+    odometer.log_reading("R3", "2026-02-11", 53000)
+    assert odometer.miles_by_unit(None, None).get("R3") == 3000
+    print("OK regresión/reset no borra la unidad + salto absurdo descartado")
+
+
 if __name__ == "__main__":
     test_backfill_miles_and_cpm()
     test_manual_logging()
+    test_regression_does_not_drop_unit()
     print("\nALL ODOMETER/CPM TESTS PASSED")
