@@ -7,6 +7,68 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.11.0] - 2026-07-29
+
+### Cambiado
+- **Se eliminó la página "Driver Compliance".** Al conductor individual ahora se
+  llega **buscándolo**, y lo agregado (lo reportable) se mudó a Reports:
+  - **Buscador de conductores en la sidebar** (`DriverSearch`): typeahead con
+    teclado completo (↑/↓, Enter, Esc) que filtra por nombre, camión, trailer,
+    empresa o teléfono. Con el campo vacío muestra **primero a los que necesitan
+    atención**, así ya sirve sin escribir nada. En el riel colapsado se degrada a
+    un icono que expande la sidebar. Va en la sidebar y **no** en la topbar
+    porque la topbar es solo móvil (`display:none` en desktop) y ahí habría
+    quedado escondido en escritorio.
+  - **Drawer del conductor** (`DriverDrawer`, sobre el patrón de `UnitDrawer`):
+    las 4 fechas de compliance editables en el lugar, contacto, equipo asignado,
+    contrato, personal y su historial de DVIR. Junta las dos mitades que ya
+    existían (el perfil editable de la página vieja + el historial de
+    `DriverModal`).
+  - **Sección "Driver compliance" en Reports & Analytics**: vencidos, por vencer
+    (≤30 d), **fechas faltantes** y cobertura de perfiles/camión; una barra
+    apilada por documento (CDL / médico / MVR / clearinghouse); la **cola
+    accionable** de a quién perseguir (vencidos primero, después por días); y el
+    mix de roles. Endpoint nuevo `GET /api/reports/driver-compliance`.
+  - Los helpers de vencimiento se extrajeron a `frontend/src/drivers.ts` —
+    `expTone` era el **único** lugar de todo el código donde se calculaba el
+    estado de un vencimiento, así que se rescató en vez de borrarse.
+  - **Lo que NO se tocó, a propósito:** la tabla `tms_driver` y
+    `POST /api/tms/drivers`. Ese POST es el **único escritor** de
+    `TmsDriver.truck`, que `maint.py` usa para la columna Driver del board de
+    PM/DOT; borrarlo habría congelado esa columna en silencio. El drawer
+    conserva la edición de truck/trailer por eso mismo.
+
+### Corregido
+- **Fuga de PII en `GET /api/tms/drivers`**: devolvía teléfono, email y licencia
+  **en claro** a cualquier autenticado (un `mechanic` o un `viewer` veía toda la
+  PII del roster), a diferencia de `/api/drivers`, que sí enmascara. Ahora aplica
+  el mismo criterio: sin `pii.view` los tres campos salen enmascarados, y la
+  respuesta informa `pii_masked`.
+- El mix de roles del reporte cuenta **solo** conductores con perfil: el modelo
+  default-ea `role='owner_operator'`, así que incluir a los sin-perfil habría
+  reportado 100% owner-operators.
+- La sección de conductores en Reports renderiza **fuera** del gate `hasData`
+  (que mira el gasto de taller): una flota sin work orders igual tiene
+  vencimientos que perseguir.
+
+### Añadido
+- **Perfiles de conductor demo** (`tms.seed_demo_profiles`, no-op fuera de modo
+  demo): 8 perfiles con spread realista de compliance —2 vencidos, 3 por vencer,
+  fechas faltantes, 2 conductores sin perfil— y **camión asignado**. Sin esto el
+  compliance salía todo vacío en demo y el feature no se podía revisar; de paso
+  llena la columna Driver del board de PM/DOT (7 de 9 unidades).
+
+### Verificación
+- `backend/tests/test_driver_compliance.py` (nuevo): `doc_state` en sus cuatro
+  estados, que 'sin fecha' se cuenta aparte de 'vigente', la guardia del mix de
+  roles, el orden de la cola por urgencia y roster vacío. Suite backend completa
+  en verde (8 archivos).
+- `tsc --noEmit` y `vite build` limpios (el build usa esbuild, más estricto que
+  tsc con redeclaraciones — ya cazó un bug real en v2.9.0).
+- Verificado end-to-end en proceso: la columna Driver del board de PM se llena,
+  el reporte no incluye PII, y el enmascarado se activa para `mechanic`/`viewer`.
+- Pendiente de revisión visual (la sesión no sobrevive al reinicio del backend).
+
 ## [2.10.0] - 2026-07-29
 
 ### Añadido

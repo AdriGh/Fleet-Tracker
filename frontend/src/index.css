@@ -6460,101 +6460,168 @@ table.defects-table td {
 .ud-towo { margin-left: auto; }
 
 /* ==================================================================
-   Driver roster & compliance (ex-TMS, referencia QuickManage)
+   Conductores: buscador de la sidebar + drawer + sección de Reports
+   (v2.11 — reemplazan a la página "Driver Compliance")
    ================================================================== */
-.tms-table tbody tr { cursor: pointer; }
-.tms-llc {
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.82rem;
-}
-.tms-contract { display: flex; flex-direction: column; gap: 1px; }
-.tms-contract strong {
-  font-family: var(--font-display);
-  font-size: 0.92rem;
-}
-.tms-contract span { font-size: 0.72rem; color: var(--text-muted); }
-.tms-equip { display: inline-flex; gap: 5px; flex-wrap: wrap; }
-.tms-docs { display: inline-flex; gap: 4px; }
-.tms-doc {
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: var(--surface-2);
-  color: var(--text-muted);
-  opacity: 0.6;
-}
-.tms-doc.ok { background: rgba(34, 197, 94, 0.14); color: #16a34a; opacity: 1; }
-.tms-doc.warn { background: rgba(245, 158, 11, 0.18); color: #d97706; opacity: 1; }
-.tms-doc.danger { background: rgba(220, 38, 38, 0.16); color: #ef4444; opacity: 1; }
 
-/* Perfil de driver */
-.tms-profile-head { display: flex; align-items: center; gap: 16px; }
-.tms-avatar-lg {
-  width: 54px; height: 54px;
-  font-size: 1.1rem;
-  border-radius: 16px;
+/* ----- Buscador (typeahead) en la sidebar ----- */
+.dsr { position: relative; margin: 0 10px 10px; }
+.dsr-ic {
+  position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+  width: 15px; height: 15px; color: var(--text-muted); pointer-events: none;
 }
-.tms-comp-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 12px;
+.dsr-ic svg { width: 100%; height: 100%; }
+.dsr-input {
+  width: 100%; padding: 7px 10px 7px 30px; font-size: 0.82rem;
+  border: 1px solid var(--border); border-radius: 9px;
+  background: var(--surface-2); color: var(--text);
 }
-.tms-comp {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 13px 15px;
+.dsr-input::placeholder { color: var(--text-muted); }
+.dsr-input:focus {
+  outline: none; border-color: var(--accent);
   background: var(--surface);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
-  position: relative;
-  overflow: hidden;
 }
-.tms-comp::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 4px;
-  background: var(--border-strong);
-}
-.tms-comp.ok::before { background: var(--ui-success); }
-.tms-comp.warn::before { background: #d97706; }
-.tms-comp.danger::before { background: var(--ui-danger); }
-.tms-comp-label {
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-.tms-comp-date {
-  border: none;
-  background: transparent;
-  font-family: var(--font-display);
-  font-size: 1.02rem;
-  font-weight: 700;
-  color: var(--text);
-  padding: 0;
-}
-.tms-comp-date:focus { outline: none; }
-.tms-comp-state { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
-.tms-comp.ok .tms-comp-state { color: #16a34a; }
-.tms-comp.warn .tms-comp-state { color: #d97706; }
-.tms-comp.danger .tms-comp-state { color: #ef4444; }
+.dsr-input::-webkit-search-cancel-button { cursor: pointer; }
+/* Riel colapsado: el buscador se degrada a un icono que expande la sidebar. */
+.dsr-rail { justify-content: center; }
 
-.tms-cols {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 16px;
-  align-items: start;
+.dsr-pop {
+  position: absolute; z-index: 60; top: calc(100% + 5px); left: 0;
+  width: max(100%, 290px);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.22);
+  padding: 5px; max-height: min(58vh, 420px); overflow-y: auto;
+}
+.dsr-note, .dsr-hint {
+  margin: 0; padding: 9px 10px; font-size: 0.78rem; color: var(--text-muted);
+}
+.dsr-hint {
+  font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  font-size: 0.66rem; padding-bottom: 4px;
+}
+.dsr-row {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 7px 8px; border: 0; border-radius: 9px; cursor: pointer;
+  background: transparent; text-align: left; color: inherit;
+}
+.dsr-row.on { background: var(--surface-2); }
+.dsr-av { width: 26px; height: 26px; font-size: 0.62rem; flex: none; }
+.dsr-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.dsr-text strong {
+  font-size: 0.85rem; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dsr-meta {
+  font-size: 0.7rem; color: var(--text-muted); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.dsr-docs { display: inline-flex; gap: 3px; flex: none; }
+.dsr-doc {
+  font-size: 0.58rem; font-weight: 800; letter-spacing: 0.02em;
+  padding: 2px 5px; border-radius: 5px; text-transform: uppercase;
+}
+.dsr-doc.danger { background: rgba(220, 38, 38, 0.16); color: #ef4444; }
+.dsr-doc.warn { background: rgba(245, 158, 11, 0.18); color: #d97706; }
+.dsr-doc.none {
+  background: var(--surface-2); color: var(--text-muted);
+  border: 1px dashed var(--border);
 }
 
+/* ----- Drawer del conductor (reusa .ud-* de UnitDrawer) ----- */
+.dd-head-id { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.dd-avatar { width: 40px; height: 40px; font-size: 0.85rem; flex: none; }
+.dd-sub { margin: 2px 0 0; font-size: 0.76rem; color: var(--text-muted); }
+.ud-head-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.dd-row2 {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+}
+.dd-hint {
+  margin: 6px 0 0; font-size: 0.72rem; color: var(--text-muted);
+  line-height: 1.4;
+}
+.dd-docs {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+.dd-doc {
+  position: relative; overflow: hidden;
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 9px 10px 8px 12px; border-radius: 10px;
+  background: var(--surface-2); border: 1px solid var(--border);
+}
+.dd-doc::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--border);
+}
+.dd-doc.ok::before { background: var(--ui-success, #16a34a); }
+.dd-doc.warn::before { background: #d97706; }
+.dd-doc.danger::before { background: var(--ui-danger, #ef4444); }
+.dd-doc-label {
+  font-size: 0.64rem; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-muted);
+}
+.dd-doc-date {
+  border: 0; background: transparent; color: var(--text); padding: 0;
+  font-size: 0.82rem; font-family: var(--font-mono, ui-monospace, monospace);
+  width: 100%;
+}
+.dd-doc-date:focus { outline: none; }
+.dd-doc-state { font-size: 0.66rem; font-weight: 700; color: var(--text-muted); }
+.dd-doc.ok .dd-doc-state { color: #16a34a; }
+.dd-doc.warn .dd-doc-state { color: #d97706; }
+.dd-doc.danger .dd-doc-state { color: #ef4444; }
+
+/* ----- Sección "Driver compliance" en Reports ----- */
+.rp-drv-docs {
+  display: flex; flex-direction: column; gap: 9px; margin: 16px 0 4px;
+}
+.rp-drv-doc {
+  display: grid; grid-template-columns: 96px 1fr auto; gap: 12px;
+  align-items: center;
+}
+.rp-drv-doc-lbl { font-size: 0.8rem; font-weight: 600; }
+.rp-drv-bar {
+  display: flex; height: 14px; border-radius: 999px; overflow: hidden;
+  background: var(--surface-2); border: 1px solid var(--border);
+}
+.rp-drv-bar .seg { display: block; height: 100%; min-width: 2px; }
+.rp-drv-bar .seg.exp { background: var(--ui-danger, #ef4444); }
+.rp-drv-bar .seg.soon { background: #d97706; }
+.rp-drv-bar .seg.ok { background: var(--ui-success, #16a34a); }
+.rp-drv-bar .seg.none {
+  background: repeating-linear-gradient(45deg,
+    var(--border) 0 4px, transparent 4px 8px);
+}
+.rp-drv-doc-n {
+  display: inline-flex; gap: 8px; font-size: 0.72rem; white-space: nowrap;
+}
+.rp-drv-doc-n b { font-weight: 700; }
+.rp-drv-doc-n .exp { color: #ef4444; }
+.rp-drv-doc-n .soon { color: #d97706; }
+.rp-drv-doc-n .ok { color: #16a34a; }
+.rp-drv-doc-n .none { color: var(--text-muted); }
+
+.rp-drv-tbl { margin-top: 16px; }
+.rp-drv-pill {
+  font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+  white-space: nowrap;
+}
+.rp-drv-pill.expired { background: rgba(220, 38, 38, 0.16); color: #ef4444; }
+.rp-drv-pill.soon { background: rgba(245, 158, 11, 0.18); color: #d97706; }
+.rp-drv-pill.missing {
+  background: var(--surface-2); color: var(--text-muted);
+  border: 1px dashed var(--border);
+}
+.rp-drv-more, .rp-drv-roles {
+  margin: 10px 0 0; font-size: 0.76rem; color: var(--text-muted);
+}
+.rp-drv-roles { border-top: 1px solid var(--border); padding-top: 10px; }
+
+@media (max-width: 720px) {
+  .dd-row2 { grid-template-columns: 1fr; }
+  .rp-drv-doc { grid-template-columns: 80px 1fr; }
+  .rp-drv-doc-n { grid-column: 1 / -1; }
+}
 
 /* ==================================================================
    Auth + Onboarding (fase G7)

@@ -9,7 +9,7 @@ import {
   keepPreviousData, useQuery, useQueryClient,
 } from '@tanstack/react-query'
 import {
-  getCpmReport, getSpendReport, refreshCpm,
+  getCpmReport, getDriverCompliance, getSpendReport, refreshCpm,
   type CpmReport, type CpmUnitRow,
   type SpendBar, type SpendPart, type SpendReport, type SpendTotals,
 } from '../api'
@@ -492,7 +492,160 @@ export default function ReportsPage() {
           </div>
         </>
       )}
+
+      {/* ----- Compliance de conductores (vino de la página Driver Compliance,
+               que se reemplazó por el buscador + drawer). Va FUERA del gate de
+               `hasData`: ese gate mira el gasto de TALLER, y una flota sin
+               work orders igual tiene vencimientos que perseguir. ----- */}
+      <DriverComplianceSection />
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Driver compliance — lo AGREGADO del roster. El detalle por conductor (y su
+// edición) vive en el drawer que abre el buscador; acá va lo reportable: qué
+// vence, qué falta cargar, y a quién hay que perseguir primero.
+// ---------------------------------------------------------------------------
+function DriverComplianceSection() {
+  const q = useQuery({
+    queryKey: ['driver-compliance'], queryFn: getDriverCompliance,
+    placeholderData: keepPreviousData,
+  })
+  const d = q.data
+  const t = d?.totals
+
+  return (
+    <section className="card rp-drv">
+      <div className="card-head">
+        <h2>Driver compliance</h2>
+        <span className="sub">licenses, medical cards, MVR &amp; clearinghouse</span>
+      </div>
+      <div className="card-body">
+        {q.isPending ? (
+          <div className="skel-rows">
+            {Array.from({ length: 4 }, (_, i) => <Skeleton key={i} h={32} />)}
+          </div>
+        ) : q.error || !d || !t ? (
+          <div className="empty mini">
+            <p>Couldn’t load driver compliance.</p>
+          </div>
+        ) : t.drivers === 0 ? (
+          <div className="empty mini">
+            <p>No drivers in the roster yet.</p>
+          </div>
+        ) : (
+          <>
+            <StatCluster className="kpi-row">
+              <StatCard label="Expired docs" value={<CountUp value={t.expired} />}
+                sub={t.expired ? 'action required' : 'none expired'}
+                tone={t.expired ? 'danger' : 'ok'} />
+              <StatCard label="Expiring ≤30d"
+                value={<CountUp value={t.expiring_soon} />}
+                sub="renew now" tone={t.expiring_soon ? 'warn' : 'ok'} />
+              <StatCard label="Missing dates"
+                value={<CountUp value={t.missing_dates} />}
+                sub="never captured" tone={t.missing_dates ? 'warn' : 'ok'} />
+              <StatCard label="Drivers"
+                value={<CountUp value={t.drivers} />}
+                sub={`${t.with_profile} with profile · ${t.with_truck} with truck`}
+                progress={t.drivers ? t.with_profile / t.drivers : undefined} />
+            </StatCluster>
+
+            {/* Por documento: cada fila una barra apilada vencido/por-vencer/
+                vigente/sin-fecha. 'Sin fecha' se distingue a propósito de
+                'vigente': un CDL en blanco es peor que uno por vencer. */}
+            <div className="rp-drv-docs">
+              {d.by_doc.map((doc) => {
+                const tot = doc.expired + doc.soon + doc.valid + doc.missing
+                const pct = (n: number) => (tot ? (n / tot) * 100 : 0)
+                return (
+                  <div key={doc.key} className="rp-drv-doc">
+                    <span className="rp-drv-doc-lbl">{doc.label}</span>
+                    <span className="rp-drv-bar" role="img"
+                      aria-label={`${doc.label}: ${doc.expired} expired, ${doc.soon} expiring, ${doc.valid} valid, ${doc.missing} missing`}>
+                      {doc.expired > 0 && <i className="seg exp"
+                        style={{ width: `${pct(doc.expired)}%` }}
+                        title={`${doc.expired} expired`} />}
+                      {doc.soon > 0 && <i className="seg soon"
+                        style={{ width: `${pct(doc.soon)}%` }}
+                        title={`${doc.soon} expiring soon`} />}
+                      {doc.valid > 0 && <i className="seg ok"
+                        style={{ width: `${pct(doc.valid)}%` }}
+                        title={`${doc.valid} valid`} />}
+                      {doc.missing > 0 && <i className="seg none"
+                        style={{ width: `${pct(doc.missing)}%` }}
+                        title={`${doc.missing} with no date`} />}
+                    </span>
+                    <span className="rp-drv-doc-n">
+                      {doc.expired > 0 && (
+                        <b className="exp">{doc.expired} expired</b>)}
+                      {doc.soon > 0 && (
+                        <b className="soon">{doc.soon} soon</b>)}
+                      {doc.missing > 0 && (
+                        <b className="none">{doc.missing} no date</b>)}
+                      {doc.expired + doc.soon + doc.missing === 0 && (
+                        <b className="ok">all valid</b>)}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* La cola accionable: a quién perseguir, vencidos primero. */}
+            {d.attention.length > 0 && (
+              <div className="table-wrap rp-drv-tbl">
+                <table className="mnt-table">
+                  <thead>
+                    <tr>
+                      <th className="rp-left">Driver</th>
+                      <th className="rp-left">Truck</th>
+                      <th className="rp-left">Document</th>
+                      <th className="rp-left">Expires</th>
+                      <th className="rp-left">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {d.attention.slice(0, 12).map((a) => (
+                      <tr key={`${a.name}-${a.doc}`}>
+                        <td className="rp-left"><strong>{a.name}</strong></td>
+                        <td className="rp-left mono">{a.truck || '—'}</td>
+                        <td className="rp-left">{a.label}</td>
+                        <td className="rp-left mono">{a.date || '—'}</td>
+                        <td className="rp-left">
+                          <span className={`rp-drv-pill ${a.state}`}>
+                            {a.state === 'expired'
+                              ? `expired ${Math.abs(a.days ?? 0)}d ago`
+                              : a.state === 'soon'
+                                ? `in ${a.days}d`
+                                : 'no date on file'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {d.attention.length > 12 && (
+                  <p className="rp-drv-more">
+                    +{d.attention.length - 12} more need attention. Use the
+                    driver search to open each one.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {d.role_mix.length > 0 && (
+              <p className="rp-drv-roles">
+                {d.role_mix.map((r) => `${r.count} ${r.label.toLowerCase()}`)
+                  .join(' · ')}
+                {t.without_profile > 0
+                  && ` · ${t.without_profile} without a profile`}
+              </p>
+            )}
+          </>
+        )}
+      </div>
+    </section>
   )
 }
 

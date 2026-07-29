@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import __version__, config
 from .api.routes import router
-from .core import alerts, auth, odometer, permissions, tenant
+from .core import alerts, auth, odometer, permissions, tenant, tms
 from .db import default_org_id
 
 
@@ -29,6 +29,9 @@ async def _lifespan(app: FastAPI):
             # para que el cost-per-mile arranque con curva (no-op con un ELD
             # real: de ahi no se puede backfillear).
             odometer.seed_demo_history()
+            # Y perfiles de conductor demo (compliance + camión asignado), para
+            # que el reporte de compliance y el board de PM tengan con qué.
+            tms.seed_demo_profiles()
         finally:
             tenant.reset_current_org(org_token)
     except Exception:

@@ -371,6 +371,114 @@ def spend_report(date_from: str = "", date_to: str = "",
 
 
 # ---------------------------------------------------------------------------
+# Compliance de conductores (vino de la página "Driver Compliance", v2.11)
+# ---------------------------------------------------------------------------
+# Los vencimientos por conductor son detalle (viven en el drawer del buscador);
+# lo AGREGADO —cuántos CDL vencidos, cuántas fechas faltan, quién hay que
+# perseguir— es reportable y vive acá. El estado de vencimiento se calcula en el
+# backend (antes solo existía en el frontend, en la página que se eliminó).
+
+DRIVER_DOCS: list[tuple[str, str]] = [
+    ("cdl_exp", "CDL"),
+    ("med_exp", "Medical card"),
+    ("mvr_exp", "MVR"),
+    ("chouse_exp", "Clearinghouse"),
+]
+
+DRIVER_ROLES: dict[str, str] = {
+    "owner_operator": "Owner operator",
+    "company_driver": "Company driver",
+    "lease_operator": "Lease operator",
+}
+
+
+def doc_state(value: str | None, today: date | None = None) -> tuple[str, int | None]:
+    """Estado de un vencimiento: ('missing'|'expired'|'soon'|'valid', días).
+
+    `soon` = vence dentro de 30 días. `missing` (sin fecha) se distingue a
+    propósito de `valid`: una fecha en blanco es PEOR que una por vencer — no
+    sabés si el conductor está habilitado — y antes se veía igual que un dato
+    cargado y vigente."""
+    d = _parse_date(value)
+    if d is None:
+        return ("missing", None)
+    days = (d - (today or date.today())).days
+    if days < 0:
+        return ("expired", days)
+    if days <= 30:
+        return ("soon", days)
+    return ("valid", days)
+
+
+def driver_compliance_report(drivers: list[dict],
+                             today: date | None = None) -> dict:
+    """Agregados de compliance sobre el roster ya resuelto (función PURA: el
+    fetch async lo hace la ruta, así esto se puede testear sin red ni DB)."""
+    ref = today or date.today()
+    total = len(drivers)
+    with_profile = sum(1 for d in drivers if d.get("has_profile"))
+
+    by_doc: list[dict] = []
+    attention: list[dict] = []
+    flagged: set[str] = set()      # conductores con al menos un problema
+    for key, label in DRIVER_DOCS:
+        counts = {"expired": 0, "soon": 0, "valid": 0, "missing": 0}
+        for d in drivers:
+            state, days = doc_state(str(d.get(key) or ""), ref)
+            counts[state] += 1
+            if state in ("expired", "soon", "missing"):
+                flagged.add(d.get("name") or "")
+                attention.append({
+                    "name": d.get("name") or "",
+                    "doc": key, "label": label,
+                    "date": str(d.get(key) or ""),
+                    "state": state, "days": days,
+                    "truck": d.get("truck") or "",
+                })
+        by_doc.append({"key": key, "label": label, **counts})
+
+    # Los vencidos primero, después por días restantes; los que no tienen fecha
+    # al final del grupo (no hay urgencia calculable, pero hay que cargarla).
+    _order = {"expired": 0, "soon": 1, "missing": 2}
+    attention.sort(key=lambda a: (_order.get(a["state"], 3),
+                                  a["days"] if a["days"] is not None else 9999,
+                                  a["name"]))
+
+    # Mix de roles: SOLO con perfil. El default del modelo es 'owner_operator',
+    # así que contar los sin-perfil reportaría 100% owner-operators (falso).
+    role_counts: dict[str, int] = {}
+    for d in drivers:
+        if not d.get("has_profile"):
+            continue
+        r = str(d.get("role") or "")
+        role_counts[r] = role_counts.get(r, 0) + 1
+    role_mix = [{"key": k, "label": DRIVER_ROLES.get(k, k or "—"),
+                 "count": v}
+                for k, v in sorted(role_counts.items(), key=lambda kv: -kv[1])]
+
+    # Cobertura de equipo: explica los huecos en la columna Driver del board
+    # de PM/DOT (que se llena con el truck del perfil).
+    with_truck = sum(1 for d in drivers if str(d.get("truck") or "").strip())
+
+    return {
+        "totals": {
+            "drivers": total,
+            "with_profile": with_profile,
+            "without_profile": total - with_profile,
+            "needs_attention": len([n for n in flagged if n]),
+            "expired": sum(r["expired"] for r in by_doc),
+            "expiring_soon": sum(r["soon"] for r in by_doc),
+            "missing_dates": sum(r["missing"] for r in by_doc),
+            "with_truck": with_truck,
+            "without_truck": total - with_truck,
+        },
+        "by_doc": by_doc,
+        "role_mix": role_mix,
+        "attention": attention[:40],
+    }
+
+
+# ---------------------------------------------------------------------------
 # Cost per mile (CPM) — el número ancla de Dario
 # ---------------------------------------------------------------------------
 
