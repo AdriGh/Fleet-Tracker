@@ -7,6 +7,62 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.10.0] - 2026-07-29
+
+### Añadido
+- **El ELD demo pasa de foto a SIMULADOR** (`core/demo_eld.py`). Todo lo que en
+  la realidad cambia con el tiempo ahora es función del reloj, de forma
+  **determinística** (misma fecha/hora = mismo valor, reproducible en tests):
+  - **El odómetro ACUMULA**: `odometer_at(unidad, día)` = base del epoch + la
+    suma de las millas de cada día. La **misma** función alimenta el odómetro y
+    `day_distance()`, así el millaje del día y el odómetro no se contradicen
+    (antes eran dos generadores sin relación). Perfiles de uso mixtos
+    (long-haul / regional / local) y menos millas los fines de semana.
+  - **El cost-per-mile funciona en demo.** Antes el odómetro era una constante,
+    el snapshot diario guardaba el mismo número y **todos los deltas daban 0**:
+    `/api/reports/cpm` venía vacío. Ahora, además, `seed_demo_history()` siembra
+    los últimos 90 días al arrancar, así el CPM tiene curva desde el minuto uno
+    (no-op con un ELD real: de ahí no se puede backfillear).
+  - **PM relativo a hoy** (`días_atrás`, `millas_atrás`) en vez de fechas
+    absolutas: la distribución de estados (3 on_track / 3 upcoming / 2 overdue /
+    2 never) se mantiene correcta para siempre, en vez de podrirse conforme pasa
+    el tiempo real y el odómetro crece. Calibrado contra el intervalo de 20,000 mi.
+  - **El mapa se mueve**: las unidades en ruta interpolan su posición a lo largo
+    de un tramo (ida y vuelta), con rumbo calculado, velocidad y combustible
+    variables, y `moving_for_s` / `idle_for_s` que **crecen de verdad** — así las
+    reglas de alerta por duración se pueden ver cruzando su umbral. Una unidad
+    queda deliberadamente **stale** (GPS de 41 min) para ejercitar ese camino.
+  - **Pre-trips con profundidad**: emite **post-trip** real (antes siempre
+    `None`, así que "NO POST-TRIP" era indemostrable), respeta `company` (antes
+    lo ignoraba) e incluye casos deliberadamente cortos. Y **correlaciona con
+    los DVIR**: el conductor que firmó el DVIR es el mismo que registró el
+    pre-trip (antes coincidían solo por azar).
+  - Flota más rica (`subtype` — incluye trailers **reefer** —, `plate_state`,
+    `source: "demo"`) y `last_dvir` variado en vez de siempre hoy.
+
+### Corregido
+- **El CPM ya no pierde un camión en silencio ante una regresión de odómetro.**
+  `miles_by_unit` calculaba `última − primera` lectura, así que una lectura que
+  BAJA (cambio de ECM, reemplazo de tablero, salto de fuente OBD→GPS) daba delta
+  negativo y la unidad **desaparecía del número de flota sin avisar** — peor que
+  un número imperfecto. Ahora suma los incrementos entre lecturas consecutivas,
+  tomando solo los positivos y plausibles (tope de 1,500 mi por día
+  transcurrido, para descartar ruido de sensor). Con lecturas monótonas el
+  resultado es idéntico al anterior. Lo encontró la verificación del simulador.
+- El `asset_id` de un defecto de trailer ahora coincide con el de `fleet()`
+  (`demo-trl-…`); antes el filtro de unidades archivadas no lo reconocía.
+
+### Verificación
+- `backend/tests/test_demo_eld.py` (nuevo, 7 casos): acumulación + determinismo
+  del odómetro, coherencia `day_distance` vs salto del odómetro, fin de semana
+  más lento, la distribución de PM se mantiene, profundidad y correlación de
+  pre-trips, movimiento/idle/stale del mapa, y el match de `asset_id`.
+- `test_odometer.py`: caso nuevo de regresión/reset de odómetro y de salto
+  absurdo. Suite backend completa en verde (7 archivos).
+- Ejercitados todos los consumidores del simulador (fleet, `pm.load`,
+  `maint.board` pm+dot, `tracking.load_live`, diagnóstico de import ELD,
+  defectos y ventana) — sin roturas de forma.
+
 ## [2.9.0] - 2026-07-08
 
 ### Añadido

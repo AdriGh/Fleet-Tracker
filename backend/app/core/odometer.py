@@ -24,7 +24,7 @@ OrgScoped autocompletan org_id del ContextVar, igual que el resto de la app.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import select
 
@@ -91,6 +91,48 @@ async def snapshot_now() -> int:
         if added:
             s.commit()
         return added
+
+
+def seed_demo_history(days: int = 90) -> int:
+    """DEMO: siembra lecturas PASADAS del simulador de ELD.
+
+    `snapshot_now` solo escribe el dia de HOY (de un ELD real no se puede
+    backfillear), asi que en una base nueva el CPM tardaria dias en tener dos
+    lecturas y poder medir millas. En modo demo el odometro SI es reconstruible
+    hacia atras (`demo_eld.odometer_at` es funcion de la fecha), asi que se
+    siembran los ultimos `days` dias y el cost-per-mile arranca con curva.
+
+    No-op fuera de modo demo. Idempotente: usa el mismo (unit, date, source)
+    que `snapshot_now`, asi que no duplica ni pelea con el snapshot diario."""
+    if not samsara._demo():
+        return 0
+    from . import demo_eld
+
+    today = date.today()
+    now = datetime.now()
+    span = max(1, min(int(days or 90), 400))
+    added = 0
+    with SessionLocal() as s:
+        have = {(u, d) for (u, d) in s.execute(
+            select(OdometerReading.unit, OdometerReading.date)
+            .where(OdometerReading.source == "samsara")).all()}
+        for unit in demo_eld.units():
+            for k in range(span, -1, -1):
+                d = today - timedelta(days=k)
+                key = (unit, d.isoformat())
+                if key in have:
+                    continue
+                miles = demo_eld.odometer_at(unit, d)
+                if miles <= 0:
+                    continue
+                have.add(key)
+                s.add(OdometerReading(unit=unit, date=d.isoformat(),
+                                      miles=int(miles), source="samsara",
+                                      created_at=now))
+                added += 1
+        if added:
+            s.commit()
+    return added
 
 
 def backfill_from_history() -> int:
@@ -168,12 +210,30 @@ async def maybe_snapshot() -> int:
 # Consulta: millas por período (el denominador del CPM)
 # ---------------------------------------------------------------------------
 
+# Tope de plausibilidad: millas que una unidad puede sumar en UN día. Un equipo
+# con dos conductores hace ~1,200 mi/día; por encima de esto la lectura es ruido
+# del sensor, no millaje. Se aplica por días transcurridos, no por salto, para
+# no castigar los huecos entre lecturas.
+_MAX_MILES_PER_DAY = 1500
+
+
 def miles_by_unit(d_from: date | None,
                   d_to: date | None) -> dict[str, int]:
-    """Millas manejadas por unidad en [d_from, d_to] = última − primera lectura
-    DENTRO del rango. Colapsa múltiples fuentes de la misma fecha al máximo (el
-    odómetro solo sube). Devuelve solo unidades con delta > 0 (se necesitan ≥2
-    lecturas en el rango). Conservador: nunca cuenta millas fuera del período."""
+    """Millas manejadas por unidad en [d_from, d_to], sumando los INCREMENTOS
+    entre lecturas consecutivas del rango.
+
+    No se usa simplemente `última − primera` porque el odómetro es un contador
+    acumulativo con anomalías reales: un cambio de ECM, un reemplazo de tablero
+    o un salto de fuente (OBD -> GPS) hacen que una lectura BAJE. Con la resta
+    simple, una regresión en el extremo del rango daba un delta negativo y la
+    unidad desaparecía del CPM EN SILENCIO (peor que un número imperfecto: un
+    camión menos en el denominador sin avisar).
+
+    Por eso se suman solo los tramos con incremento positivo y plausible
+    (`_MAX_MILES_PER_DAY` por día transcurrido). Con lecturas monótonas el
+    resultado es idéntico a `última − primera`. Conservador: nunca cuenta
+    millas fuera del período. Colapsa varias fuentes de la misma fecha al
+    máximo (el odómetro solo sube)."""
     with SessionLocal() as s:
         rows = s.execute(
             select(OdometerReading.unit, OdometerReading.date,
@@ -197,9 +257,20 @@ def miles_by_unit(d_from: date | None,
                           and (d_to is None or dt <= d_to))
         if len(in_range) < 2:
             continue
-        delta = dm[in_range[-1]] - dm[in_range[0]]
-        if delta > 0:
-            out[unit] = int(delta)
+        total = 0.0
+        prev_d = in_range[0]
+        prev_v = dm[prev_d]
+        for d in in_range[1:]:
+            v = dm[d]
+            step = v - prev_v
+            gap = max(1, (d - prev_d).days)
+            if 0 < step <= gap * _MAX_MILES_PER_DAY:
+                total += step
+            # step <= 0 (regresión/reset) o absurdo: ese tramo no cuenta, pero
+            # la unidad NO se descarta — sigue con las millas que sí son buenas.
+            prev_d, prev_v = d, v
+        if total > 0:
+            out[unit] = int(round(total))
     return out
 
 

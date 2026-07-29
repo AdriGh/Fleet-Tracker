@@ -127,8 +127,9 @@ async def reports_cpm_refresh():
     cargados en WOs/PM y toma un snapshot del odómetro de Samsara. Idempotente.
     Útil tras cargar millaje a mano. Devuelve cuántas lecturas agregó."""
     backfilled = odometer.backfill_from_history()
+    seeded = odometer.seed_demo_history()      # no-op salvo en modo demo
     snapped = await odometer.snapshot_now()
-    return {"backfilled": backfilled, "snapshot": snapped,
+    return {"backfilled": backfilled + seeded, "snapshot": snapped,
             "coverage": odometer.coverage()}
 
 
