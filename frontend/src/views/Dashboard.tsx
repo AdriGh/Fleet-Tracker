@@ -250,7 +250,11 @@ export default function Dashboard({ onNavigate }: Props) {
   // --- Cold chain (reefers en vivo) ---
   // SOLO datos en vivo: si la respuesta es demo o no hay fuente real, se
   // omite el panel (no se inyectan reefers ficticios en la app real).
-  const reeferLive = !!reeferQ.data?.available && !reeferQ.data?.demo
+  // El panel se muestra con datos reales o con el SIMULADOR pedido a
+  // propósito (FLEET_DEMO=1). Nunca con el demo de fallback por falta de
+  // credenciales: ahí no hay que pintar datos falsos en el dashboard.
+  const reeferLive = !!reeferQ.data?.available
+    && (!reeferQ.data?.demo || !!reeferQ.data?.demo_explicit)
   const reeferUnits = useMemo(() => {
     if (!reeferLive) return []
     const units = reeferQ.data?.units ?? []

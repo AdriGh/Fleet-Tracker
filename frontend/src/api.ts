@@ -1447,6 +1447,10 @@ export interface ReeferResponse {
   missing_scopes: string[]
   units: ReeferUnit[]
   source?: string          // lynx | thermoking | traccar | demo (H5/H6)
+  // true = el modo demo se pidió con FLEET_DEMO=1 (banco de pruebas local).
+  // false con `demo: true` = fallback por falta de credenciales, que puede
+  // pasar por accidente en producción: ahí no se muestra como si fuera real.
+  demo_explicit?: boolean
   error?: string
 }
 
