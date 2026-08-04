@@ -7,6 +7,69 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.12.0] - 2026-07-30
+
+### Corregido
+- **Los gráficos del Cold Chain mentían.** La foto y el historial salían de DOS
+  generadores independientes: `demo_units` calculaba `setpoint + drift`
+  (constante) y `demo_history` calculaba `setpoint + onda + defrost`. Resultado
+  visible: la tabla marcaba una unidad a **78.9 °F en rojo** mientras su
+  sparkline estaba **plana en 55**. Ahora hay **una sola función**
+  (`_state_at`) que devuelve el estado físico en un instante dado — la foto la
+  llama con *ahora*, el historial con instantes pasados —, así que por
+  construcción no se pueden contradecir. Verificado: diferencia **0.0 °F** entre
+  tabla y gráfico en las 4 unidades.
+- **Las alarmas contradecían los números.** Eran literales fijos (una unidad
+  podía decir "Unit not running" con temperatura perfecta). Ahora se **derivan
+  del estado real**: desvío de temperatura, puerta abierta, combustible bajo y
+  falla de arranque.
+- **Los reefers demo no existían en la flota.** Usaban números propios
+  (`53218`, `R1904`…) sin relación con los trailers de la flota demo, así que la
+  tarjeta de reefer del perfil de unidad **no aparecía nunca** y el feature era
+  una isla. Ahora las unidades salen de `demo_eld.reefer_units()` — **fuente
+  única** —, y los trailers marcados `subtype: "reefer"` son exactamente los del
+  Cold Chain (53108, 53112, 7841, 7846).
+
+### Cambiado
+- **El demo del Cold Chain pasa de foto congelada a SIMULADOR**, con el mismo
+  criterio que el ELD (v2.10.0): todo es función del reloj y determinístico (sin
+  RNG, matemática pura del timestamp, reproducible en tests). El refresco de 60 s
+  del front ahora muestra algo nuevo de verdad — ciclo de frío alrededor del
+  setpoint (Start-Stop oscila más que Continuous), **defrost cada 8 h**,
+  **aperturas de puerta**, una **excursión de temperatura que se desarrolla y se
+  recupera**, y combustible que baja a lo largo de días.
+- **El pipeline alarma → work order ya se puede ver en local.** Era el
+  diferenciador del producto y estaba bloqueado: `evaluate_reefer` y
+  `reefer_wo.sync` cortaban en seco ante `demo: true`. Se mantiene esa
+  protección —era correcta— pero ahora distingue el demo **implícito** (fallback
+  por falta de credenciales, que puede pasar por accidente en producción y
+  **sigue sin disparar nada**) del demo **explícito** (`FLEET_DEMO=1`, intención
+  de desarrollo), vía `reefer.demo_evaluation_enabled()`.
+- **Control two-way en demo**: `set_setpoint` sobre una unidad demo mueve el
+  simulador en vez de devolver 400, y las unidades demo declaran `can_control`.
+  Sin esto la UI de control era irrevisable sin credenciales OEM.
+- Las unidades demo traen **`lat`/`lng`, `location`, `source` y la empresa de la
+  flota**, que les faltaban (sin posición no podían aparecer en el mapa).
+- El panel de Cold Chain del **Dashboard** ahora se muestra también con el
+  simulador explícito (campo nuevo `demo_explicit`); con demo de fallback sigue
+  oculto, para no pintar datos falsos como si fueran reales.
+
+### Verificación
+- `backend/tests/test_reefer.py` (nuevo, 8 casos): unidades alineadas con la
+  flota, coherencia foto/historial, determinismo + variación temporal, eventos
+  visibles en 24 h, alarmas derivadas del estado (con alarma en el pico y sin
+  alarma en rango), control que mueve el simulador, el **gate de FLEET_DEMO en
+  ambas direcciones**, y presencia de posición/source.
+- End-to-end del diferenciador: excursión → fault code sev 3 → **work order
+  creada** (idempotente en la segunda corrida) y regla `reefer_temp` disparando
+  con **+13.7 °F** de desvío. Con demo implícito: **cero** WOs y cero alertas.
+- Suite backend completa en verde (9 archivos), `tsc` y `vite build` limpios.
+
+### Pendiente
+- **Sin persistencia**: no hay tablas de reefer; el historial se regenera en
+  cada request. Es lo que bloquea reportes de excursión, prueba de cadena de
+  frío y tendencias de más de 72 h — el próximo paso natural.
+
 ## [2.11.0] - 2026-07-29
 
 ### Cambiado

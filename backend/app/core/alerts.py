@@ -237,8 +237,11 @@ def evaluate_reefer(snapshot: dict, cfg: dict | None = None) -> list[dict]:
     reales (jamás demo). Mismo cooldown/mute que el resto."""
     cfg = cfg or get_settings()
     rule = cfg["rules"].get("reefer_temp") or {}
+    # Sobre datos demo solo se evalúa con FLEET_DEMO=1 explícito (banco de
+    # pruebas). El demo por falta de credenciales nunca dispara alertas.
+    allow_demo = reefer.demo_evaluation_enabled()
     if (not rule.get("enabled") or not snapshot.get("available")
-            or snapshot.get("demo")):
+            or (snapshot.get("demo") and not allow_demo)):
         return []
 
     muted = unit_settings.muted_units()
@@ -248,7 +251,7 @@ def evaluate_reefer(snapshot: dict, cfg: dict | None = None) -> list[dict]:
 
     with SessionLocal() as session:
         for u in snapshot.get("units", []):
-            if u["unit"] in muted or u.get("demo"):
+            if u["unit"] in muted or (u.get("demo") and not allow_demo):
                 continue
             sp, ret = u.get("setpoint_f"), u.get("return_f")
             if sp is None or ret is None:

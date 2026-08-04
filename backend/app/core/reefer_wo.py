@@ -14,7 +14,7 @@ el hook de campañas existente de `workorders` para el PM.
 
 from __future__ import annotations
 
-from . import workorders
+from . import reefer, workorders
 
 # Estados no terminales: si hay una WO viva para el mismo fault, no duplicar.
 _OPEN_STATUSES = {"open", "assigned", "in_progress", "completed"}
@@ -49,11 +49,14 @@ def sync(snapshot: dict, min_severity: int = 2) -> list[dict]:
 
     Nunca corre sobre datos demo o no disponibles. Devuelve
     [{wo_id, unit, code, title}] de las WOs NUEVAS creadas (vacío si nada)."""
-    if not snapshot.get("available") or snapshot.get("demo"):
+    # Sobre el simulador solo corre con FLEET_DEMO=1 explicito (banco de
+    # pruebas); el demo por falta de credenciales nunca crea work orders.
+    allow_demo = reefer.demo_evaluation_enabled()
+    if not snapshot.get("available") or (snapshot.get("demo") and not allow_demo):
         return []
     created: list[dict] = []
     for u in snapshot.get("units", []):
-        if u.get("demo"):
+        if u.get("demo") and not allow_demo:
             continue
         unit = (u.get("unit") or "").strip()
         if not unit:

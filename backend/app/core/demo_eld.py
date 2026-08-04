@@ -63,10 +63,11 @@ _TRUCKS: list[tuple[str, str, str, str, str]] = [
     ("503", _COMPANY, "Volvo", "VNL 760", "2022"),
     ("517", _COMPANY, "Freightliner", "Cascadia", "2023"),
 ]
-# Trailers: (unidad, subtipo). El subtipo 'reefer' marca los de cadena de frio.
+# Trailers: (unidad, subtipo). El subtipo 'reefer' marca los de cadena de frio
+# y es la FUENTE UNICA de que unidades tiene el Cold Chain (ver reefer_units).
 _TRAILERS: list[tuple[str, str]] = [
-    ("53108", "reefer"), ("53112", "reefer"), ("7841", "dry_van"),
-    ("7846", "dry_van"), ("4402", "flatbed"), ("4410", "dry_van"),
+    ("53108", "reefer"), ("53112", "reefer"), ("7841", "reefer"),
+    ("7846", "reefer"), ("4402", "flatbed"), ("4410", "dry_van"),
 ]
 _DRIVERS: list[str] = [
     "James Carter", "Miguel Santos", "Daniel Reyes", "Robert Lee",
@@ -276,6 +277,17 @@ def odometers() -> dict[str, dict]:
 def units() -> list[str]:
     """Unidades (camiones) del demo — para sembradores/tests."""
     return [u for u, *_r in _TRUCKS]
+
+
+def reefer_units() -> list[str]:
+    """Trailers CON equipo de frio (subtipo 'reefer').
+
+    Es la fuente UNICA de que unidades tiene el Cold Chain: `core/reefer.py`
+    lee de aca en vez de tener su propia lista. Antes cada uno tenia numeros
+    distintos (el Cold Chain hablaba de 53218/R1904, que no existian en la
+    flota), asi que la tarjeta de reefer del perfil de unidad no aparecia nunca
+    y el feature quedaba como una isla."""
+    return [u for u, sub in _TRAILERS if sub == "reefer"]
 
 
 def day_distance(company: str | None, day: datetime.date) -> dict[str, float]:
