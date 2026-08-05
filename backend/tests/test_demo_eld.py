@@ -100,11 +100,27 @@ def test_pretrip_depth_and_correlation():
     today = dt.date.today()
     pt = d.pretrip(None, today)
     assert pt, "no hay pre-trips"
-    # Hay post-trips reales (antes SIEMPRE era None => 'NO POST-TRIP' imposible).
-    assert any(v["post"] for v in pt.values()), "ningún post-trip"
-    # Y también faltantes, para poder ver el estado 'NO POST-TRIP'.
-    assert any(v["post"] is None for v in pt.values()), "todos tienen post"
     assert all(v["pre"] > 0 for v in pt.values())
+
+    # Las proporciones se miran sobre VARIOS días, no sobre uno: por día cada
+    # conductor tiene ~25% de no registrar post-trip, así que con ~8 conductores
+    # hay ~10% de días en que todos tienen y la aserción fallaría por azar.
+    # (Este test era flaky justamente por eso.)
+    posts, missing, shorts = 0, 0, 0
+    for k in range(21):
+        for v in d.pretrip(None, today - dt.timedelta(days=k)).values():
+            if v["post"] is None:
+                missing += 1
+            else:
+                posts += 1
+            if v["pre"] < 300:
+                shorts += 1
+    # Hay post-trips reales (antes SIEMPRE era None => 'NO POST-TRIP' imposible)
+    assert posts > 0, "ningún post-trip en 3 semanas"
+    # Y también faltantes, para poder ver el estado 'NO POST-TRIP'.
+    assert missing > 0, "nunca falta un post-trip en 3 semanas"
+    # Y pre-trips deliberadamente cortos.
+    assert shorts > 0, "nunca hay un pre-trip corto en 3 semanas"
     # Correlación con los DVIR: el que firmó el DVIR es de la misma asignación
     # del día, así que casi todos los autores tienen su pre-trip.
     authors = {name_key(r["Author"]) for r in d.dvir_rows(None, today)
@@ -112,8 +128,13 @@ def test_pretrip_depth_and_correlation():
     assert authors, "sin autores de DVIR"
     overlap = len(authors & set(pt)) / len(authors)
     assert overlap >= 0.7, f"correlación DVIR/pre-trip baja: {overlap:.0%}"
-    # `company` se respeta (antes se ignoraba): otra empresa => sin pre-trips.
-    assert d.pretrip("EMPRESA QUE NO EXISTE", today) == {}
+    # Filtrar por una empresa que no es la del demo NO deja la pantalla vacía:
+    # hay una sola flota sintética, así que se devuelve igual. Antes daba {} y
+    # el import de ELD mostraba "0 DVIR / 0 distancia / 0 pre-trip" sin
+    # explicación (era lo que pasaba con las empresas de ejemplo del selector).
+    assert d.pretrip("EMPRESA QUE NO EXISTE", today), "empresa desconocida => vacío"
+    assert len(d.dvir_rows("EMPRESA QUE NO EXISTE", today)) > 0
+    assert len(d.day_distance("EMPRESA QUE NO EXISTE", today)) == len(d.units())
     print(f"OK pre-trip con post + faltantes + correlación {overlap:.0%}")
 
 

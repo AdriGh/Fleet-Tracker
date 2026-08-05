@@ -7,6 +7,33 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.12.1] - 2026-07-30
+
+### Corregido
+- **El "Import desde ELD" no traía NADA (0 DVIR / 0 distancia / 0 pre-trip).**
+  El selector de empresa del modal tenía dos empresas **hardcodeadas**
+  (`DEMO CO`, `DEMO LOGISTICS`) que no existían en ningún dato — la app no tenía
+  ninguna empresa configurada y la flota demo es `SUMMIT FREIGHT`. Elegir
+  cualquiera de las dos filtraba por una empresa inexistente y el preview
+  devolvía todo en cero, sin explicar por qué. Dos capas de arreglo:
+  - El selector ahora lista las **empresas reales** (`GET /api/companies`) en
+    vez de inventarlas.
+  - `demo_eld._trucks_for()` devuelve la flota completa cuando se filtra por una
+    empresa que no es la suya, en vez de una lista vacía: en el demo hay **una
+    sola flota sintética**, así que un filtro que no matchea no debe dejar la
+    pantalla en blanco. Así no vuelve a pasar aunque configures otra empresa.
+  - Verificado: con `(todas)`, `DEMO CO` y `SUMMIT FREIGHT` el import ahora
+    devuelve **13 DVIR / 10 distancia / 8 pre-trip** (antes: 0 / 0 / 0).
+- **Test flaky propio** (`test_demo_eld.py`): la aserción de que "algún
+  conductor no registró post-trip" miraba **un solo día**, y como cada conductor
+  tiene ~25% de no tenerlo, con ~8 conductores fallaba por azar. Medido: fallaba
+  **11 de 90 días** (12%). Ahora las proporciones se evalúan sobre una ventana
+  de 21 días: **0 de 90**.
+
+### Cambiado
+- La fecha del modal de import arranca en **hoy** (nacía vacía, obligando a
+  tipear la fecha completa).
+
 ## [2.12.0] - 2026-07-30
 
 ### Corregido
