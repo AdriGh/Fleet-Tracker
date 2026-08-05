@@ -204,8 +204,19 @@ def _rng(day: datetime.date, salt: str = "") -> random.Random:
 
 
 def _trucks_for(company: str | None):
+    """Camiones del demo, filtrados por empresa.
+
+    En el demo hay UNA sola flota sintetica, asi que si se filtra por una
+    empresa que no es la suya se devuelve igual la flota completa en vez de
+    una lista vacia. Antes, filtrar por cualquier otro nombre daba CERO
+    camiones y el import de ELD mostraba "0 DVIR / 0 distancia / 0 pre-trip"
+    sin explicar por que — que es exactamente lo que pasaba con las empresas
+    de ejemplo del selector."""
     cu = (company or "").strip().upper()
-    return [t for t in _TRUCKS if not cu or t[1] == cu]
+    if not cu:
+        return list(_TRUCKS)
+    exact = [t for t in _TRUCKS if t[1] == cu]
+    return exact or list(_TRUCKS)
 
 
 def _open_counts() -> dict[str, int]:

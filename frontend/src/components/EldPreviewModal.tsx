@@ -1,6 +1,9 @@
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import Modal from './Modal'
-import { eldImport, eldPreview, type EldPreview } from '../api'
+import {
+  eldImport, eldPreview, listCompanies, type EldPreview,
+} from '../api'
 
 // Import desde el ELD: trae DVIR + distancia de un dia, muestra lo
 // PARSEADO (preview de validacion) y permite importarlo a Recent DVIRs. El
@@ -8,7 +11,9 @@ import { eldImport, eldPreview, type EldPreview } from '../api'
 export default function EldPreviewModal(
   { onClose, onImported }: { onClose: () => void; onImported?: () => void },
 ) {
-  const [date, setDate] = useState('')
+  // Arranca en HOY: antes nacia vacia y habia que tipear la fecha entera.
+  const [date, setDate] = useState(
+    () => new Date().toISOString().slice(0, 10))
   const [company, setCompany] = useState('')
   const [template, setTemplate] = useState('standard')
   const [busy, setBusy] = useState(false)
@@ -17,6 +22,14 @@ export default function EldPreviewModal(
   const [showRaw, setShowRaw] = useState(false)
   const [importing, setImporting] = useState(false)
   const [done, setDone] = useState<string | null>(null)
+  // Empresas REALES de la app. Antes el selector tenia dos hardcodeadas
+  // ('Demo Co', 'Demo Logistics') que no existian en ningun dato: elegir
+  // cualquiera de las dos filtraba por una empresa inexistente y el preview
+  // devolvia 0 DVIR / 0 distancia / 0 pre-trip sin decir por que.
+  const companiesQ = useQuery({
+    queryKey: ['companies'], queryFn: listCompanies,
+  })
+  const companies = companiesQ.data ?? []
 
   async function run() {
     if (!date) { setErr('Elegí una fecha'); return }
@@ -78,8 +91,9 @@ export default function EldPreviewModal(
           <select className="cell-input" value={company}
             onChange={(e) => setCompany(e.target.value)}>
             <option value="">(todas)</option>
-            <option value="DEMO CO">Demo Co</option>
-            <option value="DEMO LOGISTICS">Demo Logistics</option>
+            {companies.map((c) => (
+              <option key={c.key} value={c.key}>{c.label}</option>
+            ))}
           </select>
         </label>
         <label>
