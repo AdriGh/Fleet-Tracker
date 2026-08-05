@@ -290,6 +290,15 @@ def units() -> list[str]:
     return [u for u, *_r in _TRUCKS]
 
 
+def company() -> str:
+    """Empresa (carrier) a la que pertenece la flota demo.
+
+    La expone `GET /api/companies` cuando el tenant no tiene ninguna cargada:
+    sin eso el selector solo ofrece "(todas)" y el boton de importar —que EXIGE
+    una empresa— queda inhabilitado para siempre."""
+    return _COMPANY
+
+
 def reefer_units() -> list[str]:
     """Trailers CON equipo de frio (subtipo 'reefer').
 

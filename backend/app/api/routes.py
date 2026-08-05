@@ -18,7 +18,7 @@ from fastapi import Header
 
 from ..core import (
     alerts, app_config, auth, batch, companies, cores, docscan,
-    driver_contacts, engine,
+    demo_eld, driver_contacts, engine,
     excel, integrations_admin, inventory, local_config, lynx, mailer, maint,
     manual_units, media_host, notify_service, odometer, open_defects,
     org_config,
@@ -1700,8 +1700,16 @@ class CompanyRenameIn(BaseModel):
 
 @router.get("/companies")
 def companies_list():
-    """Empresas (carriers) del tenant actual."""
-    return {"companies": companies.list_companies()}
+    """Empresas (carriers) del tenant actual.
+
+    Si el tenant no tiene ninguna cargada y estamos en modo demo, se expone la
+    empresa de la flota sintetica: el import de ELD EXIGE una empresa, asi que
+    sin esto el selector solo ofrecia "(todas)" y no se podia importar nunca."""
+    items = companies.list_companies()
+    if not items and samsara._demo():
+        label = demo_eld.company()
+        items = [{"key": label.upper(), "label": label.title()}]
+    return {"companies": items}
 
 
 @router.post("/companies")

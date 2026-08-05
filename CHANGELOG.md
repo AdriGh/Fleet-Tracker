@@ -7,6 +7,24 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.12.2] - 2026-07-30
+
+### Corregido
+- **No se podía importar a Recent DVIRs.** El botón exige una empresa
+  (`disabled={... || !company}`) porque el reporte se guarda POR empresa, pero
+  al sacar en v2.12.1 las empresas fantasma del selector el tenant quedó sin
+  ninguna: el desplegable solo ofrecía "(todas)", `company` quedaba vacío y el
+  botón nunca se habilitaba. Un callejón sin salida introducido por el fix
+  anterior.
+  - `GET /api/companies` ahora expone la empresa de la flota sintética
+    (`Summit Freight`) cuando el tenant no tiene ninguna cargada y se está en
+    modo demo — la flota demo pertenece a una empresa y la app no lo sabía.
+  - El modal **preselecciona** la primera empresa al abrir, para que el botón no
+    nazca inhabilitado sin explicación, y el tooltip aclara el porqué ("el
+    reporte se guarda por empresa").
+  - Verificado end-to-end: preview 13 DVIR → import → bloque guardado y visible
+    en Recent DVIRs (`SUMMIT FREIGHT`, 10 con DVIR).
+
 ## [2.12.1] - 2026-07-30
 
 ### Corregido

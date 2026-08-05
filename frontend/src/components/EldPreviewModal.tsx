@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import Modal from './Modal'
 import {
@@ -30,6 +30,17 @@ export default function EldPreviewModal(
     queryKey: ['companies'], queryFn: listCompanies,
   })
   const companies = companiesQ.data ?? []
+  // Importar EXIGE una empresa (el reporte se guarda por empresa), así que
+  // "(todas)" sirve para previsualizar pero nunca para importar. Se
+  // preselecciona la primera al cargar para que el botón no nazca inhabilitado
+  // sin explicación; después el usuario puede cambiarla libremente.
+  const preselected = useRef(false)
+  useEffect(() => {
+    if (!preselected.current && companies.length > 0) {
+      preselected.current = true
+      setCompany(companies[0].key)
+    }
+  }, [companies])
 
   async function run() {
     if (!date) { setErr('Elegí una fecha'); return }
@@ -151,7 +162,9 @@ export default function EldPreviewModal(
               style={{ marginLeft: 'auto' }}
               onClick={doImport}
               disabled={importing || !hasData || !company}
-              title={!company ? 'Elegí una empresa para importar' : ''}>
+              title={!company
+                ? 'Elegí una empresa: el reporte se guarda por empresa'
+                : ''}>
               {importing ? 'Importando…' : 'Importar a Recent DVIRs'}
             </button>
           </div>
