@@ -90,9 +90,11 @@ def test_index():
     assert "418" in units and "311" in units and "53108" in units, \
         "demo-mapeadas en el índice"
     assert len(units) == len(set(units)), "sin duplicados"
-    # Unidad demo sin mapa (412 la subimos; 421 nunca) -> no está.
-    assert "421" not in units
-    print(f"OK índice: {units}")
+    # v2.16.1: cobertura completa — TODA unidad demo mapeada tiene su asset
+    # en disco (un mapeo a archivo inexistente sería una tarjeta vacía).
+    missing = [u for u in unit_photos._DEMO_PHOTOS if u not in units]
+    assert not missing, f"mapeadas sin asset en disco: {missing}"
+    print(f"OK índice: {len(units)} unidades con foto (cobertura completa)")
 
 
 def test_setup_status():

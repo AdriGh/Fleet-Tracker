@@ -7,6 +7,20 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.16.1] - 2026-08-14
+
+### Agregado
+- **Cobertura completa de fotos demo: las 16 unidades** (pedido del founder).
+  Cada asset coincide con el make/model REAL de la flota demo — un trucker
+  nota al instante un Peterbilt con foto de Freightliner: 412 Peterbilt 579,
+  308/214 International LT, 311 Kenworth T680 (reemplaza el W900 que no
+  coincidía), 503 Volvo VNL, cinco Cascadias distintas (207/305/418/421/517)
+  y trailers reales (3 reefers + flatbed + dry van). Fuentes Wikimedia
+  Commons con títulos rastreables en `ATTRIBUTION.md` (+ nota de honestidad:
+  el reefer de 7846 es un rígido, la coincidencia más débil del set).
+- El test del índice ahora exige que TODA unidad mapeada tenga su asset en
+  disco (un mapeo roto sería una tarjeta vacía silenciosa).
+
 ## [2.16.0] - 2026-08-14
 
 Elemento **02** del board — el walkaround guiado. Cierra el ciclo completo
