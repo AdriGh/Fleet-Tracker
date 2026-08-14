@@ -10103,3 +10103,161 @@ iframe.wo-preview { border: 1px solid var(--border); }
   .wf-layout { grid-template-columns: 1fr; }
   .wf-preview-wrap { position: static; }
 }
+
+/* ===========================================================
+   v2.16 — Walkaround del driver (02)
+   Mobile-first: el driver lo corre en el teléfono. En desktop la
+   columna se centra angosta (mismo layout, targets grandes).
+   =========================================================== */
+.wk-page { max-width: 560px; margin: 0 auto; }
+.wk-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px 18px;
+  margin-bottom: var(--space-4);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.wk-subhead {
+  font-family: var(--font-display); font-size: var(--fs-h3);
+  margin: 0 0 2px;
+}
+.wk-wfrow { display: flex; align-items: baseline; gap: 10px; }
+.wk-wfname {
+  font-family: var(--font-display); font-weight: var(--fw-bold);
+  font-size: var(--fs-h2);
+}
+.wk-wfmeta { color: var(--text-muted); font-size: var(--fs-small); flex: 1; }
+.wk-field {
+  display: flex; flex-direction: column; gap: 6px;
+  font-size: var(--fs-small); font-weight: var(--fw-semibold);
+}
+.wk-field select, .wk-field input {
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-btn);
+  padding: 12px 13px; font-family: inherit; font-size: var(--fs-body);
+}
+.wk-startbtn { padding: 13px; font-size: var(--fs-body); }
+.wk-recent-row {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 7px 0; border-bottom: 1px solid var(--border);
+  font-size: var(--fs-small);
+}
+.wk-recent-row:last-child { border-bottom: none; }
+.wk-recent-unit { font-family: var(--font-display); font-weight: var(--fw-bold); }
+.wk-recent-driver { flex: 1; }
+.wk-recent-meta { color: var(--text-muted); font-size: var(--fs-tiny); }
+
+/* Corrida */
+.wk-prog { display: flex; gap: 5px; margin-bottom: 14px; }
+.wk-prog i {
+  height: 4px; flex: 1; border-radius: 4px; background: var(--surface-3);
+}
+.wk-prog i.done { background: var(--st-on-track); }
+.wk-prog i.cur { background: var(--brand); }
+.wk-runhead { margin-bottom: 14px; }
+.wk-runhead h1 {
+  font-family: var(--font-display); font-size: 1.55rem;
+  letter-spacing: var(--tracking-tight); margin: 2px 0 4px;
+}
+.wk-eyebrow {
+  font-family: var(--font-mono); font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+  color: var(--text-muted); font-weight: var(--fw-bold);
+}
+.wk-hint { color: var(--text-muted); font-size: var(--fs-small); margin: 0; }
+.wk-photozone {
+  width: 100%; aspect-ratio: 4 / 3;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 10px;
+  background: var(--surface-2); color: var(--text-muted);
+  border: 1.5px dashed var(--border-strong); border-radius: var(--radius);
+  font-family: inherit; font-size: var(--fs-small);
+  font-weight: var(--fw-semibold); cursor: pointer;
+  margin-bottom: 12px;
+  transition: border-color var(--dur-fast), color var(--dur-fast);
+}
+.wk-photozone:hover { border-color: var(--accent-2); color: var(--text); }
+.wk-photozone.has {
+  border-style: solid; border-color: var(--st-on-track);
+  color: var(--st-on-track-ink); aspect-ratio: auto; padding: 14px;
+  flex-direction: row;
+}
+.wk-photozone.slim { aspect-ratio: auto; padding: 13px; flex-direction: row; }
+.wk-verdict {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  margin-bottom: 12px;
+}
+.wk-verdict button {
+  padding: 15px; border-radius: 13px;
+  font-family: inherit; font-size: var(--fs-body);
+  font-weight: var(--fw-black); cursor: pointer;
+  border: 1.5px solid var(--border-strong);
+  background: var(--surface); color: var(--text);
+  transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+.wk-verdict button.ok.sel {
+  background: color-mix(in srgb, var(--st-on-track) 14%, var(--surface));
+  border-color: var(--st-on-track); color: var(--st-on-track-ink);
+}
+.wk-verdict button.bad.sel {
+  background: color-mix(in srgb, var(--st-overdue) 12%, var(--surface));
+  border-color: var(--st-overdue); color: var(--ui-danger);
+}
+.wk-note, .wk-reading {
+  width: 100%; background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-btn);
+  padding: 12px 13px; font-family: inherit; font-size: var(--fs-body);
+  margin-bottom: 12px; resize: none;
+}
+.wk-reading {
+  font-family: var(--font-display); font-size: 1.4rem;
+  font-weight: var(--fw-bold); text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.wk-signwrap {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  margin-bottom: 12px;
+}
+.wk-signpad {
+  width: 100%; aspect-ratio: 8 / 3; touch-action: none;
+  background: #fff; border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius); cursor: crosshair;
+}
+.wk-foot { display: flex; gap: 10px; }
+.wk-foot > * { flex: 1; padding-block: 13px; }
+
+/* Review + done */
+.wk-review-row {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 9px 0; border-bottom: 1px solid var(--border);
+  font-size: var(--fs-small);
+}
+.wk-review-row:last-child { border-bottom: none; }
+.wk-review-dot {
+  flex: none; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--surface-3); align-self: center;
+}
+.wk-review-dot.ok { background: var(--st-on-track); }
+.wk-review-dot.defect { background: var(--st-overdue); }
+.wk-review-label { flex: 1; }
+.wk-review-label em { color: var(--ui-danger); font-style: normal; }
+.wk-review-meta {
+  color: var(--text-muted); font-size: var(--fs-tiny);
+  font-variant-numeric: tabular-nums;
+}
+.wk-review-note {
+  color: var(--text-muted); font-size: var(--fs-small);
+  margin: 0 0 14px;
+}
+.wk-done {
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center; gap: 10px; padding: 48px 0;
+}
+.wk-done-badge {
+  width: 76px; height: 76px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 34px;
+  background: color-mix(in srgb, var(--st-on-track) 14%, var(--surface));
+  border: 2px solid var(--st-on-track); color: var(--st-on-track-ink);
+}
+.wk-done h1 { font-family: var(--font-display); margin: 0; }
+.wk-done-sub { color: var(--text-muted); margin: 0; }
+.wk-done-actions { display: flex; gap: 10px; margin-top: 10px; }

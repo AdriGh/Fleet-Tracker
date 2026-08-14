@@ -136,6 +136,12 @@ def _scope_for(method: str, path: str) -> str | None:
         return None
     if path.startswith(("/api/defects", "/api/evidence")):
         return "maint.edit"
+    # Walkaround (v2.16, elemento 02): el ACTOR es el driver — arrancar la
+    # corrida, subir la foto del paso y hacer submit debe funcionar para
+    # cualquier autenticado, no solo mantenimiento (el defecto que nace del
+    # submit lo crea el server, no un permiso del driver).
+    if path.startswith(("/api/walkarounds", "/api/walksteps")):
+        return None
     # Escrituras abiertas a cualquier autenticado (generar reportes DVIR).
     if path in _AUTHONLY_WRITE:
         return None

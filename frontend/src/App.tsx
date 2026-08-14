@@ -20,6 +20,7 @@ import UnitProfilePage from './views/UnitProfilePage'
 import DriverSearch from './components/DriverSearch'
 import DriverDrawer from './components/DriverDrawer'
 import ReeferPage from './views/ReeferPage'
+import WalkaroundPage from './views/WalkaroundPage'
 import WorkflowsPage from './views/WorkflowsPage'
 import WorkOrdersPage from './views/WorkOrdersPage'
 import PartsPage from './views/PartsPage'
@@ -49,6 +50,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: 'Operations',
     items: [
       { id: 'dvir', label: 'DVIR' },
+      { id: 'walkaround', label: 'Walkaround' },
       { id: 'defectos', label: 'Defects' },
       { id: 'coldchain', label: 'Cold Chain' },
       { id: 'workflows', label: 'Driver Workflows' },
@@ -158,6 +160,15 @@ const ICONS: Record<string, ReactElement> = {
       <path d="M10 13.5V5a2 2 0 0 1 4 0v8.5a4.5 4.5 0 1 1-4 0z" />
       <path d="M12 9v7" />
       <circle cx="12" cy="17.5" r="1.6" />
+    </svg>
+  ),
+  walkaround: (
+    // Camión con lupa-check: el driver caminando la unidad, zona por zona.
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2.5 6.5h10v8h-10zM12.5 9.5h4l3 3v2h-7z" />
+      <path d="M5.5 17.5h.01M16.5 17.5h.01" />
+      <path d="m6 10 1.6 1.6L10.5 8.6" />
     </svg>
   ),
   workflows: (
@@ -662,6 +673,7 @@ export default function App() {
           {section === 'pm' && <MaintBoardPage kind="pm" />}
           {section === 'dot' && <MaintBoardPage kind="dot" />}
           {section === 'coldchain' && <ReeferPage />}
+          {section === 'walkaround' && <WalkaroundPage onNavigate={navigate} />}
           {section === 'workflows' && <WorkflowsPage />}
           {section === 'workorders' && <WorkOrdersPage />}
           {section === 'parts' && <PartsPage />}

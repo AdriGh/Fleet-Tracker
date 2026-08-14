@@ -7,6 +7,51 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.16.0] - 2026-08-14
+
+Elemento **02** del board — el walkaround guiado. Cierra el ciclo completo
+de los 6 elementos aprobados: el driver corre EN EL TELÉFONO el workflow que
+el manager armó (v2.15), cada zona documenta con foto (v2.14), y el submit
+alimenta defectos, odómetro/CPM (v2.8) y firma.
+
+### Agregado
+- **Walkaround guiado (elemento 02).** Una zona por pantalla, foto donde el
+  workflow la exige, OK o defecto con nota, lectura de odómetro y firma con
+  el dedo (canvas → PNG). Mobile-first (input `capture` abre la cámara);
+  en desktop funciona igual.
+  - Tablas `walkaround` + `walkaround_step` (migración `b8c9d0e1f2a3`):
+    los pasos son un SNAPSHOT del workflow activo — editar el workflow a
+    mitad de corrida no la mueve.
+  - **Materialización al submit** (fail-first: si falta algo, nada se
+    escribe): cada paso fallado crea una fila REAL en `defect` (source
+    'walkaround') con sus fotos RE-PARENTADAS — el defecto entra al backlog
+    ya con evidencia; el paso 'read' llama a `log_reading` (el CPM se
+    alimenta de cada pre-trip); las fotos de pasos OK quedan como prueba
+    anti pencil-whipping.
+  - `defect.block_id` pasa a **nullable** + columna `source`: un defecto de
+    walkaround no tiene bloque DVIR. En Postgres lo hace la migración batch;
+    en SQLite dev, un rebuild único de la tabla en `_migrate` (guardado por
+    PRAGMA, ensayado contra copia de la DB real antes de tocarla).
+  - Evidence: parent nuevo `walkstep` + `reparent(..., session=)` — el
+    re-parent corre EN la transacción del submit (una segunda sesión de
+    escritura deadlockea SQLite).
+  - RBAC: `/api/walkarounds` y `/api/walksteps` → auth-only (el actor es el
+    driver; el defecto lo crea el server).
+  - Página Walkaround (Operations): inicio con workflow activo + unidad +
+    driver (datalist del roster) + corridas recientes; review con resumen;
+    done con acceso directo a Defects.
+  - Guía nueva en el centro de guías; el tip de workflows ya no dice "next
+    version".
+- Tests: `test_walkarounds.py` (snapshot inmutable, validación fail-first
+  sin materialización parcial, defecto+fotos+odómetro+sello). Suite 13/13.
+
+### Notas
+- Los 6 elementos del board de diseño (ago-14) quedan completos: v2.13
+  (04+05) → v2.14 (01) → v2.15 (03) → v2.16 (02).
+- Pendiente conocido: auth dedicada para drivers (magic link / rol driver
+  sin acceso al resto de la app) — hoy el walkaround corre con la sesión
+  autenticada normal.
+
 ## [2.15.0] - 2026-08-14
 
 Elemento **03** del board — el editor de workflows del driver, candidato a

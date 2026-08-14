@@ -2965,3 +2965,91 @@ export async function activateWorkflow(id: number): Promise<void> {
   const res = await fetch(`/api/workflows/${id}/activate`, { method: 'POST' })
   if (!res.ok) throw new Error(await readError(res))
 }
+
+// ----- Walkaround del driver (v2.16, elemento 02) -------------------------
+
+export interface WalkStep {
+  id: number
+  pos: number
+  type: 'check' | 'photo' | 'read' | 'sign'
+  label: string
+  required: boolean
+  verdict: string
+  value: string
+  note: string
+  photos: number
+}
+
+export interface WalkaroundRun {
+  id: number
+  unit: string
+  driver: string
+  company: string
+  workflow_name: string
+  status: string
+  started_at: string
+  submitted_at: string | null
+  defects_created: number
+  steps: WalkStep[]
+  odometer_logged?: boolean
+}
+
+export interface WalkaroundRecent {
+  id: number
+  unit: string
+  driver: string
+  status: string
+  started_at: string
+  defects_created: number
+}
+
+// El workflow activo (contrato del editor v2.15): el walkaround arranca de acá.
+export async function getActiveWorkflow(): Promise<Workflow | null> {
+  const res = await fetch('/api/workflows/active')
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function startWalkaround(
+  unit: string, driver: string, company: string,
+): Promise<WalkaroundRun> {
+  const res = await fetch('/api/walkarounds', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ unit, driver, company }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function submitWalkaround(
+  runId: number,
+  results: { step_id: number; verdict?: string; value?: string; note?: string }[],
+): Promise<WalkaroundRun> {
+  const res = await fetch(`/api/walkarounds/${runId}/submit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ results }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function recentWalkarounds(): Promise<WalkaroundRecent[]> {
+  const res = await fetch('/api/walkarounds/recent')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()).walkarounds
+}
+
+// La foto del paso DURANTE la corrida (la firma también: canvas → PNG).
+export async function uploadWalkstepPhoto(
+  stepId: number, file: File | Blob, filename = 'photo.jpg',
+): Promise<void> {
+  const fd = new FormData()
+  fd.append('files', file, file instanceof File ? file.name : filename)
+  const res = await fetch(`/api/walksteps/${stepId}/photos`, {
+    method: 'POST', body: fd,
+  })
+  if (!res.ok) throw new Error(await readError(res))
+}
