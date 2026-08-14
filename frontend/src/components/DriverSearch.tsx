@@ -14,13 +14,22 @@ import { listTmsDrivers } from '../api'
 import { DOCS, expTone, initials, needsAttention } from '../drivers'
 
 export default function DriverSearch(
-  { onPick }: { onPick: (name: string) => void },
+  { onPick, autoFocus = false }: {
+    onPick: (name: string) => void
+    /** v2.14 UX: el icono del riel colapsado expande el sidebar Y deja el
+     *  buscador enfocado, listo para tipear — un paso, no dos. */
+    autoFocus?: boolean
+  },
 ) {
   const [q, setQ] = useState('')
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)
   const boxRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus()
+  }, [autoFocus])
 
   // El roster solo se pide cuando el usuario enfoca el buscador (no en cada
   // carga de la app).
