@@ -98,7 +98,8 @@ def test_index():
 def test_setup_status():
     st = setup_status.setup_status()
     keys = [s["key"] for s in st["steps"]]
-    assert keys == ["fleet", "eld", "dvir", "wo", "pm", "odometer", "drivers"]
+    assert keys == ["fleet", "eld", "dvir", "wo", "pm", "odometer", "drivers",
+                    "workflow"]
     by = {s["key"]: s for s in st["steps"]}
     # En esta DB fresca no hay DVIRs ni WOs: esos pasos NO pueden estar hechos.
     assert by["dvir"]["done"] is False

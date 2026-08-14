@@ -117,4 +117,18 @@ export const GUIDES: Guide[] = [
     ],
     tip: 'A quick phone shot in the yard is enough — the point is recognizing the truck at a glance.',
   },
+  {
+    id: 'workflows',
+    title: 'Build your pre-trip workflow',
+    minutes: 3,
+    section: 'workflows',
+    sectionLabel: 'Driver Workflows',
+    steps: [
+      'Open Driver Workflows: your fleet starts with a ready-made Pre-trip you can edit.',
+      'Add typed steps — checklist item, photo required, reading or signature — and reorder them with the arrows.',
+      'Click a step to rename it, make it required (blocks submit) or demand a photo. The phone preview updates live.',
+      'Press "Set active" on the workflow your drivers should run — only one is active at a time.',
+    ],
+    tip: 'The mobile walkaround your drivers will run on their phone ships in the next version — workflows you build now will be ready for it.',
+  },
 ]

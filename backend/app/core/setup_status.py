@@ -18,7 +18,7 @@ from sqlalchemy import select
 
 from ..db import (
     MaintRecord, OdometerReading, ReportBlock, SessionLocal, TmsDriver,
-    WorkOrder,
+    Workflow, WorkOrder,
 )
 from . import manual_units, samsara
 
@@ -37,6 +37,7 @@ def setup_status() -> dict:
         has_pm = _exists(session, MaintRecord)
         has_odo = _exists(session, OdometerReading)
         has_drivers = _exists(session, TmsDriver)
+        has_workflow = _exists(session, Workflow)
     # Flota: demo, Samsara configurada, o unidades cargadas a mano — cualquiera
     # de las tres significa que Fleet ya muestra algo (sin llamadas de red acá).
     has_fleet = demo or bool(samsara._orgs()) \
@@ -56,6 +57,10 @@ def setup_status() -> dict:
          "done": has_odo, "section": "reports"},
         {"key": "drivers", "label": "Complete your driver roster",
          "done": has_drivers, "section": "settings"},
+        # v2.15: el workflow se siembra al abrir el editor por primera vez —
+        # el paso es literalmente "andá a conocer tu pre-trip".
+        {"key": "workflow", "label": "Review your pre-trip workflow",
+         "done": has_workflow, "section": "workflows"},
     ]
     done = sum(1 for s in steps if s["done"])
     return {"steps": steps, "done": done, "total": len(steps),

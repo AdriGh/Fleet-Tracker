@@ -2881,3 +2881,87 @@ export async function fetchEvidenceCounts(
   if (!res.ok) throw new Error(await readError(res))
   return (await res.json()).counts as Record<number, number>
 }
+
+// ----- Workflows del driver (v2.15, elemento 03 del board) ----------------
+// El manager arma el pre-trip de SU flota (pasos tipados, foto, orden) y el
+// walkaround PWA (v2.16) consumirá el ACTIVO vía GET /api/workflows/active.
+// El guardado es replace-all: se manda name + la lista completa de pasos.
+
+export type WorkflowStepType = 'check' | 'photo' | 'read' | 'sign'
+
+export interface WorkflowStep {
+  id: number
+  pos: number
+  type: WorkflowStepType
+  label: string
+  required: boolean
+}
+
+export interface WorkflowSummary {
+  id: number
+  name: string
+  active: boolean
+  n_steps: number
+  updated_at: string
+}
+
+export interface Workflow {
+  id: number
+  name: string
+  active: boolean
+  updated_at: string
+  steps: WorkflowStep[]
+}
+
+// Lo que viaja al guardar (sin id/pos: el backend reescribe pos secuencial).
+export interface WorkflowStepInput {
+  type: WorkflowStepType
+  label: string
+  required: boolean
+}
+
+export async function listWorkflows(): Promise<WorkflowSummary[]> {
+  const res = await fetch('/api/workflows')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()).workflows as WorkflowSummary[]
+}
+
+export async function getWorkflow(id: number): Promise<Workflow> {
+  const res = await fetch(`/api/workflows/${id}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function createWorkflow(
+  name: string, steps: WorkflowStepInput[],
+): Promise<Workflow> {
+  const res = await fetch('/api/workflows', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, steps }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function updateWorkflow(
+  id: number, name: string, steps: WorkflowStepInput[],
+): Promise<Workflow> {
+  const res = await fetch(`/api/workflows/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, steps }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function deleteWorkflow(id: number): Promise<void> {
+  const res = await fetch(`/api/workflows/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+export async function activateWorkflow(id: number): Promise<void> {
+  const res = await fetch(`/api/workflows/${id}/activate`, { method: 'POST' })
+  if (!res.ok) throw new Error(await readError(res))
+}
