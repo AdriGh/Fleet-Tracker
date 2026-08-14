@@ -6483,7 +6483,22 @@ table.defects-table td {
 }
 .dsr-input::-webkit-search-cancel-button { cursor: pointer; }
 /* Riel colapsado: el buscador se degrada a un icono que expande la sidebar. */
-.dsr-rail { justify-content: center; }
+/* Riel colapsado: el buscador se ve como el CAMPO plegado (borde + fondo de
+   input + glifo muted), no como otro item de navegación — misma familia
+   visual que .dsr-input expandido. Hover = borde acento, como el focus del
+   campo real. */
+.dsr-rail {
+  justify-content: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  transition: border-color var(--dur-fast), color var(--dur-fast);
+}
+.dsr-rail:hover {
+  border-color: var(--accent-2);
+  color: var(--text);
+  background: var(--surface-2);
+}
 
 .dsr-pop {
   position: absolute; z-index: 60; top: calc(100% + 5px); left: 0;

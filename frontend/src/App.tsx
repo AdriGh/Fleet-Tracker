@@ -262,6 +262,13 @@ export default function App() {
   const [navCollapsed, setNavCollapsed] = useState(
     () => localStorage.getItem('ft-sidebar-collapsed') === '1',
   )
+  // El icono de búsqueda del riel expande + enfoca el input (un paso). El
+  // flag se apaga después de que DriverSearch enfocó (su efecto corre antes
+  // que este, por orden hijo→padre), así expandir con la flecha no re-enfoca.
+  const [dsrWantFocus, setDsrWantFocus] = useState(false)
+  useEffect(() => {
+    if (!navCollapsed && dsrWantFocus) setDsrWantFocus(false)
+  }, [navCollapsed, dsrWantFocus])
 
   useEffect(() => {
     localStorage.setItem('ft-sidebar-collapsed', navCollapsed ? '1' : '0')
@@ -443,20 +450,27 @@ export default function App() {
               (display:none en desktop), así que ahí quedaría escondido. En el
               riel colapsado se degrada a un icono que expande la sidebar. */}
           {navCollapsed && !isMobile ? (
+            /* Riel: se ve como el BUSCADOR plegado (chip con borde, glifo
+               persona+lupa = "buscar conductor"), no como otro nav item.
+               Click = expandir + dejar el input enfocado, listo para tipear. */
             <button className="nav-item nav-rail-btn dsr-rail"
               title="Find a driver"
-              onClick={() => setNavCollapsed(false)}>
+              onClick={() => { setDsrWantFocus(true); setNavCollapsed(false) }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                strokeWidth="2" strokeLinecap="round">
-                <circle cx="11" cy="11" r="7" />
-                <path d="m21 21-4.3-4.3" />
+                strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="9" cy="7.5" r="3.1" />
+                <path d="M3.8 18.6c.7-3.2 2.8-5 5.2-5 .9 0 1.8.25 2.5.72" />
+                <circle cx="16.2" cy="15.2" r="3.9" />
+                <path d="m19.1 18.1 2.4 2.4" />
               </svg>
             </button>
           ) : (
-            <DriverSearch onPick={(n) => {
-              setDriverName(n)
-              setDrawerOpen(false)      // cierra el drawer de nav en móvil
-            }} />
+            <DriverSearch
+              autoFocus={dsrWantFocus}
+              onPick={(n) => {
+                setDriverName(n)
+                setDrawerOpen(false)    // cierra el drawer de nav en móvil
+              }} />
           )}
           {navCollapsed && !isMobile ? (
             <>
