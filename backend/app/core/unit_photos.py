@@ -27,11 +27,31 @@ from . import samsara
 UPLOADS_DIR = config.BACKEND_DIR / "uploads" / "unit_photos"
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets" / "demo_unit_photos"
 
-# Unidad demo -> asset. Solo unidades cuya foto de muestra coincide de verdad
-# con el make/model de la flota demo (418 Cascadia, 311 Kenworth, 53108 reefer);
-# el resto queda sin foto a propósito: el estado mixto invita a subir la real.
-_DEMO_PHOTOS = {"418": "cascadia.jpg", "311": "kenworth.jpg",
-                "53108": "reefer.jpg"}
+# Unidad demo -> asset (v2.16.1: TODAS las unidades con foto, pedido del
+# founder). Cada foto coincide con el make/model real de la flota demo — un
+# trucker nota al instante un Peterbilt con foto de Freightliner. Fuentes y
+# licencias en assets/demo_unit_photos/ATTRIBUTION.md. Una foto subida por
+# el tenant siempre gana a estos assets.
+_DEMO_PHOTOS = {
+    # Camiones (make/model de demo_eld._TRUCKS)
+    "412": "pete579.jpg",        # Peterbilt 579
+    "418": "cascadia.jpg",       # Freightliner Cascadia
+    "421": "cascadia_ryder.jpg",  # Cascadia day cab
+    "305": "cascadia_wm.jpg",    # Cascadia (ex-fleet)
+    "308": "intl_lt.jpg",        # International LT
+    "311": "t680.jpg",           # Kenworth T680
+    "207": "cascadia_blue.jpg",  # Cascadia sleeper azul
+    "214": "penske_lt.jpg",      # International LT day cab
+    "503": "vnl.jpg",            # Volvo VNL
+    "517": "cascadia_otr.jpg",   # Cascadia en ruta
+    # Trailers (demo_eld._TRAILERS)
+    "53108": "reefer.jpg",         # reefer Carrier
+    "53112": "reefer_prime.jpg",   # reefer en ruta
+    "7841": "reefer_utility.jpg",  # reefer Utility (trasera cromada)
+    "7846": "reefer_rigid.jpg",    # reefer rígido con unidad Carrier
+    "4402": "flatbed_tires.jpg",   # flatbed cargado
+    "4410": "dryvan_eggs.jpg",     # dry van
+}
 
 ALLOWED_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 _MIME = {".jpg": "image/jpeg", ".jpeg": "image/jpeg",
