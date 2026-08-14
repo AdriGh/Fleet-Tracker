@@ -7,6 +7,46 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.15.0] - 2026-08-14
+
+Elemento **03** del board — el editor de workflows del driver, candidato a
+moat. Implementado por agente en worktree (`feature/driver-workflows`),
+revisado e integrado con tres ajustes.
+
+### Agregado
+- **Editor de workflows del driver (elemento 03).** Cada flota inspecciona
+  distinto: el manager arma el pre-trip de SU flota y ve en vivo lo que el
+  driver va a recibir.
+  - Tablas `workflow` + `workflow_step` (migración `a7b8c9d0e1f2`,
+    org-scoped). UN workflow ACTIVO por org — el driver no elige, recibe EL
+    pre-trip de su flota. Borrar el activo pasa la antorcha al sobreviviente.
+  - Seed idempotente "Pre-trip" (luces/gomas/acople/odómetro/firma) al abrir
+    el editor por primera vez: nunca un editor vacío.
+  - `save_workflow` replace-all transaccional: valida ANTES de escribir; lo
+    guardado es exactamente lo que el manager vio en el preview.
+  - Página **Driver Workflows** (Operations): paleta de 4 tipos de paso
+    (checklist/foto/lectura/firma), lista con flags PHOTO/REQ + reordenar,
+    config con toggles, y preview sticky de teléfono en CSS alimentado por el
+    mismo estado — refresco instantáneo. Dirty-check contra el server;
+    cambiar de workflow con cambios sin guardar pide confirmación.
+  - `GET /api/workflows/active` — el contrato que consumirá el walkaround
+    (v2.16). Registrado antes de `/{wid}` (regresión testeada).
+  - Paso "Review your pre-trip workflow" en Get set up + guía en el centro
+    de guías.
+- Tests: `test_workflows.py` (seed idempotente, replace-all con orden,
+  activo exclusivo, reglas de borrado, orden de rutas). Suite 12/12.
+
+### Corregido (en integración)
+- `ensure_default` contaba con `select(func.count())`, que esquiva el filtro
+  multi-tenant: un tenant nuevo habría visto el conteo de otros y jamás
+  sembrado su Pre-trip. Cambiado al idioma EXISTS por entidad (mismo porqué
+  documentado en `setup_status.py`).
+
+### Notas
+- Escrituras de `/api/workflows` quedan admin-only (default fail-closed de
+  `_scope_for`); si un manager no-admin debe editar workflows, mapear el
+  scope en `main.py` — decisión pendiente.
+
 ## [2.14.0] - 2026-08-14
 
 Elemento **01** del board de diseño: evidencia fotográfica en defectos y
