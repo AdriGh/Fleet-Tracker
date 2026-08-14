@@ -7,6 +7,43 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.14.0] - 2026-08-14
+
+Elemento **01** del board de diseño: evidencia fotográfica en defectos y
+Work Orders. Implementado por agente en worktree (`feature/evidence-photos`),
+revisado e integrado. Incluye además el pulido del buscador del sidebar.
+
+### Agregado
+- **Evidencia fotográfica (elemento 01).** Un defecto deja de ser una línea
+  de texto: fotos adjuntas en defectos y WOs, con cierre visual antes/después.
+  - Tabla `evidence_photo` (migración `f6a7b8c9d0e1`, org-scoped, índice
+    parent+parent_id): multi-foto por padre (defect|wo), fase
+    report/before/after, nota, unidad denormalizada del padre.
+  - Endpoints: `GET/POST /api/defects/{id}/photos`,
+    `GET/POST /api/workorders/{id}/photos`, `GET /api/evidence/{id}/file`,
+    `DELETE /api/evidence/{id}`, `POST /api/evidence/counts` (bulk para los
+    chips de la lista — un request por página, cero N+1). El gate 404 del
+    padre corre ANTES de escribir a disco (sin huérfanos).
+  - RBAC: escrituras de defects/evidence → `maint.edit`; `/evidence/counts`
+    viaja por POST pero es lectura bulk → solo autenticado.
+  - `EvidenceGallery` reutilizable (thumbs fetch→blob, upload múltiple,
+    lightbox por portal a body — dentro del drawer vaul un fixed quedaría
+    atrapado por el transform), chip cámara+n en Defects, sección Photos
+    Before/After en la WO con **comparador arrastrable** (clip-path + range
+    invisible = drag y teclado gratis).
+  - En Defects la galería cuelga de los registros DVIR importados (los únicos
+    con id real); las filas live del ELD sin registro muestran un vacío
+    honesto en vez de inventar un id.
+- **Buscador del sidebar colapsado**: glifo persona+lupa (= buscar conductor),
+  tratamiento de campo plegado (borde+fondo de input, familia visual de
+  .dsr-input), y click que expande + enfoca + abre el dropdown — un paso.
+- Tests: `test_evidence.py` (multi-foto, phases, counts bulk, gate de padre,
+  validación). Suite 11/11.
+
+### Notas
+- Limpieza de fotos huérfanas al borrar el padre (relación polimórfica sin
+  cascade) — pendiente documentado, candidato a tarea aparte.
+
 ## [2.13.0] - 2026-08-14
 
 Primer incremento del board de diseño aprobado (fotos + guías + workflows):
