@@ -129,6 +129,20 @@ export const GUIDES: Guide[] = [
       'Click a step to rename it, make it required (blocks submit) or demand a photo. The phone preview updates live.',
       'Press "Set active" on the workflow your drivers should run — only one is active at a time.',
     ],
-    tip: 'The mobile walkaround your drivers will run on their phone ships in the next version — workflows you build now will be ready for it.',
+    tip: 'The Walkaround page runs whatever workflow is active — edit here, and the next inspection picks it up.',
+  },
+  {
+    id: 'walkaround',
+    title: 'Run a guided walkaround',
+    minutes: 3,
+    section: 'walkaround',
+    sectionLabel: 'Walkaround',
+    steps: [
+      'Open Walkaround (best on the phone), pick the unit and type your name.',
+      'One zone per screen: take the photo where required, mark OK or Defect. A defect asks for a note.',
+      'The odometer step feeds cost-per-mile automatically; the signature closes the inspection.',
+      'Submit: every defect enters the Defects backlog as a real record with its photos already attached.',
+    ],
+    tip: 'Photos are the anti "pencil-whipping": each zone documents that the inspection actually happened.',
   },
 ]

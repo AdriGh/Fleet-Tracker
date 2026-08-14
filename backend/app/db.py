@@ -87,7 +87,13 @@ class Defect(OrgScoped, Base):
     __tablename__ = "defect"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    block_id: Mapped[int] = mapped_column(ForeignKey("report_block.id"))
+    # v2.16: nullable — un defecto puede nacer de un walkaround (source
+    # 'walkaround'), sin bloque DVIR importado. Todo lo que la UI necesita
+    # (company/fecha/driver/unit/detalle) vive denormalizado en esta fila,
+    # así que un defecto sin bloque fluye igual por Defects → WO → warranty.
+    block_id: Mapped[int | None] = mapped_column(
+        ForeignKey("report_block.id"), nullable=True)
+    source: Mapped[str] = mapped_column(String(12), default="dvir")
     company: Mapped[str] = mapped_column(String(64))
     block_date: Mapped[date] = mapped_column(Date)
     date_label: Mapped[str] = mapped_column(String(16))
@@ -717,6 +723,47 @@ class WorkflowStep(OrgScoped, Base):
     required: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
+class Walkaround(OrgScoped, Base):
+    """Corrida de walkaround (v2.16, elemento 02 del board): un driver
+    recorriendo el pre-trip de su flota en el teléfono. Los pasos son un
+    SNAPSHOT del workflow activo al arrancar (walkaround_step): si el manager
+    edita el workflow a mitad de corrida, la corrida no se mueve. Al submit
+    se materializa todo: defectos (tabla defect, source 'walkaround') con sus
+    fotos re-parentadas, odómetro (log_reading) y firma."""
+    __tablename__ = "walkaround"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    unit: Mapped[str] = mapped_column(String(64), index=True)
+    driver: Mapped[str] = mapped_column(String(128))
+    company: Mapped[str] = mapped_column(String(64), default="")
+    workflow_id: Mapped[int] = mapped_column(Integer)
+    workflow_name: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(12), default="in_progress")
+    started_at: Mapped[datetime] = mapped_column(DateTime)
+    submitted_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+    defects_created: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class WalkaroundStep(OrgScoped, Base):
+    """Paso de UNA corrida (snapshot del workflow + resultado del driver).
+    Las fotos del paso cuelgan de evidence (parent 'walkstep'); si el paso
+    termina en defecto, el submit las re-parenta al defect creado — la foto
+    sigue al objeto accionable (WO, warranty), y las de pasos OK quedan acá
+    como prueba de que el walkaround ocurrió de verdad."""
+    __tablename__ = "walkaround_step"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    walkaround_id: Mapped[int] = mapped_column(Integer, index=True)
+    pos: Mapped[int] = mapped_column(Integer)
+    type: Mapped[str] = mapped_column(String(8))
+    label: Mapped[str] = mapped_column(String(120))
+    required: Mapped[bool] = mapped_column(Boolean, default=False)
+    verdict: Mapped[str] = mapped_column(String(8), default="")
+    value: Mapped[str] = mapped_column(String(40), default="")
+    note: Mapped[str] = mapped_column(String(300), default="")
+
+
 # ---------------------------------------------------------------------------
 # Aislamiento por tenant (H6 fase 3c): enforcement a nivel ORM
 # ---------------------------------------------------------------------------
@@ -980,6 +1027,51 @@ def _migrate() -> None:
                     'REFERENCES organization(id)')
             conn.exec_driver_sql(
                 f'UPDATE "{table}" SET org_id = {oid} WHERE org_id IS NULL')
+        # v2.16: defect.block_id pasa a NULLABLE (los defectos de walkaround
+        # no tienen bloque DVIR) + columna source. SQLite no puede relajar un
+        # NOT NULL con ALTER, así que la ÚNICA vez que detectamos el NOT NULL
+        # viejo se reconstruye la tabla (create/insert/drop/rename) — mismo
+        # truco que usa el modo batch de Alembic. Guardado por PRAGMA:
+        # corridas siguientes no hacen nada.
+        d_info = conn.exec_driver_sql(
+            "PRAGMA table_info(defect)").fetchall()
+        d_cols = {r[1]: r for r in d_info}
+        blockid_notnull = bool(d_cols.get("block_id", (0, 0, 0, 0))[3]) \
+            if "block_id" in d_cols else False
+        if "source" not in d_cols:
+            conn.exec_driver_sql(
+                "ALTER TABLE defect ADD COLUMN source VARCHAR(12) "
+                "DEFAULT 'dvir'")
+        if blockid_notnull:
+            conn.exec_driver_sql("""
+                CREATE TABLE defect_new (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    block_id INTEGER REFERENCES report_block(id),
+                    source VARCHAR(12) DEFAULT 'dvir',
+                    company VARCHAR(64) NOT NULL,
+                    block_date DATE NOT NULL,
+                    date_label VARCHAR(16) NOT NULL,
+                    driver VARCHAR(128) NOT NULL,
+                    unit VARCHAR(64) NOT NULL,
+                    unit_kind VARCHAR(16) NOT NULL,
+                    dvir_type VARCHAR(32) NOT NULL,
+                    status VARCHAR(32) NOT NULL,
+                    detail TEXT NOT NULL,
+                    mechanic VARCHAR(128) NOT NULL,
+                    mechanic_notes TEXT NOT NULL,
+                    org_id INTEGER REFERENCES organization(id))""")
+            conn.exec_driver_sql(
+                "INSERT INTO defect_new (id, block_id, source, company, "
+                "block_date, date_label, driver, unit, unit_kind, dvir_type, "
+                "status, detail, mechanic, mechanic_notes, org_id) "
+                "SELECT id, block_id, COALESCE(source, 'dvir'), company, "
+                "block_date, date_label, driver, unit, unit_kind, dvir_type, "
+                "status, detail, mechanic, mechanic_notes, org_id FROM defect")
+            conn.exec_driver_sql("DROP TABLE defect")
+            conn.exec_driver_sql("ALTER TABLE defect_new RENAME TO defect")
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ix_defect_org_id "
+                "ON defect (org_id)")
         conn.commit()
 
 

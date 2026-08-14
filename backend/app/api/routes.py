@@ -32,8 +32,8 @@ from ..core import (
     teams,
     telegram_notify, terminals, thermoking, tms, traccar, tracking,
     setup_status as setup_status_core,
-    unit_photos, unit_settings, unitdocs, vin_decode, warranty, wo_invoice,
-    wo_invoices, workflows, workorders,
+    unit_photos, unit_settings, unitdocs, vin_decode, walkarounds, warranty,
+    wo_invoice, wo_invoices, workflows, workorders,
 )
 from ..core import notice_templates
 from ..core.contacts import name_key
@@ -2517,8 +2517,11 @@ async def _evidence_upload(parent: str, parent_id: int,
     tomas de una vez."""
     unit = evidence.parent_unit(parent, parent_id)
     if unit is None:
-        raise HTTPException(404, "Defect not found" if parent == "defect"
-                            else "Work order not found")
+        raise HTTPException(404, {
+            "defect": "Defect not found",
+            "wo": "Work order not found",
+            "walkstep": "Walkaround step not found",
+        }.get(parent, "Parent not found"))
     saved = []
     try:
         for f in files:
@@ -2668,3 +2671,65 @@ def workflows_activate(wid: int):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True}
+
+
+# ----- Walkaround del driver (v2.16, elemento 02) -----
+
+class WalkaroundStartIn(BaseModel):
+    unit: str
+    driver: str
+    company: str = ""
+
+
+class WalkaroundResultIn(BaseModel):
+    step_id: int
+    verdict: str = ""
+    value: str = ""
+    note: str = ""
+
+
+class WalkaroundSubmitIn(BaseModel):
+    results: list[WalkaroundResultIn]
+
+
+@router.get("/walkarounds/recent")
+def walkarounds_recent():
+    """Últimas corridas (pantalla de inicio del walkaround). Literal ANTES
+    de /{run_id} — mismo porqué que /workflows/active."""
+    return {"walkarounds": walkarounds.recent()}
+
+
+@router.post("/walkarounds")
+def walkaround_start(body: WalkaroundStartIn):
+    """Arranca una corrida: snapshot del workflow activo."""
+    try:
+        return walkarounds.start(body.unit, body.driver, body.company)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/walkarounds/{run_id}")
+def walkaround_get(run_id: int):
+    run = walkarounds.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Walkaround not found")
+    return run
+
+
+@router.post("/walkarounds/{run_id}/submit")
+def walkaround_submit(run_id: int, body: WalkaroundSubmitIn):
+    """Valida y materializa: defectos con evidencia + odómetro + firma."""
+    try:
+        return walkarounds.submit(
+            run_id, [r.model_dump() for r in body.results])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/walksteps/{step_id}/photos")
+async def walkstep_photos_upload(step_id: int,
+                                 files: list[UploadFile] = File(...),
+                                 note: str = Form("")):
+    """Fotos de un paso DURANTE la corrida (la firma también entra por acá:
+    el canvas del teléfono se sube como PNG del paso 'sign')."""
+    return await _evidence_upload("walkstep", step_id, files, "report", note)
