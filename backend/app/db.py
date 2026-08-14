@@ -327,6 +327,21 @@ class UnitDoc(OrgScoped, Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class UnitPhoto(OrgScoped, Base):
+    """Foto de identidad de una unidad (v2.13, elemento 05 del board de
+    diseño): UNA por unidad — el hero del perfil y la tarjeta del Fleet.
+    El archivo vive en backend/uploads/unit_photos/ (gitignored). En demo,
+    las unidades sin foto caen a un asset de muestra (assets/demo_unit_photos)."""
+    __tablename__ = "unit_photo"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    unit: Mapped[str] = mapped_column(String(64), index=True)
+    filename: Mapped[str] = mapped_column(String(140))
+    stored: Mapped[str] = mapped_column(String(200))   # ruta relativa
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class MaintRecord(OrgScoped, Base):
     """Evento de mantenimiento por unidad (fase H1): kind 'pm' (servicio
     preventivo) o 'dot' (inspección anual DOT). Historial editable desde

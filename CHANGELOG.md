@@ -7,6 +7,54 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.13.0] - 2026-08-14
+
+Primer incremento del board de diseño aprobado (fotos + guías + workflows):
+elementos **05** (identidad visual de unidades) y **04** (guías in-app,
+permanente por decisión del founder). El board vive en
+`design/photo-elements/propuesta-foto-guias-workflows.html`.
+
+### Agregado
+- **Fotos de unidades (elemento 05).** UNA foto por unidad: hero en el perfil
+  y tarjeta en Fleet. "Un dueño no piensa 'unit 412', piensa 'la Cascadia
+  blanca'".
+  - Tabla `unit_photo` (migración `e5f6a7b8c9d0`, org-scoped) + archivos en
+    `backend/uploads/unit_photos/` (gitignored), patrón unitdocs. Subir de
+    nuevo REEMPLAZA sin dejar huérfanos.
+  - `GET/POST/DELETE /api/units/{unit}/photo` + `GET /api/units/photos`
+    (índice: el Fleet pide solo las fotos que existen, cero 404s).
+  - **Fleet en tarjetas**: toggle Cards/List (persistido; Cards default) con
+    foto, badge de tipo y pill de defectos abiertos. La tabla sigue siendo la
+    vista de poder (sort + CSV).
+  - **Hero del perfil**: banda de foto (max 280px) + botón Add/Change photo.
+    El `<img>` no puede llevar el Bearer del middleware, así que la foto baja
+    por fetch→blob y se cachea por sesión (react-query), mismo motivo que
+    `downloadUnitDoc`.
+  - **Demo**: unidades sin foto caen a assets de muestra (418 Cascadia,
+    311 Kenworth, 53108 reefer — solo mapeos honestos de make/model; ver
+    `assets/demo_unit_photos/ATTRIBUTION.md`). Una foto real siempre gana;
+    borrarla revive el fallback (no es data del tenant).
+- **Centro de guías permanente (elemento 04).** Vive en el **Dashboard** (no
+  en el sidebar, por pedido explícito): strip "Get set up · X of Y" con
+  progreso REAL + botón "All guides" → drawer (Vaul) con los 8 tutoriales
+  paso a paso siempre accesibles.
+  - `GET /api/help/setup-status`: cada paso se marca solo cuando el dato
+    EXISTE (EXISTS por entidad para respetar el filtro multi-tenant; un
+    `count()` de columnas lo esquivaría). 7 pasos, cada uno con su "Go →".
+  - `frontend/src/guides.ts`: 8 guías escritas contra los flujos reales (ELD
+    day, defect→WO, CPM, PM, cold chain, warranty, drivers, fotos). Sin
+    videos fingidos: cuando existan grabaciones se agregan.
+  - `<InfoTip/>`: tooltip "?" en KPIs crípticos (Parts blocking WOs, Fleet
+    SAFE). No en CPM: esa vista ya se explica en prosa.
+- Tests: `test_unit_photos.py` (reemplazo sin huérfanos, validación, fallback
+  demo pierde-contra-real-y-revive, índice, setup-status). Suite 10/10.
+
+### Notas
+- Los coach-marks del elemento 04 (tour primera visita) quedan para un
+  incremento futuro; el drawer + strip cubren el acceso permanente pedido.
+- Board de propuesta y fotos de muestra en `design/photo-elements/` (fotos:
+  Wikimedia Commons, solo prototipo/demo — producción usa fotos del cliente).
+
 ## [2.12.2] - 2026-07-30
 
 ### Corregido

@@ -4,9 +4,11 @@ import { useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   addMaintRecord, decodeVin, deleteUnitDoc, deleteWorkOrder, downloadUnitDoc,
-  getReefer, getUnitCampaigns, getOdometerLog, getUnitPartsUsed, listFleet,
+  fetchUnitPhotoUrl, getReefer, getUnitCampaigns, getOdometerLog,
+  getUnitPartsUsed, listFleet, listUnitsWithPhoto,
   listOpenDefects, logOdometer,
   listUnitDocs, listWorkOrders, toggleUnitCampaign, uploadUnitDocs,
+  uploadUnitPhoto,
   type MaintKind, type PartUsed, type UnitCampaign, type WorkOrder,
   type WoStatus,
 } from '../api'
@@ -126,6 +128,38 @@ export default function UnitProfilePage({ unit, onClose }: {
     }
   }
 
+  // Foto de identidad (v2.13, elemento 05): banda héroe bajo el header.
+  // El índice (compartido con Fleet) gatea el fetch: sin foto no hay GET 404
+  // en consola. Misma queryKey que <UnitPhoto/> para compartir el blob.
+  const photoIdxQ = useQuery({
+    queryKey: ['unit-photos-index'], queryFn: listUnitsWithPhoto,
+  })
+  const hasPhoto = (photoIdxQ.data ?? []).includes(unit)
+  const photoQ = useQuery({
+    queryKey: ['unit-photo', unit],
+    queryFn: () => fetchUnitPhotoUrl(unit),
+    staleTime: Infinity,
+    retry: false,
+    enabled: hasPhoto,
+  })
+  const photoInput = useRef<HTMLInputElement>(null)
+  const [photoBusy, setPhotoBusy] = useState(false)
+  async function onPhotoPicked(file: File | undefined) {
+    if (!file) return
+    setPhotoBusy(true)
+    try {
+      await uploadUnitPhoto(unit, file)
+      notifyOk('Photo saved', `Unit ${unit}`)
+      qc.invalidateQueries({ queryKey: ['unit-photo', unit] })
+      qc.invalidateQueries({ queryKey: ['unit-photos-index'] })
+    } catch (e) {
+      notifyErr("Couldn't save the photo", e)
+    } finally {
+      setPhotoBusy(false)
+      if (photoInput.current) photoInput.current.value = ''
+    }
+  }
+
   // Defectos ABIERTOS de esta unidad: alimentan el diagrama por zonas (rojo =
   // con defecto). Misma fuente que DefectsPage, filtrada por unidad.
   const defectsQ = useQuery({
@@ -220,7 +254,25 @@ export default function UnitProfilePage({ unit, onClose }: {
             </p>
           </div>
         </div>
+        <div className="head-actions">
+          <input ref={photoInput} type="file" accept="image/*" hidden
+            onChange={(e) => onPhotoPicked(e.target.files?.[0])} />
+          <button className="btn btn-ghost" disabled={photoBusy}
+            onClick={() => photoInput.current?.click()}>
+            {photoBusy ? 'Saving…'
+              : photoQ.data ? 'Change photo' : 'Add photo'}
+          </button>
+        </div>
       </div>
+
+      {/* Banda héroe (v2.13): la foto identifica a la unidad de un vistazo.
+          Sin foto no hay banda — el botón de arriba invita, no se finge. */}
+      {photoQ.data && (
+        <div className="up-hero">
+          <img src={photoQ.data} alt={`Unit ${unit}`} />
+          <div className="up-hero-veil" aria-hidden="true" />
+        </div>
+      )}
 
       {/* Tarjetas resumen (estilo Fullbay, con datos útiles) */}
       <div className="up-cards">

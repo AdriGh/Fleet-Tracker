@@ -1,10 +1,13 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { fleetArchive, listFleet, type FleetUnit } from '../api'
+import {
+  fleetArchive, listFleet, listUnitsWithPhoto, type FleetUnit,
+} from '../api'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 import { StatCluster } from '../components/ds'
 import UnitDrawer from '../components/UnitDrawer'
+import UnitPhoto from '../components/UnitPhoto'
 import IconButton from '../components/IconButton'
 import AddUnitModal from '../components/AddUnitModal'
 import { useTerminals } from '../terminal'
@@ -12,6 +15,7 @@ import { Button, Tabs } from '../components/ds'
 
 type SortKey = 'unit' | 'open'
 type Cell = string | number
+type FleetView = 'cards' | 'list'
 
 const TYPE_LABEL: Record<string, string> = {
   truck: 'Truck', trailer: 'Trailer', chassis: 'Chassis',
@@ -44,8 +48,23 @@ export default function FleetPage({ onOpenUnit }: {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [selected, setSelected] = useState<FleetUnit | null>(null)
   const [showAdd, setShowAdd] = useState(false)
+  // Vista tarjetas (v2.13, elemento 05: identidad visual) vs tabla. La tabla
+  // sigue siendo la vista de poder (sort por columna, CSV); tarjetas es la
+  // default porque "la Cascadia blanca" se reconoce antes que "unit 412".
+  const [view, setView] = useState<FleetView>(() =>
+    (localStorage.getItem('ft-fleet-view') as FleetView) || 'cards')
+  const changeView = (v: FleetView) => {
+    setView(v)
+    localStorage.setItem('ft-fleet-view', v)
+  }
 
   const fleetQuery = useQuery({ queryKey: ['fleet'], queryFn: listFleet })
+  // Solo las unidades listadas acá montan <UnitPhoto/> — las demás muestran
+  // placeholder sin gastar un GET 404 cada una.
+  const photosQ = useQuery({
+    queryKey: ['unit-photos-index'], queryFn: listUnitsWithPhoto,
+  })
+  const withPhoto = useMemo(() => new Set(photosQ.data ?? []), [photosQ.data])
   const { terminalOf, labelOf, present } = useTerminals()
   const units = fleetQuery.data ?? []
   const loading = fleetQuery.isPending
@@ -211,6 +230,11 @@ export default function FleetPage({ onOpenUnit }: {
             />
           )}
           <span className="head-spacer" />
+          <Tabs
+            tabs={[{ id: 'cards', label: 'Cards' }, { id: 'list', label: 'List' }]}
+            value={view}
+            onChange={(id) => changeView(id as FleetView)}
+          />
           <input className="cell-input" placeholder="Unit, VIN, plate, make…"
             value={q} onChange={(e) => setQ(e.target.value)} />
           {hasFilter && (
@@ -239,6 +263,38 @@ export default function FleetPage({ onOpenUnit }: {
             </div>
           ) : sorted.length === 0 ? (
             <div className="empty mini"><p>No units for these filters.</p></div>
+          ) : view === 'cards' ? (
+            <div className="fleet-cards">
+              {sorted.map((u) => {
+                const vehicle = [u.make, u.model, u.year]
+                  .filter(Boolean).join(' ')
+                return (
+                  <button key={u.id} className="fcard"
+                    onClick={() => (onOpenUnit
+                      ? onOpenUnit(u.unit)
+                      : setSelected(u))}>
+                    <span className="fcard-ph">
+                      <UnitPhoto unit={u.unit} className="fcard-img"
+                        enabled={withPhoto.has(u.unit)} />
+                      {u.open_defects > 0 && (
+                        <span className="fcard-defects">
+                          {u.open_defects} open
+                        </span>
+                      )}
+                    </span>
+                    <span className="fcard-bd">
+                      <span className="fcard-unit">{u.unit}</span>
+                      <span className="fcard-sub">
+                        {vehicle || u.vin || '—'}
+                      </span>
+                      <span className={`type-badge t-${u.unit_type}`}>
+                        {TYPE_LABEL[u.unit_type] ?? u.unit_type}
+                      </span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
           ) : (
             <div className="table-wrap">
               <table className="defects-table fleet-table">
