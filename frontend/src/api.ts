@@ -233,6 +233,10 @@ export async function deleteBlock(id: number): Promise<void> {
 // --- Defectos ---------------------------------------------------------
 
 export interface Defect {
+  // Id real de la tabla `defect` (solo filas de /dvir/defects, los DVIR
+  // importados). Las filas "live" del ELD no pasan por la DB y no lo traen.
+  // La evidencia fotográfica (v2.14) cuelga de este id.
+  id?: number
   date_label: string
   block_date: string
   company: string
@@ -2799,4 +2803,81 @@ export async function getSetupStatus(): Promise<SetupStatus> {
   const res = await fetch('/api/help/setup-status')
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
+}
+
+// ----- Evidencia fotográfica (v2.14, elemento 01 del board) ---------------
+
+export type EvidenceParent = 'defect' | 'wo'
+// 'report' = foto del driver al reportar; 'before'/'after' = el par con el
+// que la WO documenta el trabajo (alimenta el comparador del drawer).
+export type EvidencePhase = 'report' | 'before' | 'after'
+
+export interface EvidencePhoto {
+  id: number
+  parent: EvidenceParent
+  parent_id: number
+  phase: EvidencePhase
+  unit: string
+  filename: string
+  size: number
+  note: string
+  uploaded_at: string
+}
+
+// Los dos padres cuelgan de rutas distintas (defect bajo /defects, WO bajo
+// /workorders) pero el contrato de fotos es idéntico.
+const EVIDENCE_BASE: Record<EvidenceParent, string> = {
+  defect: '/api/defects',
+  wo: '/api/workorders',
+}
+
+export async function listEvidencePhotos(
+  parent: EvidenceParent, parentId: number,
+): Promise<EvidencePhoto[]> {
+  const res = await fetch(`${EVIDENCE_BASE[parent]}/${parentId}/photos`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()).photos as EvidencePhoto[]
+}
+
+// Varios archivos en una request (el flujo real: 2-3 tomas del teléfono).
+export async function uploadEvidencePhotos(
+  parent: EvidenceParent, parentId: number, files: File[],
+  phase: EvidencePhase = 'report', note = '',
+): Promise<EvidencePhoto[]> {
+  const fd = new FormData()
+  for (const f of files) fd.append('files', f)
+  fd.append('phase', phase)
+  if (note) fd.append('note', note)
+  const res = await fetch(`${EVIDENCE_BASE[parent]}/${parentId}/photos`, {
+    method: 'POST', body: fd,
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()).photos as EvidencePhoto[]
+}
+
+// fetch → blob → objectURL (mismo motivo que fetchUnitPhotoUrl: un <img src>
+// pelado no pasa por el wrapper de fetch y su manejo de 401). El objectURL
+// se cachea por sesión vía react-query en EvidenceGallery.
+export async function fetchEvidencePhotoUrl(photoId: number): Promise<string> {
+  const res = await fetch(`/api/evidence/${photoId}/file`)
+  if (!res.ok) throw new Error(await readError(res))
+  return URL.createObjectURL(await res.blob())
+}
+
+export async function deleteEvidencePhoto(photoId: number): Promise<void> {
+  const res = await fetch(`/api/evidence/${photoId}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+// Conteo bulk id → nº de fotos para los chips de la lista de defectos:
+// UNA llamada por página, no un GET por fila. Ids sin fotos vuelven en 0.
+export async function fetchEvidenceCounts(
+  parent: EvidenceParent, ids: number[],
+): Promise<Record<number, number>> {
+  const res = await fetch('/api/evidence/counts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parent, ids }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()).counts as Record<number, number>
 }

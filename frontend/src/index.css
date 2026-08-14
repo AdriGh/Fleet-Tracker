@@ -9726,3 +9726,140 @@ iframe.wo-preview { border: 1px solid var(--border); }
 }
 .info-tip:hover .info-tip-pop,
 .info-tip:focus-visible .info-tip-pop { display: block; }
+
+/* ===== v2.14 — Evidencia fotográfica (01) ===== */
+
+/* Galería reutilizable (fila de defecto + drawer de WO) */
+.ev-gallery {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start;
+}
+.ev-thumb-wrap { position: relative; display: inline-flex; }
+.ev-thumb {
+  position: relative; width: 74px; height: 56px; padding: 0;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  overflow: hidden; cursor: zoom-in; background: var(--surface-2);
+  transition: transform .15s ease, border-color .15s ease;
+}
+.ev-thumb:hover { transform: scale(1.04); border-color: var(--accent-2); }
+.ev-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ev-thumb-ph { display: block; width: 100%; height: 100%; background: var(--surface-3); }
+.ev-phase {
+  position: absolute; left: 4px; bottom: 4px; padding: 0 5px;
+  border-radius: var(--radius-pill); font-size: 8.5px; font-weight: var(--fw-bold);
+  text-transform: uppercase; letter-spacing: .04em; color: #fff;
+}
+/* Sobre foto: mismos rojos/verdes de estado que el resto de la app */
+.ev-phase.p-before { background: color-mix(in srgb, var(--st-overdue) 85%, transparent); }
+.ev-phase.p-after { background: color-mix(in srgb, var(--st-on-track) 85%, transparent); }
+.ev-del {
+  position: absolute; top: -6px; right: -6px; width: 18px; height: 18px;
+  display: none; place-items: center; padding: 0;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-pill);
+  background: var(--surface); color: var(--text-muted);
+  font-size: 10px; line-height: 1; cursor: pointer; z-index: 1;
+}
+.ev-thumb-wrap:hover .ev-del { display: grid; }
+.ev-del:hover { color: var(--danger); border-color: var(--danger); }
+.ev-add {
+  width: 74px; height: 56px; display: inline-flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 3px;
+  border: 1px dashed var(--border-strong); border-radius: var(--radius-sm);
+  background: none; color: var(--text-muted); cursor: pointer;
+  font-size: 9.5px; font-weight: var(--fw-semibold); font-family: var(--font);
+  transition: color .15s ease, border-color .15s ease;
+}
+.ev-add:hover:not(:disabled) { color: var(--accent-2); border-color: var(--accent-2); }
+.ev-add:disabled { opacity: .6; cursor: default; }
+.ev-empty { font-size: 11.5px; color: var(--text-muted); }
+
+/* Lightbox (portal a <body>: overlay negro independiente del tema, es un
+   visor de foto — mismo criterio que el prototipo del board) */
+.ev-lightbox {
+  position: fixed; inset: 0; z-index: var(--z-modal);
+  display: grid; place-items: center; padding: 24px;
+  background: rgba(0, 0, 0, 0.82); cursor: zoom-out;
+}
+.ev-lightbox-inner { position: relative; max-width: min(880px, 92vw); }
+.ev-lightbox-inner img {
+  display: block; width: 100%; max-height: 82vh; object-fit: contain;
+  border-radius: var(--radius); box-shadow: var(--shadow-md);
+}
+.ev-lightbox-cap {
+  position: absolute; left: 14px; bottom: 14px; max-width: calc(100% - 28px);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 7px 11px; border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.78); color: #fff; font-size: 12px;
+}
+.ev-lightbox-cap .ev-phase { position: static; }
+.ev-lightbox-date { font-size: 11px; opacity: .75; }
+.ev-lightbox-note { flex-basis: 100%; font-size: 11.5px; opacity: .85; }
+
+/* Chip cámara+número en la fila de la tabla de defectos */
+.ev-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  margin-left: 7px; padding: 1px 7px; vertical-align: 1px;
+  border: 1px solid var(--border); border-radius: var(--radius-pill);
+  background: var(--surface-2); color: var(--text-muted);
+  font-size: 10.5px; font-weight: var(--fw-semibold);
+}
+
+/* Sección de evidencia del panel expandido de Defects (a lo ancho) */
+.unit-panel-evidence {
+  grid-column: 1 / -1; border-top: 1px solid var(--border); padding-top: 14px;
+}
+.ev-hint { margin: 0; font-size: 12px; color: var(--text-muted); }
+.ev-defect-list { display: flex; flex-direction: column; gap: 12px; }
+.ev-defect {
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 10px 12px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.ev-defect-meta {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+}
+.ev-defect-date { font-size: 11px; color: var(--text-muted); flex: none; }
+.ev-defect-detail {
+  font-size: 12.5px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Drawer de WO: Before / After lado a lado */
+.wo-photos {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+}
+.wo-photos-col { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+
+/* Comparador antes/después (portado del prototipo del board). El range
+   invisible cubre todo el área: arrastre con mouse/touch y teclado gratis. */
+.ev-ba {
+  position: relative; margin-top: 14px; aspect-ratio: 16 / 10;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden; background: var(--surface-2);
+}
+.ev-ba > img, .ev-ba-clip img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+}
+.ev-ba-clip { position: absolute; inset: 0; overflow: hidden; }
+.ev-ba-tag {
+  position: absolute; top: 10px; z-index: 1; padding: 2px 8px;
+  border-radius: var(--radius-pill); font-size: 10px;
+  font-weight: var(--fw-bold); letter-spacing: .05em; color: #fff;
+}
+.ev-ba-tag.is-before { left: 10px; background: color-mix(in srgb, var(--st-overdue) 85%, transparent); }
+.ev-ba-tag.is-after { right: 10px; background: color-mix(in srgb, var(--st-on-track) 85%, transparent); }
+/* Divisor blanco sobre foto: independiente del tema, como en el prototipo */
+.ev-ba-bar {
+  position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px;
+  background: #fff; box-shadow: 0 0 8px rgba(0, 0, 0, 0.45); z-index: 1;
+  pointer-events: none;
+}
+.ev-ba-knob {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 26px; height: 26px; display: grid; place-items: center;
+  border-radius: var(--radius-pill); background: #fff; color: #1a1a1e;
+  font-size: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.ev-ba input[type='range'] {
+  position: absolute; inset: 0; width: 100%; height: 100%; margin: 0;
+  opacity: 0; cursor: ew-resize; z-index: 2;
+}
