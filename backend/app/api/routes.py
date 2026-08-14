@@ -29,8 +29,9 @@ from ..core import (
     sms_service,
     teams,
     telegram_notify, terminals, thermoking, tms, traccar, tracking,
-    unit_settings, unitdocs, vin_decode, warranty, wo_invoice, wo_invoices,
-    workorders,
+    setup_status as setup_status_core,
+    unit_photos, unit_settings, unitdocs, vin_decode, warranty, wo_invoice,
+    wo_invoices, workorders,
 )
 from ..core import notice_templates
 from ..core.contacts import name_key
@@ -2278,6 +2279,50 @@ def unit_doc_delete(doc_id: int):
     if not unitdocs.delete_doc(doc_id):
         raise HTTPException(status_code=404, detail="Document not found")
     return {"ok": True}
+
+
+# ----- Foto de identidad por unidad (v2.13, elemento 05) --------------------
+
+@router.get("/units/photos")
+def unit_photos_index():
+    """Unidades con foto disponible (subida o fallback demo). El Fleet pide
+    solo estas — evita un 404 por cada tarjeta sin foto."""
+    return {"units": unit_photos.units_with_photo()}
+
+
+@router.get("/units/{unit}/photo")
+def unit_photo_get(unit: str):
+    found = unit_photos.photo_path(unit)
+    if found is None:
+        raise HTTPException(status_code=404, detail="No photo for this unit")
+    path, mime = found
+    return FileResponse(path, media_type=mime)
+
+
+@router.post("/units/{unit}/photo")
+async def unit_photo_upload(unit: str, file: UploadFile = File(...)):
+    """Sube (o REEMPLAZA) la foto de la unidad."""
+    raw = await file.read()
+    try:
+        return unit_photos.save_photo(unit, file.filename or "photo.jpg", raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/units/{unit}/photo")
+def unit_photo_delete(unit: str):
+    if not unit_photos.delete_photo(unit):
+        raise HTTPException(status_code=404, detail="No photo for this unit")
+    return {"ok": True}
+
+
+# ----- Get set up (v2.13, centro de guías del Dashboard) --------------------
+
+@router.get("/help/setup-status")
+def help_setup_status():
+    """Checklist de onboarding con estado REAL (cada paso se marca solo cuando
+    el dato existe en el tenant)."""
+    return setup_status_core.setup_status()
 
 
 class PMOverrideIn(BaseModel):

@@ -25,6 +25,9 @@ import SafeDonut from '../components/SafeDonut'
 import Skeleton from '../components/Skeleton'
 import CountUp from '../components/CountUp'
 import TrendsChart from '../components/TrendsChart'
+import HelpCenter from '../components/HelpCenter'
+import InfoTip from '../components/InfoTip'
+import { getSetupStatus } from '../api'
 import { Button, StatCard, StatCluster } from '../components/ds'
 
 const UPCOMING_MILES = 5500
@@ -275,6 +278,14 @@ export default function Dashboard({ onNavigate }: Props) {
 
   const kpiLoading = summaryQ.isPending || openQ.isPending || pmQ.isPending || fleetQ.isPending
 
+  // --- Centro de guías (v2.13, elemento 04 — permanente, vive ACÁ y no en
+  // el sidebar por decisión del founder). El strip muestra el progreso real
+  // de "Get set up"; completado, queda como acceso compacto a las guías.
+  const [guidesOpen, setGuidesOpen] = useState(false)
+  const setupQ = useQuery({ queryKey: ['setup-status'], queryFn: getSetupStatus })
+  const setup = setupQ.data
+  const setupNext = setup?.steps.find((s) => !s.done)
+
   return (
     <div className="page page-wide">
       {fetching && <div className="loadbar" aria-hidden="true" />}
@@ -312,6 +323,47 @@ export default function Dashboard({ onNavigate }: Props) {
         </div>
       </div>
 
+      {/* Guías y setup (v2.13): progreso real mientras falte onboarding;
+          completado, acceso compacto y permanente a todos los tutoriales. */}
+      {setup && (
+        <section className={`card guides-strip ${setup.done >= setup.total ? 'is-done' : ''}`}>
+          <span className="guides-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+              width="17" height="17">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13z" />
+              <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-2.5" />
+            </svg>
+          </span>
+          {setup.done < setup.total ? (
+            <>
+              <div className="guides-strip-main">
+                <strong>Get set up · {setup.done} of {setup.total}</strong>
+                <div className="hc-prog">
+                  <i style={{ width: `${(setup.done / setup.total) * 100}%` }} />
+                </div>
+              </div>
+              {setupNext && (
+                <button className="btn-link guides-next"
+                  onClick={() => onNavigate(setupNext.section)}>
+                  Next: {setupNext.label} →
+                </button>
+              )}
+            </>
+          ) : (
+            <div className="guides-strip-main">
+              <strong>Guides & tutorials</strong>
+              <span className="guides-sub">
+                Step-by-step walkthroughs of every flow, whenever you need them.
+              </span>
+            </div>
+          )}
+          <Button variant="ghost" onClick={() => setGuidesOpen(true)}>
+            All guides
+          </Button>
+        </section>
+      )}
+
       {/* ===== Cockpit de taller (Shop operations) ===== */}
       <div className="dash-band-label">
         <span>Shop operations</span>
@@ -328,7 +380,8 @@ export default function Dashboard({ onNavigate }: Props) {
       ) : (
         <StatCluster className="kpi-row">
           <StatCard
-            label="Parts blocking WOs"
+            label={<>Parts blocking WOs <InfoTip
+              text="Work orders that can't move because a part isn't in stock. Ordering it (Purchasing) unblocks them." /></>}
             value={<CountUp value={shopStats?.waiting_parts ?? 0} />}
             sub="work orders waiting"
             tone={shopStats?.waiting_parts ? 'danger' : 'ok'}
@@ -447,7 +500,8 @@ export default function Dashboard({ onNavigate }: Props) {
       ) : (
         <StatCluster className="kpi-row">
           <StatCard
-            label="Fleet SAFE (month)"
+            label={<>Fleet SAFE (month) <InfoTip
+              text="Share of this month's DVIRs with no defects reported. The donut below breaks it down." /></>}
             value={summary?.fleet_safe_pct != null
               ? <CountUp value={summary.fleet_safe_pct} format={(n) => `${n.toFixed(1)}%`} />
               : '—'}
@@ -794,6 +848,9 @@ export default function Dashboard({ onNavigate }: Props) {
           </button>
         ))}
       </div>
+
+      <HelpCenter open={guidesOpen} onClose={() => setGuidesOpen(false)}
+        onNavigate={onNavigate} />
     </div>
   )
 }

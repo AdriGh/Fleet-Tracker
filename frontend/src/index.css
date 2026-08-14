@@ -9531,3 +9531,198 @@ iframe.wo-preview { border: 1px solid var(--border); }
 .perm-actions {
   display: flex; align-items: center; gap: 10px; margin-top: 14px;
 }
+
+/* ===========================================================
+   v2.13 — Fotos de unidades (05) + centro de guías (04)
+   =========================================================== */
+
+/* Placeholder honesto de foto: superficie neutra + cámara muted. Hereda el
+   tamaño del contenedor (tarjeta o héroe). */
+.unit-photo-ph {
+  width: 100%; height: 100%;
+  display: grid; place-items: center;
+  background: var(--surface-3);
+  color: var(--text-muted);
+}
+
+/* --- Fleet en tarjetas --- */
+.fleet-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: var(--space-4);
+}
+.fcard {
+  display: flex; flex-direction: column; text-align: left;
+  padding: 0; border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface); color: var(--text);
+  overflow: hidden; cursor: pointer;
+  transition: transform var(--dur-fast), border-color var(--dur-fast),
+    box-shadow var(--dur-mid);
+}
+.fcard:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+}
+.fcard-ph {
+  position: relative; display: block; aspect-ratio: 16 / 9;
+  background: var(--surface-3); overflow: hidden;
+}
+.fcard-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fcard-defects {
+  position: absolute; top: 8px; right: 8px;
+  font-size: var(--fs-micro); font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  padding: 3px 9px; border-radius: var(--radius-pill);
+  background: rgba(10, 10, 11, 0.82); color: #f87171;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(3px);
+}
+.fcard-bd {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 11px 13px 12px;
+}
+.fcard-unit {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3); font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-tight);
+}
+.fcard-sub {
+  font-size: var(--fs-tiny); color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fcard .type-badge { align-self: flex-start; margin-top: 5px; }
+
+/* --- Héroe del perfil de unidad --- */
+.up-hero {
+  position: relative; border-radius: var(--radius-lg); overflow: hidden;
+  border: 1px solid var(--border); margin-bottom: var(--space-5);
+  aspect-ratio: 21 / 6; max-height: 280px; width: 100%;
+  background: var(--surface-3);
+}
+.up-hero img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover;
+}
+.up-hero-veil {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, transparent 55%,
+    color-mix(in srgb, var(--bg) 55%, transparent));
+}
+
+/* --- Strip de guías del Dashboard (04, permanente) --- */
+.guides-strip {
+  display: flex; align-items: center; gap: var(--space-4);
+  padding: 13px 18px; margin-bottom: var(--space-5);
+}
+.guides-ico {
+  flex: none; width: 34px; height: 34px; border-radius: var(--radius-sm);
+  display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent-2);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.guides-strip-main {
+  display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1;
+}
+.guides-strip-main strong {
+  font-family: var(--font-display); font-size: var(--fs-h3);
+  letter-spacing: var(--tracking-tight);
+}
+.guides-sub { font-size: var(--fs-small); color: var(--text-muted); }
+.guides-next {
+  flex: none; max-width: 40%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.guides-strip.is-done { padding-block: 11px; }
+
+/* Barra de progreso del setup (strip + drawer) */
+.hc-prog {
+  height: 5px; border-radius: 5px; background: var(--surface-3);
+  overflow: hidden; max-width: 340px;
+}
+.hc-prog i {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, var(--brand), var(--accent-2));
+  border-radius: 5px;
+  transition: width var(--dur-slow);
+}
+
+/* --- Drawer del centro de guías --- */
+.hc-setup .hc-prog { margin: 8px 0 12px; }
+.hc-steps { list-style: none; margin: 0; padding: 0; }
+.hc-steps li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid var(--border);
+  font-size: var(--fs-small);
+}
+.hc-steps li:last-child { border-bottom: none; }
+.hc-steps li.done { color: var(--text-muted); }
+.hc-check {
+  flex: none; width: 20px; height: 20px; border-radius: var(--radius-pill);
+  border: 1.5px solid var(--border-strong);
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: var(--fw-bold);
+}
+.hc-steps li.done .hc-check {
+  background: var(--st-on-track); border-color: var(--st-on-track);
+  color: #fff;
+}
+.hc-step-label { flex: 1; min-width: 0; }
+.hc-guides { display: grid; gap: 8px; }
+.hc-guide {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  overflow: hidden; background: var(--surface);
+}
+.hc-guide.open { border-color: var(--border-strong); }
+.hc-guide-head {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 11px 13px; border: none; background: none; color: var(--text);
+  cursor: pointer; text-align: left; font-family: inherit;
+}
+.hc-guide-head:hover { background: var(--surface-2); }
+.hc-guide-title {
+  flex: 1; min-width: 0; font-size: var(--fs-small);
+  font-weight: var(--fw-semibold);
+}
+.hc-guide-meta {
+  flex: none; font-family: var(--font-mono); font-size: var(--fs-micro);
+  color: var(--text-muted); letter-spacing: 0.03em;
+}
+.hc-chev { flex: none; color: var(--text-muted); transition: transform var(--dur-fast); }
+.hc-guide.open .hc-chev { transform: rotate(180deg); }
+.hc-guide-body { padding: 2px 13px 13px; }
+.hc-guide-body ol {
+  margin: 0 0 10px; padding-left: 20px;
+  font-size: var(--fs-small); color: var(--text);
+  display: grid; gap: 6px;
+}
+.hc-tip {
+  font-size: var(--fs-tiny); color: var(--text-muted); font-style: italic;
+  margin: 0 0 10px;
+  padding: 8px 10px; border-left: 2px solid var(--accent-2);
+  background: var(--surface-2); border-radius: 0 8px 8px 0;
+}
+
+/* --- Tooltip "?" de métricas (InfoTip) --- */
+.info-tip {
+  display: inline-grid; place-items: center;
+  width: 15px; height: 15px; border-radius: var(--radius-pill);
+  background: var(--surface-3); border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  font-size: 9.5px; font-weight: var(--fw-bold);
+  cursor: help; position: relative; vertical-align: middle;
+  text-transform: none; letter-spacing: 0;
+}
+.info-tip-pop {
+  display: none; position: absolute; bottom: 22px; left: 50%;
+  transform: translateX(-50%); width: 230px; z-index: var(--z-dropdown);
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm); padding: 9px 11px;
+  font-family: var(--font); font-size: var(--fs-tiny);
+  font-weight: var(--fw-normal); color: var(--text);
+  letter-spacing: 0; text-transform: none; white-space: normal;
+  box-shadow: var(--shadow-md); text-align: left; line-height: 1.45;
+}
+.info-tip:hover .info-tip-pop,
+.info-tip:focus-visible .info-tip-pop { display: block; }

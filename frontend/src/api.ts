@@ -2732,3 +2732,71 @@ export async function refreshCpm(): Promise<
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }
+
+// ----- Fotos de unidad (v2.13, elemento 05 del board de diseño) -----------
+
+export interface UnitPhotoMeta {
+  unit: string
+  filename: string
+  size: number
+  uploaded_at: string
+  source: string        // uploaded | demo
+}
+
+// Unidades que tienen foto (subida o fallback demo): el Fleet pide solo
+// estas, así las tarjetas sin foto no generan un GET 404 cada una.
+export async function listUnitsWithPhoto(): Promise<string[]> {
+  const res = await fetch('/api/units/photos')
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()).units as string[]
+}
+
+// La foto se baja por fetch + blob (un <img src> pelado no llevaría el
+// Bearer del middleware — mismo motivo que downloadUnitDoc). El objectURL
+// se cachea por sesión vía react-query en <UnitPhoto/>.
+export async function fetchUnitPhotoUrl(unit: string): Promise<string> {
+  const res = await fetch(`/api/units/${encodeURIComponent(unit)}/photo`)
+  if (!res.ok) throw new Error(await readError(res))
+  return URL.createObjectURL(await res.blob())
+}
+
+export async function uploadUnitPhoto(
+  unit: string, file: File,
+): Promise<UnitPhotoMeta> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const res = await fetch(`/api/units/${encodeURIComponent(unit)}/photo`, {
+    method: 'POST', body: fd,
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function deleteUnitPhoto(unit: string): Promise<void> {
+  const res = await fetch(`/api/units/${encodeURIComponent(unit)}/photo`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(await readError(res))
+}
+
+// ----- Get set up (v2.13, centro de guías del Dashboard) ------------------
+
+export interface SetupStep {
+  key: string
+  label: string
+  done: boolean
+  section: string       // id de NAV_SECTIONS al que navega el "Go"
+}
+
+export interface SetupStatus {
+  steps: SetupStep[]
+  done: number
+  total: number
+  demo: boolean
+}
+
+export async function getSetupStatus(): Promise<SetupStatus> {
+  const res = await fetch('/api/help/setup-status')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
