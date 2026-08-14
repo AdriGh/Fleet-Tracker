@@ -1,9 +1,11 @@
 import { Fragment, useMemo, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import {
-  listDefectStats, listFleet, listOpenDefects,
+  fetchEvidenceCounts, listDefects, listDefectStats, listFleet,
+  listOpenDefects,
   type Defect, type FleetUnit,
 } from '../api'
+import EvidenceGallery from '../components/EvidenceGallery'
 import Skeleton from '../components/Skeleton'
 import UnitDrawer from '../components/UnitDrawer'
 import StatCard from '../components/StatCard'
@@ -31,6 +33,13 @@ function catTone(cat: string): string {
 }
 
 const STATUSES = ['Unsafe', 'Resolved', 'Safe']
+
+// Clave de unidad normalizada (misma regla que el match del drawer): las
+// filas live del ELD y las de la tabla `defect` pueden diferir en
+// espacios/mayúsculas para la misma unidad.
+function normUnit(u: string): string {
+  return u.trim().toUpperCase().replace(/\s+/g, '')
+}
 
 // --- helpers ---------------------------------------------------------------
 function dayKey(l: string): number {
@@ -126,14 +135,35 @@ function downloadCSV(m: Cell[][], name = 'defects.csv') {
 
 // Panel ancho que se despliega al hacer clic en una unidad: defectos agrupados
 // (con su frecuencia) a la izquierda y un diagrama del camión por zonas a la
-// derecha (rojo = con defectos, verde = sin defectos).
+// derecha (rojo = con defectos, verde = sin defectos). Abajo, a lo ancho, la
+// evidencia fotográfica (v2.14) de los registros DVIR de esa unidad.
 function UnitPanel(
-  { row, onDownload }: { row: UnitRow; onDownload: () => void },
+  { row, dbRecords, evCounts, onDownload }: {
+    row: UnitRow
+    /** Registros de la tabla `defect` (DVIR importados) de esta unidad: los
+     *  únicos con id real, del que cuelga la evidencia fotográfica. */
+    dbRecords: Defect[]
+    evCounts: Record<number, number>
+    onDownload: () => void
+  },
 ) {
   const kind: Kind = row.kind === 'trailer' ? 'trailer' : 'truck'
   const { groups, zones } = useMemo(
     () => analyzeUnit(row.records, kind), [row.records, kind])
   const totalRep = groups.reduce((s, g) => s + g.count, 0)
+
+  // Registros con galería: los más recientes siempre (para poder subir la
+  // primera foto) + cualquier viejo que YA tenga fotos. Cap para que un
+  // historial largo no convierta el panel en una sábana.
+  const evShown = useMemo(() => {
+    const sorted = [...dbRecords].sort((a, b) =>
+      b.block_date.localeCompare(a.block_date) || (b.id! - a.id!))
+    return sorted
+      .filter((d, i) => i < 3 || (evCounts[d.id!] ?? 0) > 0)
+      .slice(0, 8)
+  }, [dbRecords, evCounts])
+  const evTotal = dbRecords.reduce(
+    (s, d) => s + (evCounts[d.id!] ?? 0), 0)
 
   return (
     <div className="unit-panel">
@@ -186,6 +216,41 @@ function UnitPanel(
           {kind === 'trailer' ? 'Trailer' : 'Truck'} · {row.unit}
         </span>
       </div>
+
+      {/* Evidencia fotográfica (v2.14): cuelga de los registros de la tabla
+          `defect` (DVIR importados), los únicos con id real. Las filas live
+          del ELD no pasan por la DB, por eso el estado vacío lo explica. */}
+      <div className="unit-panel-evidence">
+        <div className="up-head">
+          <h3>Photo evidence</h3>
+          <span className="sub">
+            {evTotal === 1 ? '1 photo' : `${evTotal} photos`}
+          </span>
+        </div>
+        {evShown.length === 0 ? (
+          <p className="ev-hint">
+            Photos attach to imported DVIR defect records — generate a DVIR
+            report for this unit first, then add photos here.
+          </p>
+        ) : (
+          <div className="ev-defect-list">
+            {evShown.map((d) => (
+              <div className="ev-defect" key={d.id}>
+                <div className="ev-defect-meta">
+                  <span className={`status-pill ${statusTone(d.status)}`}>
+                    {d.status}
+                  </span>
+                  <span className="ev-defect-date mono">{d.block_date}</span>
+                  <span className="ev-defect-detail" title={d.detail}>
+                    {d.detail || d.dvir_type || 'DVIR defect'}
+                  </span>
+                </div>
+                <EvidenceGallery parent="defect" parentId={d.id!} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -224,6 +289,37 @@ export default function DefectsPage() {
     queryKey: ['open-defects'],
     queryFn: () => listOpenDefects(),
   })
+
+  // Evidencia fotográfica (v2.14): las fotos cuelgan del id real de la tabla
+  // `defect` (DVIR importados); las filas live del ELD no lo tienen. UNA
+  // llamada trae los registros DB y UNA más los conteos bulk para los chips
+  // — nada de N+1 por fila visible.
+  const dbDefsQuery = useQuery({
+    queryKey: ['db-defects'], queryFn: () => listDefects({}),
+  })
+  const dbByUnit = useMemo(() => {
+    const m = new Map<string, Defect[]>()
+    for (const d of dbDefsQuery.data ?? []) {
+      if (d.id == null) continue
+      const k = normUnit(d.unit)
+      const arr = m.get(k)
+      if (arr) arr.push(d)
+      else m.set(k, [d])
+    }
+    return m
+  }, [dbDefsQuery.data])
+  const dbIds = useMemo(
+    () => (dbDefsQuery.data ?? [])
+      .map((d) => d.id)
+      .filter((x): x is number => x != null),
+    [dbDefsQuery.data])
+  const evCountsQuery = useQuery({
+    queryKey: ['evidence-counts', 'defect', dbIds.join(',')],
+    queryFn: () => fetchEvidenceCounts('defect', dbIds),
+    enabled: dbIds.length > 0,
+  })
+  const evCounts = useMemo(
+    () => evCountsQuery.data ?? {}, [evCountsQuery.data])
 
   // Drawer de detalle de unidad. La ficha completa (VIN, PM, etc.) sale del
   // inventario de flota; se carga al abrir el primer drawer (caché compartida).
@@ -585,6 +681,9 @@ export default function DefectsPage() {
                   {sortedRows.map((r) => {
                     const open = expanded.has(r.unit)
                     const shown = r.defects.slice(0, 3)
+                    const unitDbDefs = dbByUnit.get(normUnit(r.unit)) ?? []
+                    const evCount = unitDbDefs.reduce(
+                      (s, d) => s + (evCounts[d.id!] ?? 0), 0)
                     return (
                       <Fragment key={r.unit}>
                         <tr
@@ -610,6 +709,21 @@ export default function DefectsPage() {
                                 <span className="unit-kind">
                                   {r.kind === 'trailer' ? 'trailer' : 'truck'}
                                 </span>
+                                {evCount > 0 && (
+                                  <span className="ev-chip" title={
+                                    `${evCount} photo${evCount > 1 ? 's' : ''}`
+                                    + ' attached'}>
+                                    <svg viewBox="0 0 24 24" fill="none"
+                                      stroke="currentColor" strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round" width="11"
+                                      height="11" aria-hidden="true">
+                                      <path d="M4 8h3l2-2h6l2 2h3v11H4z" />
+                                      <circle cx="12" cy="13" r="3.2" />
+                                    </svg>
+                                    {evCount}
+                                  </span>
+                                )}
                               </span>
                             </span>
                           </td>
@@ -652,7 +766,8 @@ export default function DefectsPage() {
                         {open && (
                           <tr className="unit-detail-row">
                             <td colSpan={5}>
-                              <UnitPanel row={r}
+                              <UnitPanel row={r} dbRecords={unitDbDefs}
+                                evCounts={evCounts}
                                 onDownload={() => setReportRows([r])} />
                             </td>
                           </tr>

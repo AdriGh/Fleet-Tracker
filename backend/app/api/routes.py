@@ -8,7 +8,9 @@ from datetime import date, datetime, timedelta
 
 import httpx
 
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    APIRouter, File, Form, HTTPException, Query, Request, UploadFile,
+)
 from fastapi.responses import FileResponse, Response
 
 from .. import __version__, config, db
@@ -18,7 +20,7 @@ from fastapi import Header
 
 from ..core import (
     alerts, app_config, auth, batch, companies, cores, docscan,
-    demo_eld, driver_contacts, engine,
+    demo_eld, driver_contacts, engine, evidence,
     excel, integrations_admin, inventory, local_config, lynx, mailer, maint,
     manual_units, media_host, notify_service, odometer, open_defects,
     org_config,
@@ -2502,3 +2504,88 @@ def notify_broadcast(req: BroadcastIn):
         raise HTTPException(422, "The message body is empty.")
     return notify_service.broadcast(
         req.drivers, req.channels, req.subject, req.body)
+
+
+# ----- Evidencia fotográfica (v2.14, elemento 01) -----
+
+async def _evidence_upload(parent: str, parent_id: int,
+                           files: list[UploadFile], phase: str,
+                           note: str) -> dict:
+    """Guardado compartido defect/WO. El gate de existencia corre ANTES de
+    tocar disco (un id inválido no debe dejar archivos huérfanos) y acepta
+    VARIOS archivos por request: el flujo real es el teléfono mandando 2-3
+    tomas de una vez."""
+    unit = evidence.parent_unit(parent, parent_id)
+    if unit is None:
+        raise HTTPException(404, "Defect not found" if parent == "defect"
+                            else "Work order not found")
+    saved = []
+    try:
+        for f in files:
+            raw = await f.read()
+            saved.append(evidence.save_photo(
+                parent, parent_id, f.filename or "photo.jpg", raw,
+                phase=phase, note=note, unit=unit))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"photos": saved}
+
+
+@router.get("/defects/{defect_id}/photos")
+def defect_photos_list(defect_id: int):
+    """Fotos de un defecto (tabla `defect`: los DVIR importados). Un id
+    inexistente devuelve lista vacía, igual que uno sin fotos."""
+    return {"photos": evidence.list_photos("defect", defect_id)}
+
+
+@router.post("/defects/{defect_id}/photos")
+async def defect_photos_upload(defect_id: int,
+                               files: list[UploadFile] = File(...),
+                               phase: str = Form("report"),
+                               note: str = Form("")):
+    return await _evidence_upload("defect", defect_id, files, phase, note)
+
+
+@router.get("/workorders/{wo_id}/photos")
+def wo_photos_list(wo_id: int):
+    return {"photos": evidence.list_photos("wo", wo_id)}
+
+
+@router.post("/workorders/{wo_id}/photos")
+async def wo_photos_upload(wo_id: int,
+                           files: list[UploadFile] = File(...),
+                           phase: str = Form("report"),
+                           note: str = Form("")):
+    return await _evidence_upload("wo", wo_id, files, phase, note)
+
+
+@router.get("/evidence/{photo_id}/file")
+def evidence_file(photo_id: int):
+    found = evidence.photo_path(photo_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    path, mime = found
+    return FileResponse(path, media_type=mime)
+
+
+@router.delete("/evidence/{photo_id}")
+def evidence_delete(photo_id: int):
+    if not evidence.delete_photo(photo_id):
+        raise HTTPException(status_code=404, detail="Photo not found")
+    return {"ok": True}
+
+
+class EvidenceCountsIn(BaseModel):
+    parent: str
+    ids: list[int] = []
+
+
+@router.post("/evidence/counts")
+def evidence_counts(body: EvidenceCountsIn):
+    """Conteo bulk id -> nº de fotos para los chips de la lista de defectos:
+    UNA llamada por página en vez de un GET por fila (N+1)."""
+    if body.parent not in evidence.PARENTS:
+        raise HTTPException(status_code=400,
+                            detail="parent must be 'defect' or 'wo'")
+    # Techo de sanidad: la página real manda <=400 ids (limit de list_defects).
+    return {"counts": evidence.counts(body.parent, body.ids[:500])}

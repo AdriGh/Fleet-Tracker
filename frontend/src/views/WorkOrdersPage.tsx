@@ -12,9 +12,12 @@ import {
   getOrg, getUnitOdometer,
   getWorkOrder, listFleet, listParts, listWorkOrders, patchWorkOrder,
   scanWoDocument, sendWoInvoice, uploadWoInvoiceFile, viewWoInvoiceFile,
-  type NotifyChannel, type Part, type WorkOrder, type WoPriority,
-  type WoScanLine, type WoStatus,
+  type EvidencePhoto, type NotifyChannel, type Part, type WorkOrder,
+  type WoPriority, type WoScanLine, type WoStatus,
 } from '../api'
+import EvidenceGallery, {
+  useEvidenceList, useEvidencePhotoUrl,
+} from '../components/EvidenceGallery'
 import { notifyOk, notifyErr } from '../toast'
 import { useTerminals } from '../terminal'
 import { usePerms } from '../perms'
@@ -2228,6 +2231,13 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                   </div>
                 </section>
 
+                {/* Evidencia fotográfica (v2.14, elemento 01): Before = como
+                    se encontró, After = trabajo terminado. Con ≥1 foto de
+                    cada lado aparece el comparador arrastrable — la WO
+                    cierra con prueba visual (warranty / disputas con el
+                    shop externo), no con un checkbox. */}
+                <WoPhotos woId={wo.id} />
+
                 {/* Increment C: línea de tiempo de actividad. SOLO hitos
                     reales del ciclo de vida (timestamps que el WO ya tiene);
                     no hay tabla de auditoría por-WO, así que no se fabrica un
@@ -2311,6 +2321,80 @@ export function WoDrawer({ woId, mechanics, onClose }: {
         onClose={() => setShowDoc(false)} />
     )}
     </>
+  )
+}
+
+// ----- Evidencia fotográfica (v2.14, elemento 01) -------------------------
+// Sección "Photos" del drawer: dos galerías por fase (Before = como se
+// encontró, After = trabajo terminado). Las galerías comparten la caché de
+// react-query con el comparador (misma queryKey), así que no hay fetches
+// duplicados.
+function WoPhotos({ woId }: { woId: number }) {
+  const listQ = useEvidenceList('wo', woId)
+  const photos = listQ.data ?? []
+  const before = photos.filter((p) => p.phase === 'before')
+  const after = photos.filter((p) => p.phase === 'after')
+  return (
+    <section className="ud-sec">
+      <h3>
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+          stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+          strokeLinejoin="round" aria-hidden="true">
+          <path d="M4 8h3l2-2h6l2 2h3v11H4z" />
+          <circle cx="12" cy="13" r="3.2" />
+        </svg>
+        Photos
+        <span className="ud-count">{photos.length}</span>
+      </h3>
+      <div className="wo-photos">
+        <div className="wo-photos-col">
+          <span className="ud-field-label">Before · as found</span>
+          <EvidenceGallery parent="wo" parentId={woId} phase="before"
+            addLabel="Add before" />
+        </div>
+        <div className="wo-photos-col">
+          <span className="ud-field-label">After · work done</span>
+          <EvidenceGallery parent="wo" parentId={woId} phase="after"
+            addLabel="Add after" />
+        </div>
+      </div>
+      {before.length > 0 && after.length > 0 && (
+        <BeforeAfter before={before[before.length - 1]}
+          after={after[after.length - 1]} />
+      )}
+    </section>
+  )
+}
+
+// Comparador antes/después (portado del prototipo del board): dos imágenes
+// superpuestas, la de arriba recortada con clip-path; el divisor lo mueve
+// un <input type="range"> invisible que cubre todo el área (accesible con
+// teclado gratis). Usa la última foto de cada fase.
+function BeforeAfter({ before, after }: {
+  before: EvidencePhoto
+  after: EvidencePhoto
+}) {
+  const [pos, setPos] = useState(50)
+  const beforeQ = useEvidencePhotoUrl(before.id)
+  const afterQ = useEvidencePhotoUrl(after.id)
+  if (!beforeQ.data || !afterQ.data) return null
+  return (
+    <div className="ev-ba">
+      <img src={afterQ.data} alt="After" />
+      <div className="ev-ba-clip"
+        style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}>
+        <img src={beforeQ.data} alt="Before" />
+      </div>
+      <span className="ev-ba-tag is-before">BEFORE</span>
+      <span className="ev-ba-tag is-after">AFTER</span>
+      <div className="ev-ba-bar" style={{ left: `${pos}%` }}
+        aria-hidden="true">
+        <span className="ev-ba-knob">⇔</span>
+      </div>
+      <input type="range" min={2} max={98} value={pos}
+        onChange={(e) => setPos(Number(e.target.value))}
+        aria-label="Compare before and after" />
+    </div>
   )
 }
 

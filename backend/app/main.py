@@ -128,6 +128,14 @@ def _scope_for(method: str, path: str) -> str | None:
     # y borrado de bloques DVIR -> acción de flota (no para 'viewer').
     if path.startswith(("/api/pois", "/api/reporting", "/api/dvir")):
         return "fleet.edit"
+    # Evidencia fotográfica (v2.14, elemento 01): subir/borrar fotos de
+    # defectos y WOs es trabajo de mantenimiento. /evidence/counts viaja por
+    # POST solo para mandar la lista de ids en el body: es una LECTURA bulk,
+    # así que (como todo GET) basta estar autenticado.
+    if path == "/api/evidence/counts":
+        return None
+    if path.startswith(("/api/defects", "/api/evidence")):
+        return "maint.edit"
     # Escrituras abiertas a cualquier autenticado (generar reportes DVIR).
     if path in _AUTHONLY_WRITE:
         return None

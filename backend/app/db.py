@@ -13,7 +13,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text,
+    Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text,
     UniqueConstraint, create_engine, event, func, select,
 )
 from sqlalchemy.orm import (
@@ -339,6 +339,35 @@ class UnitPhoto(OrgScoped, Base):
     filename: Mapped[str] = mapped_column(String(140))
     stored: Mapped[str] = mapped_column(String(200))   # ruta relativa
     size: Mapped[int] = mapped_column(Integer, default=0)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class EvidencePhoto(OrgScoped, Base):
+    """Foto de evidencia de un defecto o Work Order (v2.14, elemento 01 del
+    board de diseño). A diferencia de unit_photo (UNA por unidad), acá
+    conviven VARIAS por padre: el driver documenta el defecto con 2-3 tomas
+    y la WO cierra con el par antes/después. `parent`+`parent_id` apuntan al
+    dueño ('defect' -> defect.id, 'wo' -> work_order.id); `phase` separa la
+    foto del reporte ('report') del par de cierre ('before'/'after'). `unit`
+    se denormaliza del padre para poder filtrar por unidad sin join. El
+    archivo vive en backend/uploads/evidence/ (gitignored)."""
+    __tablename__ = "evidence_photo"
+    __table_args__ = (
+        # El acceso típico es "todas las fotos de ESTE padre": índice
+        # compuesto para que listar/contar no recorra los parciales.
+        Index("ix_evidence_photo_parent_parent_id", "parent", "parent_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    parent: Mapped[str] = mapped_column(String(8), index=True)  # defect | wo
+    parent_id: Mapped[int] = mapped_column(Integer, index=True)
+    phase: Mapped[str] = mapped_column(
+        String(8), default="report")       # report | before | after
+    unit: Mapped[str] = mapped_column(String(64), default="")
+    filename: Mapped[str] = mapped_column(String(140))
+    stored: Mapped[str] = mapped_column(String(200))   # ruta relativa
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    note: Mapped[str] = mapped_column(String(200), default="")
     uploaded_at: Mapped[datetime] = mapped_column(DateTime)
 
 
@@ -1125,6 +1154,10 @@ def list_defects(company=None, status=None, unit=None, limit=400):
             query = query.where(Defect.unit == unit)
         rows = session.scalars(query.limit(limit)).all()
         return [{
+            # v2.14: el id real de la fila — la evidencia fotográfica cuelga
+            # de él (POST /defects/{id}/photos). Las filas "live" del ELD no
+            # pasan por esta tabla y por eso no tienen id.
+            "id": r.id,
             "date_label": r.date_label,
             "block_date": r.block_date.isoformat(),
             "company": r.company,
