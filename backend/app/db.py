@@ -657,6 +657,37 @@ class Unit(OrgScoped, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class Workflow(OrgScoped, Base):
+    """Workflow de inspección del driver (v2.15, elemento 03 del board):
+    el pre-trip que el manager arma para SU flota (reefer, flatbed, tanker
+    inspeccionan distinto). UN workflow activo por organización — el driver
+    no elige, recibe EL pre-trip de su flota; el walkaround móvil (v2.16)
+    consumirá el activo vía /api/workflows/active. Pasos en workflow_step
+    (padre+hijas, como WorkOrder+WorkOrderLine)."""
+    __tablename__ = "workflow"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    active: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class WorkflowStep(OrgScoped, Base):
+    """Paso tipado de un workflow: `type` check|photo|read|sign (validado en
+    core/workflows.py). `pos` es el orden que el driver recorre; el guardado
+    replace-all lo reescribe secuencial. `required` bloquea el submit del
+    walkaround. Sin FK a workflow: las hijas se reemplazan en bloque por
+    workflow_id, no se navegan por relación."""
+    __tablename__ = "workflow_step"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workflow_id: Mapped[int] = mapped_column(Integer, index=True)
+    pos: Mapped[int] = mapped_column(Integer)
+    type: Mapped[str] = mapped_column(String(8))
+    label: Mapped[str] = mapped_column(String(120))
+    required: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 # ---------------------------------------------------------------------------
 # Aislamiento por tenant (H6 fase 3c): enforcement a nivel ORM
 # ---------------------------------------------------------------------------

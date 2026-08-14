@@ -31,7 +31,7 @@ from ..core import (
     telegram_notify, terminals, thermoking, tms, traccar, tracking,
     setup_status as setup_status_core,
     unit_photos, unit_settings, unitdocs, vin_decode, warranty, wo_invoice,
-    wo_invoices, workorders,
+    wo_invoices, workflows, workorders,
 )
 from ..core import notice_templates
 from ..core.contacts import name_key
@@ -2502,3 +2502,83 @@ def notify_broadcast(req: BroadcastIn):
         raise HTTPException(422, "The message body is empty.")
     return notify_service.broadcast(
         req.drivers, req.channels, req.subject, req.body)
+
+
+# ----- Workflows del driver (v2.15, elemento 03) -----
+
+class WorkflowStepIn(BaseModel):
+    type: str            # check | photo | read | sign (valida core/workflows)
+    label: str
+    required: bool = False
+
+
+class WorkflowIn(BaseModel):
+    name: str
+    steps: list[WorkflowStepIn] = []
+
+
+# ⚠ Orden de registro: /workflows/active va ANTES de /workflows/{wid}.
+# FastAPI matchea en orden; si no, "active" caería como wid y daría 422.
+@router.get("/workflows/active")
+def workflows_active():
+    """El workflow ACTIVO con sus pasos ordenados (consumidor: el walkaround
+    PWA del driver, v2.16)."""
+    wf = workflows.active_workflow()
+    if wf is None:
+        raise HTTPException(404, "No active workflow yet.")
+    return wf
+
+
+@router.get("/workflows")
+def workflows_list():
+    """Resúmenes de los workflows del tenant. Siembra el "Pre-trip" genérico
+    la primera vez (el editor nunca abre vacío)."""
+    workflows.ensure_default()
+    return {"workflows": workflows.list_workflows()}
+
+
+@router.get("/workflows/{wid}")
+def workflows_get(wid: int):
+    """Un workflow con sus pasos ordenados por pos."""
+    wf = workflows.get_workflow(wid)
+    if wf is None:
+        raise HTTPException(404, "Workflow not found.")
+    return wf
+
+
+@router.post("/workflows")
+def workflows_create(body: WorkflowIn):
+    """Crea un workflow nuevo (inactivo hasta que el manager lo active)."""
+    try:
+        return workflows.save_workflow(None, body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.put("/workflows/{wid}")
+def workflows_update(wid: int, body: WorkflowIn):
+    """Reemplaza nombre+pasos (replace-all transaccional)."""
+    try:
+        return workflows.save_workflow(wid, body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/workflows/{wid}")
+def workflows_delete(wid: int):
+    """Borra un workflow (prohibido borrar el único)."""
+    try:
+        workflows.delete_workflow(wid)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True}
+
+
+@router.post("/workflows/{wid}/activate")
+def workflows_activate(wid: int):
+    """Activa `wid` y desactiva el resto (UN activo por org)."""
+    try:
+        workflows.set_active(wid)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True}

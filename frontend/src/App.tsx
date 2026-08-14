@@ -20,6 +20,7 @@ import UnitProfilePage from './views/UnitProfilePage'
 import DriverSearch from './components/DriverSearch'
 import DriverDrawer from './components/DriverDrawer'
 import ReeferPage from './views/ReeferPage'
+import WorkflowsPage from './views/WorkflowsPage'
 import WorkOrdersPage from './views/WorkOrdersPage'
 import PartsPage from './views/PartsPage'
 import PurchasingPage from './views/PurchasingPage'
@@ -50,6 +51,7 @@ const NAV_SECTIONS: NavSection[] = [
       { id: 'dvir', label: 'DVIR' },
       { id: 'defectos', label: 'Defects' },
       { id: 'coldchain', label: 'Cold Chain' },
+      { id: 'workflows', label: 'Driver Workflows' },
     ],
   },
   {
@@ -156,6 +158,15 @@ const ICONS: Record<string, ReactElement> = {
       <path d="M10 13.5V5a2 2 0 0 1 4 0v8.5a4.5 4.5 0 1 1-4 0z" />
       <path d="M12 9v7" />
       <circle cx="12" cy="17.5" r="1.6" />
+    </svg>
+  ),
+  workflows: (
+    // Clipboard con lista + check: los pasos del pre-trip que arma el manager.
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 4h6a1 1 0 0 1 1 1v1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h2V5a1 1 0 0 1 1-1z" />
+      <path d="M9 11h6M9 15h2.5" />
+      <path d="m14 15.3 1.3 1.3 2.4-2.6" />
     </svg>
   ),
   settings: (
@@ -637,6 +648,7 @@ export default function App() {
           {section === 'pm' && <MaintBoardPage kind="pm" />}
           {section === 'dot' && <MaintBoardPage kind="dot" />}
           {section === 'coldchain' && <ReeferPage />}
+          {section === 'workflows' && <WorkflowsPage />}
           {section === 'workorders' && <WorkOrdersPage />}
           {section === 'parts' && <PartsPage />}
           {section === 'purchasing' && <PurchasingPage />}
