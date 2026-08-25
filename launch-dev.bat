@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 echo ============================================
-echo   Fleet Tracker  (LOCAL / desarrollo - SQLite)
+echo   Rigsmith  (LOCAL / desarrollo - SQLite)
 echo ============================================
 REM Este launcher corre un server LOCAL con base SQLite (backend\dvir.db),
 REM AISLADO de la nube. Util para desarrollo u offline. Para la app del dia a
@@ -42,13 +42,17 @@ echo Liberando el puerto 8765 (si habia un server viejo)...
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" 1>nul 2>nul
 
 REM --- Arrancar el servidor en segundo plano ---
-start "Fleet Tracker - servidor" /min cmd /c ^
-  "cd /d "%~dp0backend" && py -m uvicorn app.main:app --host 127.0.0.1 --port 8765"
+REM FLEET_DEMO=1 EXPLICITO: sin el flag el demo es implicito (por falta de
+REM Samsara) y el simulador de Cold Chain / walkaround demo queda apagado.
+start "Rigsmith - servidor" /min cmd /c ^
+  "cd /d "%~dp0backend" && set FLEET_DEMO=1&& py -m uvicorn app.main:app --host 127.0.0.1 --port 8765"
 
 REM --- Esperar a que el servidor responda ---
 echo Iniciando servidor...
 :wait
-timeout /t 1 /nobreak >nul
+rem ping como sleep: timeout.exe choca con el timeout de GNU si el PATH
+rem trae las utils de Git (mismo fix que dev.bat).
+ping -n 2 127.0.0.1 >nul
 curl -s http://127.0.0.1:8765/api/health >nul 2>nul
 if errorlevel 1 goto wait
 
