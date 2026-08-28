@@ -10372,3 +10372,57 @@ iframe.wo-preview { border: 1px solid var(--border); }
   .rp-pmc-body { flex-direction: column; }
   .rp-pmc-donut { flex: none; width: 100%; max-width: 300px; }
 }
+
+/* ===== v2.19 — PM compliance: rollup + excepciones + export ===== */
+.rp-pmc-roll .rp-pmc-barcol { width: 160px; }
+.rp-pmc-bar {
+  display: inline-flex; align-items: center; gap: 8px;
+  width: 150px; height: 8px; border-radius: 8px;
+  background: var(--surface-3); position: relative;
+}
+.rp-pmc-bar i {
+  display: block; height: 100%; border-radius: 8px;
+  background: var(--st-on-track); min-width: 2px;
+}
+.rp-pmc-bar em {
+  font-style: normal; font-family: var(--font-mono);
+  font-size: var(--fs-micro); color: var(--text-muted);
+  position: absolute; right: -38px; top: 50%;
+  transform: translateY(-50%);
+}
+.rp-pmc-total td {
+  font-weight: var(--fw-bold);
+  border-top: 2px solid var(--border-strong);
+}
+.rp-pmc-dethead {
+  display: flex; align-items: baseline; gap: 12px;
+  margin: 18px 0 8px;
+}
+.rp-pmc-dethead strong {
+  font-family: var(--font-display); font-size: var(--fs-h3);
+}
+.rp-pmc-detn {
+  font-family: var(--font-mono); font-size: var(--fs-micro);
+  color: var(--text-muted); background: var(--surface-3);
+  border-radius: var(--radius-pill); padding: 2px 8px; margin-left: 8px;
+}
+.rp-pmc-exportwrap { position: relative; }
+.rp-pmc-export {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 40;
+  min-width: 210px;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-md);
+  padding: 8px; display: flex; flex-direction: column; gap: 2px;
+}
+.rp-pmc-export button {
+  text-align: left; padding: 9px 11px; border: none; background: none;
+  color: var(--text); font-family: inherit; font-size: var(--fs-small);
+  font-weight: var(--fw-semibold); border-radius: 8px; cursor: pointer;
+}
+.rp-pmc-export button:hover { background: var(--surface-2); }
+.rp-pmc-export-opt {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 11px 10px; font-size: var(--fs-tiny);
+  color: var(--text-muted); border-bottom: 1px solid var(--border);
+  margin-bottom: 4px; cursor: pointer;
+}

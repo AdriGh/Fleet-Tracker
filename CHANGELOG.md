@@ -7,6 +7,36 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.19.0] - 2026-08-28
+
+Rework del reporte PM compliance por feedback del founder: menos redundancia
+con el PM Tracker, cards ajustadas y export completo.
+
+### Cambiado
+- **PM compliance ya no duplica al PM Tracker**: se eliminaron los 5 KPI
+  cards gigantes y la tabla completa por default. Ahora: **rollup por
+  programa** (units/overdue/upcoming/on track/no baseline + barra % on
+  track y fila Total) + donut compacto, y el detalle muestra SOLO "Needs
+  attention" (toggle "Show all N units"). El tablero operativo por unidad
+  (con edición) sigue viviendo en PM Tracker — el reporte es el agregado
+  ejecutivo + export.
+
+### Agregado
+- **Export a PDF, CSV y XLSX** desde la sección, respetando la selección de
+  programas:
+  - **PDF**: pipeline de impresión `.print-root` (el mismo de MaintReport)
+    con header de marca, tarjetas por programa, donut SVG y tabla
+    color-coded — el navegador lo guarda como PDF. **El gráfico es
+    elegible** (checkbox "Include chart").
+  - **XLSX real** (exceljs, chunk lazy de ~930 kB que solo paga quien
+    exporta): hoja Summary (rollup + Total) con el **donut embebido como
+    imagen** dibujada en canvas (elegible), hoja Units con estados
+    coloreados.
+  - **CSV**: resumen por programa + detalle por unidad (BOM UTF-8 para
+    Excel).
+  - Verificado en navegador: descargas reales de CSV/XLSX y portal de
+    impresión montado con media print emulado.
+
 ## [2.18.0] - 2026-08-28
 
 ### Agregado

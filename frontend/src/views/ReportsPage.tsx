@@ -17,6 +17,10 @@ import {
 import { notifyErr, notifyOk } from '../toast'
 import { useTerminals } from '../terminal'
 import PieChart from '../components/PieChart'
+import PmCompliancePrint, {
+  PM_PROG_LABEL, PM_RPT_STATUS, exportPmCsv, exportPmXlsx,
+  noBaseline, type PmRow,
+} from '../components/PmComplianceReport'
 import { Button, Tabs, StatCard, StatCluster } from '../components/ds'
 import CountUp from '../components/CountUp'
 import Skeleton from '../components/Skeleton'
@@ -506,27 +510,17 @@ export default function ReportsPage() {
 }
 
 // ---------------------------------------------------------------------------
-// PM compliance por variante de motor (v2.18). "¿Cuántas unidades tienen PM
-// y en qué estado?" — agrupado por programa (DD13/DD15 · ISX · genérico ·
-// DOT), con selección en conjunto / por separado / selectiva vía chips.
-// Misma fuente que el PM Tracker (maint.board): nunca se contradicen.
-// Colores idénticos a STATUS_META del PM Tracker: la torta del reporte y el
-// tablero cuentan la misma historia con la misma paleta.
-const PM_STATUS_META: Record<string, {
-  label: string; cls: string; rank: number; color: string
-}> = {
-  overdue: { label: 'Overdue', cls: 's-overdue', rank: 0, color: '#dc2626' },
-  upcoming: { label: 'Upcoming', cls: 's-upcoming', rank: 1, color: '#d99a00' },
-  never: { label: 'Never', cls: 's-never', rank: 2, color: '#0891b2' },
-  no_meter: { label: 'No odometer', cls: 's-never', rank: 3, color: '#a1a1aa' },
-  in_shop: { label: 'In shop', cls: 's-upcoming', rank: 4, color: '#2563eb' },
-  out_of_service:
-    { label: 'Out of service', cls: 's-never', rank: 5, color: '#52525b' },
-  on_track: { label: 'On track', cls: 's-on_track', rank: 6, color: '#16a34a' },
-}
-const PM_CHIP_LABEL: Record<string, string> = {
-  pm_dd: 'PM · DD13/DD15', pm_isx: 'PM · ISX', pm_generic: 'PM · other',
-  dot: 'DOT inspection',
+// PM compliance por variante de motor (v2.18, rework v2.19). Responde
+// "¿cuántas unidades tienen PM y en qué estado?" AGREGADO por programa
+// (DD13/DD15 · ISX · genérico · DOT) — deliberadamente NO duplica el PM
+// Tracker: acá va el rollup por programa + solo las excepciones (el tablero
+// operativo por unidad, con edición, vive en PM Tracker). Selección en
+// conjunto / por separado / selectiva vía chips; export a PDF (print
+// pipeline con gráfico ELEGIBLE), CSV y XLSX (gráfico embebido).
+const PM_STATUS_CLS: Record<string, string> = {
+  overdue: 's-overdue', upcoming: 's-upcoming', never: 's-never',
+  no_meter: 's-never', in_shop: 's-upcoming', out_of_service: 's-never',
+  on_track: 's-on_track',
 }
 
 function PmComplianceSection() {
@@ -536,40 +530,45 @@ function PmComplianceSection() {
   const groups = q.data?.groups ?? []
   // null = todos los programas (el default "en conjunto").
   const [sel, setSel] = useState<string[] | null>(null)
+  const [showAll, setShowAll] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [withChart, setWithChart] = useState(true)
+  const [printing, setPrinting] = useState(false)
+
   const selectedKeys = sel ?? groups.map((g) => g.key)
   const active = groups.filter((g) => selectedKeys.includes(g.key))
 
-  const totals = useMemo(() => {
-    const t = { units: 0, overdue: 0, upcoming: 0, on_track: 0, never: 0,
-                no_meter: 0, ops: 0 }
-    for (const g of active) {
-      t.units += g.units; t.overdue += g.overdue; t.upcoming += g.upcoming
-      t.on_track += g.on_track; t.never += g.never
-      t.no_meter += g.no_meter; t.ops += g.ops
-    }
-    return t
-  }, [active])
-
-  const rows = useMemo(() =>
+  // TODAS las filas de la selección, peor-primero (export y "show all").
+  const rows: PmRow[] = useMemo(() =>
     active.flatMap((g) => g.rows.map((r) => ({ ...r, gkey: g.key })))
       .sort((a, b) =>
-        (PM_STATUS_META[a.status]?.rank ?? 9)
-          - (PM_STATUS_META[b.status]?.rank ?? 9)
+        (PM_RPT_STATUS[a.status]?.rank ?? 9)
+          - (PM_RPT_STATUS[b.status]?.rank ?? 9)
         || (a.to_due ?? 1e12) - (b.to_due ?? 1e12)
         || a.unit.localeCompare(b.unit)),
     [active])
+  const attention = useMemo(
+    () => rows.filter((r) => r.status !== 'on_track'), [rows])
+  const visible = showAll ? rows : attention
 
-  // Torta por estado de la SELECCIÓN actual (como el reporte de Fullbay,
-  // pero interactiva). Se computa de las filas: exacta también para los
-  // estados operativos (in_shop / out_of_service) que el grupo resume.
+  // Torta por estado de la SELECCIÓN (como el reporte de Fullbay, pero
+  // interactiva). De las filas: exacta también para in_shop/out_of_service.
   const pieData = useMemo(() => {
     const c: Record<string, number> = {}
     for (const r of rows) c[r.status] = (c[r.status] ?? 0) + 1
-    return Object.entries(PM_STATUS_META)
+    return Object.entries(PM_RPT_STATUS)
       .sort((a, b) => a[1].rank - b[1].rank)
       .filter(([st]) => c[st])
       .map(([st, m]) => ({ label: m.label, value: c[st], color: m.color }))
   }, [rows])
+
+  const totals = useMemo(() => ({
+    units: active.reduce((s, g) => s + g.units, 0),
+    overdue: active.reduce((s, g) => s + g.overdue, 0),
+    upcoming: active.reduce((s, g) => s + g.upcoming, 0),
+    on_track: active.reduce((s, g) => s + g.on_track, 0),
+    nb: active.reduce((s, g) => s + noBaseline(g) + g.ops, 0),
+  }), [active])
 
   function toggle(key: string) {
     // Click sobre "todos seleccionados" = aislar ese programa (separado);
@@ -580,6 +579,24 @@ function PmComplianceSection() {
     setSel(next.length === 0 || next.length === groups.length ? null : next)
   }
 
+  async function doExport(kind: 'csv' | 'xlsx' | 'pdf') {
+    setExportOpen(false)
+    try {
+      if (kind === 'csv') {
+        exportPmCsv(active, rows)
+        notifyOk('CSV exported', `${rows.length} units`)
+      } else if (kind === 'xlsx') {
+        await exportPmXlsx(active, rows, withChart)
+        notifyOk('XLSX exported',
+          withChart ? 'chart embedded' : 'data only')
+      } else {
+        setPrinting(true)    // el diálogo de impresión guarda como PDF
+      }
+    } catch (e) {
+      notifyErr("Couldn't export", e)
+    }
+  }
+
   if (!q.data?.available && !q.isPending) return null
 
   return (
@@ -587,8 +604,26 @@ function PmComplianceSection() {
       <div className="card-head">
         <h2>PM compliance</h2>
         <span className="sub">
-          by engine program · same source as the PM Tracker
+          rollup by engine program · unit management lives in the PM Tracker
         </span>
+        <span className="head-spacer" />
+        <div className="rp-pmc-exportwrap">
+          <Button variant="ghost" onClick={() => setExportOpen((v) => !v)}>
+            Export
+          </Button>
+          {exportOpen && (
+            <div className="rp-pmc-export" role="menu">
+              <label className="rp-pmc-export-opt">
+                <input type="checkbox" checked={withChart}
+                  onChange={(e) => setWithChart(e.target.checked)} />
+                Include chart (PDF / XLSX)
+              </label>
+              <button onClick={() => doExport('pdf')}>PDF (print)</button>
+              <button onClick={() => doExport('xlsx')}>Excel (.xlsx)</button>
+              <button onClick={() => doExport('csv')}>CSV</button>
+            </div>
+          )}
+        </div>
       </div>
       <div className="card-body">
         {q.isPending ? (
@@ -611,92 +646,165 @@ function PmComplianceSection() {
                   className={`rp-pmc-chip ${selectedKeys.includes(g.key) ? 'on' : ''}`}
                   title={g.label}
                   onClick={() => toggle(g.key)}>
-                  {PM_CHIP_LABEL[g.key] ?? g.label}
+                  {PM_PROG_LABEL[g.key] ?? g.label}
                   <i>{g.units}</i>
                   {g.overdue > 0 && <em>{g.overdue} overdue</em>}
                 </button>
               ))}
             </div>
 
-            <StatCluster className="kpi-row rp-pmc-kpis">
-              <StatCard label="Units tracked" value={totals.units}
-                tone="info" />
-              <StatCard label="Overdue" value={totals.overdue}
-                tone={totals.overdue ? 'danger' : 'ok'} />
-              <StatCard label="Upcoming" value={totals.upcoming}
-                tone={totals.upcoming ? 'warn' : 'neutral'} />
-              <StatCard label="On track" value={totals.on_track} tone="ok"
-                progress={totals.units
-                  ? totals.on_track / totals.units : 0} />
-              <StatCard label="No baseline"
-                value={totals.never + totals.no_meter}
-                sub="never done / no odometer"
-                tone={totals.never + totals.no_meter ? 'warn' : 'neutral'} />
-            </StatCluster>
-
+            {/* Rollup: la respuesta agregada (reemplaza a los KPI cards) */}
             <div className="rp-pmc-body">
               <div className="rp-pmc-donut">
-                <PieChart data={pieData} size={172} centerUnit="units" />
+                <PieChart data={pieData} size={150} centerUnit="units" />
               </div>
               <div className="table-wrap rp-pmc-tablewrap">
-              <table className="mnt-table rp-pmc-table">
-                <thead>
-                  <tr>
-                    <th className="rp-left">Unit</th>
-                    <th className="rp-left">Program</th>
-                    <th className="rp-left">Model</th>
-                    <th className="rp-left">Last done</th>
-                    <th className="num">Next due</th>
-                    <th className="num">To due</th>
-                    <th className="rp-left">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r) => {
-                    const sm = PM_STATUS_META[r.status]
-                      ?? PM_STATUS_META.never
-                    return (
-                      <tr key={`${r.gkey}-${r.unit}`}>
-                        <td className="rp-left rp-pmc-unit">{r.unit}</td>
-                        <td className="rp-left rp-pmc-prog">
-                          {PM_CHIP_LABEL[r.gkey] ?? r.gkey}
-                        </td>
-                        <td className="rp-left">{r.model || '—'}</td>
-                        <td className="rp-left">{r.last_date ?? 'Never'}</td>
-                        <td className="num">
-                          {r.next_due_miles != null
-                            ? `${r.next_due_miles.toLocaleString('en-US')} mi`
-                            : r.next_due_date ?? '—'}
-                        </td>
-                        <td className={`num ${(r.to_due ?? 0) < 0 ? 'rp-pmc-neg' : ''}`}>
-                          {r.to_due != null
-                            ? `${r.to_due.toLocaleString('en-US')} ${r.to_due_unit}`
-                            : '—'}
-                        </td>
-                        <td className="rp-left">
-                          <span className={`mnt-status-pill ${sm.cls}`}>
-                            {sm.label}
-                          </span>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+                <table className="mnt-table rp-pmc-roll">
+                  <thead>
+                    <tr>
+                      <th className="rp-left">Program</th>
+                      <th className="num">Units</th>
+                      <th className="num">Overdue</th>
+                      <th className="num">Upcoming</th>
+                      <th className="num">On track</th>
+                      <th className="num">No baseline</th>
+                      <th className="rp-left rp-pmc-barcol">% on track</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {active.map((g) => {
+                      const pct = g.units
+                        ? Math.round((g.on_track / g.units) * 100) : 0
+                      return (
+                        <tr key={g.key}>
+                          <td className="rp-left rp-pmc-prog">
+                            {PM_PROG_LABEL[g.key] ?? g.label}
+                          </td>
+                          <td className="num rp-pmc-unit">{g.units}</td>
+                          <td className={`num ${g.overdue ? 'rp-pmc-neg' : ''}`}>
+                            {g.overdue || '—'}
+                          </td>
+                          <td className="num">{g.upcoming || '—'}</td>
+                          <td className="num">{g.on_track || '—'}</td>
+                          <td className="num">
+                            {noBaseline(g) + g.ops || '—'}
+                          </td>
+                          <td className="rp-left">
+                            <span className="rp-pmc-bar" role="img"
+                              aria-label={`${pct}% on track`}>
+                              <i style={{ width: `${pct}%` }} />
+                              <em>{pct}%</em>
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    <tr className="rp-pmc-total">
+                      <td className="rp-left">Total</td>
+                      <td className="num">{totals.units}</td>
+                      <td className={`num ${totals.overdue ? 'rp-pmc-neg' : ''}`}>
+                        {totals.overdue || '—'}
+                      </td>
+                      <td className="num">{totals.upcoming || '—'}</td>
+                      <td className="num">{totals.on_track || '—'}</td>
+                      <td className="num">{totals.nb || '—'}</td>
+                      <td className="rp-left">
+                        <span className="rp-pmc-bar">
+                          <i style={{
+                            width: `${totals.units
+                              ? Math.round((totals.on_track / totals.units) * 100)
+                              : 0}%`,
+                          }} />
+                          <em>
+                            {totals.units
+                              ? Math.round((totals.on_track / totals.units) * 100)
+                              : 0}%
+                          </em>
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
+
+            {/* Detalle: SOLO excepciones por default (el listado completo
+                por unidad ya vive en el PM Tracker) */}
+            <div className="rp-pmc-dethead">
+              <strong>
+                Needs attention
+                <span className="rp-pmc-detn">{attention.length}</span>
+              </strong>
+              <button className="btn-link"
+                onClick={() => setShowAll((v) => !v)}>
+                {showAll
+                  ? 'Only needs attention'
+                  : `Show all ${rows.length} units`}
+              </button>
+            </div>
+            {visible.length === 0 ? (
+              <div className="empty mini">
+                <p>Everything on track for this selection. ✓</p>
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table className="mnt-table rp-pmc-table">
+                  <thead>
+                    <tr>
+                      <th className="rp-left">Unit</th>
+                      <th className="rp-left">Program</th>
+                      <th className="rp-left">Model</th>
+                      <th className="rp-left">Last done</th>
+                      <th className="num">Next due</th>
+                      <th className="num">To due</th>
+                      <th className="rp-left">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visible.map((r) => {
+                      const m = PM_RPT_STATUS[r.status] ?? PM_RPT_STATUS.never
+                      return (
+                        <tr key={`${r.gkey}-${r.unit}`}>
+                          <td className="rp-left rp-pmc-unit">{r.unit}</td>
+                          <td className="rp-left rp-pmc-prog">
+                            {PM_PROG_LABEL[r.gkey] ?? r.gkey}
+                          </td>
+                          <td className="rp-left">{r.model || '—'}</td>
+                          <td className="rp-left">{r.last_date ?? 'Never'}</td>
+                          <td className="num">
+                            {r.next_due_miles != null
+                              ? `${r.next_due_miles.toLocaleString('en-US')} mi`
+                              : r.next_due_date ?? '—'}
+                          </td>
+                          <td className={`num ${(r.to_due ?? 0) < 0 ? 'rp-pmc-neg' : ''}`}>
+                            {r.to_due != null
+                              ? `${r.to_due.toLocaleString('en-US')} ${r.to_due_unit}`
+                              : '—'}
+                          </td>
+                          <td className="rp-left">
+                            <span className={`mnt-status-pill ${PM_STATUS_CLS[r.status] ?? 's-never'}`}>
+                              {m.label}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
         )}
       </div>
+
+      {printing && (
+        <PmCompliancePrint groups={active} rows={rows}
+          withChart={withChart} onClose={() => setPrinting(false)} />
+      )}
     </section>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Driver compliance — lo AGREGADO del roster. El detalle por conductor (y su
-// edición) vive en el drawer que abre el buscador; acá va lo reportable: qué
-// vence, qué falta cargar, y a quién hay que perseguir primero.
-// ---------------------------------------------------------------------------
 function DriverComplianceSection() {
   const q = useQuery({
     queryKey: ['driver-compliance'], queryFn: getDriverCompliance,
