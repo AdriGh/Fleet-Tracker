@@ -667,6 +667,18 @@ function CampaignsTab({ unit, data, loading, onChanged }: {
   onChanged: () => void
 }) {
   const [recordFor, setRecordFor] = useState<UnitCampaign | null>(null)
+  // Animación "PM DONE" (handoff del diseñador, v2.17): al REGISTRAR un PM
+  // (tras el éxito del modal, no al click), una onda verde inunda el panel
+  // desde el botón, muestra PM DONE y se desvanece revelando el estado nuevo
+  // — el flood ENMASCARA el re-render de los datos (coreografía intencional).
+  const [flooding, setFlooding] = useState<string | null>(null)
+  // Ancla del disco = centro del botón "Record done" relativo a la tarjeta,
+  // capturada al abrir el modal (fallback del mock: top 42 / right 100).
+  // `size` se calcula por tarjeta (2.2× su diagonal, regla del handoff): los
+  // 1600px fijos del mock alcanzaban para su card de ~640px, no para el
+  // panel real de escritorio (~1700px) — la onda no llegaba a cubrirlo.
+  const [floodAnchor, setFloodAnchor] = useState(
+    { top: 42, right: 100, size: 1600 })
 
   if (loading || !data) {
     return <div className="card"><div className="card-body empty mini">
@@ -680,8 +692,26 @@ function CampaignsTab({ unit, data, loading, onChanged }: {
           const sm = CAMP_STATUS[c.status] ?? CAMP_STATUS.never
           return (
             <div className="card up-campaign" key={c.key}>
+              {flooding === c.key && (
+                <>
+                  <span className="pm-flood"
+                    style={{
+                      top: floodAnchor.top,
+                      right: floodAnchor.right,
+                      width: floodAnchor.size,
+                      height: floodAnchor.size,
+                    }}
+                    onAnimationEnd={() => setFlooding(null)}
+                    aria-hidden="true" />
+                  <span className="pm-flood-msg" aria-hidden="true">
+                    PM DONE
+                  </span>
+                </>
+              )}
               <div className="up-camp-head">
-                <strong>{c.label}</strong>
+                <strong className={flooding === c.key ? 'pm-flood-title' : ''}>
+                  {c.label}
+                </strong>
                 <span className={`mnt-status-pill ${sm.cls}`}>
                   {sm.label}
                 </span>
@@ -723,7 +753,22 @@ function CampaignsTab({ unit, data, loading, onChanged }: {
                     : '—'}
                 </span>
                 <button className="btn btn-ghost btn-xs"
-                  onClick={() => setRecordFor(c)}>
+                  onClick={(e) => {
+                    // Centro del botón relativo a la tarjeta: de acá nace el
+                    // disco del flood si el registro tiene éxito.
+                    const btn = e.currentTarget.getBoundingClientRect()
+                    const card = e.currentTarget
+                      .closest('.up-campaign')?.getBoundingClientRect()
+                    if (card) {
+                      setFloodAnchor({
+                        top: btn.top + btn.height / 2 - card.top,
+                        right: card.right - (btn.left + btn.width / 2),
+                        size: Math.ceil(
+                          2.2 * Math.hypot(card.width, card.height)),
+                      })
+                    }
+                    setRecordFor(c)
+                  }}>
                   Record done
                 </button>
               </div>
@@ -763,7 +808,17 @@ function CampaignsTab({ unit, data, loading, onChanged }: {
         <RecordModal unit={unit} campaign={recordFor}
           currentMiles={data.current_miles}
           onClose={() => setRecordFor(null)}
-          onSaved={() => { setRecordFor(null); onChanged() }} />
+          onSaved={() => {
+            const key = recordFor.key
+            setRecordFor(null)
+            // Reduced motion: sin animación, solo el swap de estado (spec).
+            // El guard evita re-disparo si ya hay un flood en curso.
+            if (flooding == null && !window.matchMedia(
+              '(prefers-reduced-motion: reduce)').matches) {
+              setFlooding(key)
+            }
+            onChanged()
+          }} />
       )}
     </>
   )

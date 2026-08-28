@@ -7,6 +7,24 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.17.0] - 2026-08-28
+
+### Agregado
+- **Animación "PM DONE"** (handoff del diseñador — el "PM-done verde" del
+  backlog post-handoff): al registrar un PM/DOT en Components & PMs del
+  perfil de unidad, una onda verde inunda el panel desde el botón Record
+  done, muestra PM DONE centrado y se desvanece revelando el estado nuevo
+  — el flood enmascara el re-render de los datos (coreografía intencional).
+  - Timeline 3.2s con el ease-out-soft del sistema; keyframes verbatim del
+    handoff; dispara tras el ÉXITO del registro (no al click); corre una
+    vez con guard anti re-disparo; `prefers-reduced-motion` la salta.
+  - Dos adaptaciones documentadas sobre el handoff: el disco se dimensiona
+    por tarjeta (2.2× su diagonal — los 1600px del mock no cubrían el panel
+    real de escritorio) y la tinta del título entra/sale por `var(--text)`
+    (el mock asumía solo tema claro).
+  - Verificado en navegador contra el build real: cobertura total del panel
+    a mitad de timeline, overlay desmontado al final, estado On track.
+
 ## [2.16.1] - 2026-08-14
 
 ### Agregado
