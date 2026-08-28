@@ -3053,3 +3053,40 @@ export async function uploadWalkstepPhoto(
   })
   if (!res.ok) throw new Error(await readError(res))
 }
+
+// ----- PM compliance por variante de motor (v2.18, Reports) ---------------
+
+export interface PmComplianceRow {
+  unit: string
+  model: string
+  driver: string
+  status: string
+  last_date: string | null
+  next_due_miles: number | null
+  next_due_date: string | null
+  to_due: number | null
+  to_due_unit: 'mi' | 'days'
+}
+
+export interface PmComplianceGroup {
+  key: string          // pm_dd | pm_isx | pm_generic | dot
+  label: string
+  kind: 'pm' | 'dot'
+  units: number
+  on_track: number
+  upcoming: number
+  overdue: number
+  never: number
+  no_meter: number
+  ops: number          // out_of_service / in_shop
+  rows: PmComplianceRow[]
+}
+
+export async function getPmCompliance(): Promise<{
+  available: boolean
+  groups: PmComplianceGroup[]
+}> {
+  const res = await fetch('/api/reports/pm-compliance')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}

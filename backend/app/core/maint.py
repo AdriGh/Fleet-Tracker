@@ -273,6 +273,71 @@ async def board(kind: str, refresh: bool = False) -> dict:
     }
 
 
+def _pm_variant_key(label: str) -> str:
+    """Clave estable de la variante de PM (para seleccion en el reporte)."""
+    if "DD13" in label:
+        return "pm_dd"
+    if "ISX" in label:
+        return "pm_isx"
+    return "pm_generic"
+
+
+async def pm_compliance() -> dict:
+    """Reporte fleet-wide de cumplimiento de PM (v2.18, Reports & Analytics).
+
+    "¿Cuántas unidades tienen PM y en qué estado?" — agrupado por VARIANTE
+    de motor (DD13/DD15 para Freightliner, ISX para International, genérico
+    para el resto) + la inspección DOT como grupo aparte. El front permite
+    verlos en conjunto, por separado o selectivamente: acá se devuelve TODO
+    agrupado y la selección es un filtro del cliente (una sola request).
+
+    Reusa maint.board() — la misma fuente que el PM Tracker, así el reporte
+    nunca contradice al tablero. La variante sale del year/make/model del
+    board (el string completo: "2020 International LT" matchea ISX aunque
+    el campo model pelado diga solo "LT")."""
+    STATUSES = ("on_track", "upcoming", "overdue", "never", "no_meter")
+
+    def new_group(key: str, label: str, kind: str) -> dict:
+        g = {"key": key, "label": label, "kind": kind, "units": 0,
+             "rows": [], "ops": 0}
+        g.update({s: 0 for s in STATUSES})
+        return g
+
+    def add(g: dict, row: dict, to_due_unit: str) -> None:
+        st = row["status"]
+        g["units"] += 1
+        g[st if st in STATUSES else "ops"] += 1
+        g["rows"].append({
+            "unit": row["unit"], "model": row.get("model", ""),
+            "driver": row.get("driver", ""), "status": st,
+            "last_date": row.get("last_date"),
+            "next_due_miles": row.get("next_due_miles"),
+            "next_due_date": row.get("next_due_date"),
+            "to_due": row.get("to_due"), "to_due_unit": to_due_unit,
+        })
+
+    pm_b = await board("pm")
+    dot_b = await board("dot")
+
+    groups: dict[str, dict] = {}
+    for row in pm_b["units"]:
+        label = pm_label(row.get("model") or "")
+        key = _pm_variant_key(label)
+        g = groups.setdefault(key, new_group(key, label, "pm"))
+        add(g, row, "mi")
+    dot = new_group("dot", CAMPAIGNS["dot"]["label"], "dot")
+    for row in dot_b["units"]:
+        add(dot, row, "days")
+    if dot["units"]:
+        groups["dot"] = dot
+
+    order = ("pm_dd", "pm_isx", "pm_generic", "dot")
+    return {
+        "available": pm_b["available"],
+        "groups": [groups[k] for k in order if k in groups],
+    }
+
+
 async def unit_odometer(unit: str) -> dict:
     """Odómetro actual de una unidad (para el botón del modal Add)."""
     if samsara.is_available():

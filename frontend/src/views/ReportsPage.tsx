@@ -9,12 +9,14 @@ import {
   keepPreviousData, useQuery, useQueryClient,
 } from '@tanstack/react-query'
 import {
-  getCpmReport, getDriverCompliance, getSpendReport, refreshCpm,
-  type CpmReport, type CpmUnitRow,
+  getCpmReport, getDriverCompliance, getPmCompliance, getSpendReport,
+  refreshCpm,
+  type CpmReport, type CpmUnitRow, type PmComplianceGroup,
   type SpendBar, type SpendPart, type SpendReport, type SpendTotals,
 } from '../api'
 import { notifyErr, notifyOk } from '../toast'
 import { useTerminals } from '../terminal'
+import PieChart from '../components/PieChart'
 import { Button, Tabs, StatCard, StatCluster } from '../components/ds'
 import CountUp from '../components/CountUp'
 import Skeleton from '../components/Skeleton'
@@ -497,8 +499,196 @@ export default function ReportsPage() {
                que se reemplazó por el buscador + drawer). Va FUERA del gate de
                `hasData`: ese gate mira el gasto de TALLER, y una flota sin
                work orders igual tiene vencimientos que perseguir. ----- */}
+      <PmComplianceSection />
       <DriverComplianceSection />
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// PM compliance por variante de motor (v2.18). "¿Cuántas unidades tienen PM
+// y en qué estado?" — agrupado por programa (DD13/DD15 · ISX · genérico ·
+// DOT), con selección en conjunto / por separado / selectiva vía chips.
+// Misma fuente que el PM Tracker (maint.board): nunca se contradicen.
+// Colores idénticos a STATUS_META del PM Tracker: la torta del reporte y el
+// tablero cuentan la misma historia con la misma paleta.
+const PM_STATUS_META: Record<string, {
+  label: string; cls: string; rank: number; color: string
+}> = {
+  overdue: { label: 'Overdue', cls: 's-overdue', rank: 0, color: '#dc2626' },
+  upcoming: { label: 'Upcoming', cls: 's-upcoming', rank: 1, color: '#d99a00' },
+  never: { label: 'Never', cls: 's-never', rank: 2, color: '#0891b2' },
+  no_meter: { label: 'No odometer', cls: 's-never', rank: 3, color: '#a1a1aa' },
+  in_shop: { label: 'In shop', cls: 's-upcoming', rank: 4, color: '#2563eb' },
+  out_of_service:
+    { label: 'Out of service', cls: 's-never', rank: 5, color: '#52525b' },
+  on_track: { label: 'On track', cls: 's-on_track', rank: 6, color: '#16a34a' },
+}
+const PM_CHIP_LABEL: Record<string, string> = {
+  pm_dd: 'PM · DD13/DD15', pm_isx: 'PM · ISX', pm_generic: 'PM · other',
+  dot: 'DOT inspection',
+}
+
+function PmComplianceSection() {
+  const q = useQuery({
+    queryKey: ['pm-compliance'], queryFn: getPmCompliance,
+  })
+  const groups = q.data?.groups ?? []
+  // null = todos los programas (el default "en conjunto").
+  const [sel, setSel] = useState<string[] | null>(null)
+  const selectedKeys = sel ?? groups.map((g) => g.key)
+  const active = groups.filter((g) => selectedKeys.includes(g.key))
+
+  const totals = useMemo(() => {
+    const t = { units: 0, overdue: 0, upcoming: 0, on_track: 0, never: 0,
+                no_meter: 0, ops: 0 }
+    for (const g of active) {
+      t.units += g.units; t.overdue += g.overdue; t.upcoming += g.upcoming
+      t.on_track += g.on_track; t.never += g.never
+      t.no_meter += g.no_meter; t.ops += g.ops
+    }
+    return t
+  }, [active])
+
+  const rows = useMemo(() =>
+    active.flatMap((g) => g.rows.map((r) => ({ ...r, gkey: g.key })))
+      .sort((a, b) =>
+        (PM_STATUS_META[a.status]?.rank ?? 9)
+          - (PM_STATUS_META[b.status]?.rank ?? 9)
+        || (a.to_due ?? 1e12) - (b.to_due ?? 1e12)
+        || a.unit.localeCompare(b.unit)),
+    [active])
+
+  // Torta por estado de la SELECCIÓN actual (como el reporte de Fullbay,
+  // pero interactiva). Se computa de las filas: exacta también para los
+  // estados operativos (in_shop / out_of_service) que el grupo resume.
+  const pieData = useMemo(() => {
+    const c: Record<string, number> = {}
+    for (const r of rows) c[r.status] = (c[r.status] ?? 0) + 1
+    return Object.entries(PM_STATUS_META)
+      .sort((a, b) => a[1].rank - b[1].rank)
+      .filter(([st]) => c[st])
+      .map(([st, m]) => ({ label: m.label, value: c[st], color: m.color }))
+  }, [rows])
+
+  function toggle(key: string) {
+    // Click sobre "todos seleccionados" = aislar ese programa (separado);
+    // después cada click agrega/quita (selectivo). Vacío vuelve a todos.
+    if (sel == null) { setSel([key]); return }
+    const next = sel.includes(key)
+      ? sel.filter((k) => k !== key) : [...sel, key]
+    setSel(next.length === 0 || next.length === groups.length ? null : next)
+  }
+
+  if (!q.data?.available && !q.isPending) return null
+
+  return (
+    <section className="card rp-pmc">
+      <div className="card-head">
+        <h2>PM compliance</h2>
+        <span className="sub">
+          by engine program · same source as the PM Tracker
+        </span>
+      </div>
+      <div className="card-body">
+        {q.isPending ? (
+          <div className="skel-rows">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} h={34} />
+            ))}
+          </div>
+        ) : (
+          <>
+            <div className="rp-pmc-chips" role="group"
+              aria-label="PM programs">
+              <button
+                className={`rp-pmc-chip ${sel == null ? 'on' : ''}`}
+                onClick={() => setSel(null)}>
+                All programs
+              </button>
+              {groups.map((g) => (
+                <button key={g.key}
+                  className={`rp-pmc-chip ${selectedKeys.includes(g.key) ? 'on' : ''}`}
+                  title={g.label}
+                  onClick={() => toggle(g.key)}>
+                  {PM_CHIP_LABEL[g.key] ?? g.label}
+                  <i>{g.units}</i>
+                  {g.overdue > 0 && <em>{g.overdue} overdue</em>}
+                </button>
+              ))}
+            </div>
+
+            <StatCluster className="kpi-row rp-pmc-kpis">
+              <StatCard label="Units tracked" value={totals.units}
+                tone="info" />
+              <StatCard label="Overdue" value={totals.overdue}
+                tone={totals.overdue ? 'danger' : 'ok'} />
+              <StatCard label="Upcoming" value={totals.upcoming}
+                tone={totals.upcoming ? 'warn' : 'neutral'} />
+              <StatCard label="On track" value={totals.on_track} tone="ok"
+                progress={totals.units
+                  ? totals.on_track / totals.units : 0} />
+              <StatCard label="No baseline"
+                value={totals.never + totals.no_meter}
+                sub="never done / no odometer"
+                tone={totals.never + totals.no_meter ? 'warn' : 'neutral'} />
+            </StatCluster>
+
+            <div className="rp-pmc-body">
+              <div className="rp-pmc-donut">
+                <PieChart data={pieData} size={172} centerUnit="units" />
+              </div>
+              <div className="table-wrap rp-pmc-tablewrap">
+              <table className="mnt-table rp-pmc-table">
+                <thead>
+                  <tr>
+                    <th className="rp-left">Unit</th>
+                    <th className="rp-left">Program</th>
+                    <th className="rp-left">Model</th>
+                    <th className="rp-left">Last done</th>
+                    <th className="num">Next due</th>
+                    <th className="num">To due</th>
+                    <th className="rp-left">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => {
+                    const sm = PM_STATUS_META[r.status]
+                      ?? PM_STATUS_META.never
+                    return (
+                      <tr key={`${r.gkey}-${r.unit}`}>
+                        <td className="rp-left rp-pmc-unit">{r.unit}</td>
+                        <td className="rp-left rp-pmc-prog">
+                          {PM_CHIP_LABEL[r.gkey] ?? r.gkey}
+                        </td>
+                        <td className="rp-left">{r.model || '—'}</td>
+                        <td className="rp-left">{r.last_date ?? 'Never'}</td>
+                        <td className="num">
+                          {r.next_due_miles != null
+                            ? `${r.next_due_miles.toLocaleString('en-US')} mi`
+                            : r.next_due_date ?? '—'}
+                        </td>
+                        <td className={`num ${(r.to_due ?? 0) < 0 ? 'rp-pmc-neg' : ''}`}>
+                          {r.to_due != null
+                            ? `${r.to_due.toLocaleString('en-US')} ${r.to_due_unit}`
+                            : '—'}
+                        </td>
+                        <td className="rp-left">
+                          <span className={`mnt-status-pill ${sm.cls}`}>
+                            {sm.label}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
   )
 }
 

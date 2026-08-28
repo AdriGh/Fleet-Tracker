@@ -80,7 +80,11 @@ export default function UnitProfilePage({ unit, onClose }: {
 
   const campQ = useQuery({
     queryKey: ['unit-campaigns', unit],
-    queryFn: () => getUnitCampaigns(unit, info?.model ?? ''),
+    // make+model completo: pm_label matchea "international" del MAKE — con
+    // solo el model ("LT") los International caían al PM genérico en vez
+    // del ISX (v2.18; el board fleet-wide ya usaba el string completo).
+    queryFn: () => getUnitCampaigns(
+      unit, [info?.make, info?.model].filter(Boolean).join(' ')),
   })
   const wosQ = useQuery({
     queryKey: ['unit-wos', unit],

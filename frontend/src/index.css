@@ -10320,3 +10320,55 @@ iframe.wo-preview { border: 1px solid var(--border); }
   .pm-flood, .pm-flood-msg { display: none; }
   .up-camp-head .pm-flood-title { animation: none; }
 }
+
+/* ===========================================================
+   v2.18 — PM compliance por variante de motor (Reports)
+   =========================================================== */
+.rp-pmc-chips {
+  display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;
+}
+.rp-pmc-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 13px; border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--text-muted);
+  font-family: inherit; font-size: var(--fs-small);
+  font-weight: var(--fw-semibold); cursor: pointer;
+  transition: border-color var(--dur-fast), color var(--dur-fast),
+    background var(--dur-fast);
+}
+.rp-pmc-chip:hover { border-color: var(--accent-2); color: var(--text); }
+.rp-pmc-chip.on {
+  background: var(--accent-soft); border-color: var(--accent-2);
+  color: var(--text);
+}
+.rp-pmc-chip i {
+  font-style: normal; font-family: var(--font-mono);
+  font-size: var(--fs-micro); color: var(--text-muted);
+  background: var(--surface-3); border-radius: var(--radius-pill);
+  padding: 1px 7px;
+}
+.rp-pmc-chip em {
+  font-style: normal; font-family: var(--font-mono);
+  font-size: var(--fs-micro); font-weight: var(--fw-bold);
+  color: var(--ui-danger);
+}
+.rp-pmc-kpis { margin-bottom: 14px; }
+.rp-pmc-unit { font-family: var(--font-display); font-weight: var(--fw-bold); }
+.rp-pmc-prog {
+  font-family: var(--font-mono); font-size: var(--fs-tiny);
+  color: var(--text-muted); white-space: nowrap;
+}
+.rp-pmc-neg { color: var(--ui-danger); font-weight: var(--fw-bold); }
+/* Torta + tabla lado a lado; en angosto la torta pasa arriba. El formato
+   LARGO de la tabla (una fila por unidad bajo SU programa) es a propósito:
+   Fullbay cruzaba columnas por campaña y llenaba la tabla de celdas vacías. */
+.rp-pmc-body {
+  display: flex; gap: var(--space-5); align-items: flex-start;
+}
+.rp-pmc-donut { flex: 0 0 240px; }
+.rp-pmc-tablewrap { flex: 1; min-width: 0; }
+@media (max-width: 900px) {
+  .rp-pmc-body { flex-direction: column; }
+  .rp-pmc-donut { flex: none; width: 100%; max-width: 300px; }
+}

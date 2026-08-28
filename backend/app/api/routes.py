@@ -124,6 +124,14 @@ def reports_cpm(from_: str = Query("", alias="from"), to: str = "",
     return reports.cpm_report(date_from=from_, date_to=to, terminal=terminal)
 
 
+@router.get("/reports/pm-compliance")
+async def reports_pm_compliance():
+    """Cumplimiento de PM fleet-wide agrupado por variante de motor (DD13/
+    DD15, ISX, genérico) + DOT (v2.18). La selección conjunto/separado/
+    selectivo la hace el cliente sobre esta única respuesta."""
+    return await maint.pm_compliance()
+
+
 @router.get("/reports/driver-compliance")
 async def reports_driver_compliance():
     """Compliance de conductores AGREGADO (vino de la página Driver Compliance,
