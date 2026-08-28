@@ -7,6 +7,34 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.18.0] - 2026-08-28
+
+### Agregado
+- **PM compliance en Reports & Analytics**: cuántas unidades tienen PM y en
+  qué estado, agrupado por **programa de motor** — Full Wet Service
+  DD13/DD15 (Freightliner), ISX (International), genérico — más la
+  inspección DOT. Seleccionables **en conjunto, por separado o
+  selectivamente** con chips (una sola request; la selección es filtro de
+  cliente).
+  - `GET /api/reports/pm-compliance` (`maint.pm_compliance()`): reusa
+    `maint.board()` — la misma fuente que el PM Tracker, así el reporte
+    nunca contradice al tablero (exclusiones incluidas). La variante sale
+    del year/make/model COMPLETO.
+  - **Torta por estado con leyenda interactiva** (el PieChart del tracker,
+    misma paleta) — el gráfico que tenía el reporte de Fullbay, sin su
+    defecto: la tabla es de formato LARGO (cada unidad una fila bajo SU
+    programa), no la matriz de columnas por campaña llena de celdas vacías
+    que la hacía ilegible.
+  - KPIs de la selección (tracked / overdue / upcoming / on track / sin
+    baseline) y tabla peor-primero.
+
+### Corregido
+- Los **International caían al PM genérico en el perfil de unidad**: el
+  perfil pasaba solo `model` ("LT") y `pm_label` matchea "international"
+  del make. Ahora pasa make+model → ISX, consistente con el board.
+- Tests: `test_pm_compliance.py` (variantes por ymm completo, partición
+  exacta contra el tablero, conteos, registrar mueve estado). Suite 14/14.
+
 ## [2.17.0] - 2026-08-28
 
 ### Agregado
