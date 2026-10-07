@@ -11,7 +11,7 @@ import {
 import {
   getCpmReport, getDriverCompliance, getPmCompliance, getSpendReport,
   refreshCpm,
-  type CpmReport, type CpmUnitRow, type PmComplianceGroup,
+  type CpmReport, type CpmUnitRow,
   type SpendBar, type SpendPart, type SpendReport, type SpendTotals,
 } from '../api'
 import { notifyErr, notifyOk } from '../toast'

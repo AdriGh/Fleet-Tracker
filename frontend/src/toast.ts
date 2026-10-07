@@ -18,6 +18,18 @@ export const notifyErr = (message: string, err?: unknown) =>
 export const notifyWarn = (message: string, description?: string) =>
   toast.warning(message, { description })
 
+/** Éxito con botón "Undo" (acciones reversibles, p. ej. borrar requests).
+ *  Dura más que un toast normal para dar tiempo a deshacer; al tocar Undo
+ *  sonner cierra el toast y corre `onUndo`. */
+export const notifyUndo = (
+  message: string, onUndo: () => void, description?: string,
+) =>
+  toast.success(message, {
+    description,
+    duration: 8000,
+    action: { label: 'Undo', onClick: () => onUndo() },
+  })
+
 /** Promesa: muestra "cargando" y resuelve a éxito/error automáticamente. */
 export const notifyPromise = <T>(
   promise: Promise<T>,

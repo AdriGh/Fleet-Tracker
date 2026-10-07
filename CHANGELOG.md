@@ -7,6 +7,152 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.20.0] - 2026-10-06
+
+Benchmark contra SquareRigger: el taller pasa a despachar desde un backlog
+único por unidad (**Service Requests**) en vez de que cada defecto o PM
+vencido genere WOs sueltas. Se retiran Walkaround y Driver Workflows del
+producto y se corrigen dos bugs del Board de Work Orders.
+
+### Agregado
+- **Service Requests**: backlog por unidad que junta, en una sola cola,
+  los **defectos DVIR abiertos**, los **PM y DOT vencidos o por vencer** y
+  los **pedidos manuales** ("+ Add Service"). Layout maestro-detalle estilo
+  SquareRigger: unidades a la izquierda (conteos por fuente, prioridad más
+  alta, millas de PM vencidas en rojo), sus requests a la derecha con
+  etiqueta de fuente y badges Urgent / Emergency. Badge de abiertos en el
+  nav.
+  - **Fuentes de sistema materializadas** por `sync()` idempotente (clave
+    estable `source_key` única por org; TTL de 5 min por org en cada GET,
+    "Check for due" fuerza). Defectos desde el feed actual (helper nuevo
+    `core/open_defects.current_feed`, la misma lógica que
+    `GET /dvir/open-defects`); PM/DOT desde `maint.board()` con el ciclo
+    (últimas millas / última fecha) en la clave: registrar el servicio =>
+    el próximo vencimiento es un request nuevo. Lo que desaparece de una
+    fuente se auto-cierra (`cleared`) **solo** con datos confiables: nunca
+    por un feed caído, un board con fallas de Samsara (`errors`) ni una
+    unidad sin odómetro.
+  - **Acciones**: Deny (con motivo), Snooze (7/14/30 días o fecha), Reopen,
+    **Add to…** una WO abierta de la unidad (agrega la viñeta al complaint)
+    y **Create WO** agrupando varios requests de la misma unidad en una
+    transacción (título, prioridad, campaña PM/DOT y millaje derivados).
+    El "→ WO" de un defecto en el UnitDrawer también queda ligado
+    (`defect-to-wo`).
+  - **Hooks de WO**: completar/facturar cierra los requests ligados
+    (`done`/`wo`), retroceder los re-liga, borrar la WO los devuelve al
+    backlog. El drawer de la WO lista sus service requests.
+  - **Endpoints** (`/api/service-requests`): `GET` (lista + conteos +
+    resumen por unidad), `POST /sync`, `POST` (manual), `POST /create-wo`,
+    `POST /defect-to-wo`, `PATCH /{id}`, `POST /{id}/deny`, `/snooze`,
+    `/reopen`, `/add-to-wo`, `/unlink`. Escrituras con **RBAC
+    `maint.edit`**.
+  - **Migración Alembic `c9d0e1f2a3b4`**: tabla `service_request`
+    (OrgScoped, `UniqueConstraint(org_id, source_key)`).
+  - **Tests**: `backend/tests/test_service_requests.py` (sync, clearing
+    seguro, ciclos de PM, reglas de estado, atomicidad de create_wo, hooks
+    de WO, aislamiento por tenant, rutas/RBAC, caídas de Samsara,
+    concurrencia con el sync).
+- **Unidad = dropdown, no texto libre** (pedido del dueño: "MEM 77" y
+  "MEM77" partían el backlog en dos filas). Componente nuevo
+  **UnitPicker** (combobox con búsqueda por número, año/marca/modelo y
+  compañía; archivadas solo al buscarlas) que solo deja elegir unidades
+  EXISTENTES: las de `GET /api/fleet` (lógica movida a
+  `core/fleet_inventory.load`, la ruta `/fleet` la reusa) más las que la
+  app ya muestra fuera de la flota (requests del backlog, p. ej. defectos
+  del CSV de MCC, y filas de los boards de PM/DOT). Se usa en **New
+  request / "+ Request"**, **New work order** (y la unidad de cada
+  complaint) y **Add PM / Add DOT** del board (ahí gana la grafía de la
+  fila del board y se puede elegir cualquier unidad de la flota, p. ej.
+  la primera DOT de un trailer). Con la flota caída, vacía o parcial se
+  degrada a texto libre sin perder el foco.
+  - **Fuentes canonizadas**: el sync guarda el nombre de la flota (ante
+    dos grafías gana la unidad activa, no un asset archivado) y renombra
+    las filas vivas escritas distinto sin crear otra (las claves van por
+    unidad normalizada); `units[]`, `?unit=` y `delete-duplicates`
+    comparan normalizado (también con tabs, NBSP o acentos), así que las
+    variantes de escritura se funden en una sola fila. `POST
+    /service-requests` y `/defect-to-wo` canonizan y rechazan una unidad
+    desconocida (400 "unknown unit — pick one from the fleet list"; con la
+    flota caída o parcial se acepta lo tipeado).
+  - **El PM/DOT se registra en la fila del board**: el request guarda la
+    grafía del board (`meta.board_unit`) y al facturar la WO el registro
+    (y el override de millas del PM) va a esa fila aunque la WO lleve el
+    nombre de la flota (`service_requests.maint_unit_for_wo`); una WO
+    creada a mano usa la grafía que el tracker ya conoce. Sin esto, 'CAN 1'
+    abría otra fila y 'CAN1' quedaba vencida para siempre.
+- **Borrar requests** (pedido del dueño: los defectos vuelven seguido),
+  **borrado suave** (status `deleted`): tacho por tarjeta y **borrado en
+  lote** de la selección, en cualquier pestaña menos On WO (`on_wo` se
+  saltea con su motivo: "unlink it first"). **Undo** en el toast: el
+  request vuelve **tal como estaba** (pospuesto con su fecha, denegado con
+  su motivo, cerrado y ligado a su WO), nunca como backlog pendiente. Lo
+  borrado no se lista ni se cuenta (ni en `all`) y el sync **nunca** lo
+  revive mientras su fuente siga activa (si el defecto desaparece del ELD y
+  vuelve a reportarse, entra como request nuevo). Endpoints `POST
+  /api/service-requests/delete`, `/restore` y `/delete-duplicates`
+  (RBAC `maint.edit`).
+- **Duplicados**: cada request trae `duplicate_of` (calculado al listar,
+  entre los open/snoozed de la misma unidad: mismo PM/DOT, mismo texto,
+  texto contenido o Jaccard de palabras ≥ 0.8; dos textos que difieren en
+  el **lado / la posición / el eje** — driver vs passenger, left vs right,
+  axle 2 vs 3 — NO son duplicados). Cada duplicado se compara contra su
+  **keeper** (sin cadenas) y el keeper se elige por preferencia: fila de
+  sistema con la fuente activa > abierta > ciclo vigente > más vieja (así
+  "Remove" nunca borra el PM/DOT/defecto real en favor de un manual).
+  Chip "Duplicate of #id" (lleva al original), "N dup" en la lista,
+  "Select duplicates" y **"Remove N duplicates"** por unidad, que borra
+  exactamente los duplicados visibles en esa pestaña (con Undo).
+  `units[].duplicates` en la API.
+- **Tests** del addendum en `test_service_requests.py`: borrado / Undo
+  (estado previo, snooze vencido, WO retrocedida o borrada), el sync no
+  revive lo borrado, reglas y keeper de duplicados, lado/posición,
+  unidad canónica, unidades conocidas fuera de la flota, archivada vs
+  activa, `?unit=` con espacios raros y registro del PM en la fila del
+  board (con el `maint.board` real).
+
+### Eliminado
+- **Walkaround y Driver Workflows** salen del producto: páginas, rutas
+  (`/api/walkarounds`, `/api/walksteps`, `/api/workflows`), core
+  (`walkarounds.py`, `workflows.py`) y sus tests. **Las tablas, modelos y
+  migraciones se conservan a propósito**: no se borra ningún dato de
+  producción.
+
+### Corregido
+- **Board de Work Orders**: el drawer ya no muestra un estado viejo al
+  reabrirlo después de mover la tarjeta (el optimista toca lista y
+  detalle, y el drawer revalida al abrir); se puede soltar en **cualquier
+  parte de la columna** (también su espacio vacío); arrastrar una WO de PM
+  a completed tiene los **mismos efectos** que hacerlo desde el drawer
+  (pm_miles / PM tracker / avisos).
+- **Lista de WOs**: devuelve **todas las activas** + las últimas 200
+  facturadas (antes las 200 más nuevas a secas: con historial largo una WO
+  abierta vieja desaparecía del Board y del "Add to…").
+- **Las mutaciones de WO devuelven `links`** (update / add_line /
+  delete_line): el drawer ya no pierde la numeración #4.1 ni los chips
+  padre/hija después de un cambio.
+- **Migración `b8c9d0e1f2a3` (walkaround)**: `server_default` booleano con
+  `sa.false()` en vez de `sa.text("0")` (Postgres rechaza un entero como
+  default de un boolean).
+
+### Notas
+- La clave de un request de defecto es unidad + texto normalizado: si el
+  driver re-reporta el mismo defecto con otro texto entra como request
+  nuevo, pero ahora sale marcado "Duplicate of #id" y se limpia con
+  "Remove N duplicates". La misma unidad escrita distinto ya **no** parte
+  el backlog (se funde por unidad normalizada con el nombre de la flota).
+- Los duplicados son una heurística de texto: textos muy distintos para la
+  misma falla no se detectan (queda el tacho / borrado en lote).
+- Una unidad tipeada mientras la flota estaba caída sigue siendo elegible
+  mientras tenga requests en el backlog; borrándolos deja de aparecer.
+- Un request de defecto cerrado (`done`) cuyo texto idéntico se vuelve a
+  reportar **sin haber desaparecido antes del feed** sigue cerrado (el
+  sync no puede distinguirlo de "nadie lo cerró en el ELD"); el "→ WO" del
+  UnitDrawer sí crea un request nuevo y la WO vieja conserva su vínculo.
+- El historial de la lista (done / denied / all) se corta en los 1000 más
+  recientes (`truncated`); lo accionable sale completo.
+- El TTL del sync es por proceso: con varios workers cada uno sincroniza
+  por su cuenta (idempotente).
+
 ## [2.19.0] - 2026-08-28
 
 Rework del reporte PM compliance por feedback del founder: menos redundancia

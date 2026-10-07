@@ -56,6 +56,13 @@ def pm_label(model: str) -> str:
     return "Full Wet Service (PM)"
 
 
+def _sr_stale() -> None:
+    """Cambió lo que vence (registro de PM/DOT): el backlog de Service
+    Requests re-sincroniza en el próximo GET en vez de esperar el TTL."""
+    from . import service_requests       # import diferido (ciclo de imports)
+    service_requests.mark_stale()
+
+
 def add_record(unit: str, kind: str, date_iso: str,
                mileage: int | None = None, notes: str = "") -> dict:
     unit = (unit or "").strip()
@@ -76,6 +83,7 @@ def add_record(unit: str, kind: str, date_iso: str,
         )
         session.add(rec)
         session.commit()
+        _sr_stale()
         return {"id": rec.id, "unit": rec.unit, "kind": rec.kind,
                 "date": rec.date, "mileage": rec.mileage,
                 "notes": rec.notes}
@@ -133,12 +141,17 @@ async def board(kind: str, refresh: bool = False) -> dict:
     drivers = _driver_by_truck()
     ops = unit_settings.ops_statuses()
 
+    # Fallas de Samsara: el board se arma igual (con el meter del CSV) pero
+    # se avisa en `errors` — service_requests no da nada por resuelto con un
+    # board incompleto (sin odómetro, to_due sale None o con millas viejas).
+    errors: list[str] = []
     odo: dict = {}
     if samsara.is_available():
         try:
             odo = await samsara.vehicle_odometers()
         except Exception:  # noqa: BLE001
             odo = {}
+            errors.append("odometer")
 
     # H-fleet: traer las terminales y sus unidades (camiones) al tracker. Se
     # suman los CAMIONES del fleet de Samsara al universo, y se arma un mapa
@@ -159,6 +172,7 @@ async def board(kind: str, refresh: bool = False) -> dict:
                     extra_model[fu["unit"]] = _ymm(fu)
         except Exception:  # noqa: BLE001
             fleet_trucks = set()
+            errors.append("fleet")
     for mu in manual_units.list_units():
         if mu.get("unit"):
             extra_model.setdefault(mu["unit"], _ymm(mu))
@@ -270,6 +284,7 @@ async def board(kind: str, refresh: bool = False) -> dict:
         "upcoming_days": DOT_UPCOMING_DAYS,
         "units": out,
         "excluded": sorted(excluded, key=lambda e: e["unit"]),
+        "errors": errors,
     }
 
 

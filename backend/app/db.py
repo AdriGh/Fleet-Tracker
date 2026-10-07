@@ -14,7 +14,7 @@ from pathlib import Path
 
 from sqlalchemy import (
     Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text,
-    UniqueConstraint, create_engine, event, func, select,
+    UniqueConstraint, create_engine, event, func, select, true,
 )
 from sqlalchemy.orm import (
     DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker,
@@ -91,6 +91,8 @@ class Defect(OrgScoped, Base):
     # 'walkaround'), sin bloque DVIR importado. Todo lo que la UI necesita
     # (company/fecha/driver/unit/detalle) vive denormalizado en esta fila,
     # así que un defecto sin bloque fluye igual por Defects → WO → warranty.
+    # (v2.20: el walkaround se retiró; source + nullable se conservan por la
+    # data de producción ya creada.)
     block_id: Mapped[int | None] = mapped_column(
         ForeignKey("report_block.id"), nullable=True)
     source: Mapped[str] = mapped_column(String(12), default="dvir")
@@ -692,6 +694,69 @@ class Unit(OrgScoped, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class ServiceRequest(OrgScoped, Base):
+    """Service Request (v2.20, benchmark SquareRigger): el BACKLOG por unidad
+    desde el que se despacha el taller. Unifica en una sola cola:
+      - defectos DVIR abiertos (source 'defect', materializados del feed de
+        Samsara/CSV por core/service_requests.sync),
+      - PM y DOT vencidos o por vencer (source 'pm' | 'dot', de maint.board),
+      - pedidos manuales (source 'manual').
+    Cada item se Deniega, se Pospone (snooze), se suma a una WO existente o
+    se agrupa con otros de la misma unidad en una WO nueva. `source_key` es la
+    clave estable de dedupe (idempotencia del sync), única por organización.
+
+    status: open | snoozed | on_wo | done | denied | deleted (borrado suave,
+    v2.20 addendum: no se lista ni se cuenta; restore lo devuelve a open).
+    resolution: '' | wo (la WO se completó) | cleared (la fuente desapareció)
+    | denied | deleted. `wo_id` sin FK (como las demás tablas hijas): borrar la WO no
+    debe romper el historial; el hook de delete_wo re-abre el request.
+    `meta` es JSON (vencimiento, reports, dvir_type, model…). org-scoped."""
+    __tablename__ = "service_request"
+    __table_args__ = (
+        UniqueConstraint("org_id", "source_key",
+                         name="uq_service_request_org_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    unit: Mapped[str] = mapped_column(String(64), index=True)
+    company: Mapped[str] = mapped_column(String(64), default="")
+    # defect | pm | dot | manual
+    source: Mapped[str] = mapped_column(String(12), index=True)
+    source_key: Mapped[str] = mapped_column(String(120), index=True)
+    title: Mapped[str] = mapped_column(String(160))
+    detail: Mapped[str] = mapped_column(Text, default="")
+    # low | normal | urgent | emergency
+    priority: Mapped[str] = mapped_column(String(12), default="normal")
+    status: Mapped[str] = mapped_column(String(12), default="open",
+                                        index=True)
+    wo_id: Mapped[int | None] = mapped_column(Integer, nullable=True,
+                                              index=True)
+    resolution: Mapped[str] = mapped_column(String(20), default="")
+    meta: Mapped[str] = mapped_column(Text, default="{}")
+    # False cuando la fuente (defecto/PM/DOT) dejó de aparecer en el sync.
+    source_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true())
+    snooze_until: Mapped[str | None] = mapped_column(
+        String(10), nullable=True)                  # YYYY-MM-DD
+    follow_up_date: Mapped[str | None] = mapped_column(
+        String(10), nullable=True)                  # YYYY-MM-DD
+    deny_reason: Mapped[str] = mapped_column(String(200), default="")
+    created_by: Mapped[str] = mapped_column(String(80), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+    source_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# LEGACY (v2.20): Driver Workflows (v2.15) y Walkaround (v2.16) se retiraron
+# del producto (UI, rutas y core). Los modelos y sus tablas se CONSERVAN a
+# propósito: así no se destruye data de producción y el autogenerate de
+# Alembic sigue consistente con el esquema real (sin un DROP accidental).
+# No agregar lógica nueva sobre estas tablas.
+# ---------------------------------------------------------------------------
 class Workflow(OrgScoped, Base):
     """Workflow de inspección del driver (v2.15, elemento 03 del board):
     el pre-trip que el manager arma para SU flota (reefer, flatbed, tanker

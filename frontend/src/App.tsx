@@ -4,7 +4,8 @@ import {
 import { Toaster } from 'sonner'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  authStatus, getHealth, listAlertEvents, listPartsRequests, logout,
+  authStatus, getHealth, listAlertEvents, listPartsRequests,
+  listServiceRequests, logout,
   type AuthUser, type OrgBranding,
 } from './api'
 import { PermsContext, type Perms } from './perms'
@@ -20,9 +21,8 @@ import UnitProfilePage from './views/UnitProfilePage'
 import DriverSearch from './components/DriverSearch'
 import DriverDrawer from './components/DriverDrawer'
 import ReeferPage from './views/ReeferPage'
-import WalkaroundPage from './views/WalkaroundPage'
-import WorkflowsPage from './views/WorkflowsPage'
 import WorkOrdersPage from './views/WorkOrdersPage'
+import ServiceRequestsPage from './views/ServiceRequestsPage'
 import PartsPage from './views/PartsPage'
 import PurchasingPage from './views/PurchasingPage'
 import ReportsPage from './views/ReportsPage'
@@ -50,10 +50,8 @@ const NAV_SECTIONS: NavSection[] = [
     title: 'Operations',
     items: [
       { id: 'dvir', label: 'DVIR' },
-      { id: 'walkaround', label: 'Walkaround' },
       { id: 'defectos', label: 'Defects' },
       { id: 'coldchain', label: 'Cold Chain' },
-      { id: 'workflows', label: 'Driver Workflows' },
     ],
   },
   {
@@ -62,6 +60,7 @@ const NAV_SECTIONS: NavSection[] = [
       { id: 'flota', label: 'Fleet' },
       { id: 'pm', label: 'PM Tracker' },
       { id: 'dot', label: 'DOT Inspections' },
+      { id: 'service-requests', label: 'Service Requests' },
       { id: 'workorders', label: 'Work Orders' },
       { id: 'parts', label: 'Parts' },
       { id: 'purchasing', label: 'Purchasing' },
@@ -95,6 +94,15 @@ const ICONS: Record<string, ReactElement> = {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
       strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+    </svg>
+  ),
+  // Bandeja de entrada (el backlog que espera despacho).
+  'service-requests': (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.5 13.5 6 5.6A1.6 1.6 0 0 1 7.5 4.5h9a1.6 1.6 0 0 1 1.5 1.1l2.5 7.9" />
+      <path d="M3.5 13.5V18a1.5 1.5 0 0 0 1.5 1.5h14a1.5 1.5 0 0 0 1.5-1.5v-4.5H16l-1.5 2.5h-5L8 13.5z" />
+      <path d="M9.5 8.5h5M10.5 11h3" />
     </svg>
   ),
   workorders: (
@@ -160,24 +168,6 @@ const ICONS: Record<string, ReactElement> = {
       <path d="M10 13.5V5a2 2 0 0 1 4 0v8.5a4.5 4.5 0 1 1-4 0z" />
       <path d="M12 9v7" />
       <circle cx="12" cy="17.5" r="1.6" />
-    </svg>
-  ),
-  walkaround: (
-    // Camión con lupa-check: el driver caminando la unidad, zona por zona.
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2.5 6.5h10v8h-10zM12.5 9.5h4l3 3v2h-7z" />
-      <path d="M5.5 17.5h.01M16.5 17.5h.01" />
-      <path d="m6 10 1.6 1.6L10.5 8.6" />
-    </svg>
-  ),
-  workflows: (
-    // Clipboard con lista + check: los pasos del pre-trip que arma el manager.
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 4h6a1 1 0 0 1 1 1v1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h2V5a1 1 0 0 1 1-1z" />
-      <path d="M9 11h6M9 15h2.5" />
-      <path d="m14 15.3 1.3 1.3 2.4-2.6" />
     </svg>
   ),
   settings: (
@@ -336,8 +326,18 @@ export default function App() {
     enabled: authed,
     staleTime: 60_000,
   })
+  // Badge de Service Requests: nº de requests abiertos. Misma key que la
+  // pestaña Open de la página (caché compartida); refresco cada 5 min.
+  const serviceRequestsQuery = useQuery({
+    queryKey: ['service-requests', 'open', '', ''],
+    queryFn: () => listServiceRequests({ status: 'open' }),
+    enabled: authed,
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+  })
   const navBadges: Record<string, number> = {
     purchasing: requestsQuery.data?.stats?.pending ?? 0,
+    'service-requests': serviceRequestsQuery.data?.counts?.open ?? 0,
   }
   // Tooltip del riel colapsado: se posiciona `fixed` a la altura del icono
   // hovereado, así el riel puede scrollear sin recortar ni encimar el label.
@@ -673,8 +673,7 @@ export default function App() {
           {section === 'pm' && <MaintBoardPage kind="pm" />}
           {section === 'dot' && <MaintBoardPage kind="dot" />}
           {section === 'coldchain' && <ReeferPage />}
-          {section === 'walkaround' && <WalkaroundPage onNavigate={navigate} />}
-          {section === 'workflows' && <WorkflowsPage />}
+          {section === 'service-requests' && <ServiceRequestsPage />}
           {section === 'workorders' && <WorkOrdersPage />}
           {section === 'parts' && <PartsPage />}
           {section === 'purchasing' && <PurchasingPage />}

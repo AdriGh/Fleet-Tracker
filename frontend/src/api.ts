@@ -303,10 +303,19 @@ export interface FleetUnit {
   archive_reason: string | null   // manual | auto | null
 }
 
+// GET /api/fleet trae `error` cuando Samsara falló: `units` son SOLO las
+// manuales (universo parcial) y el backend de Service Requests acepta
+// entonces cualquier unidad. La caché ['fleet'] guarda solo el array, así
+// que la última respuesta deja acá si fue parcial (lo lee unitMatch para no
+// exigir elegir de una lista incompleta).
+let fleetPartial = false
+export const fleetIsPartial = () => fleetPartial
+
 export async function listFleet(): Promise<FleetUnit[]> {
   const res = await fetch('/api/fleet')
   if (!res.ok) throw new Error(await readError(res))
   const data = await res.json()
+  fleetPartial = !!data.error
   return (data.units ?? []) as FleetUnit[]
 }
 
@@ -1036,6 +1045,11 @@ export interface WorkOrder {
   links?: WoLinks
   // Presente solo si el PATCH disparo una notificacion de Telegram.
   telegram?: { sent: boolean; simulated?: boolean; detail?: string }
+  // Service requests ligados a esta orden (v2.20, solo en el detalle).
+  service_requests?: {
+    id: number; source: SrSource; title: string
+    status: SrStatus; priority: SrPriority
+  }[]
 }
 
 export interface WoStats {
@@ -1415,6 +1429,206 @@ export async function sendWoInvoice(
   })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
+}
+
+// ----- Service Requests (v2.20) ---------------------------------------------
+// Backlog por unidad (defectos DVIR abiertos + PM/DOT por vencer + pedidos
+// manuales) desde el que se despacha: Deny / Snooze / Add to WO / Create WO.
+// El GET ya corre el sync con TTL en el backend; "Check for due" lo fuerza.
+export type SrSource = 'defect' | 'pm' | 'dot' | 'manual'
+export type SrPriority = 'low' | 'normal' | 'urgent' | 'emergency'
+// 'deleted' (v2.20 addendum) = borrado suave: el backend lo excluye de
+// toda lista, conteo y units[]; solo vuelve con restoreServiceRequests.
+export type SrStatus =
+  'open' | 'snoozed' | 'on_wo' | 'done' | 'denied' | 'deleted'
+// Status que se pueden listar/contar (?status=): todos menos 'deleted'.
+export type SrListStatus = Exclude<SrStatus, 'deleted'>
+
+export interface ServiceRequest {
+  id: number
+  unit: string
+  company: string
+  source: SrSource
+  source_key: string
+  title: string
+  detail: string
+  priority: SrPriority
+  status: SrStatus
+  wo_id: number | null
+  wo_display_no: string | null
+  wo_status: WoStatus | null
+  resolution: '' | 'wo' | 'cleared' | 'denied' | 'deleted'
+  // Datos del origen: due info (pm/dot), reports/dvir_type (defect), model…
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  meta: Record<string, any>
+  source_active: boolean
+  snooze_until: string | null
+  follow_up_date: string | null
+  deny_reason: string
+  created_by: string
+  created_at: string
+  updated_at: string
+  resolved_at: string | null
+  // Duplicado calculado en el GET (no se guarda): id del request "keeper"
+  // (misma unidad, solo open/snoozed; gana la fila de sistema activa, luego
+  // la abierta, luego la más antigua) o null.
+  duplicate_of: number | null
+}
+
+export interface SrUnitSummary {
+  unit: string
+  company: string
+  model: string
+  open: number
+  by_source: { defect: number; pm: number; dot: number; manual: number }
+  top_priority: SrPriority
+  worst_overdue_miles: number | null
+  // Requests de la unidad con duplicate_of != null (botón "Remove N").
+  duplicates: number
+}
+
+export interface SrList {
+  requests: ServiceRequest[]
+  counts: Record<SrListStatus, number>
+  units: SrUnitSummary[]
+  synced_at: string | null
+  // Solo historial (done / denied / all): se devolvieron los 1000 más
+  // recientes. Lo accionable (open / snoozed / on_wo) llega siempre completo.
+  truncated?: boolean
+}
+
+export interface SrSyncResult {
+  created: number
+  resolved: number
+  reopened: number
+  synced_at: string | null
+}
+
+export async function listServiceRequests(params: {
+  status?: SrListStatus | 'all'; unit?: string; source?: SrSource | ''
+} = {}): Promise<SrList> {
+  const qs = new URLSearchParams()
+  if (params.status) qs.set('status', params.status)
+  if (params.unit) qs.set('unit', params.unit)
+  if (params.source) qs.set('source', params.source)
+  const res = await fetch(`/api/service-requests?${qs}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// "Check for due": sync forzado (ignora el TTL del backend).
+export async function syncServiceRequests(): Promise<SrSyncResult> {
+  const res = await fetch('/api/service-requests/sync', { method: 'POST' })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// POST JSON compartido por las acciones de service requests.
+async function srPost<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`/api/service-requests${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function createServiceRequest(b: {
+  unit: string; title: string; detail?: string; priority?: SrPriority
+  follow_up_date?: string | null; company?: string
+}): Promise<ServiceRequest> {
+  return srPost<ServiceRequest>('', b)
+}
+
+// follow_up_date "" limpia la fecha (el backend lo interpreta así).
+export async function patchServiceRequest(id: number, b: {
+  title?: string; detail?: string; priority?: SrPriority
+  follow_up_date?: string | null
+}): Promise<ServiceRequest> {
+  const res = await fetch(`/api/service-requests/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(b),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function denyServiceRequest(
+  id: number, reason = '',
+): Promise<ServiceRequest> {
+  return srPost<ServiceRequest>(`/${id}/deny`, { reason })
+}
+
+export async function snoozeServiceRequest(
+  id: number, until: string,
+): Promise<ServiceRequest> {
+  return srPost<ServiceRequest>(`/${id}/snooze`, { until })
+}
+
+export async function reopenServiceRequest(id: number): Promise<ServiceRequest> {
+  return srPost<ServiceRequest>(`/${id}/reopen`)
+}
+
+export async function createWoFromRequests(b: {
+  ids: number[]; title?: string; mechanic?: string; priority?: WoPriority | ''
+}): Promise<{ workorder: WorkOrder; requests: ServiceRequest[] }> {
+  return srPost<{ workorder: WorkOrder; requests: ServiceRequest[] }>(
+    '/create-wo', b)
+}
+
+export async function addRequestToWo(
+  id: number, wo_id: number,
+): Promise<{ workorder: WorkOrder; request: ServiceRequest }> {
+  return srPost<{ workorder: WorkOrder; request: ServiceRequest }>(
+    `/${id}/add-to-wo`, { wo_id })
+}
+
+export async function unlinkRequest(id: number): Promise<ServiceRequest> {
+  return srPost<ServiceRequest>(`/${id}/unlink`)
+}
+
+// ----- Borrado suave + restore (v2.20 addendum) -----
+// Borra cualquier status salvo on_wo (vuelve en `skipped` con el motivo);
+// los ya borrados se ignoran. Una sola transacción en el backend. Quien
+// llama invalida ['service-requests'] (badge del nav incluido).
+export interface SrDeleteResult {
+  deleted: number[]
+  skipped: { id: number; reason: string }[]
+}
+
+export async function deleteServiceRequests(
+  ids: number[],
+): Promise<SrDeleteResult> {
+  return srPost<SrDeleteResult>('/delete', { ids })
+}
+
+// "Undo" de un borrado: el request vuelve al estado que tenía antes de
+// borrarse (open, pospuesto con su fecha, denegado con su motivo, cerrado y
+// ligado a su WO…); lo que ya no aplica (snooze vencido, WO borrada) cae a
+// open.
+export async function restoreServiceRequests(
+  ids: number[],
+): Promise<{ restored: number[] }> {
+  return srPost<{ restored: number[] }>('/restore', { ids })
+}
+
+// Borra todos los duplicados accionables (duplicate_of != null), de una
+// sola unidad si se pasa (el backend compara normalizado).
+export async function deleteDuplicateRequests(
+  unit?: string,
+): Promise<SrDeleteResult> {
+  return srPost<SrDeleteResult>('/delete-duplicates', unit ? { unit } : {})
+}
+
+// Defecto abierto → WO ligada (crea/reusa el request del defecto).
+export async function defectToWo(b: {
+  unit: string; detail: string; dvir_type?: string; company?: string
+  mechanic?: string
+}): Promise<{ workorder: WorkOrder; request: ServiceRequest }> {
+  return srPost<{ workorder: WorkOrder; request: ServiceRequest }>(
+    '/defect-to-wo', b)
 }
 
 // --- Cold chain / reefers (fase G4) --------------------------------------
@@ -2880,178 +3094,6 @@ export async function fetchEvidenceCounts(
   })
   if (!res.ok) throw new Error(await readError(res))
   return (await res.json()).counts as Record<number, number>
-}
-
-// ----- Workflows del driver (v2.15, elemento 03 del board) ----------------
-// El manager arma el pre-trip de SU flota (pasos tipados, foto, orden) y el
-// walkaround PWA (v2.16) consumirá el ACTIVO vía GET /api/workflows/active.
-// El guardado es replace-all: se manda name + la lista completa de pasos.
-
-export type WorkflowStepType = 'check' | 'photo' | 'read' | 'sign'
-
-export interface WorkflowStep {
-  id: number
-  pos: number
-  type: WorkflowStepType
-  label: string
-  required: boolean
-}
-
-export interface WorkflowSummary {
-  id: number
-  name: string
-  active: boolean
-  n_steps: number
-  updated_at: string
-}
-
-export interface Workflow {
-  id: number
-  name: string
-  active: boolean
-  updated_at: string
-  steps: WorkflowStep[]
-}
-
-// Lo que viaja al guardar (sin id/pos: el backend reescribe pos secuencial).
-export interface WorkflowStepInput {
-  type: WorkflowStepType
-  label: string
-  required: boolean
-}
-
-export async function listWorkflows(): Promise<WorkflowSummary[]> {
-  const res = await fetch('/api/workflows')
-  if (!res.ok) throw new Error(await readError(res))
-  return (await res.json()).workflows as WorkflowSummary[]
-}
-
-export async function getWorkflow(id: number): Promise<Workflow> {
-  const res = await fetch(`/api/workflows/${id}`)
-  if (!res.ok) throw new Error(await readError(res))
-  return res.json()
-}
-
-export async function createWorkflow(
-  name: string, steps: WorkflowStepInput[],
-): Promise<Workflow> {
-  const res = await fetch('/api/workflows', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, steps }),
-  })
-  if (!res.ok) throw new Error(await readError(res))
-  return res.json()
-}
-
-export async function updateWorkflow(
-  id: number, name: string, steps: WorkflowStepInput[],
-): Promise<Workflow> {
-  const res = await fetch(`/api/workflows/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, steps }),
-  })
-  if (!res.ok) throw new Error(await readError(res))
-  return res.json()
-}
-
-export async function deleteWorkflow(id: number): Promise<void> {
-  const res = await fetch(`/api/workflows/${id}`, { method: 'DELETE' })
-  if (!res.ok) throw new Error(await readError(res))
-}
-
-export async function activateWorkflow(id: number): Promise<void> {
-  const res = await fetch(`/api/workflows/${id}/activate`, { method: 'POST' })
-  if (!res.ok) throw new Error(await readError(res))
-}
-
-// ----- Walkaround del driver (v2.16, elemento 02) -------------------------
-
-export interface WalkStep {
-  id: number
-  pos: number
-  type: 'check' | 'photo' | 'read' | 'sign'
-  label: string
-  required: boolean
-  verdict: string
-  value: string
-  note: string
-  photos: number
-}
-
-export interface WalkaroundRun {
-  id: number
-  unit: string
-  driver: string
-  company: string
-  workflow_name: string
-  status: string
-  started_at: string
-  submitted_at: string | null
-  defects_created: number
-  steps: WalkStep[]
-  odometer_logged?: boolean
-}
-
-export interface WalkaroundRecent {
-  id: number
-  unit: string
-  driver: string
-  status: string
-  started_at: string
-  defects_created: number
-}
-
-// El workflow activo (contrato del editor v2.15): el walkaround arranca de acá.
-export async function getActiveWorkflow(): Promise<Workflow | null> {
-  const res = await fetch('/api/workflows/active')
-  if (res.status === 404) return null
-  if (!res.ok) throw new Error(await readError(res))
-  return res.json()
-}
-
-export async function startWalkaround(
-  unit: string, driver: string, company: string,
-): Promise<WalkaroundRun> {
-  const res = await fetch('/api/walkarounds', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ unit, driver, company }),
-  })
-  if (!res.ok) throw new Error(await readError(res))
-  return res.json()
-}
-
-export async function submitWalkaround(
-  runId: number,
-  results: { step_id: number; verdict?: string; value?: string; note?: string }[],
-): Promise<WalkaroundRun> {
-  const res = await fetch(`/api/walkarounds/${runId}/submit`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ results }),
-  })
-  if (!res.ok) throw new Error(await readError(res))
-  return res.json()
-}
-
-export async function recentWalkarounds(): Promise<WalkaroundRecent[]> {
-  const res = await fetch('/api/walkarounds/recent')
-  if (!res.ok) throw new Error(await readError(res))
-  return (await res.json()).walkarounds
-}
-
-// La foto del paso DURANTE la corrida (la firma también: canvas → PNG).
-export async function uploadWalkstepPhoto(
-  stepId: number, file: File | Blob, filename = 'photo.jpg',
-): Promise<void> {
-  const fd = new FormData()
-  fd.append('files', file, file instanceof File ? file.name : filename)
-  const res = await fetch(`/api/walksteps/${stepId}/photos`, {
-    method: 'POST', body: fd,
-  })
-  if (!res.ok) throw new Error(await readError(res))
 }
 
 // ----- PM compliance por variante de motor (v2.18, Reports) ---------------

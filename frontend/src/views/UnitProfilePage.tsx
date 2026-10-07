@@ -234,6 +234,9 @@ export default function UnitProfilePage({ unit, onClose }: {
     qc.invalidateQueries({ queryKey: ['unit-campaigns', unit] })
     qc.invalidateQueries({ queryKey: ['maint'] })
     qc.invalidateQueries({ queryKey: ['pm'] })
+    // Un PM/DOT registrado cambia lo que vence: el backend ya olvidó el TTL
+    // del sync, así que el refetch trae el backlog al día.
+    qc.invalidateQueries({ queryKey: ['service-requests'] })
   }
 
   return (
@@ -571,6 +574,10 @@ export default function UnitProfilePage({ unit, onClose }: {
               await deleteWorkOrder(w.id)
               qc.invalidateQueries({ queryKey: ['unit-wos', unit] })
               qc.invalidateQueries({ queryKey: ['workorders'] })
+              qc.invalidateQueries({ queryKey: ['workorder'] })
+              // Los service requests ligados a la WO borrada vuelven a open
+              // en el backend: badge del nav y backlog al día.
+              qc.invalidateQueries({ queryKey: ['service-requests'] })
               notifyOk(`Work order #${w.id} deleted`)
             } catch (e) {
               notifyErr("Couldn't delete", e)

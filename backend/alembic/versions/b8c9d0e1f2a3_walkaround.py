@@ -59,8 +59,11 @@ def upgrade() -> None:
         sa.Column("pos", sa.Integer(), nullable=False),
         sa.Column("type", sa.String(length=8), nullable=False),
         sa.Column("label", sa.String(length=120), nullable=False),
+        # v2.20: sa.false() (no sa.text("0")): Postgres rechaza un default
+        # entero en una columna boolean. Editar en sitio es seguro: si
+        # fallaba, la revisión nunca llegó a aplicarse.
         sa.Column("required", sa.Boolean(), nullable=False,
-                  server_default=sa.text("0")),
+                  server_default=sa.false()),
         sa.Column("verdict", sa.String(length=8), nullable=False,
                   server_default=""),
         sa.Column("value", sa.String(length=40), nullable=False,

@@ -1,5 +1,6 @@
 """Endpoints de la API del generador de informes DVIR."""
 
+import asyncio
 import base64
 import io
 import re
@@ -21,7 +22,8 @@ from fastapi import Header
 from ..core import (
     alerts, app_config, auth, batch, companies, cores, docscan,
     demo_eld, driver_contacts, engine, evidence,
-    excel, integrations_admin, inventory, local_config, lynx, mailer, maint,
+    excel, fleet_inventory, integrations_admin, inventory, local_config,
+    lynx, mailer, maint,
     manual_units, media_host, notify_service, odometer, open_defects,
     org_config,
     parts, parts_marketplace, permissions, pm, pois, pretrip, providers,
@@ -32,8 +34,9 @@ from ..core import (
     teams,
     telegram_notify, terminals, thermoking, tms, traccar, tracking,
     setup_status as setup_status_core,
-    unit_photos, unit_settings, unitdocs, vin_decode, walkarounds, warranty,
-    wo_invoice, wo_invoices, workflows, workorders,
+    service_requests,
+    unit_photos, unit_settings, unitdocs, vin_decode, warranty,
+    wo_invoice, wo_invoices, workorders,
 )
 from ..core import notice_templates
 from ..core.contacts import name_key
@@ -397,40 +400,9 @@ def dvir_defects(company: str | None = None, status: str | None = None,
 async def dvir_open_defects(refresh: bool = False):
     """Defectos ABIERTOS. Prefiere la API de Samsara en vivo; si no hay token
     o la API falla, cae al export CSV local. Devuelve filas con la misma forma
-    que /dvir/defects (status = "Open")."""
-    if refresh:
-        samsara.clear_cache()
-    csv_rows = open_defects.load()
-    if samsara.is_available():
-        try:
-            live = await samsara.load()
-            # Samsara cubre algunos orgs (p.ej. Chaser); las empresas que NO
-            # estén en el org de Samsara (p.ej. MCC) siguen viniendo del CSV.
-            covered = {d["company"] for d in live}
-            merged = live + [d for d in csv_rows if d["company"] not in covered]
-            # Excluir assets archivados (p.ej. duplicados/mal etiquetados en
-            # Samsara): no deben contar en el backlog de defectos.
-            archived = set(app_config.archived_ids())
-            merged = [d for d in merged if d.get("asset_id") not in archived]
-            merged.sort(key=lambda d: d["unit"])
-            return {
-                "available": True,
-                "source": "samsara",
-                "live_companies": sorted(covered),
-                "defects": merged,
-            }
-        except Exception as exc:  # noqa: BLE001 — fallback ante cualquier fallo
-            return {
-                "available": open_defects.is_available(),
-                "source": "csv",
-                "error": f"Samsara did not respond ({exc}); using local CSV.",
-                "defects": csv_rows,
-            }
-    return {
-        "available": open_defects.is_available(),
-        "source": "csv",
-        "defects": csv_rows,
-    }
+    que /dvir/defects (status = "Open"). La lógica vive en
+    open_defects.current_feed (la comparte el sync de Service Requests)."""
+    return await open_defects.current_feed(refresh=refresh)
 
 
 @router.get("/dvir/defect-stats")
@@ -825,6 +797,213 @@ def wo_send(wo_id: int, body: WorkOrderSendIn):
         raise HTTPException(status_code=404, detail="WO not found")
     return wo_invoice.send(wo, body.channels, body.email, body.phone,
                            body.unit_info)
+
+
+# ----- Service Requests (v2.20) ---------------------------------------------
+# Backlog por unidad (defectos DVIR + PM/DOT + pedidos manuales) desde el que
+# se despacha: Deny / Snooze / Add to WO / Create WO. Toda la lógica vive en
+# core/service_requests. GET = lectura; las escrituras exigen maint.edit
+# (prefijo /api/service-requests en _scope_for). Las rutas literales (sync,
+# create-wo, defect-to-wo, delete, restore, delete-duplicates) van ANTES de
+# las dinámicas /{req_id}.
+
+class ServiceRequestIn(BaseModel):
+    unit: str
+    title: str
+    detail: str = ""
+    priority: str = "normal"
+    follow_up_date: str | None = None
+    company: str = ""
+
+
+class ServiceRequestPatch(BaseModel):
+    title: str | None = None
+    detail: str | None = None
+    priority: str | None = None
+    follow_up_date: str | None = None     # "" o null explícito limpia la fecha
+
+
+class SrCreateWoIn(BaseModel):
+    ids: list[int]
+    title: str = ""
+    mechanic: str = ""
+    priority: str = ""
+
+
+class SrDefectToWoIn(BaseModel):
+    unit: str
+    detail: str
+    dvir_type: str = ""
+    company: str = ""
+    mechanic: str = ""
+
+
+class SrDenyIn(BaseModel):
+    reason: str = ""
+
+
+class SrSnoozeIn(BaseModel):
+    until: str                            # YYYY-MM-DD (futura)
+
+
+class SrAddToWoIn(BaseModel):
+    wo_id: int
+
+
+class SrIdsIn(BaseModel):
+    ids: list[int]
+
+
+class SrDeleteDupsIn(BaseModel):
+    unit: str = ""                        # "" = toda la flota
+
+
+def _actor_name(request: Request) -> str:
+    """Nombre del usuario del request (lo dejó el middleware de auth)."""
+    u = getattr(request.state, "user", None) or {}
+    return u.get("name") or u.get("username") or ""
+
+
+@router.get("/service-requests")
+async def sr_list(status: str = "open", unit: str = "", source: str = ""):
+    # Sync con TTL antes de listar; si falla se loguea y se sirve lo que hay.
+    await service_requests.sync_quietly()
+    try:
+        return service_requests.list_requests(status, unit, source)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/service-requests/sync")
+async def sr_sync():
+    """'Check for Due': sync forzado (ignora el TTL)."""
+    return await service_requests.sync(force=True)
+
+
+@router.post("/service-requests")
+async def sr_create(body: ServiceRequestIn, request: Request):
+    # La unidad sale del universo de GET /fleet (dropdown del front) + las
+    # que el backlog / las fuentes del sync ya muestran: se canoniza y una
+    # desconocida da 400. El índice es async (Samsara); la escritura corre
+    # en un thread como las rutas sync.
+    units = await service_requests.unit_index(body.unit)
+    try:
+        return await asyncio.to_thread(
+            service_requests.create_manual,
+            body.unit, body.title, body.detail, body.priority,
+            body.follow_up_date, body.company, _actor_name(request),
+            units=units)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/service-requests/create-wo")
+def sr_create_wo(body: SrCreateWoIn, request: Request):
+    try:
+        return service_requests.create_wo(
+            body.ids, body.title, body.mechanic, body.priority,
+            _actor_name(request))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/service-requests/defect-to-wo")
+async def sr_defect_to_wo(body: SrDefectToWoIn):
+    units = await service_requests.defect_unit_index(body.unit)
+    try:
+        return await asyncio.to_thread(
+            service_requests.defect_to_wo,
+            body.unit, body.detail, body.dvir_type, body.company,
+            body.mechanic, units=units)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/service-requests/delete")
+def sr_delete(body: SrIdsIn):
+    """Borrado suave (cualquier estado menos on_wo). {deleted, skipped}."""
+    return service_requests.delete_requests(body.ids)
+
+
+@router.post("/service-requests/restore")
+def sr_restore(body: SrIdsIn):
+    """Undo del borrado: vuelve al estado previo al borrado. {restored}."""
+    return service_requests.restore_requests(body.ids)
+
+
+@router.post("/service-requests/delete-duplicates")
+def sr_delete_duplicates(body: SrDeleteDupsIn | None = None):
+    """Borra los duplicados (duplicate_of) de una unidad o de la flota."""
+    return service_requests.delete_duplicates(body.unit if body else "")
+
+
+@router.patch("/service-requests/{req_id}")
+def sr_patch(req_id: int, body: ServiceRequestPatch):
+    try:
+        # Solo los campos presentes; follow_up_date admite null para limpiar.
+        r = service_requests.update_request(
+            req_id, {k: v for k, v in body.model_dump(exclude_unset=True)
+                     .items() if v is not None or k == "follow_up_date"})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if r is None:
+        raise HTTPException(status_code=404, detail="Request not found")
+    return r
+
+
+@router.post("/service-requests/{req_id}/deny")
+def sr_deny(req_id: int, body: SrDenyIn | None = None):
+    try:
+        r = service_requests.deny(req_id, body.reason if body else "")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if r is None:
+        raise HTTPException(status_code=404, detail="Request not found")
+    return r
+
+
+@router.post("/service-requests/{req_id}/snooze")
+def sr_snooze(req_id: int, body: SrSnoozeIn):
+    try:
+        r = service_requests.snooze(req_id, body.until)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if r is None:
+        raise HTTPException(status_code=404, detail="Request not found")
+    return r
+
+
+@router.post("/service-requests/{req_id}/reopen")
+def sr_reopen(req_id: int):
+    try:
+        r = service_requests.reopen(req_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if r is None:
+        raise HTTPException(status_code=404, detail="Request not found")
+    return r
+
+
+@router.post("/service-requests/{req_id}/add-to-wo")
+def sr_add_to_wo(req_id: int, body: SrAddToWoIn):
+    try:
+        r = service_requests.add_to_wo(req_id, body.wo_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if r is None:
+        raise HTTPException(status_code=404, detail="Request not found")
+    return r
+
+
+@router.post("/service-requests/{req_id}/unlink")
+def sr_unlink(req_id: int):
+    try:
+        r = service_requests.unlink(req_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if r is None:
+        raise HTTPException(status_code=404, detail="Request not found")
+    return r
 
 
 # ----- Catálogo de Partes + Vendors (fase H3, estilo Fullbay) --------------
@@ -1978,56 +2157,11 @@ def fleet_archive(body: ArchiveIn):
 async def fleet(refresh: bool = False):
     """Inventario de la flota (todas las unidades de Samsara) con datos del
     asset, defectos abiertos y estado de archivo (manual o auto por inactividad
-    de DVIR). Solo Samsara (sin fallback CSV).
+    de DVIR). Solo Samsara (sin fallback CSV). La lógica vive en
+    core/fleet_inventory: Service Requests (v2.20) canoniza y valida la unidad
+    contra este mismo universo.
     """
-    if refresh:
-        samsara.clear_cache()
-    st = app_config.get_settings()
-    # Unidades agregadas a mano (Fleet -> Add New Unit): se muestran SIEMPRE,
-    # esten o no disponibles los datos de Samsara.
-    if not samsara.is_available():
-        units = manual_units.merge_into_fleet([])
-        for u in units:
-            u["archived"], u["archive_reason"] = False, None
-        return {"available": bool(units),
-                "source": "manual" if units else "none",
-                "units": units, "settings": st, "archived_count": 0}
-    arch = app_config.archived_ids()
-    keep = app_config.kept_active_ids()
-    auto_days = st["auto_archive_days"] if st["auto_archive_enabled"] else None
-    try:
-        units = await samsara.list_fleet(auto_days)
-    except Exception as exc:  # noqa: BLE001
-        units = manual_units.merge_into_fleet([])
-        for u in units:
-            u["archived"], u["archive_reason"] = False, None
-        return {"available": bool(units),
-                "source": "error" if not units else "manual",
-                "error": str(exc), "units": units, "settings": st}
-
-    for u in units:
-        uid = str(u.get("id"))
-        if uid in arch:
-            u["archived"], u["archive_reason"] = True, "manual"
-        elif (auto_days and u.get("dvir_known") and u.get("auto_eligible")
-              and not u.get("last_dvir") and uid not in keep):
-            u["archived"], u["archive_reason"] = True, "auto"
-        else:
-            u["archived"], u["archive_reason"] = False, None
-
-    # Mergear las unidades manuales (Samsara gana por numero de unidad).
-    units = manual_units.merge_into_fleet(units)
-    for u in units:
-        u.setdefault("archived", False)
-        u.setdefault("archive_reason", None)
-
-    return {
-        "available": True,
-        "source": "samsara",
-        "settings": st,
-        "archived_count": sum(1 for u in units if u["archived"]),
-        "units": units,
-    }
+    return await fleet_inventory.load(refresh)
 
 
 @router.get("/drivers")
@@ -2528,7 +2662,6 @@ async def _evidence_upload(parent: str, parent_id: int,
         raise HTTPException(404, {
             "defect": "Defect not found",
             "wo": "Work order not found",
-            "walkstep": "Walkaround step not found",
         }.get(parent, "Parent not found"))
     saved = []
     try:
@@ -2600,144 +2733,3 @@ def evidence_counts(body: EvidenceCountsIn):
                             detail="parent must be 'defect' or 'wo'")
     # Techo de sanidad: la página real manda <=400 ids (limit de list_defects).
     return {"counts": evidence.counts(body.parent, body.ids[:500])}
-
-# ----- Workflows del driver (v2.15, elemento 03) -----
-
-class WorkflowStepIn(BaseModel):
-    type: str            # check | photo | read | sign (valida core/workflows)
-    label: str
-    required: bool = False
-
-
-class WorkflowIn(BaseModel):
-    name: str
-    steps: list[WorkflowStepIn] = []
-
-
-# ⚠ Orden de registro: /workflows/active va ANTES de /workflows/{wid}.
-# FastAPI matchea en orden; si no, "active" caería como wid y daría 422.
-@router.get("/workflows/active")
-def workflows_active():
-    """El workflow ACTIVO con sus pasos ordenados (consumidor: el walkaround
-    PWA del driver, v2.16)."""
-    wf = workflows.active_workflow()
-    if wf is None:
-        raise HTTPException(404, "No active workflow yet.")
-    return wf
-
-
-@router.get("/workflows")
-def workflows_list():
-    """Resúmenes de los workflows del tenant. Siembra el "Pre-trip" genérico
-    la primera vez (el editor nunca abre vacío)."""
-    workflows.ensure_default()
-    return {"workflows": workflows.list_workflows()}
-
-
-@router.get("/workflows/{wid}")
-def workflows_get(wid: int):
-    """Un workflow con sus pasos ordenados por pos."""
-    wf = workflows.get_workflow(wid)
-    if wf is None:
-        raise HTTPException(404, "Workflow not found.")
-    return wf
-
-
-@router.post("/workflows")
-def workflows_create(body: WorkflowIn):
-    """Crea un workflow nuevo (inactivo hasta que el manager lo active)."""
-    try:
-        return workflows.save_workflow(None, body.model_dump())
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@router.put("/workflows/{wid}")
-def workflows_update(wid: int, body: WorkflowIn):
-    """Reemplaza nombre+pasos (replace-all transaccional)."""
-    try:
-        return workflows.save_workflow(wid, body.model_dump())
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@router.delete("/workflows/{wid}")
-def workflows_delete(wid: int):
-    """Borra un workflow (prohibido borrar el único)."""
-    try:
-        workflows.delete_workflow(wid)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    return {"ok": True}
-
-
-@router.post("/workflows/{wid}/activate")
-def workflows_activate(wid: int):
-    """Activa `wid` y desactiva el resto (UN activo por org)."""
-    try:
-        workflows.set_active(wid)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    return {"ok": True}
-
-
-# ----- Walkaround del driver (v2.16, elemento 02) -----
-
-class WalkaroundStartIn(BaseModel):
-    unit: str
-    driver: str
-    company: str = ""
-
-
-class WalkaroundResultIn(BaseModel):
-    step_id: int
-    verdict: str = ""
-    value: str = ""
-    note: str = ""
-
-
-class WalkaroundSubmitIn(BaseModel):
-    results: list[WalkaroundResultIn]
-
-
-@router.get("/walkarounds/recent")
-def walkarounds_recent():
-    """Últimas corridas (pantalla de inicio del walkaround). Literal ANTES
-    de /{run_id} — mismo porqué que /workflows/active."""
-    return {"walkarounds": walkarounds.recent()}
-
-
-@router.post("/walkarounds")
-def walkaround_start(body: WalkaroundStartIn):
-    """Arranca una corrida: snapshot del workflow activo."""
-    try:
-        return walkarounds.start(body.unit, body.driver, body.company)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@router.get("/walkarounds/{run_id}")
-def walkaround_get(run_id: int):
-    run = walkarounds.get(run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="Walkaround not found")
-    return run
-
-
-@router.post("/walkarounds/{run_id}/submit")
-def walkaround_submit(run_id: int, body: WalkaroundSubmitIn):
-    """Valida y materializa: defectos con evidencia + odómetro + firma."""
-    try:
-        return walkarounds.submit(
-            run_id, [r.model_dump() for r in body.results])
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@router.post("/walksteps/{step_id}/photos")
-async def walkstep_photos_upload(step_id: int,
-                                 files: list[UploadFile] = File(...),
-                                 note: str = Form("")):
-    """Fotos de un paso DURANTE la corrida (la firma también entra por acá:
-    el canvas del teléfono se sube como PNG del paso 'sign')."""
-    return await _evidence_upload("walkstep", step_id, files, "report", note)

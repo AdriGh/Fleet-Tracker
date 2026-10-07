@@ -43,7 +43,7 @@ powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8765 -State List
 
 REM --- Arrancar el servidor en segundo plano ---
 REM FLEET_DEMO=1 EXPLICITO: sin el flag el demo es implicito (por falta de
-REM Samsara) y el simulador de Cold Chain / walkaround demo queda apagado.
+REM Samsara) y el simulador de Cold Chain demo queda apagado.
 start "Rigsmith - servidor" /min cmd /c ^
   "cd /d "%~dp0backend" && set FLEET_DEMO=1&& py -m uvicorn app.main:app --host 127.0.0.1 --port 8765"
 

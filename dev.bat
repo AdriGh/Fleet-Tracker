@@ -8,8 +8,8 @@ rem  Para apagar todo: cerrar las dos ventanas "Rigsmith ...".
 rem
 rem  El frontend se sirve con --host: desde el telefono (misma
 rem  Wi-Fi) entra por la IP que se imprime abajo — asi se prueba
-rem  el Walkaround con la camara real. La primera vez Windows
-rem  Firewall pregunta por Node: "Permitir acceso".
+rem  la vista mobile (fotos de evidencia con la camara real). La
+rem  primera vez Windows Firewall pregunta por Node: "Permitir acceso".
 rem ============================================================
 cd /d "%~dp0"
 
@@ -35,12 +35,12 @@ start http://localhost:5173
 
 echo.
 echo   PC:        http://localhost:5173
-echo   Telefono (misma Wi-Fi, para el Walkaround):
+echo   Telefono (misma Wi-Fi, vista mobile / camara):
 for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
   for %%b in (%%a) do echo              http://%%b:5173
 )
 echo.
 echo   Demo ELD activa (FLEET_DEMO=1): flota, DVIR, Cold Chain y
-echo   Walkaround funcionan sin ELD real.
+echo   Service Requests funcionan sin ELD real.
 echo.
 pause

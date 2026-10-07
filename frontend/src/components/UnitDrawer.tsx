@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { Drawer } from 'vaul'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  createWorkOrder, fleetArchive, getUnitSettings, listOpenDefects,
+  defectToWo, fleetArchive, getUnitSettings, listOpenDefects,
   listPM, saveUnitSettings, type FleetUnit, type UnitSettings,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
@@ -67,22 +67,26 @@ export default function UnitDrawer(
     }
   }
 
-  // Defecto -> Work Order (pipeline G5).
+  // Defecto -> Work Order (pipeline G5). Desde v2.20 pasa por el service
+  // request del defecto (lo crea si falta) para que la WO quede ligada y el
+  // backlog no lo vuelva a ofrecer.
   const [creatingWo, setCreatingWo] = useState<number | null>(null)
-  async function defectToWo(idx: number, detail: string, dvirType: string) {
+  async function sendDefectToWo(idx: number, detail: string, dvirType: string) {
     if (!unit) return
     setCreatingWo(idx)
     try {
-      const title = (detail || `${dvirType} defect`).slice(0, 90)
-      const wo = await createWorkOrder({
+      const { workorder: wo } = await defectToWo({
         unit: unit.unit,
-        title,
-        complaint: `From open defect (${dvirType || 'DVIR'}): ${detail}`,
+        detail: detail || `${dvirType || 'DVIR'} defect`,
+        dvir_type: dvirType,
         company: unit.company,
-        source: 'defect',
       })
+      qc.invalidateQueries({ queryKey: ['service-requests'] })
       qc.invalidateQueries({ queryKey: ['workorders'] })
-      notifyOk('Work order created', `#${wo.id} · ${unit.unit} · open it in Work Orders`)
+      qc.invalidateQueries({ queryKey: ['workorder'] })
+      qc.invalidateQueries({ queryKey: ['unit-wos'] })
+      notifyOk('Work order created',
+        `#${wo.display_no || wo.id} · ${unit.unit} · open it in Work Orders`)
     } catch (e) {
       notifyErr('Could not create the work order', e)
     } finally {
@@ -201,7 +205,7 @@ export default function UnitDrawer(
                               title="Create a work order from this defect"
                               disabled={creatingWo === i}
                               onClick={() =>
-                                defectToWo(i, d.detail, d.dvir_type)}>
+                                sendDefectToWo(i, d.detail, d.dvir_type)}>
                               {creatingWo === i ? 'Creating…' : '→ WO'}
                             </button>
                           </div>

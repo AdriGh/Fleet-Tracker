@@ -3,7 +3,7 @@ import {
 } from 'react'
 import { Drawer } from 'vaul'
 import {
-  keepPreviousData, useQuery, useQueryClient,
+  keepPreviousData, useQuery, useQueryClient, type QueryClient,
 } from '@tanstack/react-query'
 import {
   addWoLine, createPartsRequest, createWorkOrder, deleteWoInvoiceFile,
@@ -11,20 +11,23 @@ import {
   deleteWorkOrder, downloadWoInvoiceFile, fetchWoInvoiceThumbUrl,
   getOrg, getUnitOdometer,
   getWorkOrder, listFleet, listParts, listWorkOrders, patchWorkOrder,
-  scanWoDocument, sendWoInvoice, uploadWoInvoiceFile, viewWoInvoiceFile,
-  type EvidencePhoto, type NotifyChannel, type Part, type WorkOrder,
-  type WoPriority, type WoScanLine, type WoStatus,
+  scanWoDocument, sendWoInvoice, unlinkRequest, uploadWoInvoiceFile,
+  viewWoInvoiceFile,
+  type EvidencePhoto, type NotifyChannel, type Part, type SrSource,
+  type WorkOrder, type WoPriority, type WoScanLine, type WoStatus,
 } from '../api'
 import EvidenceGallery, {
   useEvidenceList, useEvidencePhotoUrl,
 } from '../components/EvidenceGallery'
-import { notifyOk, notifyErr } from '../toast'
+import { notifyOk, notifyErr, notifyWarn } from '../toast'
 import { useTerminals } from '../terminal'
 import { usePerms } from '../perms'
-import { Button, Tabs } from '../components/ds'
+import { Badge, Button, Tabs } from '../components/ds'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
+import UnitPicker from '../components/UnitPicker'
+import { normUnit, useKnownUnits, useUnitMatcher } from '../unitMatch'
 import { StatCluster } from '../components/ds'
 import WorkOrderInvoice from '../components/WorkOrderInvoice'
 import { CreatePoModal } from './PurchaseOrdersPage'
@@ -59,6 +62,101 @@ const PRIORITY_META: Record<WoPriority, { label: string; cls: string }> = {
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 const dateOf = (iso: string | null) => (iso ? iso.slice(0, 10) : '—')
+
+// Búsqueda libre de la página (List/Grid/Board/History): unidad, título,
+// mecánico o nº de WO. El nº acepta el id interno o el display ("4", "4.1",
+// con o sin "#"); "4" también trae las hijas 4.1, 4.2… del mismo invoice.
+function matchesSearch(w: WorkOrder, s: string): boolean {
+  if (!s) return true
+  const no = s.replace(/^#/, '')
+  const disp = (w.display_no ?? '').toLowerCase()
+  return w.unit.toLowerCase().includes(s)
+    || w.title.toLowerCase().includes(s)
+    || w.mechanic.toLowerCase().includes(s)
+    || String(w.id) === no
+    || (!!no && (disp === no || disp.startsWith(`${no}.`)))
+}
+
+// ----- Cambio de estado compartido (drawer + kanban) ---------------------
+// Mover una WO de estado desde el drawer (setStatus) o arrastrando en el
+// Board (moveWo) usa el MISMO patch y los MISMOS efectos laterales.
+
+// ¿El estado destino está en completed o más allá?
+const reachesCompleted = (s: WoStatus) =>
+  PIPELINE.indexOf(s) >= PIPELINE.indexOf('completed')
+
+// Patch del cambio de estado. Una WO de PM que llega a completed manda el
+// odómetro del cierre para que el PM tracker registre el servicio: el valor
+// tipeado en el drawer o, si no hay, el millaje de la propia WO (el Board no
+// tiene input). Si la WO ya tiene pm_miles, el backend lo reusa tal cual.
+function statusPatch(
+  wo: WorkOrder, s: WoStatus, typedMiles = '',
+): Partial<WorkOrder> {
+  const patch: Partial<WorkOrder> = { status: s }
+  if (reachesCompleted(s) && wo.is_pm) {
+    const typed = Number(typedMiles.trim())
+    if (typedMiles.trim() && Number.isFinite(typed) && typed > 0) {
+      patch.pm_miles = typed
+    } else if (!wo.pm_miles && wo.mileage) {
+      patch.pm_miles = wo.mileage
+    }
+  }
+  return patch
+}
+
+// Funde la respuesta de un PATCH/línea en el detalle cacheado del drawer:
+// {...prev, ...updated} conserva `links` (los arma getWorkOrder) aunque la
+// respuesta no los traiga.
+function mergeWoDetail(qc: QueryClient, updated: WorkOrder) {
+  qc.setQueryData<WorkOrder>(['workorder', updated.id], (prev) =>
+    (prev ? { ...prev, ...updated } : updated))
+}
+
+// Vistas que listan WOs fuera del detalle: board/lista, perfil de unidad y
+// el backlog de service requests (una WO que cambia de estado los afecta).
+function invalidateWoLists(qc: QueryClient) {
+  qc.invalidateQueries({ queryKey: ['workorders'] })
+  qc.invalidateQueries({ queryKey: ['unit-wos'] })
+  qc.invalidateQueries({ queryKey: ['service-requests'] })
+}
+
+// Efectos tras un cambio de estado exitoso: PM tracker + toasts (PM y
+// Telegram). `quiet` omite el toast genérico de estado (en el Board la
+// tarjeta ya se ve moverse).
+function afterStatusChange(qc: QueryClient, updated: WorkOrder, opts: {
+  from: WoStatus; to: WoStatus; quiet?: boolean
+}) {
+  const { from, to, quiet } = opts
+  if (reachesCompleted(to) && updated.is_pm && updated.pm_miles) {
+    qc.invalidateQueries({ queryKey: ['pm'] })
+    qc.invalidateQueries({ queryKey: ['maint'] })
+    notifyOk('PM updated',
+      `${updated.unit} · last PM ${updated.pm_miles.toLocaleString()} mi`)
+  } else if (reachesCompleted(to) && !reachesCompleted(from)
+             && updated.is_pm) {
+    // Sin odómetro el hook PM del backend no corre: avisar en vez de callar.
+    notifyWarn('PM tracker not updated',
+      'This PM work order has no odometer. Open it and enter the mileage to record the PM.')
+  } else if (!quiet) {
+    notifyOk(`WO #${updated.display_no || updated.id}: ${STATUS_META[to].label}`)
+  }
+  if (updated.telegram) {
+    if (updated.telegram.simulated) {
+      notifyOk('Telegram (dry run)', 'Simulated, nothing sent')
+    } else if (updated.telegram.sent) {
+      notifyOk('Telegram sent', 'Shop group notified')
+    } else {
+      notifyErr('Telegram failed', updated.telegram.detail
+        ? new Error(updated.telegram.detail) : undefined)
+    }
+  }
+}
+
+// Etiqueta de la fuente de un service request ligado (v2.20); las mismas que
+// usa el backend en las viñetas del complaint.
+const SR_SOURCE_LABEL: Record<SrSource, string> = {
+  defect: 'DVIR defect', pm: 'PM due', dot: 'DOT due', manual: 'Request',
+}
 
 // Tarjeta de WO reutilizada por Grid y Board (kanban). `draggable` solo si el
 // usuario puede editar (para arrastrar entre columnas del board).
@@ -166,8 +264,9 @@ function woTimeline(wo: WorkOrder): WoEvent[] {
       when: wo.created_at,
       label: wo.source === 'reefer' ? 'Opened from reefer fault'
         : wo.source === 'defect' ? 'Opened from defect'
-          : wo.source === 'scan' ? 'Opened from scanned invoice'
-            : 'Work order opened',
+          : wo.source === 'request' ? 'Opened from service request'
+            : wo.source === 'scan' ? 'Opened from scanned invoice'
+              : 'Work order opened',
       tone: wo.source === 'reefer' ? 'accent' : 'info',
     })
   }
@@ -325,9 +424,7 @@ export default function WorkOrdersPage() {
       w.status !== 'invoiced' &&
       (!statusFilter || w.status === statusFilter) &&
       (!terminal || terminalOf(w.unit, w.company) === terminal) &&
-      (!s || w.unit.toLowerCase().includes(s) ||
-        w.title.toLowerCase().includes(s) ||
-        w.mechanic.toLowerCase().includes(s) || String(w.id) === s))
+      matchesSearch(w, s))
   }, [wos, statusFilter, q, terminal, terminalOf])
 
   // History: solo facturadas.
@@ -336,9 +433,7 @@ export default function WorkOrdersPage() {
     return wos.filter((w) =>
       w.status === 'invoiced' &&
       (!terminal || terminalOf(w.unit, w.company) === terminal) &&
-      (!s || w.unit.toLowerCase().includes(s) ||
-        w.title.toLowerCase().includes(s) ||
-        w.mechanic.toLowerCase().includes(s) || String(w.id) === s))
+      matchesSearch(w, s))
   }, [wos, q, terminal, terminalOf])
 
   // Board (kanban): todos los activos (sin filtro de status: las columnas SON
@@ -348,31 +443,51 @@ export default function WorkOrdersPage() {
     return wos.filter((w) =>
       w.status !== 'invoiced' &&
       (!terminal || terminalOf(w.unit, w.company) === terminal) &&
-      (!s || w.unit.toLowerCase().includes(s) ||
-        w.title.toLowerCase().includes(s) ||
-        w.mechanic.toLowerCase().includes(s) || String(w.id) === s))
+      matchesSearch(w, s))
   }, [wos, q, terminal, terminalOf])
 
   const shown = view === 'history' ? historyShown : listShown
 
   function refresh() {
     qc.invalidateQueries({ queryKey: ['workorders'] })
+    // Prefijo: todos los detalles ['workorder', id] (el drawer los lee).
+    qc.invalidateQueries({ queryKey: ['workorder'] })
   }
 
-  // Mover una WO de columna (kanban): optimista + patch. Si un gate del backend
-  // bloquea el avance (p.ej. "assign a mechanic"), revierte y muestra el motivo.
+  // Mover una WO de columna (kanban): optimista + patch, con los mismos
+  // efectos que setStatus del drawer (pm_miles, PM tracker, Telegram). El
+  // optimista toca la lista Y el detalle ['workorder', id] para que el drawer
+  // no muestre el estado viejo al reabrir. Si un gate del backend bloquea el
+  // avance (p.ej. "assign a mechanic"), revierte ambos y muestra el motivo.
   async function moveWo(id: number, status: WoStatus) {
-    const key = ['workorders', ''] as const
-    const prev = qc.getQueryData<WoListData>(key)
-    qc.setQueryData<WoListData>(key, (old) =>
+    setDragCol(null)
+    const listKey = ['workorders', ''] as const
+    const detailKey = ['workorder', id] as const
+    // Cancelar fetches en vuelo para que no pisen el update optimista.
+    await Promise.all([
+      qc.cancelQueries({ queryKey: ['workorders'] }),
+      qc.cancelQueries({ queryKey: detailKey }),
+    ])
+    const prevList = qc.getQueryData<WoListData>(listKey)
+    const prevDetail = qc.getQueryData<WorkOrder>(detailKey)
+    // La tarjeta de la lista es lo que el usuario ve (y trae pm_miles/mileage).
+    const base = prevList?.workorders.find((w) => w.id === id) ?? prevDetail
+    if (!base || base.status === status) return
+    const from = base.status
+    qc.setQueryData<WoListData>(listKey, (old) =>
       old ? { ...old, workorders: old.workorders.map((w) =>
         w.id === id ? { ...w, status } : w) } : old)
-    setDragCol(null)
+    qc.setQueryData<WorkOrder>(detailKey, (prev) =>
+      (prev ? { ...prev, status } : prev))
     try {
-      await patchWorkOrder(id, { status })
-      qc.invalidateQueries({ queryKey: ['workorders'] })
+      const updated = await patchWorkOrder(id, statusPatch(base, status))
+      mergeWoDetail(qc, updated)
+      invalidateWoLists(qc)
+      qc.invalidateQueries({ queryKey: ['workorder'] })
+      afterStatusChange(qc, updated, { from, to: status, quiet: true })
     } catch (e) {
-      if (prev) qc.setQueryData(key, prev)
+      if (prevList) qc.setQueryData(listKey, prevList)
+      if (prevDetail) qc.setQueryData(detailKey, prevDetail)
       notifyErr("Couldn't move this work order", e)
     }
   }
@@ -478,7 +593,13 @@ export default function WorkOrdersPage() {
                 <div key={col}
                   className={`wo-col ${dragCol === col ? 'is-drop' : ''}`}
                   onDragOver={editable
-                    ? (e) => { e.preventDefault(); if (dragCol !== col) setDragCol(col) }
+                    ? (e) => {
+                      // preventDefault + dropEffect: TODA la columna (también
+                      // su espacio vacío) acepta el drop.
+                      e.preventDefault()
+                      e.dataTransfer.dropEffect = 'move'
+                      if (dragCol !== col) setDragCol(col)
+                    }
                     : undefined}
                   onDragLeave={editable
                     ? (e) => {
@@ -624,9 +745,14 @@ function todayISO(): string {
 // y una llanta al trailer), cada uno con su unidad y millaje.
 type ComplaintDraft = {
   unit: string; mileage: string; detail: string; is_pm: boolean
+  // Clave estable del complaint (no cambia al borrar otros): las líneas que
+  // el escaneo ruteó a SU unidad la llevan en `cid` y la siguen cuando se
+  // corrige la unidad del complaint (sin depender del texto de la unidad).
+  cid: number
 }
+let complaintSeq = 0
 const emptyComplaint = (): ComplaintDraft =>
-  ({ unit: '', mileage: '', detail: '', is_pm: false })
+  ({ unit: '', mileage: '', detail: '', is_pm: false, cid: ++complaintSeq })
 
 type SharedInvoice = {
   vendor: string; city: string; state: string; invoice: string; date: string
@@ -636,7 +762,9 @@ type SharedInvoice = {
 // la UNIDAD a la que pertenece. '' = la unidad primaria (la orden padre); un
 // código de unidad la rutea a la orden HIJA de esa unidad. Así cada WO
 // (padre + hijas) lleva SOLO sus líneas y la suma = total del invoice.
-type EditLine = WoScanLine & { unit: string }
+// `cid` = complaint al que el escaneo la ruteó (sigue a su unidad); elegir
+// la unidad de la línea a mano la suelta del complaint.
+type EditLine = WoScanLine & { unit: string; cid?: number }
 
 // Formato del complaint pedido por el usuario:
 //   ISSUE DESCRIPTION (≤4 líneas)
@@ -671,18 +799,37 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
   onClose: () => void
   onCreated: (id: number) => void
 }) {
-  const fleetQ = useQuery({ queryKey: ['fleet'], queryFn: listFleet })
   const partsQ = useQuery({ queryKey: ['parts'], queryFn: listParts })
   const orgQ = useQuery({ queryKey: ['org'], queryFn: getOrg })
   const laborRate = orgQ.data?.labor_rate ?? 0
   const catalog = partsQ.data?.parts ?? []
-  const units = useMemo(
-    () => (fleetQ.data ?? []).filter((u) => !u.archived)
-      .map((u) => u.unit).sort(),
-    [fleetQ.data])
+  // Unidades de la flota (v2.20 addendum): misma fuente que los UnitPicker
+  // del form. La orden solo se crea con unidades de la lista (o texto libre
+  // si la flota no está disponible). La lista suma las unidades que la app
+  // ya muestra fuera de /api/fleet (backlog de Service Requests, boards de
+  // PM/DOT): un camión solo del CSV de PM o un defecto del CSV de MCC
+  // también puede tener su WO.
+  const knownUnits = useKnownUnits()
+  const fleetUnits = useUnitMatcher(undefined, knownUnits)
+  // Nombre con el que se crea la orden: el canónico de la flota o, sin
+  // flota, el texto en mayúsculas (comportamiento previo).
+  const unitName = (s: string) =>
+    fleetUnits.find(s)?.unit ?? s.trim().toUpperCase()
   const [unit, setUnit] = useState('')
   const [complaints, setComplaints] = useState<ComplaintDraft[]>(
     () => [emptyComplaint()])
+  // Validez derivada (nunca desfasada): la unidad principal tiene que ser de
+  // la flota; la de cada complaint, vacía (= la principal) o de la flota.
+  // Lo escaneado que no coincide queda marcado hasta que el usuario elige.
+  const unitOk = fleetUnits.isValid(unit)
+  const badComplaint = complaints.findIndex(
+    (c) => !!c.unit.trim() && !fleetUnits.isValid(c.unit))
+  const unitsHint = !unitOk
+    ? (fleetUnits.mode === 'loading' ? 'Loading the fleet list…'
+      : 'Pick the unit for this work order from the list')
+    : badComplaint >= 0
+      ? `Complaint ${badComplaint + 1}: pick its unit from the list`
+      : ''
   const [vendor, setVendor] = useState('')
   const [vendorCity, setVendorCity] = useState('')
   const [vendorState, setVendorState] = useState('')
@@ -729,6 +876,22 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
     setScanLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)))
   }
 
+  // Cambiar la unidad de un complaint arrastra las líneas que el escaneo
+  // ruteó a ESE complaint (p. ej. una unidad escaneada que no estaba en la
+  // flota y se corrige eligiéndola): si no, caerían calladas en la
+  // primaria. Se sigue al complaint por `cid` (no por el texto: dos
+  // complaints con prefijos parecidos no se mezclan) y SOLO con un valor
+  // confirmado — una unidad válida de la lista —: mientras se escribe, o
+  // con el campo vacío a mitad de la edición, las líneas no se mueven.
+  function setComplaintUnit(i: number, next: string) {
+    const c = complaints[i]
+    setComplaint(i, { unit: next })
+    if (!c || !next.trim() || !fleetUnits.isValid(next)) return
+    const name = unitName(next)
+    setScanLines((ls) => ls.map((l) =>
+      (l.cid === c.cid && l.unit !== name ? { ...l, unit: name } : l)))
+  }
+
   // Cambiar a labor con costo en 0 -> prefijar con la tarifa del taller.
   function setLineKind(i: number, kind: 'part' | 'labor') {
     setScanLines((ls) => ls.map((l, j) => (j === i ? {
@@ -761,11 +924,12 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
     try {
       const r = await scanWoDocument(f)
       const x = r.extract
-      const cs = (x.complaints ?? []).map((c) => ({
+      const cs: ComplaintDraft[] = (x.complaints ?? []).map((c) => ({
         unit: c.unit ?? '',
         mileage: c.mileage != null ? String(c.mileage) : '',
         detail: c.detail ?? '',
         is_pm: !!c.is_pm,
+        cid: ++complaintSeq,
       }))
       if (cs.length) {
         setComplaints(cs)
@@ -788,10 +952,10 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
       const trailerC = cs.find((c) =>
         c.unit && /tire|wheel|trailer|llanta/i.test(c.detail))
       const tireRe = /\btires?\b|\bwheel\b|\brim\b|\btread\b|\bL[FR]|\bR[FR]/i
-      const edit: EditLine[] = x.lines.map((ln) => ({
-        ...ln,
-        unit: (trailerC && tireRe.test(ln.description)) ? trailerC.unit : '',
-      }))
+      const edit: EditLine[] = x.lines.map((ln) => (
+        trailerC && tireRe.test(ln.description)
+          ? { ...ln, unit: trailerC.unit, cid: trailerC.cid }
+          : { ...ln, unit: '' }))
       setScanLines(edit)
       // Pista de empty-state: el escaneo terminó pero sin líneas.
       setScannedNoLines(x.lines.length === 0)
@@ -812,12 +976,13 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
   }
 
   async function fillCurrent() {
-    if (!unit.trim() || fetchingMi) return
+    if (!unitOk || fetchingMi) return
     setFetchingMi(true)
+    const u = unitName(unit)
     try {
-      const o = await getUnitOdometer(unit.trim())
+      const o = await getUnitOdometer(u)
       if (o.miles != null) setMileage(String(o.miles))
-      else notifyErr('No odometer', `Samsara has no reading for ${unit.trim()}`)
+      else notifyErr('No odometer', `Samsara has no reading for ${u}`)
     } catch (e) {
       notifyErr("Couldn't fetch mileage", e)
     } finally {
@@ -840,6 +1005,10 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
       notifyErr('Missing unit', 'Pick the unit for this work order')
       return
     }
+    if (unitsHint) {
+      notifyErr('Unknown unit', unitsHint)
+      return
+    }
     const kept = complaints.filter((c) => c.detail.trim())
     if (!kept.length) {
       notifyErr('Missing complaint', 'Add at least one issue detail')
@@ -847,17 +1016,23 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
     }
     // Agrupar complaints por unidad: la unidad PRIMARIA es la orden PADRE; cada
     // OTRA unidad es una orden HIJA del mismo invoice (review v1.26: #4 / #4.1).
-    // Los complaints sin unidad caen en la primaria.
-    const primaryU = unit.trim().toUpperCase()
-    const groups = new Map<string, ComplaintDraft[]>()
+    // Los complaints sin unidad caen en la primaria. Clave = unidad
+    // normalizada ("MEM77" == "MEM 77"); la orden se crea con el canónico.
+    const primaryU = unitName(unit)
+    const primaryK = normUnit(unit)
+    const groups = new Map<string, { unit: string; cs: ComplaintDraft[] }>()
     for (const c of kept) {
-      const u = c.unit.trim().toUpperCase() || primaryU
-      groups.set(u, [...(groups.get(u) ?? []), c])
+      const k = c.unit.trim() ? normUnit(c.unit) : primaryK
+      const g = groups.get(k)
+        ?? { unit: k === primaryK ? primaryU : unitName(c.unit), cs: [] }
+      g.cs.push(c)
+      groups.set(k, g)
     }
-    const others = [...groups.keys()].filter((u) => u !== primaryU)
+    const others = [...groups.keys()].filter((k) => k !== primaryK)
     if (others.length && !window.confirm(
       `This invoice covers ${groups.size} units. Create ${groups.size} linked `
-      + `work orders — ${unit.trim()} (#parent) + ${others.join(', ')} `
+      + `work orders — ${primaryU} (#parent) + `
+      + `${others.map((k) => groups.get(k)!.unit).join(', ')} `
       + `(#parent.1, …)? Each unit keeps its own lines; the same invoice file `
       + `attaches to all of them.`)) {
       return
@@ -871,19 +1046,20 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
       }
       const allLines = scanLines.filter((l) => l.description.trim())
       const shopInv = invoiceNum.trim()
-      // Líneas por unidad: la línea va a su unidad asignada; '' (o una unidad
-      // que no tiene su propia orden) cae en la PRIMARIA (la orden padre).
-      const linesFor = (u: string) => allLines.filter((l) => {
-        const lu = (l.unit || '').trim().toUpperCase()
-        return u === primaryU
-          ? (!lu || !groups.has(lu) || lu === primaryU)
-          : lu === u
+      // Líneas por unidad (clave normalizada): la línea va a su unidad
+      // asignada; '' (o una unidad que no tiene su propia orden) cae en la
+      // PRIMARIA (la orden padre).
+      const linesFor = (k: string) => allLines.filter((l) => {
+        const lk = normUnit(l.unit || '')
+        return k === primaryK
+          ? (!lk || !groups.has(lk) || lk === primaryK)
+          : lk === k
       })
 
       // Helper: crea una WO (padre si parentId=null, hija si trae parentId),
       // le carga SUS líneas y le adjunta el MISMO archivo de invoice.
       const created: WorkOrder[] = []
-      async function makeWo(u: string, cs: ComplaintDraft[],
+      async function makeWo(u: string, k: string, cs: ComplaintDraft[],
                             parentId: number | null): Promise<WorkOrder> {
         const camp = (parentId === null ? campaign : '')
           || (cs.some((c) => c.is_pm) ? 'pm' : '')
@@ -898,7 +1074,7 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
           source: scanName ? 'scan' : 'manual',
           parent_id: parentId,
         })
-        for (const ln of linesFor(u.toUpperCase())) {
+        for (const ln of linesFor(k)) {
           await addWoLine(wo.id, {
             kind: ln.kind, description: ln.description.trim(),
             qty: Number(ln.qty) || 1, unit_cost: Number(ln.unit_cost) || 0,
@@ -920,10 +1096,11 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
 
       // 1) Orden PADRE (unidad primaria).
       const primaryWo = await makeWo(
-        primaryU, groups.get(primaryU) ?? [], null)
+        primaryU, primaryK, groups.get(primaryK)?.cs ?? [], null)
       // 2) Una orden HIJA por cada otra unidad (parent_id = padre).
-      for (const ou of others) {
-        await makeWo(ou, groups.get(ou)!, primaryWo.id)
+      for (const ok of others) {
+        const g = groups.get(ok)!
+        await makeWo(g.unit, ok, g.cs, primaryWo.id)
       }
 
       const n = created.length
@@ -951,18 +1128,15 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
   const totalMismatch = grandTotal != null && scanLines.length > 0
     && Math.abs(scanTotal - grandTotal) > 0.5
   // Unidades disponibles para rutear una línea: la primaria + las unidades de
-  // los complaints. '' en el selector = la unidad primaria (orden padre).
-  const lineUnits = useMemo(() => {
-    const set = new Set<string>()
-    const pu = unit.trim().toUpperCase()
-    if (pu) set.add(pu)
-    for (const c of complaints) {
-      const u = c.unit.trim().toUpperCase()
-      if (u) set.add(u)
-    }
-    return [...set]
-  }, [unit, complaints])
-  const primaryUC = unit.trim().toUpperCase()
+  // los complaints, como [clave normalizada, nombre]. '' en la línea = la
+  // unidad primaria (orden padre).
+  const lineUnits = new Map<string, string>()
+  if (unit.trim()) lineUnits.set(normUnit(unit), unitName(unit))
+  for (const c of complaints) {
+    const k = normUnit(c.unit)
+    if (k && !lineUnits.has(k)) lineUnits.set(k, unitName(c.unit))
+  }
+  const primaryK = normUnit(unit)
 
   return (
     <Modal title="New work order" width={1360} fullHeight onClose={onClose}>
@@ -1030,11 +1204,8 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
       <div className="wo-form">
         <label className="ud-field">
           <span>Unit</span>
-          <input className="cell-input" list="wo-units" value={unit}
-            placeholder="CF2254" onChange={(e) => setUnit(e.target.value)} />
-          <datalist id="wo-units">
-            {units.map((u) => <option key={u} value={u} />)}
-          </datalist>
+          <UnitPicker value={unit} onChange={setUnit}
+            extraUnits={knownUnits} placeholder="Pick a unit" />
         </label>
         <div className="wo-form-row">
           <label className="ud-field">
@@ -1049,7 +1220,7 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
                 placeholder="optional"
                 onChange={(e) => setMileage(e.target.value)} />
               <button className="btn btn-ghost"
-                disabled={!unit.trim() || fetchingMi}
+                disabled={!unitOk || fetchingMi}
                 title="Fetch the current odometer from Samsara"
                 onClick={fillCurrent}>
                 {fetchingMi ? '…' : 'Current'}
@@ -1094,15 +1265,17 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
           </div>
           {complaints.map((c, i) => {
             const mismatch = !!unit.trim() && !!c.unit.trim() &&
-              c.unit.trim().toUpperCase() !== unit.trim().toUpperCase()
+              normUnit(c.unit) !== normUnit(unit)
             return (
-              <div key={i}
+              <div key={c.cid}
                 className={`wo-complaint ${mismatch ? 'is-mismatch' : ''}`}>
                 <div className="wo-complaint-head">
-                  <input className="cell-input wo-complaint-unit"
+                  <UnitPicker className="wo-complaint-unit"
                     value={c.unit} placeholder="Unit #"
-                    onChange={(e) =>
-                      setComplaint(i, { unit: e.target.value })} />
+                    extraUnits={knownUnits}
+                    aria-label={`Complaint ${i + 1} unit`}
+                    title="Leave empty to use the work order's unit"
+                    onChange={(v) => setComplaintUnit(i, v)} />
                   <input className="cell-input wo-complaint-mi" type="number"
                     value={c.mileage} placeholder="mi"
                     onChange={(e) =>
@@ -1184,7 +1357,7 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
           {scanLines.map((ln, i) => (
             <div key={i}
               className={`wo-line-row wo-line-row-cat${
-                lineUnits.length > 1 ? ' wo-line-row-multi' : ''}`}>
+                lineUnits.size > 1 ? ' wo-line-row-multi' : ''}`}>
               <select className="cell-input" value={ln.kind}
                 onChange={(e) => setLineKind(i,
                   e.target.value as 'part' | 'labor')}>
@@ -1210,16 +1383,20 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
                 onChange={(n) => setLine(i, { unit_cost: n })} />
               {/* Multi-unit (v1.26): rutea la línea a la orden de su unidad.
                   Solo aparece cuando el invoice cubre varias unidades. */}
-              {lineUnits.length > 1 && (
+              {lineUnits.size > 1 && (
                 <select className="cell-input wo-line-unit"
                   title="Which unit's work order gets this line"
-                  value={(ln.unit || '').toUpperCase() || primaryUC}
+                  value={lineUnits.has(normUnit(ln.unit || ''))
+                    ? normUnit(ln.unit) : primaryK}
                   onChange={(e) => setLine(i, {
-                    unit: e.target.value === primaryUC ? '' : e.target.value,
+                    unit: e.target.value === primaryK ? ''
+                      : lineUnits.get(e.target.value) ?? '',
+                    // Elegida a mano: ya no sigue al complaint.
+                    cid: undefined,
                   })}>
-                  {lineUnits.map((u) => (
-                    <option key={u} value={u}>
-                      {u === primaryUC ? `${u} (primary)` : u}
+                  {[...lineUnits].map(([k, name]) => (
+                    <option key={k} value={k}>
+                      {k === primaryK ? `${name} (primary)` : name}
                     </option>
                   ))}
                 </select>
@@ -1273,11 +1450,13 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
           )}
         </div>
 
-        <div className="settings-actions">
+        <div className="settings-actions wo-create-actions">
           <button className="btn btn-primary" onClick={submit}
-            disabled={saving}>
+            disabled={saving || !!unitsHint}>
             {saving ? 'Creating…' : 'Create work order'}
           </button>
+          {/* Sin unidad válida (de la flota) no se crea: pista visible. */}
+          {unitsHint && <span className="field-hint">{unitsHint}</span>}
         </div>
       </div>
       </div>
@@ -1449,6 +1628,9 @@ export function WoDrawer({ woId, mechanics, onClose }: {
     queryKey: ['workorder', shownId],
     queryFn: () => getWorkOrder(shownId!),
     enabled: open && shownId != null,
+    // Siempre revalidar al (re)abrir: el estado pudo cambiar desde el Board,
+    // el perfil de unidad o service requests mientras el drawer estaba cerrado.
+    staleTime: 0,
   })
   const wo = woQ.data ?? null
 
@@ -1531,44 +1713,42 @@ export function WoDrawer({ woId, mechanics, onClose }: {
     }
   }
 
+  // Merge (no reemplazo): las respuestas de PATCH/líneas no traen `links`.
   function refreshWo(updated: WorkOrder) {
-    qc.setQueryData(['workorder', updated.id], updated)
-    qc.invalidateQueries({ queryKey: ['workorders'] })
+    mergeWoDetail(qc, updated)
+    invalidateWoLists(qc)
   }
 
   async function setStatus(s: WoStatus) {
     if (!wo) return
     setBusy(true)
     try {
-      const patch: Partial<WorkOrder> = { status: s }
-      const crossesCompleted =
-        PIPELINE.indexOf(s) >= PIPELINE.indexOf('completed')
-      if (crossesCompleted && wo.is_pm && pmMiles.trim()) {
-        patch.pm_miles = Number(pmMiles)
-      }
-      const updated = await patchWorkOrder(wo.id, patch)
+      const updated = await patchWorkOrder(wo.id, statusPatch(wo, s, pmMiles))
       refreshWo(updated)
-      if (crossesCompleted && updated.is_pm && updated.pm_miles) {
-        qc.invalidateQueries({ queryKey: ['pm'] })
-        qc.invalidateQueries({ queryKey: ['maint'] })
-        notifyOk('PM updated', `${updated.unit} · last PM ${updated.pm_miles?.toLocaleString()} mi`)
-      } else {
-        notifyOk(`WO #${updated.id}: ${STATUS_META[s].label}`)
-      }
-      if (updated.telegram) {
-        if (updated.telegram.simulated) {
-          notifyOk('Telegram (dry run)', 'Simulated, nothing sent')
-        } else if (updated.telegram.sent) {
-          notifyOk('Telegram sent', 'Shop group notified')
-        } else {
-          notifyErr('Telegram failed', updated.telegram.detail)
-        }
-      }
+      afterStatusChange(qc, updated, { from: wo.status, to: s })
     } catch (e) {
       // Los gates del pipeline llegan como 400 con el motivo exacto.
       notifyErr("Can't move there yet", e)
     } finally {
       setBusy(false)
+    }
+  }
+
+  // WO de PM que ya llegó a completed sin odómetro (p.ej. arrastrada en el
+  // Board): guardar pm_miles dispara el hook PM del backend igual que al
+  // completar (corre en cada update con estado >= completed).
+  async function recordPmMiles() {
+    if (!wo) return
+    const n = Number(pmMiles.trim())
+    if (!pmMiles.trim() || !Number.isFinite(n) || n <= 0) return
+    try {
+      const updated = await patchWorkOrder(wo.id, { pm_miles: n })
+      refreshWo(updated)
+      afterStatusChange(qc, updated,
+        { from: updated.status, to: updated.status, quiet: true })
+      setPmMiles('')
+    } catch (e) {
+      notifyErr('Could not save', e)
     }
   }
 
@@ -1624,6 +1804,23 @@ export function WoDrawer({ woId, mechanics, onClose }: {
       refreshWo(await patchWorkOrder(wo.id, patch))
     } catch (e) {
       notifyErr('Could not save', e)
+    }
+  }
+
+  // v2.20: sacar un service request de esta orden (vuelve al backlog
+  // abierto). No toca el texto del complaint.
+  const [unlinking, setUnlinking] = useState<number | null>(null)
+  async function unlinkSr(id: number) {
+    setUnlinking(id)
+    try {
+      await unlinkRequest(id)
+      invalidateWoLists(qc)
+      qc.invalidateQueries({ queryKey: ['workorder'] })
+      notifyOk('Request unlinked', 'Back in the open service request backlog')
+    } catch (e) {
+      notifyErr("Couldn't unlink the request", e)
+    } finally {
+      setUnlinking(null)
     }
   }
 
@@ -1740,6 +1937,9 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                     )}
                     {wo.source === 'reefer' && (
                       <span className="ud-chip">from reefer fault</span>
+                    )}
+                    {wo.source === 'request' && (
+                      <span className="ud-chip">from service request</span>
                     )}
                   </span>
                   {/* Vínculos del invoice multi-unidad (review v1.26): "child
@@ -1868,15 +2068,62 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                   </div>
                 )}
 
-                {wo.is_pm &&
-                  PIPELINE.indexOf(wo.status) <
-                    PIPELINE.indexOf('completed') && (
+                {/* Antes de completar: viaja con el cambio de estado. Ya
+                    completada SIN odómetro (p.ej. movida en el Board): se
+                    guarda al salir del campo y registra el PM. */}
+                {wo.is_pm && (!reachesCompleted(wo.status)
+                  || (wo.status === 'completed' && !wo.pm_miles)) && (
                   <label className="ud-field wo-pm-miles">
                     <span>Odometer at PM completion (mi)</span>
                     <input className="cell-input" type="number" value={pmMiles}
-                      placeholder="431850"
-                      onChange={(e) => setPmMiles(e.target.value)} />
+                      placeholder={wo.mileage ? String(wo.mileage) : '431850'}
+                      onChange={(e) => setPmMiles(e.target.value)}
+                      onBlur={() => {
+                        if (reachesCompleted(wo.status)) recordPmMiles()
+                      }} />
                   </label>
+                )}
+
+                {/* v2.20: service requests que esta orden resuelve. */}
+                {wo.service_requests && wo.service_requests.length > 0 && (
+                  <section className="ud-sec">
+                    <h3>
+                      Service requests
+                      <span className="ud-count">
+                        {wo.service_requests.length}
+                      </span>
+                    </h3>
+                    <ul className="sr-wo-list">
+                      {wo.service_requests.map((r) => (
+                        <li key={r.id} className="sr-wo-item">
+                          <span className={`sr-wo-src sr-s-${r.source}`}>
+                            {SR_SOURCE_LABEL[r.source] ?? r.source}
+                          </span>
+                          <span className="sr-wo-title" title={r.title}>
+                            {r.title}
+                          </span>
+                          {(r.priority === 'urgent'
+                            || r.priority === 'emergency') && (
+                            <Badge variant="solid"
+                              style={{ background: `var(--sr-${r.priority})` }}>
+                              {r.priority === 'urgent' ? 'Urgent' : 'Emergency'}
+                            </Badge>
+                          )}
+                          {r.status === 'done' && (
+                            <Badge tone="success">Done</Badge>
+                          )}
+                          {can('maint.edit') && r.status === 'on_wo' && (
+                            <button className="btn btn-ghost btn-xs"
+                              disabled={unlinking === r.id}
+                              title="Take it off this work order and back to the backlog"
+                              onClick={() => unlinkSr(r.id)}>
+                              {unlinking === r.id ? 'Unlinking…' : 'Unlink'}
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
                 )}
 
                 <section className="ud-sec" key={wo.id}>
@@ -2299,7 +2546,8 @@ export function WoDrawer({ woId, mechanics, onClose }: {
                         + 'This cannot be undone.')) return
                       try {
                         await deleteWorkOrder(wo.id)
-                        qc.invalidateQueries({ queryKey: ['workorders'] })
+                        // Incluye service requests: los ligados vuelven a open.
+                        invalidateWoLists(qc)
                         notifyOk(`Work order #${wo.id} deleted`)
                         onClose()
                       } catch (e) {

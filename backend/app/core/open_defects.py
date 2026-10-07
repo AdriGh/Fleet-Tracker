@@ -146,3 +146,50 @@ def load() -> list[dict]:
     # orden estable por unidad
     out.sort(key=lambda d: d["unit"])
     return out
+
+
+async def current_feed(refresh: bool = False) -> dict:
+    """Feed ACTUAL de defectos abiertos (fuente única de GET /dvir/open-defects
+    y del sync de Service Requests, v2.20).
+
+    Prefiere la API de Samsara en vivo (o el ELD demo); si no hay token o la
+    API falla, cae al export CSV local. Las empresas que Samsara no cubre
+    (p.ej. MCC) siguen viniendo del CSV, y se excluyen los assets archivados.
+    Devuelve {available, source, defects[, live_companies][, error]}: la
+    presencia de `error` indica que fue un FALLBACK por falla (el sync de
+    Service Requests no debe dar por resuelto nada con ese feed)."""
+    # import diferido (ciclo: samsara importa este módulo a nivel módulo)
+    from . import app_config, samsara
+    if refresh:
+        samsara.clear_cache()
+    csv_rows = load()
+    if samsara.is_available():
+        try:
+            live = await samsara.load()
+            # Samsara cubre algunos orgs (p.ej. Chaser); las empresas que NO
+            # estén en el org de Samsara (p.ej. MCC) siguen viniendo del CSV.
+            covered = {d["company"] for d in live}
+            merged = live + [d for d in csv_rows if d["company"] not in covered]
+            # Excluir assets archivados (p.ej. duplicados/mal etiquetados en
+            # Samsara): no deben contar en el backlog de defectos.
+            archived = set(app_config.archived_ids())
+            merged = [d for d in merged if d.get("asset_id") not in archived]
+            merged.sort(key=lambda d: d["unit"])
+            return {
+                "available": True,
+                "source": "samsara",
+                "live_companies": sorted(covered),
+                "defects": merged,
+            }
+        except Exception as exc:  # noqa: BLE001 — fallback ante cualquier fallo
+            return {
+                "available": is_available(),
+                "source": "csv",
+                "error": f"Samsara did not respond ({exc}); using local CSV.",
+                "defects": csv_rows,
+            }
+    return {
+        "available": is_available(),
+        "source": "csv",
+        "defects": csv_rows,
+    }

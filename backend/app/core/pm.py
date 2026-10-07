@@ -36,6 +36,10 @@ def load_overrides() -> dict:
 
 def _save_overrides(d: dict) -> None:
     db.save_setting(OVERRIDES_KEY, d)
+    # Override / exclusión cambian lo que vence: el backlog de Service
+    # Requests re-sincroniza en el próximo GET en vez de esperar el TTL.
+    from . import service_requests       # import diferido (ciclo de imports)
+    service_requests.mark_stale()
 
 
 def set_override(unit: str, field: str, value) -> None:

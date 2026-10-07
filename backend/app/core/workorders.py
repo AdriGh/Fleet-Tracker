@@ -139,14 +139,40 @@ def _wo_dict(wo: WorkOrder, with_lines: bool = False,
     return out
 
 
+def _detail_dict(wo: WorkOrder, session) -> dict:
+    """Dict COMPLETO del drawer: líneas + vínculos padre/hijas (#4.1, "child
+    of #4") + service requests ligados (v2.20). Lo devuelven get_wo, create_wo
+    y TODAS las mutaciones (update_wo, add_line, delete_line): antes las
+    mutaciones devolvían el dict sin `links` y el drawer perdía la numeración
+    #4.1 y los chips padre/hija después de cualquier cambio."""
+    from . import service_requests       # import diferido (ciclo de imports)
+    out = _wo_dict(wo, with_lines=True, session=session)
+    out["links"] = _links_dict(wo, session)
+    out["service_requests"] = service_requests.for_wo(session, wo.id)
+    return out
+
+
 def list_wos(status: str = "", unit: str = "", limit: int = 200) -> list[dict]:
+    """Órdenes por id desc. Con `status`: las `limit` más nuevas de ese
+    estado. Sin `status`: TODAS las activas (no facturadas) + las `limit`
+    facturadas más nuevas. Antes eran las `limit` más nuevas a secas: con
+    historial largo una WO abierta vieja desaparecía del Board y del "Add
+    to…" de Service Requests (y se terminaba creando una duplicada)."""
     with SessionLocal() as session:
-        q = select(WorkOrder).order_by(WorkOrder.id.desc()).limit(limit)
-        if status:
-            q = q.where(WorkOrder.status == status)
+        q = select(WorkOrder).order_by(WorkOrder.id.desc())
         if unit:
             q = q.where(WorkOrder.unit == unit)
-        return [_wo_dict(w) for w in session.scalars(q).all()]
+        if status:
+            rows = session.scalars(
+                q.where(WorkOrder.status == status).limit(limit)).all()
+        else:
+            active = session.scalars(
+                q.where(WorkOrder.status != "invoiced")).all()
+            history = session.scalars(
+                q.where(WorkOrder.status == "invoiced").limit(limit)).all()
+            rows = sorted([*active, *history], key=lambda w: w.id,
+                          reverse=True)
+        return [_wo_dict(w) for w in rows]
 
 
 def get_wo(wo_id: int) -> dict | None:
@@ -154,11 +180,66 @@ def get_wo(wo_id: int) -> dict | None:
         wo = session.get(WorkOrder, wo_id)
         if wo is None:
             return None
-        out = _wo_dict(wo, with_lines=True)
         # Vínculos padre/hijas para el drawer (review v1.26): "#4.1 · child of
         # #4" + enlaces a las otras unidades del mismo invoice.
-        out["links"] = _links_dict(wo, session)
-        return out
+        return _detail_dict(wo, session)
+
+
+def create_wo_in(session, unit: str, title: str, complaint: str = "",
+                 company: str = "", mechanic: str = "",
+                 priority: str = "normal", is_pm: bool = False,
+                 source: str = "manual", mileage: int | None = None,
+                 service_date: str = "", campaign: str = "",
+                 shop_invoice: str = "",
+                 parent_id: int | None = None) -> WorkOrder:
+    """Arma la work order DENTRO de una sesión ajena: add + flush (asigna el
+    id) pero NO commitea — la transacción es del caller. La usa create_wo y
+    también Service Requests (v2.20), que necesita insertar la WO y ligar los
+    requests en UN solo commit (todo o nada).
+
+    Si `parent_id` viene seteado, la orden es una HIJA del invoice
+    multi-unidad (review v1.26): se le asigna el siguiente `child_seq` libre
+    bajo ese padre para numerarla #padre.N (#4.1, #4.2…). Puede lanzar
+    IntegrityError en el flush (colisión de child_seq): decide el caller."""
+    from . import maint                  # import diferido (orden de carga)
+    unit = (unit or "").strip()
+    title = (title or "").strip()
+    if not unit or not title:
+        raise ValueError("unit and title are required")
+    if priority not in PRIORITIES:
+        priority = "normal"
+    if campaign and campaign not in maint.CAMPAIGNS:
+        campaign = ""
+    mechanic = (mechanic or "").strip()
+    now = datetime.now()
+    wo = WorkOrder(
+        created_at=now, updated_at=now,
+        unit=unit[:64], company=(company or "").strip()[:64],
+        # Crear ya asignada si vino mecánico (gate de assigned cumplido).
+        status="assigned" if mechanic else "open",
+        priority=priority,
+        title=title[:140], complaint=(complaint or "").strip(),
+        mechanic=mechanic[:80], notes="",
+        is_pm=bool(is_pm) or campaign == "pm",
+        campaign=campaign,
+        source=(source or "")[:20] or "manual",
+        mileage=(int(mileage) if mileage not in (None, "") else None),
+        service_date=((service_date or "").strip()[:10] or None),
+        shop_invoice=(shop_invoice or "").strip()[:60],
+    )
+    if parent_id is not None:
+        parent = session.get(WorkOrder, parent_id)
+        if parent is None:
+            raise ValueError("parent work order not found")
+        wo.parent_id = parent_id
+        # Siguiente ordinal libre bajo el padre (1, 2, 3…).
+        last = session.scalar(
+            select(func.max(WorkOrder.child_seq)).where(
+                WorkOrder.parent_id == parent_id)) or 0
+        wo.child_seq = int(last) + 1
+    session.add(wo)
+    session.flush()
+    return wo
 
 
 def create_wo(unit: str, title: str, complaint: str = "",
@@ -167,47 +248,14 @@ def create_wo(unit: str, title: str, complaint: str = "",
               source: str = "manual", mileage: int | None = None,
               service_date: str = "", campaign: str = "",
               shop_invoice: str = "", parent_id: int | None = None) -> dict:
-    """Crea una work order. Si `parent_id` viene seteado, la orden es una HIJA
-    del invoice multi-unidad (review v1.26): se le asigna el siguiente
-    `child_seq` libre bajo ese padre para numerarla #padre.N (#4.1, #4.2…)."""
-    from . import maint                  # import diferido (orden de carga)
-    unit = unit.strip()
-    title = title.strip()
-    if not unit or not title:
-        raise ValueError("unit and title are required")
-    if priority not in PRIORITIES:
-        priority = "normal"
-    if campaign and campaign not in maint.CAMPAIGNS:
-        campaign = ""
-    now = datetime.now()
-    wo = WorkOrder(
-        created_at=now, updated_at=now,
-        unit=unit[:64], company=company.strip()[:64],
-        # Crear ya asignada si vino mecánico (gate de assigned cumplido).
-        status="assigned" if mechanic.strip() else "open",
-        priority=priority,
-        title=title[:140], complaint=complaint.strip(),
-        mechanic=mechanic.strip()[:80], notes="",
-        is_pm=bool(is_pm) or campaign == "pm",
-        campaign=campaign,
-        source=source[:20] or "manual",
-        mileage=(int(mileage) if mileage not in (None, "") else None),
-        service_date=(service_date.strip()[:10] or None),
-        shop_invoice=shop_invoice.strip()[:60],
-    )
+    """Crea una work order (sesión propia + commit). La lógica vive en
+    create_wo_in; acá solo se maneja la transacción."""
     with SessionLocal() as session:
-        if parent_id is not None:
-            parent = session.get(WorkOrder, parent_id)
-            if parent is None:
-                raise ValueError("parent work order not found")
-            wo.parent_id = parent_id
-            # Siguiente ordinal libre bajo el padre (1, 2, 3…).
-            last = session.scalar(
-                select(func.max(WorkOrder.child_seq)).where(
-                    WorkOrder.parent_id == parent_id)) or 0
-            wo.child_seq = int(last) + 1
-        session.add(wo)
         try:
+            wo = create_wo_in(
+                session, unit, title, complaint, company, mechanic,
+                priority, is_pm, source, mileage, service_date, campaign,
+                shop_invoice, parent_id)
             session.commit()
         except IntegrityError:
             # DATA-4: colisión de child_seq por dos creaciones concurrentes
@@ -217,9 +265,7 @@ def create_wo(unit: str, title: str, complaint: str = "",
             session.rollback()
             raise ValueError(
                 "work order number collision (concurrent create), retry")
-        out = _wo_dict(wo, with_lines=True)
-        out["links"] = _links_dict(wo, session)
-        return out
+        return _detail_dict(wo, session)
 
 
 def update_wo(wo_id: int, fields: dict) -> dict | None:
@@ -277,6 +323,7 @@ def update_wo(wo_id: int, fields: dict) -> dict | None:
                 if err:
                     session.rollback()
                     raise ValueError(err)
+            prev_status = wo.status
             wo.status = target
             now = datetime.now()
             # Sellos según hasta dónde llegó el pipeline (retroceder
@@ -295,6 +342,12 @@ def update_wo(wo_id: int, fields: dict) -> dict | None:
                         wo.invoice_number = org_config.next_invoice_number()
             else:
                 wo.invoiced_at = None
+            # Hook Service Requests (v2.20): completar/facturar cierra los
+            # requests ligados (done, resolution 'wo'); retroceder debajo de
+            # completed los devuelve a on_wo. Misma transacción que la WO.
+            if target != prev_status:
+                from . import service_requests   # import diferido (ciclo)
+                service_requests.on_wo_status(session, wo.id, target)
 
         wo.updated_at = datetime.now()
         # Capturar (line_id, part_number, qty) de las líneas de PARTE con
@@ -319,11 +372,19 @@ def update_wo(wo_id: int, fields: dict) -> dict | None:
                                  ref_type="wo_line", ref_id=line_id,
                                  note=f"WO #{wo.id} invoiced")
 
+        # Nombre con el que el tracker de PM/DOT conoce a la unidad: la WO
+        # nacida de un service request lleva el nombre de la flota ('CAN 1')
+        # pero la fila del board puede escribirse distinto ('CAN1'); el
+        # registro va a la fila del BOARD (v2.20, maint_unit_for_wo).
+        from . import service_requests   # import diferido (ciclo)
+
         # Hook PM: WO de PM que llegó a completed (o más) con millaje ->
         # el PM tracker registra el servicio sin pasar por el CSV.
         if (_ORDER[wo.status] >= _ORDER["completed"]
                 and wo.is_pm and wo.pm_miles):
-            pm.set_override(wo.unit, "last_pm_miles", wo.pm_miles)
+            pm.set_override(
+                service_requests.maint_unit_for_wo(session, wo, "pm"),
+                "last_pm_miles", wo.pm_miles)
 
         # Hook campañas (H3b, estilo Fullbay): al FACTURAR una orden con
         # campaña, se registra el servicio en Components & PMs del
@@ -333,19 +394,21 @@ def update_wo(wo_id: int, fields: dict) -> dict | None:
                 and wo.invoiced_at is not None):
             from datetime import date as _date
             from ..db import MaintRecord
+            rec_unit = service_requests.maint_unit_for_wo(
+                session, wo, wo.campaign)
             already = session.scalar(
                 select(MaintRecord).where(
-                    MaintRecord.unit == wo.unit,
+                    MaintRecord.unit.in_(sorted({wo.unit, rec_unit})),
                     MaintRecord.kind == wo.campaign,
                     MaintRecord.notes.like(f"WO #{wo.id}:%")))
             if already is None:
                 maint.add_record(
-                    wo.unit, wo.campaign,
+                    rec_unit, wo.campaign,
                     wo.service_date or _date.today().isoformat(),
                     wo.mileage or wo.pm_miles,
                     notes=f"WO #{wo.id}: {wo.title}"[:300])
 
-        return _wo_dict(wo, with_lines=True)
+        return _detail_dict(wo, session)
 
 
 def add_line(wo_id: int, kind: str, description: str,
@@ -368,7 +431,7 @@ def add_line(wo_id: int, kind: str, description: str,
         ))
         wo.updated_at = datetime.now()
         session.commit()
-        return _wo_dict(wo, with_lines=True)
+        return _detail_dict(wo, session)
 
 
 def delete_line(wo_id: int, line_id: int) -> dict | None:
@@ -379,7 +442,7 @@ def delete_line(wo_id: int, line_id: int) -> dict | None:
         wo.lines = [ln for ln in wo.lines if ln.id != line_id]
         wo.updated_at = datetime.now()
         session.commit()
-        return _wo_dict(wo, with_lines=True)
+        return _detail_dict(wo, session)
 
 
 def delete_wo(wo_id: int) -> bool:
@@ -401,6 +464,10 @@ def delete_wo(wo_id: int) -> bool:
         for k in kids:
             session.delete(k)
         session.delete(wo)
+        # Hook Service Requests (v2.20): los requests ligados a estas órdenes
+        # vuelven al backlog (open). Misma transacción que el borrado.
+        from . import service_requests       # import diferido (ciclo)
+        service_requests.on_wo_deleted(session, [wo_id, *kid_ids])
         session.commit()
         # Limpia los archivos de factura adjuntos (fuera de la DB).
         for cid in [wo_id, *kid_ids]:

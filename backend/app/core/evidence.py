@@ -24,18 +24,14 @@ from pathlib import Path
 from sqlalchemy import func, select
 
 from .. import config
-from ..db import (
-    Defect, EvidencePhoto, SessionLocal, Walkaround, WalkaroundStep,
-    WorkOrder,
-)
+from ..db import Defect, EvidencePhoto, SessionLocal, WorkOrder
 
 UPLOADS_DIR = config.BACKEND_DIR / "uploads" / "evidence"
 
-# v2.16 suma 'walkstep': la foto que el driver saca DURANTE el walkaround
-# cuelga del paso de la corrida; si el paso termina en defecto, el submit la
-# re-parenta al defect creado (reparent), y si fue OK queda en el paso como
-# prueba de que la inspección ocurrió de verdad.
-PARENTS = ("defect", "wo", "walkstep")
+# v2.20: el padre 'walkstep' (fotos del walkaround) se retiró junto con el
+# feature; las filas viejas con ese parent quedan en la tabla sin ruta que
+# las sirva para subir (solo se pueden leer/borrar por id).
+PARENTS = ("defect", "wo")
 # 'report' = la foto del driver al reportar; 'before'/'after' = el par con
 # el que la WO documenta el trabajo (alimenta el comparador del drawer).
 PHASES = ("report", "before", "after")
@@ -73,26 +69,19 @@ def parent_unit(parent: str, parent_id: int) -> str | None:
         if parent == "wo":
             wo = session.get(WorkOrder, parent_id)
             return None if wo is None else wo.unit
-        if parent == "walkstep":
-            st = session.get(WalkaroundStep, parent_id)
-            if st is None:
-                return None
-            run = session.get(Walkaround, st.walkaround_id)
-            return None if run is None else run.unit
     return None
 
 
 def reparent(parent_from: str, id_from: int,
              parent_to: str, id_to: int, session=None) -> int:
     """Mueve TODAS las fotos de un padre a otro (solo metadata, el archivo
-    no se toca). Lo usa el submit del walkaround: las fotos del paso con
-    defecto pasan al defect creado — la evidencia sigue al objeto accionable
-    (WO, warranty), no a la corrida. Devuelve cuántas movió.
+    no se toca): la evidencia sigue al objeto accionable (WO, warranty).
+    Devuelve cuántas movió. (Nació para el walkaround, retirado en v2.20; se
+    conserva como utilidad genérica.)
 
-    `session`: si el caller ya tiene una transacción abierta (el submit del
-    walkaround) DEBE pasarla — abrir una segunda sesión de escritura acá
-    deadlockea SQLite ("database is locked") porque la primera retiene el
-    write-lock hasta su commit. Con session ajena NO se commitea: la
+    `session`: si el caller ya tiene una transacción abierta DEBE pasarla —
+    abrir una segunda sesión de escritura acá deadlockea SQLite ("database
+    is locked") porque la primera retiene el write-lock hasta su commit. Con session ajena NO se commitea: la
     transacción es del caller."""
     def _move(s) -> int:
         rows = s.scalars(

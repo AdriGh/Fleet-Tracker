@@ -20,6 +20,8 @@ import Modal from '../components/Modal'
 import PieChart from '../components/PieChart'
 import CountUp from '../components/CountUp'
 import Skeleton from '../components/Skeleton'
+import UnitPicker from '../components/UnitPicker'
+import { useUnitMatcher, type PickerUnit } from '../unitMatch'
 
 type Props = { kind: MaintKind }
 
@@ -88,6 +90,12 @@ function usToISO(s: string): string | null {
 export default function MaintBoardPage({ kind }: Props) {
   const meta = KIND_META[kind]
   const qc = useQueryClient()
+  // Registro / override / exclusión cambian lo que vence: el backend olvida
+  // el TTL del sync de Service Requests y acá se refrescan badge y backlog
+  // (si no, un "PM due" ya registrado seguía abierto y tentaba otra WO).
+  const refreshSr = () => {
+    void qc.invalidateQueries({ queryKey: ['service-requests'] })
+  }
   const query = useQuery({
     queryKey: ['maint', kind],
     queryFn: () => getMaintBoard(kind),
@@ -181,6 +189,7 @@ export default function MaintBoardPage({ kind }: Props) {
         mileage: eMiles ? Number(eMiles) : null,
       })
       setEditing(null)
+      refreshSr()
       await qc.invalidateQueries({ queryKey: ['maint', kind] })
       celebrate(u.unit)
     } catch (e) {
@@ -203,6 +212,7 @@ export default function MaintBoardPage({ kind }: Props) {
   async function exclude(u: MaintRow) {
     try {
       await setPMExcluded(u.unit, true)
+      refreshSr()
       await qc.invalidateQueries({ queryKey: ['maint'] })
       notifyOk('Unit excluded', u.unit)
     } catch (e) {
@@ -213,6 +223,7 @@ export default function MaintBoardPage({ kind }: Props) {
   async function include(unit: string) {
     try {
       await setPMExcluded(unit, false)
+      refreshSr()
       await qc.invalidateQueries({ queryKey: ['maint'] })
     } catch (e) {
       notifyErr("Couldn't include", e)
@@ -223,6 +234,7 @@ export default function MaintBoardPage({ kind }: Props) {
     try {
       await setPMOverride(
         u.unit, 'current_miles', raw === '' ? null : Number(raw))
+      refreshSr()
       await qc.invalidateQueries({ queryKey: ['maint'] })
       celebrate(u.unit)
     } catch (e) {
@@ -633,6 +645,7 @@ export default function MaintBoardPage({ kind }: Props) {
           onSaved={(unit) => {
             setAddOpen(false)
             qc.invalidateQueries({ queryKey: ['maint', kind] })
+            refreshSr()
             notifyOk(`${meta.noun} recorded`, unit)
             celebrate(unit)
           }}
@@ -694,23 +707,34 @@ function AddModal({ kind, units, onClose, onSaved }: {
   onSaved: (unit: string) => void
 }) {
   const meta = KIND_META[kind]
+  // Opciones = las filas de ESTE board + la flota (GET /api/fleet: también
+  // trailers y unidades que todavía no están en el board — registrar su
+  // PRIMERA DOT es lo que las suma al board). Ante dos grafías gana la del
+  // BOARD ('CAN1' del CSV aunque Samsara diga 'CAN 1'): el registro tiene
+  // que caer en esa fila, no abrir otra. Con la flota caída o vacía el
+  // picker se degrada a texto libre, como antes.
+  const options = useMemo<PickerUnit[]>(
+    () => units.map((u) => ({ unit: u.unit, model: u.model })), [units])
+  const unitList = useUnitMatcher(undefined, options, true)
   const [unit, setUnit] = useState('')
   const [date, setDate] = useState(fmtDate(todayISO()))   // US: M/D/YYYY
   const [miles, setMiles] = useState('')
   const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState(false)
   const [fetching, setFetching] = useState(false)
+  const unitOk = unitList.isValid(unit)
 
   async function fillCurrent() {
-    if (!unit.trim() || fetching) return
+    if (!unitOk || fetching) return
     setFetching(true)
+    const u = unitList.canonical(unit)
     try {
-      const o = await getUnitOdometer(unit.trim())
+      const o = await getUnitOdometer(u)
       if (o.miles != null) {
         setMiles(String(o.miles))
         notifyOk('Current mileage', `${fmtMi(o.miles)} mi · ${o.source}`)
       } else {
-        notifyErr('No odometer', `The ELD has no reading for ${unit.trim()}`)
+        notifyErr('No odometer', `The ELD has no reading for ${u}`)
       }
     } catch (e) {
       notifyErr("Couldn't fetch mileage", e)
@@ -727,14 +751,19 @@ function AddModal({ kind, units, onClose, onSaved }: {
         'Unit and a valid date (MM/DD/YYYY) are required')
       return
     }
+    if (!unitOk) {
+      notifyErr('Unknown unit', 'Pick a unit from the list')
+      return
+    }
+    const u = unitList.canonical(unit)
     setBusy(true)
     try {
       await addMaintRecord({
-        kind, unit: unit.trim(), date: iso,
+        kind, unit: u, date: iso,
         mileage: miles ? Number(miles) : null,
         notes: notes.trim(),
       })
-      onSaved(unit.trim())
+      onSaved(u)
     } catch (e) {
       notifyErr(`Couldn't save the ${meta.noun}`, e)
       setBusy(false)
@@ -746,14 +775,8 @@ function AddModal({ kind, units, onClose, onSaved }: {
       <div className="mnt-form">
         <label>
           <span>Unit #</span>
-          <input
-            className="cell-input" list="mnt-units" autoFocus
-            placeholder="e.g. CF2246" value={unit}
-            onChange={(e) => setUnit(e.target.value)}
-          />
-          <datalist id="mnt-units">
-            {units.map((u) => <option key={u.unit} value={u.unit} />)}
-          </datalist>
+          <UnitPicker value={unit} onChange={setUnit} extraUnits={options}
+            extraWins autoFocus placeholder="Pick a unit" />
         </label>
         <label>
           <span>Date</span>
@@ -771,7 +794,7 @@ function AddModal({ kind, units, onClose, onSaved }: {
               value={miles} onChange={(e) => setMiles(e.target.value)}
             />
             <button
-              className="btn btn-ghost" disabled={!unit.trim() || fetching}
+              className="btn btn-ghost" disabled={!unitOk || fetching}
               title="Fetch the current odometer from the ELD"
               onClick={fillCurrent}
             >
@@ -794,7 +817,9 @@ function AddModal({ kind, units, onClose, onSaved }: {
         </label>
         <div className="mnt-form-actions">
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" disabled={busy} onClick={submit}>
+          <button className="btn btn-primary" disabled={busy || !unitOk}
+            title={unitOk ? undefined : 'Pick a unit from the list'}
+            onClick={submit}>
             {busy ? 'Saving…' : `Save ${meta.noun}`}
           </button>
         </div>

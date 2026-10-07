@@ -756,6 +756,9 @@ export default function Dashboard({ onNavigate }: Props) {
                           {w.source === 'defect' && (
                             <span className="dash-src-badge is-defect">from defect</span>
                           )}
+                          {w.source === 'request' && (
+                            <span className="dash-src-badge">from service request</span>
+                          )}
                         </td>
                         <td>
                           <span className={`dash-wo-pill ${st.cls}`}>

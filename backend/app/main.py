@@ -93,6 +93,10 @@ def _scope_for(method: str, path: str) -> str | None:
     # Work orders (POST/PATCH/DELETE). /send => facturar.
     if path.startswith("/api/workorders"):
         return "wo.invoice" if path.endswith("/send") else "maint.edit"
+    # Service Requests (v2.20): el backlog por unidad desde el que se despacha
+    # (deny/snooze/crear o sumar a una WO) es trabajo de mantenimiento.
+    if path.startswith("/api/service-requests"):
+        return "maint.edit"
     # Avisos: envío real por email/SMS.
     if path.startswith("/api/notify/"):
         return "notices.send"
@@ -136,12 +140,6 @@ def _scope_for(method: str, path: str) -> str | None:
         return None
     if path.startswith(("/api/defects", "/api/evidence")):
         return "maint.edit"
-    # Walkaround (v2.16, elemento 02): el ACTOR es el driver — arrancar la
-    # corrida, subir la foto del paso y hacer submit debe funcionar para
-    # cualquier autenticado, no solo mantenimiento (el defecto que nace del
-    # submit lo crea el server, no un permiso del driver).
-    if path.startswith(("/api/walkarounds", "/api/walksteps")):
-        return None
     # Escrituras abiertas a cualquier autenticado (generar reportes DVIR).
     if path in _AUTHONLY_WRITE:
         return None
