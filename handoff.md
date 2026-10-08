@@ -77,8 +77,8 @@ control real = OEM **Carrier Lynx** ("Two-way Monitor & Control", ya de
 fábrica en los X4 2022) o plataformas cerradas pagas (Viachain/ORBCOMM,
 CarrierWeb, Blue Tree R:Com). **Como un tracker de sonda NO PUEDE controlar
 un X4, el "control" de TrackFleet es casi seguro un UMBRAL DE SOFTWARE, no
-control real.** PENDIENTE: respuesta de **"Dario"** (instalador de
-TrackFleet) a 4 preguntas (modelo del device; cableado-al-controlador vs
+control real.** PENDIENTE: respuesta **del instalador de TrackFleet** a 4
+preguntas (modelo del device; cableado-al-controlador vs
 sonda; ¿los devices/SIMs son nuestros o de Journey?; control real vs
 umbral) + el test físico (cambiar setpoint en TrackFleet → mirar la pantalla
 del reefer). **DOS CAMINOS:** (A) soltar control, self-host monitoreo más

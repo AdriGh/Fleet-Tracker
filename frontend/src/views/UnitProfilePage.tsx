@@ -594,7 +594,7 @@ export default function UnitProfilePage({ unit, onClose }: {
             qc.invalidateQueries({ queryKey: ['unit-docs', unit] })} />
       )}
 
-      <WoDrawer woId={openWo} mechanics={wosQ.data?.mechanics ?? []}
+      <WoDrawer woId={openWo}
         onClose={() => {
           setOpenWo(null)
           qc.invalidateQueries({ queryKey: ['unit-wos', unit] })

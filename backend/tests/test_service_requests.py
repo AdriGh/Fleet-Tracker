@@ -841,8 +841,13 @@ def test_defect_to_wo_after_completed_wo():
     _sync()                              # sigue en el feed: nadie lo cerró
     assert sr.get_request(rid1)["status"] == "done"
 
-    second = sr.defect_to_wo("D2W", detail)
+    # v2.21: con un mecánico NUEVO. Esta rama archiva el request viejo
+    # (flush) antes de crear la WO: el alta en el roster de técnicos debe
+    # ir DESPUÉS del commit o SQLite se traba ("database is locked").
+    second = sr.defect_to_wo("D2W", detail, mechanic="Brand New Tech")
     rid2, wo2 = second["request"]["id"], second["workorder"]["id"]
+    assert second["workorder"]["mechanic"] == "Brand New Tech"
+    assert "Brand New Tech" in workorders.mechanics()
     assert rid2 != rid1 and wo2 != wo1
     assert second["request"]["source_key"] == key
     assert second["request"]["status"] == "on_wo"

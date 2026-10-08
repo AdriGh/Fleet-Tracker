@@ -1207,6 +1207,12 @@ def _create_wo_from(session, rows: list[ServiceRequest], title: str = "",
 
 
 def _commit_wo(session) -> None:
+    """Commit de la WO + requests. El mecánico (si vino uno) entra al roster
+    de técnicos DESPUÉS, en el caller (workorders.ensure_technician):
+    technicians escribe org_setting en su propia transacción y en SQLite no
+    puede hacerlo mientras esta sesión tenga escrituras a medias
+    (defect_to_wo flushea el archivado del request viejo antes de crear la
+    WO) -> "database is locked"."""
     try:
         session.commit()
     except IntegrityError:
@@ -1234,6 +1240,7 @@ def create_wo(ids: list[int], title: str = "", mechanic: str = "",
         wo = _create_wo_from(session, rows, title, mechanic, priority)
         wo_id = wo.id
         _commit_wo(session)
+        workorders.ensure_technician(mechanic)      # tras el commit (v2.21)
         out_rows = _dicts(session, rows)
     return {"workorder": workorders.get_wo(wo_id), "requests": out_rows}
 
@@ -1364,6 +1371,7 @@ def defect_to_wo(unit: str, detail: str, dvir_type: str = "",
             raise ValueError("this defect was just added, retry")
         wo_id = wo.id
         _commit_wo(session)
+        workorders.ensure_technician(mechanic)      # tras el commit (v2.21)
         req = _one(session, r)
     return {"workorder": workorders.get_wo(wo_id), "request": req}
 

@@ -24,6 +24,7 @@ import {
 import { Badge, Button, Tabs } from '../components/ds'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
+import TechnicianPicker from '../components/TechnicianPicker'
 import UnitPicker from '../components/UnitPicker'
 import { notifyErr, notifyOk, notifyUndo, notifyWarn } from '../toast'
 import { usePerms } from '../perms'
@@ -339,7 +340,6 @@ export default function ServiceRequestsPage() {
   const counts = data?.counts
   const requests = useMemo(
     () => (loading ? [] : data?.requests ?? []), [loading, data])
-  const mechanics = wosQ.data?.mechanics ?? []
 
   const fleetByUnit = useMemo(() => {
     const m = new Map<string, FleetUnit>()
@@ -1056,13 +1056,11 @@ export default function ServiceRequestsPage() {
                     </span>
                   ) : (
                     <>
-                      <input className="cell-input sr-dispatch-mech"
-                        list="sr-mechanics" placeholder="Mechanic (optional)"
-                        aria-label="Mechanic" value={mech}
-                        onChange={(e) => setMech(e.target.value)} />
-                      <datalist id="sr-mechanics">
-                        {mechanics.map((m) => <option key={m} value={m} />)}
-                      </datalist>
+                      {/* v2.21: roster de técnicos (TechnicianPicker). */}
+                      <TechnicianPicker className="sr-dispatch-mech"
+                        placeholder="Technician (optional)"
+                        aria-label="Technician" value={mech}
+                        onChange={setMech} />
                       <select className="cell-input sr-dispatch-prio"
                         aria-label="Work order priority" value={woPrio}
                         onChange={(e) =>
@@ -1127,7 +1125,7 @@ export default function ServiceRequestsPage() {
           onDone={() => setDenying(null)} />
       )}
 
-      <WoDrawer woId={openWo} mechanics={mechanics}
+      <WoDrawer woId={openWo}
         onClose={() => { setOpenWo(null); invalidateSr(qc) }} />
     </div>
   )

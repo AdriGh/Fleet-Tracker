@@ -479,7 +479,7 @@ def driver_compliance_report(drivers: list[dict],
 
 
 # ---------------------------------------------------------------------------
-# Cost per mile (CPM) — el número ancla de Dario
+# Cost per mile (CPM) — el número ancla del founder
 # ---------------------------------------------------------------------------
 
 def _unit_spend(d_from: date | None, d_to: date | None,

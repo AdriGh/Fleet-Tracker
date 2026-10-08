@@ -8,10 +8,14 @@ interface Props {
   width?: number
   // Ocupa (casi) todo el alto de la página, con el cuerpo scrolleable.
   fullHeight?: boolean
+  // Clase extra del backdrop (p. ej. para una variante de layout). El
+  // backdrop ya va en --z-modal con pointer-events propios, así que funciona
+  // igual encima de un drawer vaul o del panel de detalle móvil.
+  className?: string
 }
 
 export default function Modal(
-  { title, onClose, children, width, fullHeight }: Props,
+  { title, onClose, children, width, fullHeight, className = '' }: Props,
 ) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -29,7 +33,7 @@ export default function Modal(
   // animación de entrada de .page), capturaría el position:fixed del
   // backdrop y el modal saldría cortado. Desde body es inmune.
   return createPortal(
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className={`modal-backdrop ${className}`} onClick={onClose}>
       <div
         className={`modal${fullHeight ? ' is-tall' : ''}`}
         style={style}

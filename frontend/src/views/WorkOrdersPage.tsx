@@ -1,164 +1,63 @@
+// Work Orders (v2.21): layout maestro-detalle estilo SquareRigger.
+//
+//  - Vistas: List (lista a la izquierda + panel de detalle a la derecha,
+//    la nueva por defecto), Table (la planilla densa), Board (kanban con
+//    drag & drop, fixes v2.20 intactos) e History (facturadas).
+//  - Un solo set de filtros (FiltersPanel) + búsqueda + terminal que aplican
+//    a TODAS las vistas: `shown` es el único array filtrado.
+//  - La tira de métricas (PipelineStrip) reemplaza a las 6 tarjetas negras;
+//    clic en un segmento aplica ese filtro de status.
+//  - El detalle (WoDetail, views/WoDetail.tsx) se monta en el panel derecho
+//    en List y en el drawer (WoDrawer) en las demás vistas. Deep link local:
+//    ?wo=<id> (sin router; history.replaceState).
 import {
-  Fragment, useEffect, useMemo, useRef, useState, type DragEvent,
+  useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties,
+  type DragEvent,
+  type KeyboardEvent, type ReactNode,
 } from 'react'
-import { Drawer } from 'vaul'
 import {
-  keepPreviousData, useQuery, useQueryClient, type QueryClient,
+  keepPreviousData, useQuery, useQueryClient,
 } from '@tanstack/react-query'
 import {
-  addWoLine, createPartsRequest, createWorkOrder, deleteWoInvoiceFile,
-  deleteWoLine,
-  deleteWorkOrder, downloadWoInvoiceFile, fetchWoInvoiceThumbUrl,
-  getOrg, getUnitOdometer,
-  getWorkOrder, listFleet, listParts, listWorkOrders, patchWorkOrder,
-  scanWoDocument, sendWoInvoice, unlinkRequest, uploadWoInvoiceFile,
-  viewWoInvoiceFile,
-  type EvidencePhoto, type NotifyChannel, type Part, type SrSource,
-  type WorkOrder, type WoPriority, type WoScanLine, type WoStatus,
+  addWoLinesBulk, createWorkOrder, getOrg, getUnitOdometer, listFleet,
+  listParts, listWorkOrders, matchVendor, patchWorkOrder, saveVendor,
+  scanWoDocument,
+  uploadWoInvoiceFile,
+  type Vendor, type VendorCandidate,
+  type WorkOrder, type WoPriority, type WoScanLine, type WoStatus, type WoType,
 } from '../api'
-import EvidenceGallery, {
-  useEvidenceList, useEvidencePhotoUrl,
-} from '../components/EvidenceGallery'
-import { notifyOk, notifyErr, notifyWarn } from '../toast'
+import { notifyOk, notifyErr } from '../toast'
 import { useTerminals } from '../terminal'
 import { usePerms } from '../perms'
-import { Badge, Button, Tabs } from '../components/ds'
+import { Button, Tabs } from '../components/ds'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
-import StatCard from '../components/StatCard'
 import UnitPicker from '../components/UnitPicker'
+import VendorPicker from '../components/VendorPicker'
+import TechnicianPicker from '../components/TechnicianPicker'
+import { WoTypeBadge, WoTypeSwitch } from '../components/WoTypeBadge'
+import PipelineStrip from '../components/PipelineStrip'
+import FiltersPanel, {
+  type FilterGroup, type FilterOption, type FilterRange,
+} from '../components/FiltersPanel'
 import { normUnit, useKnownUnits, useUnitMatcher } from '../unitMatch'
-import { StatCluster } from '../components/ds'
-import WorkOrderInvoice from '../components/WorkOrderInvoice'
-import { CreatePoModal } from './PurchaseOrdersPage'
+import { vendorLabel, vendorLoc } from '../vendors'
+import { PartOptions, WoDetail, WoDrawer } from './WoDetail'
+import {
+  ACTIVE_PIPELINE, afterStatusChange, CAMPAIGN_OPTS, dateOf, findPart,
+  invalidateWoLists, matchesSearch, mergeWoDetail, money, PIPELINE,
+  PRIORITY_META, STATUS_META, statusPatch, type WoListData,
+} from './woShared'
 
-export const STATUS_META: Record<WoStatus, { label: string; cls: string }> = {
-  open: { label: 'Open', cls: 'wo-open' },
-  assigned: { label: 'Assigned', cls: 'wo-assigned' },
-  in_progress: { label: 'In progress', cls: 'wo-progress' },
-  completed: { label: 'Completed', cls: 'wo-done' },
-  invoiced: { label: 'Invoiced', cls: 'wo-invoiced' },
-}
-// Pipeline secuencial H2 (estilo UNIQ TMS); H3: invoiced es terminal.
-export const PIPELINE: WoStatus[] = [
-  'open', 'assigned', 'in_progress', 'completed', 'invoiced',
-]
-// Vistas de la misma data (v2, patrón de 3-vistas de Parts): planilla, grid
-// de tarjetas, kanban por estado, e History (facturadas, separadas).
-type WoView = 'list' | 'grid' | 'board' | 'history'
-// Estados activos (invoiced vive en History): alimentan el filtro de status
-// de List/Grid y las columnas del kanban (Board).
-const ACTIVE_PIPELINE: WoStatus[] = [
-  'open', 'assigned', 'in_progress', 'completed',
-]
-// Forma del cache de la lista (para updates optimistas del kanban).
-type WoListData = Awaited<ReturnType<typeof listWorkOrders>>
-const PRIORITY_META: Record<WoPriority, { label: string; cls: string }> = {
-  low: { label: 'Low', cls: 'pr-low' },
-  normal: { label: 'Normal', cls: 'pr-normal' },
-  high: { label: 'High', cls: 'pr-high' },
-}
+// Re-exports de compatibilidad: el perfil de unidad y Service Requests
+// importan estos nombres desde esta página desde v2.19/v2.20.
+export { STATUS_META, PIPELINE, CAMPAIGN_OPTS } from './woShared'
+export { WoDrawer } from './WoDetail'
 
-const money = (n: number) =>
-  n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
-const dateOf = (iso: string | null) => (iso ? iso.slice(0, 10) : '—')
+// Vistas de la misma data: maestro-detalle, planilla, kanban por estado e
+// History (facturadas, separadas).
+type WoView = 'list' | 'table' | 'board' | 'history'
 
-// Búsqueda libre de la página (List/Grid/Board/History): unidad, título,
-// mecánico o nº de WO. El nº acepta el id interno o el display ("4", "4.1",
-// con o sin "#"); "4" también trae las hijas 4.1, 4.2… del mismo invoice.
-function matchesSearch(w: WorkOrder, s: string): boolean {
-  if (!s) return true
-  const no = s.replace(/^#/, '')
-  const disp = (w.display_no ?? '').toLowerCase()
-  return w.unit.toLowerCase().includes(s)
-    || w.title.toLowerCase().includes(s)
-    || w.mechanic.toLowerCase().includes(s)
-    || String(w.id) === no
-    || (!!no && (disp === no || disp.startsWith(`${no}.`)))
-}
-
-// ----- Cambio de estado compartido (drawer + kanban) ---------------------
-// Mover una WO de estado desde el drawer (setStatus) o arrastrando en el
-// Board (moveWo) usa el MISMO patch y los MISMOS efectos laterales.
-
-// ¿El estado destino está en completed o más allá?
-const reachesCompleted = (s: WoStatus) =>
-  PIPELINE.indexOf(s) >= PIPELINE.indexOf('completed')
-
-// Patch del cambio de estado. Una WO de PM que llega a completed manda el
-// odómetro del cierre para que el PM tracker registre el servicio: el valor
-// tipeado en el drawer o, si no hay, el millaje de la propia WO (el Board no
-// tiene input). Si la WO ya tiene pm_miles, el backend lo reusa tal cual.
-function statusPatch(
-  wo: WorkOrder, s: WoStatus, typedMiles = '',
-): Partial<WorkOrder> {
-  const patch: Partial<WorkOrder> = { status: s }
-  if (reachesCompleted(s) && wo.is_pm) {
-    const typed = Number(typedMiles.trim())
-    if (typedMiles.trim() && Number.isFinite(typed) && typed > 0) {
-      patch.pm_miles = typed
-    } else if (!wo.pm_miles && wo.mileage) {
-      patch.pm_miles = wo.mileage
-    }
-  }
-  return patch
-}
-
-// Funde la respuesta de un PATCH/línea en el detalle cacheado del drawer:
-// {...prev, ...updated} conserva `links` (los arma getWorkOrder) aunque la
-// respuesta no los traiga.
-function mergeWoDetail(qc: QueryClient, updated: WorkOrder) {
-  qc.setQueryData<WorkOrder>(['workorder', updated.id], (prev) =>
-    (prev ? { ...prev, ...updated } : updated))
-}
-
-// Vistas que listan WOs fuera del detalle: board/lista, perfil de unidad y
-// el backlog de service requests (una WO que cambia de estado los afecta).
-function invalidateWoLists(qc: QueryClient) {
-  qc.invalidateQueries({ queryKey: ['workorders'] })
-  qc.invalidateQueries({ queryKey: ['unit-wos'] })
-  qc.invalidateQueries({ queryKey: ['service-requests'] })
-}
-
-// Efectos tras un cambio de estado exitoso: PM tracker + toasts (PM y
-// Telegram). `quiet` omite el toast genérico de estado (en el Board la
-// tarjeta ya se ve moverse).
-function afterStatusChange(qc: QueryClient, updated: WorkOrder, opts: {
-  from: WoStatus; to: WoStatus; quiet?: boolean
-}) {
-  const { from, to, quiet } = opts
-  if (reachesCompleted(to) && updated.is_pm && updated.pm_miles) {
-    qc.invalidateQueries({ queryKey: ['pm'] })
-    qc.invalidateQueries({ queryKey: ['maint'] })
-    notifyOk('PM updated',
-      `${updated.unit} · last PM ${updated.pm_miles.toLocaleString()} mi`)
-  } else if (reachesCompleted(to) && !reachesCompleted(from)
-             && updated.is_pm) {
-    // Sin odómetro el hook PM del backend no corre: avisar en vez de callar.
-    notifyWarn('PM tracker not updated',
-      'This PM work order has no odometer. Open it and enter the mileage to record the PM.')
-  } else if (!quiet) {
-    notifyOk(`WO #${updated.display_no || updated.id}: ${STATUS_META[to].label}`)
-  }
-  if (updated.telegram) {
-    if (updated.telegram.simulated) {
-      notifyOk('Telegram (dry run)', 'Simulated, nothing sent')
-    } else if (updated.telegram.sent) {
-      notifyOk('Telegram sent', 'Shop group notified')
-    } else {
-      notifyErr('Telegram failed', updated.telegram.detail
-        ? new Error(updated.telegram.detail) : undefined)
-    }
-  }
-}
-
-// Etiqueta de la fuente de un service request ligado (v2.20); las mismas que
-// usa el backend en las viñetas del complaint.
-const SR_SOURCE_LABEL: Record<SrSource, string> = {
-  defect: 'DVIR defect', pm: 'PM due', dot: 'DOT due', manual: 'Request',
-}
-
-// Tarjeta de WO reutilizada por Grid y Board (kanban). `draggable` solo si el
 // usuario puede editar (para arrastrar entre columnas del board).
 function WoCard({ w, onOpen, draggable, onDragStart }: {
   w: WorkOrder
@@ -186,13 +85,19 @@ function WoCard({ w, onOpen, draggable, onDragStart }: {
         {w.waiting_parts && (
           <span className="wo-wait-tag" title="Waiting for parts">parts</span>
         )}
+        {/* v2.21: trabajo tercerizado → chip con el vendor. */}
+        <WoTypeBadge wo={w} compact />
       </div>
       <div className="wo-card-foot">
         <span className={`wo-priority ${PRIORITY_META[w.priority].cls}`}>
           {PRIORITY_META[w.priority].label}
         </span>
-        <span className="wo-card-mech" title={w.mechanic}>
-          {w.mechanic || '—'}
+        <span className="wo-card-mech"
+          title={w.wo_type === 'outside' ? w.vendor_name : w.mechanic}>
+          {w.wo_type === 'outside'
+            ? (vendorLoc({ city: w.vendor_city, state: w.vendor_state })
+              || 'Third-party shop')
+            : (w.mechanic || '—')}
         </span>
         <span className="mono wo-card-total">
           {w.total ? money(w.total) : '—'}
@@ -200,120 +105,6 @@ function WoCard({ w, onOpen, draggable, onDragStart }: {
       </div>
     </article>
   )
-}
-// Fecha + hora corta (MM-DD · HH:MM) para la línea de tiempo de actividad.
-const stampOf = (iso: string | null) => {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso.slice(0, 10)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())} · `
-    + `${p(d.getHours())}:${p(d.getMinutes())}`
-}
-
-// --- Increment C: diagnóstico de falla de reefer -------------------------
-// El puente reefer→WO (backend core/reefer_wo.py) NO guarda telemetría en
-// columnas: incrusta el snapshot capturado al disparar la alarma DENTRO del
-// texto del complaint, en un formato estable:
-//   "Code <X>: <desc>."
-//   "Operator action: <act>."
-//   "Snapshot: setpoint N°F, return N°F, mode <m>."
-//   "[rf:<X>]"
-// Esto parsea ESE texto real (sin inventar datos). Solo se usa para WOs con
-// source==='reefer'; si un campo no está en el complaint, se omite la celda.
-type FaultDiag = {
-  code?: string
-  desc?: string
-  action?: string
-  source?: string
-  cells: { k: string; v: string; u?: string }[]
-}
-function parseReeferFault(complaint: string): FaultDiag | null {
-  const text = complaint || ''
-  const diag: FaultDiag = { cells: [] }
-  const code = text.match(/\[rf:([^\]]+)\]/)
-    || text.match(/\bCode\s+([^\s:]+)/i)
-  if (code) diag.code = code[1].trim()
-  const desc = text.match(/\bCode\s+[^\s:]+:\s*([^\n.]+)/i)
-  if (desc) diag.desc = desc[1].trim()
-  const action = text.match(/Operator action:\s*([^\n.]+)/i)
-  if (action) diag.action = action[1].trim()
-  const src = text.match(/\(([^)]+)\)\.?\s*\n/) // "...on UNIT (lynx)."
-  if (src) diag.source = src[1].trim()
-  // Celdas del snapshot: solo las realmente presentes en el texto.
-  const setp = text.match(/setpoint\s+(-?[\d.]+)\s*°?F/i)
-  if (setp) diag.cells.push({ k: 'Setpoint', v: setp[1], u: '°F' })
-  const ret = text.match(/return\s+(-?[\d.]+)\s*°?F/i)
-  if (ret) diag.cells.push({ k: 'Return air', v: ret[1], u: '°F' })
-  const sup = text.match(/(?:supply|discharge)\s+(-?[\d.]+)\s*°?F/i)
-  if (sup) diag.cells.push({ k: 'Supply', v: sup[1], u: '°F' })
-  const mode = text.match(/mode\s+([A-Za-z0-9_-]+)/i)
-  if (mode) diag.cells.push({ k: 'Run mode', v: mode[1] })
-  // Solo vale la pena la tarjeta si hay código o al menos una celda real.
-  return (diag.code || diag.cells.length) ? diag : null
-}
-
-// Línea de tiempo de actividad: SOLO hitos reales del ciclo de vida del WO
-// (timestamps que el registro ya tiene). No hay tabla de eventos/auditoría
-// por-WO en el backend, así que NO se fabrica un trail multi-actor.
-type WoEvent = { when: string; label: string; sub?: string; tone: string }
-function woTimeline(wo: WorkOrder): WoEvent[] {
-  const ev: WoEvent[] = []
-  if (wo.created_at) {
-    ev.push({
-      when: wo.created_at,
-      label: wo.source === 'reefer' ? 'Opened from reefer fault'
-        : wo.source === 'defect' ? 'Opened from defect'
-          : wo.source === 'request' ? 'Opened from service request'
-            : wo.source === 'scan' ? 'Opened from scanned invoice'
-              : 'Work order opened',
-      tone: wo.source === 'reefer' ? 'accent' : 'info',
-    })
-  }
-  if (wo.service_date) {
-    ev.push({ when: wo.service_date, label: 'Service date', tone: 'info' })
-  }
-  if (wo.closed_at) {
-    ev.push({ when: wo.closed_at, label: 'Marked completed', tone: 'ok' })
-  }
-  if (wo.invoiced_at) {
-    ev.push({
-      when: wo.invoiced_at,
-      label: 'Invoiced',
-      sub: wo.invoice_number ? `#${wo.invoice_number}` : undefined,
-      tone: 'accent',
-    })
-  }
-  // Orden cronológico estable por fecha.
-  return ev.sort((a, b) =>
-    new Date(a.when).getTime() - new Date(b.when).getTime())
-}
-
-// Catálogo de partes (H3): busca una parte por número exacto.
-function findPart(parts: Part[], pn: string): Part | undefined {
-  const k = (pn || '').trim().toLowerCase()
-  return k ? parts.find((p) => p.part_number.toLowerCase() === k) : undefined
-}
-
-// Mejor alternativa EN STOCK para el banner de decisión: misma categoría y
-// con mayor solape de palabras significativas en la descripción. Solo sugiere
-// si hay solape real — así no ofrece p. ej. un cartucho de secador como
-// reemplazo de una cámara de freno solo por compartir categoría.
-function bestAlternative(catalog: Part[], cp: Part): Part | null {
-  const words = new Set(
-    (cp.description || '').toLowerCase().split(/\W+/)
-      .filter((w) => w.length > 3))
-  let best: Part | null = null
-  let bestScore = 0
-  for (const p of catalog) {
-    if (p.part_number === cp.part_number) continue
-    if ((p.category || '') !== (cp.category || '')) continue
-    if ((p.on_hand || 0) <= 0) continue
-    const score = (p.description || '').toLowerCase().split(/\W+/)
-      .filter((w) => words.has(w)).length
-    if (score > bestScore) { best = p; bestScore = score }
-  }
-  return bestScore > 0 ? best : null
 }
 
 // Input numérico que admite decimales mientras se escribe (review v1.18).
@@ -355,40 +146,201 @@ function DecimalInput({
   )
 }
 
-// Datalist compartido de part numbers (el option muestra la descripción).
-function PartOptions({ id, parts }: { id: string; parts: Part[] }) {
-  return (
-    <datalist id={id}>
-      {parts.map((p) => (
-        <option key={p.id} value={p.part_number}>{p.description}</option>
-      ))}
-    </datalist>
-  )
+
+
+// ----- Filtros (v2.21) -------------------------------------------------------
+// Un solo objeto de filtros que aplican TODAS las vistas. Los grupos de
+// checkboxes son Sets de valores (vacío = sin filtro); las fechas son rangos.
+type SetGroup =
+  'status' | 'type' | 'vendor' | 'tech' | 'priority' | 'campaign' | 'unit'
+  | 'waiting'
+const SET_GROUPS: SetGroup[] = [
+  'status', 'type', 'vendor', 'tech', 'priority', 'campaign', 'unit', 'waiting',
+]
+type DateRange = { from: string; to: string }
+type WoFilters = Record<SetGroup, Set<string>> & {
+  created: DateRange
+  service: DateRange
+}
+const emptyFilters = (): WoFilters => ({
+  status: new Set(), type: new Set(), vendor: new Set(), tech: new Set(),
+  priority: new Set(), campaign: new Set(), unit: new Set(),
+  waiting: new Set(),
+  created: { from: '', to: '' }, service: { from: '', to: '' },
+})
+// Valor "sin asignar" (técnico vacío / sin vendor).
+const NONE = '__none__'
+// Valor del grupo Technician para una WO outside (sin técnico propio).
+const OUTSIDE = '__outside__'
+
+// Valor de una WO en cada grupo de filtro.
+function groupValue(w: WorkOrder, g: SetGroup): string {
+  switch (g) {
+    case 'status': return w.status
+    case 'type': return w.wo_type
+    case 'vendor': return w.vendor_id != null ? String(w.vendor_id) : NONE
+    // Outside work no tiene técnico propio: valor aparte (nunca se ofrece
+    // como opción) para que "Unassigned" cuente SOLO inside sin asignar y el
+    // conteo coincida con el resultado al marcarlo.
+    case 'tech': return w.wo_type === 'outside' ? OUTSIDE
+      : (w.mechanic.trim() || NONE)
+    case 'priority': return w.priority
+    case 'campaign': return w.campaign || (w.is_pm ? 'pm' : '')
+    case 'unit': return w.unit
+    case 'waiting': return w.waiting_parts ? 'yes' : 'no'
+  }
 }
 
-// Campañas de mantenimiento (H3b): nombres estilo Fullbay. Una orden
-// con campaña actualiza Components & PMs del perfil al facturarse.
-export const CAMPAIGN_OPTS: { key: string; label: string }[] = [
-  { key: '', label: 'None' },
-  { key: 'pm', label: 'Full Wet Service (PM)' },
-  { key: 'dot', label: 'Federal Annual DOT Inspection' },
-  { key: 'kingpins', label: 'Check kingpins' },
-  { key: 'dpf', label: 'DPF replacement' },
-  { key: 'clutch', label: 'Clutch replacement' },
-]
+function inRange(iso: string | null, r: DateRange): boolean {
+  if (!r.from && !r.to) return true
+  if (!iso) return false
+  const d = iso.slice(0, 10)
+  return (!r.from || d >= r.from) && (!r.to || d <= r.to)
+}
+
+// ¿La WO pasa los filtros? `except` ignora UN grupo: así cada grupo del
+// panel cuenta sus opciones contra los demás filtros (conteos facetados).
+function passes(
+  w: WorkOrder, f: WoFilters, except?: SetGroup | 'created' | 'service',
+): boolean {
+  for (const g of SET_GROUPS) {
+    if (g === except) continue
+    if (f[g].size && !f[g].has(groupValue(w, g))) return false
+  }
+  if (except !== 'created' && !inRange(w.created_at, f.created)) return false
+  if (except !== 'service' && !inRange(w.service_date, f.service)) return false
+  return true
+}
+
+function activeFilterCount(f: WoFilters): number {
+  return SET_GROUPS.filter((g) => f[g].size > 0).length
+    + ((f.created.from || f.created.to) ? 1 : 0)
+    + ((f.service.from || f.service.to) ? 1 : 0)
+}
+
+// Opciones de un grupo: los valores presentes en `base` con el conteo de las
+// WOs que pasan los DEMÁS filtros. `skip` deja afuera valores que no tiene
+// sentido ofrecer (p. ej. "sin vendor" en el grupo Vendor).
+function buildOptions(
+  base: WorkOrder[], f: WoFilters, g: SetGroup,
+  labelOf: (v: string) => ReactNode,
+  opts: { order?: string[]; skip?: (w: WorkOrder) => boolean;
+          search?: (v: string) => string } = {},
+): FilterOption[] {
+  const present = new Set<string>()
+  const counts = new Map<string, number>()
+  for (const w of base) {
+    if (opts.skip?.(w)) continue
+    const v = groupValue(w, g)
+    present.add(v)
+    if (passes(w, f, g)) counts.set(v, (counts.get(v) ?? 0) + 1)
+  }
+  const out = [...present].map((v) => ({
+    value: v, label: labelOf(v), count: counts.get(v) ?? 0,
+    search: opts.search?.(v),
+  }))
+  if (opts.order) {
+    const ord = opts.order
+    out.sort((a, b) => ord.indexOf(a.value) - ord.indexOf(b.value))
+  } else {
+    out.sort((a, b) => b.count - a.count
+      || String(a.search ?? a.value).localeCompare(String(b.search ?? b.value)))
+  }
+  return out
+}
+
+// Orden "árbol" de la lista maestra (estilo SquareRigger): cada orden hija
+// (#4.1) va justo debajo de su padre si el padre también está en la lista;
+// si no, queda donde el orden original la trajo.
+function treeOrder(list: WorkOrder[]): WorkOrder[] {
+  const ids = new Set(list.map((w) => w.id))
+  const kids = new Map<number, WorkOrder[]>()
+  for (const w of list) {
+    if (w.parent_id != null && ids.has(w.parent_id)) {
+      const arr = kids.get(w.parent_id) ?? []
+      arr.push(w)
+      kids.set(w.parent_id, arr)
+    }
+  }
+  const out: WorkOrder[] = []
+  for (const w of list) {
+    if (w.parent_id != null && ids.has(w.parent_id)) continue
+    out.push(w)
+    const ks = kids.get(w.id)
+    if (ks) out.push(...ks.sort((a, b) => a.child_seq - b.child_seq))
+  }
+  return out
+}
+
+// Deep link local: ?wo=<id> al montar.
+function woFromUrl(): number | null {
+  const p = new URLSearchParams(window.location.search).get('wo')
+  const n = p ? Number(p) : NaN
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
+// Pestañas de vista (icono + etiqueta compactos).
+function VTab({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return <span className="wo-vtab">{icon}{children}</span>
+}
+const I = {
+  list: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="7" height="16" rx="1.5" />
+      <rect x="13" y="4" width="8" height="16" rx="1.5" />
+    </svg>
+  ),
+  table: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </svg>
+  ),
+  board: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="5" height="16" rx="1.2" />
+      <rect x="10" y="4" width="5" height="11" rx="1.2" />
+      <rect x="17" y="4" width="4" height="8" rx="1.2" />
+    </svg>
+  ),
+  history: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 8v4l3 2" />
+      <circle cx="12" cy="12" r="9" />
+    </svg>
+  ),
+  funnel: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 5h18l-7 8v6l-4 2v-8z" />
+    </svg>
+  ),
+}
 
 export default function WorkOrdersPage() {
   const qc = useQueryClient()
   const { can } = usePerms()
   const { terminalOf, labelOf, present } = useTerminals()
   const [view, setView] = useState<WoView>('list')
-  const [statusFilter, setStatusFilter] = useState('')
   const [terminal, setTerminal] = useState('')
   const [q, setQ] = useState('')
+  const [filters, setFilters] = useState<WoFilters>(emptyFilters)
+  const [fltOpen, setFltOpen] = useState(false)
+  const fltBtnRef = useRef<HTMLButtonElement | null>(null)
+  // List: WO seleccionada en el panel derecho (deep link ?wo=). Table /
+  // Board / History abren el drawer (openWo), como antes.
+  const [sel, setSel] = useState<number | null>(woFromUrl)
+  const [showDetail, setShowDetail] = useState(() => woFromUrl() != null)
+  const [expanded, setExpanded] = useState(false)
   const [openWo, setOpenWo] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
   // Columna del kanban resaltada mientras se arrastra una tarjeta sobre ella.
   const [dragCol, setDragCol] = useState<WoStatus | null>(null)
+  const listRef = useRef<HTMLDivElement | null>(null)
+  const splitRef = useRef<HTMLDivElement | null>(null)
 
   // Un solo fetch (todas las WOs); las 4 vistas filtran client-side. Las
   // stats del backend son globales, así que no dependen del filtro.
@@ -397,56 +349,197 @@ export default function WorkOrdersPage() {
     queryFn: () => listWorkOrders(''),
     placeholderData: keepPreviousData,
   })
-  const wos = listQ.data?.workorders ?? []
+  const wos = useMemo(() => listQ.data?.workorders ?? [], [listQ.data])
   const stats = listQ.data?.stats
-  const mechanics = listQ.data?.mechanics ?? []
+
+  // List: lista y detalle llenan el alto que queda bajo la cabecera (scroll
+  // interno, como SquareRigger). Se mide el offset del split en el documento
+  // (offsetTop acumulado: ignora la animación de entrada de .page) y el CSS
+  // calcula `100vh - offset`. En móvil el CSS lo ignora. El split solo
+  // existe en List ya cargada; se re-mide cuando cambia el alto de lo que
+  // hay arriba (banner, tira) vía ResizeObserver, no en cada render.
+  useLayoutEffect(() => {
+    const el = splitRef.current
+    if (!el) return
+    const measure = () => {
+      let top = 0
+      for (let n: HTMLElement | null = el; n;
+           n = n.offsetParent as HTMLElement | null) {
+        top += n.offsetTop
+      }
+      el.style.setProperty('--wo-split-top', `${Math.round(top)}px`)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    const ro = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(measure) : null
+    ro?.observe(document.body)
+    if (el.parentElement) ro?.observe(el.parentElement)
+    return () => {
+      window.removeEventListener('resize', measure)
+      ro?.disconnect()
+    }
+  }, [view, listQ.isPending])
+  // Año / marca / modelo de la unidad para la lista maestra (caché ['fleet']
+  // compartida con Fleet y el detalle; si no está, solo la unidad).
+  const fleetQ = useQuery({ queryKey: ['fleet'], queryFn: listFleet })
+  const ymmOf = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const u of fleetQ.data ?? []) {
+      m.set(u.unit, [u.year, u.make, u.model].filter(Boolean).join(' '))
+    }
+    return (unit: string) => m.get(unit) ?? ''
+  }, [fleetQ.data])
+
+  // Deep link: escribir ?wo= al cambiar la selección (sin router); al salir
+  // de la página se limpia.
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (sel != null) url.searchParams.set('wo', String(sel))
+    else url.searchParams.delete('wo')
+    window.history.replaceState(window.history.state, '', url)
+  }, [sel])
+  useEffect(() => () => {
+    const url = new URL(window.location.href)
+    if (url.searchParams.has('wo')) {
+      url.searchParams.delete('wo')
+      window.history.replaceState(window.history.state, '', url)
+    }
+  }, [])
 
   // Chips de terminal (Settings → Terminals); solo si hay más de una.
-  // Pasar company para que las unidades MCC sin prefijo caigan en 'MCC'
-  // (sin chip) y no bajo Chaser.
   const woTerminals = useMemo(
     () => present(wos.map((w) => ({ unit: w.unit, company: w.company }))),
     [wos, present])
-
-  // Si el terminal elegido ya no está presente (p.ej. al cambiar de
-  // status sus WOs son de otra terminal), los chips colapsan y el filtro
-  // quedaría aplicado e invisible -> limpiarlo para no esconder filas.
   useEffect(() => {
     if (terminal && !woTerminals.includes(terminal)) setTerminal('')
   }, [terminal, woTerminals])
 
   const editable = can('maint.edit')
 
-  // List/Grid: activos (invoiced vive en History), con filtro de status.
-  const listShown = useMemo(() => {
+  // Alcance de la vista (activas vs facturadas) + búsqueda + terminal: la
+  // base sobre la que el panel cuenta sus opciones.
+  const viewBase = useMemo(() => {
     const s = q.trim().toLowerCase()
     return wos.filter((w) =>
-      w.status !== 'invoiced' &&
-      (!statusFilter || w.status === statusFilter) &&
-      (!terminal || terminalOf(w.unit, w.company) === terminal) &&
-      matchesSearch(w, s))
-  }, [wos, statusFilter, q, terminal, terminalOf])
+      (view === 'history' ? w.status === 'invoiced' : w.status !== 'invoiced')
+      && (!terminal || terminalOf(w.unit, w.company) === terminal)
+      && matchesSearch(w, s))
+  }, [wos, view, q, terminal, terminalOf])
+  // EL array filtrado: lo usan List, Table, Board e History. En History el
+  // grupo Status no existe (todo es invoiced) y el panel no lo muestra, así
+  // que un status elegido en List se IGNORA ahí (y no cuenta como activo):
+  // si no, la lista quedaba vacía sin ningún filtro visible que quitar.
+  const skipGroup = view === 'history' ? 'status' : undefined
+  const shown = useMemo(
+    () => viewBase.filter((w) => passes(w, filters, skipGroup)),
+    [viewBase, filters, skipGroup])
+  const rows = useMemo(() => treeOrder(shown), [shown])
+  const activeCount = activeFilterCount(filters)
+    - (skipGroup && filters.status.size ? 1 : 0)
 
-  // History: solo facturadas.
-  const historyShown = useMemo(() => {
-    const s = q.trim().toLowerCase()
-    return wos.filter((w) =>
-      w.status === 'invoiced' &&
-      (!terminal || terminalOf(w.unit, w.company) === terminal) &&
-      matchesSearch(w, s))
-  }, [wos, q, terminal, terminalOf])
+  // Grupos del panel de filtros con conteos facetados.
+  const vendorNames = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const w of wos) {
+      if (w.vendor_id != null) m.set(String(w.vendor_id), w.vendor_name)
+    }
+    return m
+  }, [wos])
+  const groups: FilterGroup[] = useMemo(() => {
+    const gs: FilterGroup[] = []
+    if (view !== 'history') {
+      gs.push({
+        id: 'status', label: 'Status', defaultOpen: true,
+        selected: filters.status,
+        options: buildOptions(viewBase, filters, 'status',
+          (v) => STATUS_META[v as WoStatus]?.label ?? v,
+          { order: PIPELINE }),
+      })
+    }
+    gs.push({
+      id: 'type', label: 'Type', defaultOpen: true, selected: filters.type,
+      options: buildOptions(viewBase, filters, 'type',
+        (v) => (v === 'outside' ? 'Outside work' : 'Inside work'),
+        { order: ['inside', 'outside'] }),
+    })
+    gs.push({
+      id: 'vendor', label: 'Vendor', selected: filters.vendor,
+      options: buildOptions(viewBase, filters, 'vendor',
+        (v) => vendorNames.get(v) || `Vendor #${v}`,
+        { skip: (w) => w.vendor_id == null,
+          search: (v) => vendorNames.get(v) || v }),
+    })
+    gs.push({
+      id: 'tech', label: 'Technician', selected: filters.tech,
+      options: buildOptions(viewBase, filters, 'tech',
+        (v) => (v === NONE ? <em>Unassigned</em> : v),
+        { skip: (w) => w.wo_type === 'outside',
+          search: (v) => (v === NONE ? 'unassigned' : v) }),
+    })
+    gs.push({
+      id: 'priority', label: 'Priority', selected: filters.priority,
+      options: buildOptions(viewBase, filters, 'priority',
+        (v) => PRIORITY_META[v as WoPriority]?.label ?? v,
+        { order: ['high', 'normal', 'low'] }),
+    })
+    gs.push({
+      id: 'campaign', label: 'Campaign / PM', selected: filters.campaign,
+      options: buildOptions(viewBase, filters, 'campaign',
+        (v) => (v === '' ? <em>No campaign</em>
+          : CAMPAIGN_OPTS.find((c) => c.key === v)?.label ?? v),
+        { search: (v) => (v === '' ? 'none'
+          : CAMPAIGN_OPTS.find((c) => c.key === v)?.label ?? v) }),
+    })
+    gs.push({
+      id: 'unit', label: 'Unit', selected: filters.unit, searchable: true,
+      limit: 8,
+      options: buildOptions(viewBase, filters, 'unit',
+        (v) => {
+          const y = ymmOf(v)
+          return y ? <><strong>{v}</strong> <span className="muted">{y}</span></> : v
+        },
+        { search: (v) => `${v} ${ymmOf(v)}` }),
+    })
+    gs.push({
+      id: 'waiting', label: 'Waiting for parts', selected: filters.waiting,
+      options: buildOptions(viewBase, filters, 'waiting',
+        (v) => (v === 'yes' ? 'Waiting for parts' : 'Not waiting'),
+        { order: ['yes', 'no'] }),
+    })
+    return gs
+  }, [view, viewBase, filters, vendorNames, ymmOf])
+  const ranges: FilterRange[] = [
+    { id: 'created', label: 'Created date', ...filters.created },
+    { id: 'service', label: 'Service date', ...filters.service },
+  ]
 
-  // Board (kanban): todos los activos (sin filtro de status: las columnas SON
-  // el status), agrupados luego por columna.
-  const boardWos = useMemo(() => {
-    const s = q.trim().toLowerCase()
-    return wos.filter((w) =>
-      w.status !== 'invoiced' &&
-      (!terminal || terminalOf(w.unit, w.company) === terminal) &&
-      matchesSearch(w, s))
-  }, [wos, q, terminal, terminalOf])
-
-  const shown = view === 'history' ? historyShown : listShown
+  function toggleFilter(groupId: string, value: string) {
+    setFilters((f) => {
+      const g = groupId as SetGroup
+      const next = new Set(f[g])
+      if (next.has(value)) next.delete(value); else next.add(value)
+      return { ...f, [g]: next }
+    })
+  }
+  function clearGroup(groupId: string) {
+    setFilters((f) => ({ ...f, [groupId as SetGroup]: new Set<string>() }))
+  }
+  function setRange(id: string, from: string, to: string) {
+    setFilters((f) => ({ ...f, [id as 'created' | 'service']: { from, to } }))
+  }
+  // Tira de métricas: un segmento = filtro de ese status (toggle). En
+  // History el status no filtra, así que no se resalta ninguno.
+  const stripActive = view !== 'history' && filters.status.size === 1
+    ? [...filters.status][0] : null
+  function pickStatus(key: string) {
+    setFilters((f) => ({
+      ...f,
+      status: (f.status.size === 1 && f.status.has(key))
+        ? new Set<string>() : new Set([key]),
+    }))
+    if (view === 'history') setView('list')
+  }
 
   function refresh() {
     qc.invalidateQueries({ queryKey: ['workorders'] })
@@ -454,11 +547,30 @@ export default function WorkOrdersPage() {
     qc.invalidateQueries({ queryKey: ['workorder'] })
   }
 
+  // List: elegir una WO (y en móvil pasar al detalle).
+  function select(id: number) {
+    setSel(id)
+    setShowDetail(true)
+  }
+  // ↑/↓ en la lista maestra mueven la selección (y el foco).
+  function onListKey(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+    e.preventDefault()
+    if (!rows.length) return
+    const i = rows.findIndex((w) => w.id === sel)
+    const j = i < 0 ? 0 : Math.max(0, Math.min(rows.length - 1,
+      i + (e.key === 'ArrowDown' ? 1 : -1)))
+    setSel(rows[j].id)
+    listRef.current?.querySelectorAll<HTMLButtonElement>('.wom-row')[j]
+      ?.focus()
+  }
+
   // Mover una WO de columna (kanban): optimista + patch, con los mismos
-  // efectos que setStatus del drawer (pm_miles, PM tracker, Telegram). El
-  // optimista toca la lista Y el detalle ['workorder', id] para que el drawer
-  // no muestre el estado viejo al reabrir. Si un gate del backend bloquea el
-  // avance (p.ej. "assign a mechanic"), revierte ambos y muestra el motivo.
+  // efectos que el cambio de estado del detalle (pm_miles, PM tracker,
+  // Telegram). El optimista toca la lista Y el detalle ['workorder', id]
+  // para que el panel no muestre el estado viejo al reabrir. Si un gate del
+  // backend bloquea el avance (p.ej. "assign a mechanic"), revierte ambos y
+  // muestra el motivo.
   async function moveWo(id: number, status: WoStatus) {
     setDragCol(null)
     const listKey = ['workorders', ''] as const
@@ -492,8 +604,38 @@ export default function WorkOrdersPage() {
     }
   }
 
+  // Columnas del board: con filtro de status, solo las elegidas.
+  const boardCols = filters.status.size
+    ? ACTIVE_PIPELINE.filter((s) => filters.status.has(s)) : ACTIVE_PIPELINE
+
+  const filtersButton = (
+    <button ref={fltBtnRef} type="button"
+      className={`btn btn-ghost btn-xs wo-fltbtn ${activeCount ? 'is-on' : ''}`}
+      aria-haspopup="dialog" aria-expanded={fltOpen}
+      onClick={() => setFltOpen((o) => !o)}>
+      {I.funnel}
+      Filters
+      {activeCount > 0 && (
+        <span className="wo-fltbadge">{activeCount} active</span>
+      )}
+    </button>
+  )
+  const searchBox = (cls: string) => (
+    <input className={`cell-input ${cls}`}
+      placeholder="Search WO#, unit, title, technician, vendor…"
+      aria-label="Search work orders"
+      value={q} onChange={(e) => setQ(e.target.value)} />
+  )
+
+  // Empty state compartido (lista maestra / tabla / history).
+  const emptyText = view === 'history'
+    ? 'No invoiced work orders match.'
+    : activeCount || q.trim()
+      ? 'No work orders match these filters.'
+      : 'No work orders yet. Create one here or from an open defect in Fleet.'
+
   return (
-    <div className="page page-wide">
+    <div className="page page-wide wo-page">
       {listQ.isFetching && <div className="loadbar" aria-hidden="true" />}
       <div className="page-head">
         <div>
@@ -503,7 +645,7 @@ export default function WorkOrdersPage() {
           </p>
         </div>
         <div className="head-actions">
-          {can('maint.edit') && (
+          {editable && (
             <Button variant="primary" onClick={() => setCreating(true)}
               icon={
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -521,59 +663,67 @@ export default function WorkOrdersPage() {
         <div className="banner error"><span>{String(listQ.error)}</span></div>
       )}
 
-      {listQ.isPending ? (
-        <StatCluster className="kpi-row">
-          {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} h={86} />)}
-        </StatCluster>
-      ) : stats && (
-        <StatCluster className="kpi-row">
-          <StatCard label="Open" value={stats.open}
-            tone={stats.open ? 'warn' : 'ok'} />
-          <StatCard label="Assigned" value={stats.assigned} tone="info" />
-          <StatCard label="In progress" value={stats.in_progress} tone="info" />
-          <StatCard label="To invoice" value={stats.completed}
-            tone={stats.completed ? 'warn' : 'default'} />
-          <StatCard label="Invoiced" value={stats.invoiced} tone="ok" />
-          <StatCard label="Cost (30d)" value={money(stats.cost_30d)}
-            tone="accent" />
-        </StatCluster>
-      )}
+      {/* Tira del pipeline (reemplaza a las tarjetas negras). */}
+      <PipelineStrip
+        loading={listQ.isPending}
+        active={stripActive}
+        onSelect={pickStatus}
+        segments={[
+          { key: 'open', label: 'Open', count: stats?.open ?? 0,
+            tone: stats?.open ? 'warn' : 'neutral' },
+          { key: 'assigned', label: 'Assigned', count: stats?.assigned ?? 0,
+            tone: 'info' },
+          { key: 'in_progress', label: 'In progress',
+            count: stats?.in_progress ?? 0, tone: 'info' },
+          { key: 'completed', label: 'To invoice',
+            count: stats?.completed ?? 0,
+            tone: stats?.completed ? 'ok' : 'neutral' },
+        ]}
+        kpis={[
+          { key: 'waiting', label: 'Parts blocking',
+            value: stats?.waiting_parts ?? 0,
+            tone: stats?.waiting_parts ? 'warn' : 'neutral',
+            title: 'Active work orders waiting for parts' },
+          // v2.21: trabajo en talleres externos todavía sin facturar.
+          { key: 'outside', label: 'At vendors',
+            value: stats?.outside_open ?? 0,
+            tone: stats?.outside_open ? 'accent' : 'neutral',
+            title: 'Outside work orders not yet invoiced' },
+          { key: 'cost', label: 'Cost 30d', value: money(stats?.cost_30d ?? 0),
+            tone: 'accent', title: 'Invoiced in the last 30 days' },
+        ]} />
 
-      <div className="card">
-        <div className="card-body filters-row">
+      {/* Barra de vistas + terminal (+ búsqueda y filtros fuera de List,
+          donde viven en la cabecera de la lista maestra). */}
+      <div className="wo-toolbar">
+        <Tabs
+          aria-label="View"
+          className="wo-vtabs"
+          tabs={[
+            { id: 'list', label: <VTab icon={I.list}>List</VTab> },
+            { id: 'table', label: <VTab icon={I.table}>Table</VTab> },
+            { id: 'board', label: <VTab icon={I.board}>Board</VTab> },
+            { id: 'history', label: <VTab icon={I.history}>History</VTab> },
+          ]}
+          value={view}
+          onChange={(id) => setView(id as WoView)}
+        />
+        {woTerminals.length > 1 && (
           <Tabs
-            aria-label="View"
-            tabs={[
-              { id: 'list', label: 'List' },
-              { id: 'grid', label: 'Grid' },
-              { id: 'board', label: 'Board' },
-              { id: 'history', label: 'History' },
-            ]}
-            value={view}
-            onChange={(id) => setView(id as WoView)}
+            aria-label="Terminal"
+            tabs={[{ id: '', label: 'All terminals' },
+              ...woTerminals.map((t) => ({ id: t, label: labelOf(t) }))]}
+            value={terminal}
+            onChange={(id) => setTerminal(terminal === id ? '' : id)}
           />
-          {(view === 'list' || view === 'grid') && (
-            <Tabs
-              aria-label="Status"
-              tabs={[{ id: '', label: 'All' },
-                ...ACTIVE_PIPELINE.map((s) => ({ id: s, label: STATUS_META[s].label }))]}
-              value={statusFilter}
-              onChange={(id) => setStatusFilter(id as typeof statusFilter)}
-            />
-          )}
-          {woTerminals.length > 1 && (
-            <Tabs
-              aria-label="Terminal"
-              tabs={[{ id: '', label: 'All terminals' },
-                ...woTerminals.map((t) => ({ id: t, label: labelOf(t) }))]}
-              value={terminal}
-              onChange={(id) => setTerminal(terminal === id ? '' : id)}
-            />
-          )}
-          <span className="head-spacer" />
-          <input className="cell-input" placeholder="Unit, title, mechanic, WO#…"
-            value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
+        )}
+        <span className="head-spacer" />
+        {view !== 'list' && (
+          <>
+            {searchBox('wo-search')}
+            {filtersButton}
+          </>
+        )}
       </div>
 
       {listQ.isPending ? (
@@ -582,13 +732,114 @@ export default function WorkOrdersPage() {
             {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} h={38} />)}
           </div>
         </div></section>
+      ) : view === 'list' ? (
+        /* ===== List: lista maestra + panel de detalle ===== */
+        <div ref={splitRef}
+          className={`wo-split ${showDetail ? 'show-detail' : ''} ${expanded ? 'is-expanded' : ''}`}>
+          <aside className="wo-master" aria-label="Work orders">
+            <div className="wom-head">
+              {searchBox('wom-search')}
+              {filtersButton}
+            </div>
+            <div className="wom-sub">
+              <span>{rows.length} work order{rows.length === 1 ? '' : 's'}</span>
+              {activeCount > 0 && (
+                <button type="button" className="wom-clear"
+                  onClick={() => setFilters(emptyFilters())}>
+                  Clear filters
+                </button>
+              )}
+            </div>
+            <div className="wom-list" ref={listRef} role="listbox"
+              aria-label="Work orders" onKeyDown={onListKey}>
+              {rows.length === 0 ? (
+                <div className="empty mini wom-empty"><p>{emptyText}</p></div>
+              ) : rows.map((w) => {
+                const child = w.parent_id != null
+                  && rows.some((p) => p.id === w.parent_id)
+                const isSel = w.id === sel
+                const ymm = ymmOf(w.unit)
+                return (
+                  <button type="button" key={w.id} role="option"
+                    aria-selected={isSel}
+                    className={`wom-row ${isSel ? 'is-sel' : ''} ${child ? 'is-child' : ''}`}
+                    onClick={() => select(w.id)}>
+                    <span className="wom-l1">
+                      <span className="wom-no mono">#{w.display_no}</span>
+                      <WoTypeBadge wo={w} compact className="wom-type" />
+                      <span className="head-spacer" />
+                      <span className={`wo-status ${STATUS_META[w.status].cls}`}>
+                        {STATUS_META[w.status].label}
+                      </span>
+                    </span>
+                    <span className="wom-l2">
+                      <strong className="wom-unit">{w.unit}</strong>
+                      {ymm && <span className="wom-ymm" title={ymm}>{ymm}</span>}
+                    </span>
+                    <span className="wom-l3">
+                      <span className="wom-title" title={w.title}>{w.title}</span>
+                      <span className="wom-meta">
+                        {w.wo_type === 'inside' && w.mechanic && (
+                          <span className="wom-mech" title="Technician">
+                            {w.mechanic}
+                          </span>
+                        )}
+                        {w.priority !== 'normal' && (
+                          <span className={`wo-priority ${PRIORITY_META[w.priority].cls}`}>
+                            {PRIORITY_META[w.priority].label}
+                          </span>
+                        )}
+                        {w.is_pm && <span className="wo-pm-tag">PM</span>}
+                        {!w.is_pm && w.campaign && (
+                          <span className="wo-pm-tag" title="Campaign">
+                            {w.campaign.toUpperCase()}
+                          </span>
+                        )}
+                        {w.waiting_parts && (
+                          <span className="wom-wait" title="Waiting for parts">
+                            <i />parts
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </aside>
+          <section className="wo-detail-pane" aria-label="Work order detail">
+            {sel != null ? (
+              <WoDetail key={sel} woId={sel} variant="pane"
+                onClose={() => { setSel(null); setShowDetail(false); refresh() }}
+                onNavigate={(id) => setSel(id)}
+                onBack={() => setShowDetail(false)}
+                expanded={expanded}
+                onToggleExpand={() => setExpanded((e) => !e)} />
+            ) : (
+              <div className="wod-empty">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+                  aria-hidden="true">
+                  <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+                  <path d="M14 3v5h5M9 13h6M9 17h4" />
+                </svg>
+                <strong>Select a work order</strong>
+                <span>
+                  Pick one from the list, or use <kbd>↑</kbd> <kbd>↓</kbd> to
+                  move between orders.
+                </span>
+              </div>
+            )}
+          </section>
+        </div>
       ) : view === 'board' ? (
         /* ===== Board (kanban): arrastrar tarjetas entre estados ===== */
         <section className="wo-board-wrap">
           <div className="wo-board"
+            style={{ '--wo-cols': boardCols.length } as CSSProperties}
             onDragEnd={() => setDragCol(null)}>
-            {ACTIVE_PIPELINE.map((col) => {
-              const cards = boardWos.filter((w) => w.status === col)
+            {boardCols.map((col) => {
+              const cards = shown.filter((w) => w.status === col)
               return (
                 <div key={col}
                   className={`wo-col ${dragCol === col ? 'is-drop' : ''}`}
@@ -645,7 +896,7 @@ export default function WorkOrdersPage() {
           )}
         </section>
       ) : (
-        /* ===== List / Grid / History ===== */
+        /* ===== Table / History ===== */
         <section className="card">
           <div className="card-head">
             <h2>{view === 'history' ? 'Invoiced history' : 'Orders'}</h2>
@@ -653,20 +904,7 @@ export default function WorkOrdersPage() {
           </div>
           <div className="card-body">
             {shown.length === 0 ? (
-              <div className="empty mini">
-                <p>
-                  {view === 'history'
-                    ? 'No invoiced work orders yet.'
-                    : `No work orders${statusFilter ? ' in this status' : ' yet'}. `
-                      + 'Create one here or from an open defect in Fleet.'}
-                </p>
-              </div>
-            ) : view === 'grid' ? (
-              <div className="wo-grid">
-                {shown.map((w) => (
-                  <WoCard key={w.id} w={w} onOpen={setOpenWo} />
-                ))}
-              </div>
+              <div className="empty mini"><p>{emptyText}</p></div>
             ) : (
               <div className="table-wrap">
                 <table className="defects-table wo-table">
@@ -675,7 +913,7 @@ export default function WorkOrdersPage() {
                       <th>WO#</th>
                       <th>Unit</th>
                       <th>Title</th>
-                      <th>Mechanic</th>
+                      <th>Technician</th>
                       <th>Priority</th>
                       <th>Status</th>
                       <th className="num">Total</th>
@@ -683,7 +921,7 @@ export default function WorkOrdersPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {shown.map((w) => (
+                    {rows.map((w) => (
                       <tr key={w.id} onClick={() => setOpenWo(w.id)}
                         className={w.parent_id ? 'wo-row-child' : ''}>
                         <td className="mono">#{w.display_no}</td>
@@ -691,7 +929,11 @@ export default function WorkOrdersPage() {
                           {w.is_pm && <span className="wo-pm-tag">PM</span>}
                         </td>
                         <td className="wo-title">{w.title}</td>
-                        <td>{w.mechanic || <span className="muted">—</span>}</td>
+                        <td>
+                          {w.wo_type === 'outside'
+                            ? <WoTypeBadge wo={w} compact />
+                            : (w.mechanic || <span className="muted">—</span>)}
+                        </td>
                         <td>
                           <span className={`wo-priority ${PRIORITY_META[w.priority].cls}`}>
                             {PRIORITY_META[w.priority].label}
@@ -722,13 +964,27 @@ export default function WorkOrdersPage() {
         </section>
       )}
 
-      {creating && (
-        <CreateWoModal mechanics={mechanics}
-          onClose={() => setCreating(false)}
-          onCreated={(id) => { setCreating(false); refresh(); setOpenWo(id) }} />
+      {fltOpen && (
+        <FiltersPanel anchor={fltBtnRef} onClose={() => setFltOpen(false)}
+          groups={groups} ranges={ranges}
+          onToggle={toggleFilter} onClearGroup={clearGroup} onRange={setRange}
+          onClearAll={() => setFilters(emptyFilters())}
+          activeCount={activeCount} resultCount={shown.length} />
       )}
 
-      <WoDrawer woId={openWo} mechanics={mechanics}
+      {creating && (
+        <CreateWoModal
+          onClose={() => setCreating(false)}
+          onCreated={(id) => {
+            setCreating(false)
+            refresh()
+            if (view === 'list') select(id)
+            else setOpenWo(id)
+          }} />
+      )}
+
+      {/* Table / Board / History abren el drawer; List usa el panel. */}
+      <WoDrawer woId={openWo}
         onClose={() => { setOpenWo(null); refresh() }} />
     </div>
   )
@@ -794,11 +1050,17 @@ function formatComplaint(c: ComplaintDraft, s: SharedInvoice): string {
   return parts.join('\n')
 }
 
-function CreateWoModal({ mechanics, onClose, onCreated }: {
-  mechanics: string[]
+// Vendor elegido para una orden outside: alcanza con id + nombre/ciudad/
+// estado (un candidato del match también sirve, no solo el Vendor completo).
+type VendorRef = Pick<Vendor, 'id' | 'name' | 'city' | 'state'>
+// Vendor leído del escaneo que NO existe todavía: se crea al enviar.
+type VendorDraft = { name: string; city: string; state: string }
+
+function CreateWoModal({ onClose, onCreated }: {
   onClose: () => void
   onCreated: (id: number) => void
 }) {
+  const qc = useQueryClient()
   const partsQ = useQuery({ queryKey: ['parts'], queryFn: listParts })
   const orgQ = useQuery({ queryKey: ['org'], queryFn: getOrg })
   const laborRate = orgQ.data?.labor_rate ?? 0
@@ -830,6 +1092,17 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
     : badComplaint >= 0
       ? `Complaint ${badComplaint + 1}: pick its unit from the list`
       : ''
+  // v2.21: inside (taller propio, técnico) / outside (taller externo =
+  // Vendor). Outside exige un vendor elegido — o uno nuevo leído del
+  // escaneo, que se crea al enviar (vendorNew).
+  const [woType, setWoType] = useState<WoType>('inside')
+  const [vendorSel, setVendorSel] = useState<VendorRef | null>(null)
+  const [vendorNew, setVendorNew] = useState<VendorDraft | null>(null)
+  // "Matched vendor X" tras el escaneo; candidatos cercanos sin match.
+  const [vendorNotice, setVendorNotice] = useState('')
+  const [vendorCands, setVendorCands] = useState<VendorCandidate[]>([])
+  // Taller tal como lo leyó el escaneo (texto): alimenta el chip "Create
+  // vendor…" y el formato del complaint mientras no hay vendor elegido.
   const [vendor, setVendor] = useState('')
   const [vendorCity, setVendorCity] = useState('')
   const [vendorState, setVendorState] = useState('')
@@ -839,6 +1112,12 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
   const [campaign, setCampaign] = useState('')
   const [mileage, setMileage] = useState('')
   const [date, setDate] = useState(todayISO())
+  const vendorHint = woType === 'outside' && !vendorSel && !vendorNew
+    ? 'Outside work needs the vendor (third-party shop)' : ''
+  // El campo Vendor se marca inválido (rojo + aria-invalid) cuando el usuario
+  // ya interactuó con él (lo vació) o el escaneo trajo un taller sin match;
+  // recién abierto / al pasar a Outside a mano solo queda la pista del pie.
+  const [vendorTouched, setVendorTouched] = useState(false)
 
   function setComplaint(i: number, patch: Partial<ComplaintDraft>) {
     setComplaints((cs) => cs.map((c, j) => (j === i ? { ...c, ...patch } : c)))
@@ -912,6 +1191,42 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
     } : l)))
   }
 
+  // Elegir un vendor (del picker, de un candidato o del match del escaneo).
+  function chooseVendor(v: VendorRef | null, notice = '') {
+    setVendorSel(v)
+    setVendorNew(null)
+    setVendorNotice(notice)
+    if (v) setVendorCands([])
+    else setVendorTouched(true)
+  }
+
+  // v2.21: el escaneo trajo un nombre de taller → la orden es outside; se
+  // busca el vendor (matchVendor es best-effort: si falla, queda el chip
+  // "Create vendor…" y los candidatos vacíos).
+  async function resolveScannedVendor(
+    name: string, city: string, state: string,
+  ) {
+    setVendor(name)
+    setVendorCity(city)
+    setVendorState(state)
+    setWoType('outside')
+    try {
+      const m = await matchVendor({ name, city, state })
+      if (m.vendor) {
+        chooseVendor(m.vendor, `Matched vendor ${m.vendor.name}`)
+      } else {
+        setVendorSel(null)
+        setVendorNew(null)
+        setVendorNotice('')
+        setVendorCands(m.candidates.slice(0, 3))
+        setVendorTouched(true)
+      }
+    } catch {
+      setVendorCands([])
+      setVendorTouched(true)
+    }
+  }
+
   async function handleFile(f: File | undefined | null) {
     if (!f || scanning) return
     setPreview((old) => {
@@ -939,9 +1254,6 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
         if (cs.some((c) => c.is_pm)) setCampaign('pm')
       }
       if (x.service_date) setDate(x.service_date)
-      if (x.vendor) setVendor(x.vendor)
-      if (x.vendor_city) setVendorCity(x.vendor_city)
-      if (x.vendor_state) setVendorState(x.vendor_state)
       if (x.invoice_number) setInvoiceNum(x.invoice_number)
       if (x.mechanic) setMechanic(x.mechanic)
       // Total impreso del invoice (para la reconciliación del modal).
@@ -964,6 +1276,11 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
       notifyOk('Document scanned',
         `${cs.length} complaint${cs.length === 1 ? '' : 's'}, ` +
         `${x.lines.length} line${x.lines.length === 1 ? '' : 's'} · ${r.model}`)
+      // Taller en el invoice → outside work + match del vendor (v2.21).
+      if (x.vendor?.trim()) {
+        await resolveScannedVendor(
+          x.vendor.trim(), x.vendor_city ?? '', x.vendor_state ?? '')
+      }
     } catch (e) {
       setScanName('')
       setScanFile(null)
@@ -1009,6 +1326,10 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
       notifyErr('Unknown unit', unitsHint)
       return
     }
+    if (vendorHint) {
+      notifyErr('Missing vendor', vendorHint)
+      return
+    }
     const kept = complaints.filter((c) => c.detail.trim())
     if (!kept.length) {
       notifyErr('Missing complaint', 'Add at least one issue detail')
@@ -1040,12 +1361,28 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
 
     setSaving(true)
     try {
-      const shared: SharedInvoice = {
-        vendor, city: vendorCity, state: vendorState,
-        invoice: invoiceNum, date,
+      // v2.21: vendor nuevo leído del escaneo → se crea primero (kind shop).
+      let vendorId: number | null = vendorSel?.id ?? null
+      let shop = vendorSel
+      if (woType === 'outside' && !vendorId && vendorNew) {
+        const v = await saveVendor({
+          name: vendorNew.name, city: vendorNew.city,
+          state: vendorNew.state.toUpperCase(), kind: 'shop',
+        })
+        qc.invalidateQueries({ queryKey: ['vendors'] })
+        vendorId = v.id
+        shop = v
+        setVendorSel(v)
+        setVendorNew(null)
       }
+      // Taller para el formato del complaint: el vendor elegido (outside) o
+      // nada (inside: trabajo propio).
+      const shared: SharedInvoice = woType === 'outside'
+        ? { vendor: shop?.name ?? vendor, city: shop?.city ?? vendorCity,
+            state: shop?.state ?? vendorState, invoice: invoiceNum, date }
+        : { vendor: '', city: '', state: '', invoice: '', date }
       const allLines = scanLines.filter((l) => l.description.trim())
-      const shopInv = invoiceNum.trim()
+      const shopInv = woType === 'outside' ? invoiceNum.trim() : ''
       // Líneas por unidad (clave normalizada): la línea va a su unidad
       // asignada; '' (o una unidad que no tiene su propia orden) cae en la
       // PRIMARIA (la orden padre).
@@ -1057,7 +1394,8 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
       })
 
       // Helper: crea una WO (padre si parentId=null, hija si trae parentId),
-      // le carga SUS líneas y le adjunta el MISMO archivo de invoice.
+      // le carga SUS líneas (una llamada, v2.21) y le adjunta el MISMO archivo
+      // de invoice.
       const created: WorkOrder[] = []
       async function makeWo(u: string, k: string, cs: ComplaintDraft[],
                             parentId: number | null): Promise<WorkOrder> {
@@ -1067,19 +1405,23 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
           unit: u,
           title: titleFor(cs, camp),
           complaint: cs.map((c) => formatComplaint(c, shared)).join('\n\n'),
-          mechanic, priority, campaign: camp, shop_invoice: shopInv,
+          mechanic: woType === 'inside' ? mechanic.trim() : '',
+          priority, campaign: camp, shop_invoice: shopInv,
           mileage: (parentId === null && mileage) ? Number(mileage)
             : (cs[0]?.mileage ? Number(cs[0].mileage) : null),
           service_date: date,
           source: scanName ? 'scan' : 'manual',
           parent_id: parentId,
+          wo_type: woType,
+          vendor_id: woType === 'outside' ? vendorId : null,
         })
-        for (const ln of linesFor(k)) {
-          await addWoLine(wo.id, {
+        const ls = linesFor(k)
+        if (ls.length) {
+          await addWoLinesBulk(wo.id, ls.map((ln) => ({
             kind: ln.kind, description: ln.description.trim(),
             qty: Number(ln.qty) || 1, unit_cost: Number(ln.unit_cost) || 0,
             part_number: ln.part_number ?? '',
-          })
+          })))
         }
         // FIX (v1.26): el documento original se adjunta a TODAS las órdenes del
         // invoice (antes solo a la primaria; las hijas quedaban sin factura).
@@ -1110,7 +1452,9 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
         + (others.length
           ? ` + ${others.map((_, i) => `#${primaryWo.id}.${i + 1}`).join(', ')}`
           : '')
-        + (nLines ? ` · ${nLines} cost lines` : ''))
+        + (nLines ? ` · ${nLines} cost lines` : '')
+        + (woType === 'outside' && shop ? ` · ${shop.name}` : ''))
+      qc.invalidateQueries({ queryKey: ['technicians'] })
       onCreated(primaryWo.id)
     } catch (e) {
       notifyErr('Could not create', e)
@@ -1137,11 +1481,17 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
     if (k && !lineUnits.has(k)) lineUnits.set(k, unitName(c.unit))
   }
   const primaryK = normUnit(unit)
+  // Chip "Create vendor…" (vendor del escaneo sin match ni elección).
+  const scannedDraft: VendorDraft | null = vendor.trim()
+    ? { name: vendor.trim(), city: vendorCity.trim(), state: vendorState.trim() }
+    : null
 
   return (
     <Modal title="New work order" width={1360} fullHeight onClose={onClose}>
       <div className="wo-modal-grid">
-      {/* Columna izquierda: escáner + preview del documento (H3b) */}
+      {/* Columna izquierda: escáner + preview del documento (H3b). Smart
+          Fill sirve para inside y outside: un invoice de taller externo
+          pasa la orden a outside y busca el vendor. */}
       <div className="wo-preview-pane">
         <div
           className={`wo-scan ${dragOver ? 'is-over' : ''} ${scanning ? 'is-busy' : ''}`}
@@ -1171,12 +1521,12 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
                 ? `Scanning ${scanName}…`
                 : scanName
                   ? `Scanned ${scanName}`
-                  : 'Scan an invoice or estimate'}
+                  : 'Smart Fill: scan an invoice or estimate'}
             </strong>
             <span>
               {scanning
                 ? 'Reading the document with AI'
-                : 'PDF or photo. The form fills itself.'}
+                : 'PDF or photo. The form fills itself — inside or outside work.'}
             </span>
           </span>
           <input
@@ -1202,6 +1552,9 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
 
       {/* Columna derecha: el form */}
       <div className="wo-form">
+        {/* v2.21: Inside work (taller propio) · Outside work (vendor). */}
+        <WoTypeSwitch value={woType} onChange={setWoType}
+          className="wo-type-switch" />
         <label className="ud-field">
           <span>Unit</span>
           <UnitPicker value={unit} onChange={setUnit}
@@ -1228,31 +1581,63 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
             </span>
           </label>
         </div>
-        {/* Invoice compartido: alimenta el formato de cada complaint */}
-        <div className="wo-form-row wo-shop-row">
-          <label className="ud-field">
-            <span>Shop</span>
-            <input className="cell-input" value={vendor}
-              placeholder="Love's Truck Care"
-              onChange={(e) => setVendor(e.target.value)} />
-          </label>
-          <label className="ud-field wo-city-field">
-            <span>City</span>
-            <input className="cell-input" value={vendorCity}
-              onChange={(e) => setVendorCity(e.target.value)} />
-          </label>
-          <label className="ud-field wo-state-field">
-            <span>St</span>
-            <input className="cell-input" value={vendorState} maxLength={2}
-              onChange={(e) =>
-                setVendorState(e.target.value.toUpperCase())} />
-          </label>
-          <label className="ud-field">
-            <span>Invoice #</span>
-            <input className="cell-input" value={invoiceNum}
-              onChange={(e) => setInvoiceNum(e.target.value)} />
-          </label>
-        </div>
+        {/* Outside work: vendor (requerido) + nº de invoice del taller.
+            Alimenta el formato de cada complaint (SHOP, CITY, ST). */}
+        {woType === 'outside' && (
+          <div className="wo-form-row wo-shop-row wo-vendor-row">
+            <div className="ud-field wo-vendor-field">
+              <span>Vendor · third-party shop</span>
+              {vendorNew ? (
+                <span className="wot-newchip" title="Created when you submit">
+                  <span className="wot-eyebrow">New vendor</span>
+                  <strong>{vendorLabel(vendorNew)}</strong>
+                  <button type="button" className="icon-x"
+                    aria-label="Discard new vendor"
+                    onClick={() => setVendorNew(null)}>✕</button>
+                </span>
+              ) : (
+                <VendorPicker value={vendorSel?.id ?? null}
+                  aria-label="Vendor"
+                  placeholder="Pick the shop that did the work"
+                  createDefaults={{ city: vendorCity, state: vendorState }}
+                  invalid={!!vendorHint && vendorTouched}
+                  errorText={vendorHint}
+                  onChange={(v) => chooseVendor(v)} />
+              )}
+              {vendorNotice && (
+                <span className="field-hint wot-hint is-ok">
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none"
+                    stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"
+                    strokeLinejoin="round" aria-hidden="true">
+                    <path d="m20 6-11 11-5-5" />
+                  </svg>
+                  {vendorNotice}
+                </span>
+              )}
+              {!vendorSel && !vendorNew && scannedDraft && (
+                <span className="wot-chips">
+                  <button type="button" className="wot-chip"
+                    title="Create this vendor as a service shop when you submit"
+                    onClick={() => setVendorNew(scannedDraft)}>
+                    + Create vendor “{vendorLabel(scannedDraft)}”
+                  </button>
+                  {vendorCands.map((c) => (
+                    <button type="button" key={c.id} className="wot-chip is-cand"
+                      title={`${Math.round(c.score * 100)}% name match`}
+                      onClick={() => chooseVendor(c)}>
+                      Use “{vendorLabel(c)}”
+                    </button>
+                  ))}
+                </span>
+              )}
+            </div>
+            <label className="ud-field wo-invoice-field">
+              <span>Vendor invoice #</span>
+              <input className="cell-input" value={invoiceNum}
+                onChange={(e) => setInvoiceNum(e.target.value)} />
+            </label>
+          </div>
+        )}
 
         {/* Complaints: uno por job. El que no corresponde a la unidad
             seleccionada se marca y se puede borrar. */}
@@ -1307,14 +1692,15 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
           })}
         </div>
         <div className="wo-form-row">
-          <label className="ud-field">
-            <span>Mechanic</span>
-            <input className="cell-input" list="wo-mechanics" value={mechanic}
-              onChange={(e) => setMechanic(e.target.value)} />
-            <datalist id="wo-mechanics">
-              {mechanics.map((m) => <option key={m} value={m} />)}
-            </datalist>
-          </label>
+          {/* Inside work: técnico del roster (texto libre también vale;
+              el backend lo suma al roster). Outside no tiene técnico propio. */}
+          {woType === 'inside' && (
+            <label className="ud-field">
+              <span>Technician</span>
+              <TechnicianPicker value={mechanic} onChange={setMechanic}
+                aria-label="Technician" placeholder="Assign a technician" />
+            </label>
+          )}
           <label className="ud-field">
             <span>Priority</span>
             <select className="cell-input" value={priority}
@@ -1452,11 +1838,17 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
 
         <div className="settings-actions wo-create-actions">
           <button className="btn btn-primary" onClick={submit}
-            disabled={saving || !!unitsHint}>
-            {saving ? 'Creating…' : 'Create work order'}
+            disabled={saving || !!unitsHint || !!vendorHint}>
+            {saving ? 'Creating…'
+              : woType === 'outside' ? 'Create outside work order'
+                : 'Create work order'}
           </button>
-          {/* Sin unidad válida (de la flota) no se crea: pista visible. */}
-          {unitsHint && <span className="field-hint">{unitsHint}</span>}
+          {/* Sin unidad válida (de la flota) o sin vendor (outside) no se
+              crea: pista visible (la del vendor, solo mientras el campo no
+              esté ya marcado en rojo). */}
+          {(unitsHint || (vendorHint && !vendorTouched)) && (
+            <span className="field-hint">{unitsHint || vendorHint}</span>
+          )}
         </div>
       </div>
       </div>
@@ -1464,1223 +1856,3 @@ function CreateWoModal({ mechanics, onClose, onCreated }: {
   )
 }
 
-// ----- Banner de decisión de stock (Treatment A inline, handoff de Design) -
-// Aparece bajo una línea de parte de la WO cuando el catálogo no tiene stock
-// suficiente para cubrirla. Dos salidas reales: comprar (QuickBuy → PO) o
-// hacer swap por una alternativa en stock de la misma categoría. El stock se
-// consume recién al facturar, así que on_hand es fiable mientras la WO está
-// activa.
-function WoStockBanner({ part, alt, need, onSwap, onBought, onRequest }: {
-  part: Part
-  alt: Part | null
-  need: number
-  onSwap: (alt: Part) => Promise<void>
-  onBought: () => void
-  onRequest: () => Promise<void>
-}) {
-  const [buyOpen, setBuyOpen] = useState(false)
-  const [ordered, setOrdered] = useState(false)
-  const [requested, setRequested] = useState(false)
-  const [swapping, setSwapping] = useState(false)
-  const [requesting, setRequesting] = useState(false)
-  const oh = part.on_hand || 0
-
-  if (ordered) {
-    return (
-      <div className="wo-stock-banner is-ordered">
-        <div className="wsb-alert">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
-            stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-            strokeLinejoin="round"><path d="m20 6-11 11-5-5" /></svg>
-          <span>
-            <strong>Ordered.</strong> A purchase order was created for{' '}
-            {part.part_number}. It restocks when the PO is received.
-          </span>
-        </div>
-      </div>
-    )
-  }
-
-  if (requested) {
-    return (
-      <div className="wo-stock-banner is-requested">
-        <div className="wsb-alert">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
-            stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-            strokeLinejoin="round"><path d="m20 6-11 11-5-5" /></svg>
-          <span>
-            <strong>Queued as a parts request.</strong> Bundle it into a PO in{' '}
-            <strong>Purchasing</strong>.
-          </span>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="wo-stock-banner">
-      <div className="wsb-head">
-        <span className="wsb-thumb">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
-            stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"
-            strokeLinejoin="round">
-            <path d="M12 2 3 7v10l9 5 9-5V7z" /><path d="M3 7l9 5 9-5M12 12v10" />
-          </svg>
-        </span>
-        <span className="wsb-title">
-          <strong>{part.description || part.part_number}</strong>
-          <span className="wsb-sub mono">
-            {part.part_number}{part.vendor_name ? ` · ${part.vendor_name}` : ''}
-            {' · qty '}{need}
-          </span>
-        </span>
-        <span className="wsb-price">
-          <span className="mono">{money(part.cost)}</span>
-          <span className="wsb-out">OUT</span>
-        </span>
-      </div>
-
-      <div className="wsb-decide">
-        <div className="wsb-alert">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
-            stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-            strokeLinejoin="round">
-            <path d="M10.3 3.5 1.8 18a1.5 1.5 0 0 0 1.3 2.2h17.8A1.5 1.5 0 0 0 22.2 18L13.7 3.5a1.5 1.5 0 0 0-2.6 0z" />
-            <path d="M12 9v4M12 17h.01" />
-          </svg>
-          <span>
-            <strong>{oh} of {need} in stock.</strong>{' '}
-            <span className="muted">How do you want to fill it?</span>
-          </span>
-        </div>
-
-        <div className="wsb-tiles">
-          <div className="wsb-tile">
-            <span className="wsb-tile-label">Order new</span>
-            <span className="wsb-tile-price mono">{money(part.cost)}</span>
-            <span className="wsb-tile-meta mono">
-              {part.vendor_name || 'vendor'} · restock
-            </span>
-            <button className="btn btn-primary btn-xs wsb-buy"
-              onClick={() => setBuyOpen(true)}>QuickBuy</button>
-          </div>
-
-          {alt ? (
-            <div className="wsb-tile is-alt">
-              <span className="wsb-tile-label ok">In stock now</span>
-              <span className="wsb-tile-price mono ok">{money(alt.cost)}</span>
-              <span className="wsb-tile-meta mono">
-                {alt.part_number} · {alt.on_hand} on hand
-              </span>
-              <button className="btn btn-ghost btn-xs" disabled={swapping}
-                onClick={async () => {
-                  setSwapping(true)
-                  try { await onSwap(alt) } finally { setSwapping(false) }
-                }}>
-                {swapping ? 'Swapping…' : 'Swap'}
-              </button>
-            </div>
-          ) : (
-            <div className="wsb-tile is-empty">
-              <span className="wsb-tile-meta mono">
-                No in-stock alternative in {part.category || 'this category'}.
-                Order it, or queue a request below.
-              </span>
-            </div>
-          )}
-        </div>
-        <button className="wsb-fallback" disabled={requesting}
-          onClick={async () => {
-            setRequesting(true)
-            try { await onRequest(); setRequested(true) }
-            finally { setRequesting(false) }
-          }}>
-          {requesting ? 'Requesting…' : 'or create a parts request →'}
-        </button>
-      </div>
-
-      {buyOpen && (
-        <CreatePoModal quickPart={part}
-          onClose={() => setBuyOpen(false)}
-          onCreated={() => { setBuyOpen(false); setOrdered(true); onBought() }} />
-      )}
-    </div>
-  )
-}
-
-// ----- Drawer de detalle (pipeline + líneas) -----------------------------
-// Exportado: el perfil de unidad (H3) lo reusa para abrir órdenes.
-export function WoDrawer({ woId, mechanics, onClose }: {
-  woId: number | null
-  mechanics: string[]
-  onClose: () => void
-}) {
-  const qc = useQueryClient()
-  const { can } = usePerms()
-  const open = woId != null
-  // Navegación interna entre órdenes ligadas del mismo invoice (review v1.26):
-  // al abrir un enlace #4.1 ↔ #4 el drawer cambia de WO sin cerrarse. Se
-  // resetea a la WO con la que se abrió cada vez que cambia `woId`.
-  const [navId, setNavId] = useState<number | null>(woId)
-  useEffect(() => { setNavId(woId) }, [woId])
-  const shownId = navId ?? woId
-  const woQ = useQuery({
-    queryKey: ['workorder', shownId],
-    queryFn: () => getWorkOrder(shownId!),
-    enabled: open && shownId != null,
-    // Siempre revalidar al (re)abrir: el estado pudo cambiar desde el Board,
-    // el perfil de unidad o service requests mientras el drawer estaba cerrado.
-    staleTime: 0,
-  })
-  const wo = woQ.data ?? null
-
-  const partsQ = useQuery({ queryKey: ['parts'], queryFn: listParts })
-  const orgQ = useQuery({ queryKey: ['org'], queryFn: getOrg })
-  const fleetQ = useQuery({ queryKey: ['fleet'], queryFn: listFleet })
-  const laborRate = orgQ.data?.labor_rate ?? 0
-  const catalog = partsQ.data?.parts ?? []
-  const org = orgQ.data
-  // Datos de la unidad (VIN/año/marca/modelo) para el documento, de la
-  // caché de /fleet (no se le pega a Samsara al imprimir/enviar).
-  const unitInfo = useMemo(
-    () => (fleetQ.data ?? []).find((u) => u.unit === wo?.unit),
-    [fleetQ.data, wo?.unit])
-  // Increment C: diagnóstico de la falla del reefer parseado del complaint
-  // real (solo WOs nacidas de un fault). Si no hay datos, queda null y la
-  // tarjeta se omite — sin inventar telemetría.
-  const faultDiag = useMemo(
-    () => (wo?.source === 'reefer'
-      ? parseReeferFault(wo.complaint) : null),
-    [wo?.source, wo?.complaint])
-  // Increment C: hitos reales del ciclo de vida (timestamps del WO).
-  const timeline = useMemo(() => (wo ? woTimeline(wo) : []), [wo])
-  const [lineKind, setLineKind] = useState<'part' | 'labor'>('part')
-  const [linePart, setLinePart] = useState('')
-  const [lineDesc, setLineDesc] = useState('')
-  const [lineQty, setLineQty] = useState('1')
-  const [lineCost, setLineCost] = useState('')
-  const [pmMiles, setPmMiles] = useState('')
-  const [busy, setBusy] = useState(false)
-  // H3-C: documento imprimible + panel de envío.
-  const [showDoc, setShowDoc] = useState(false)
-  const [sendOpen, setSendOpen] = useState(false)
-  const [toEmail, setToEmail] = useState('')
-  const [toPhone, setToPhone] = useState('')
-  const [chEmail, setChEmail] = useState(true)
-  const [chSms, setChSms] = useState(false)
-  const [sending, setSending] = useState(false)
-  // Factura original adjunta (review v1.17): subir/ver/descargar/quitar.
-  const invFileRef = useRef<HTMLInputElement | null>(null)
-  const [invBusy, setInvBusy] = useState(false)
-  // Miniatura de la factura (1a pagina renderizada) para el drawer.
-  const [invThumb, setInvThumb] = useState<string | null>(null)
-
-  // Carga la miniatura de la factura (auth -> blob) cuando hay una adjunta.
-  useEffect(() => {
-    let alive = true
-    let url: string | null = null
-    if (wo?.has_invoice_file) {
-      fetchWoInvoiceThumbUrl(wo.id)
-        .then((u) => { if (alive) { url = u; setInvThumb(u) } })
-        .catch(() => { if (alive) setInvThumb(null) })
-    } else {
-      setInvThumb(null)
-    }
-    return () => { alive = false; if (url) URL.revokeObjectURL(url) }
-  }, [wo?.id, wo?.has_invoice_file, wo?.invoice_file_name])
-
-  // Prefill del destinatario con el email de Bill-To de la empresa.
-  useEffect(() => {
-    if (wo && org) setToEmail(org.billing?.[wo.company]?.email ?? '')
-  }, [wo?.id, org])
-
-  // Elegir un part# del catálogo autollena descripción + costo.
-  function pickPart(pn: string) {
-    setLinePart(pn)
-    const hit = findPart(catalog, pn)
-    if (hit) {
-      if (!lineDesc.trim()) setLineDesc(hit.description)
-      setLineCost(String(hit.cost))
-    }
-  }
-
-  // Cambiar el tipo de línea; al pasar a labor sin costo, traer la tarifa.
-  function changeKind(kind: 'part' | 'labor') {
-    setLineKind(kind)
-    if (kind === 'labor') {
-      setLinePart('')
-      if (!lineCost.trim() && laborRate) setLineCost(String(laborRate))
-    }
-  }
-
-  // Merge (no reemplazo): las respuestas de PATCH/líneas no traen `links`.
-  function refreshWo(updated: WorkOrder) {
-    mergeWoDetail(qc, updated)
-    invalidateWoLists(qc)
-  }
-
-  async function setStatus(s: WoStatus) {
-    if (!wo) return
-    setBusy(true)
-    try {
-      const updated = await patchWorkOrder(wo.id, statusPatch(wo, s, pmMiles))
-      refreshWo(updated)
-      afterStatusChange(qc, updated, { from: wo.status, to: s })
-    } catch (e) {
-      // Los gates del pipeline llegan como 400 con el motivo exacto.
-      notifyErr("Can't move there yet", e)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  // WO de PM que ya llegó a completed sin odómetro (p.ej. arrastrada en el
-  // Board): guardar pm_miles dispara el hook PM del backend igual que al
-  // completar (corre en cada update con estado >= completed).
-  async function recordPmMiles() {
-    if (!wo) return
-    const n = Number(pmMiles.trim())
-    if (!pmMiles.trim() || !Number.isFinite(n) || n <= 0) return
-    try {
-      const updated = await patchWorkOrder(wo.id, { pm_miles: n })
-      refreshWo(updated)
-      afterStatusChange(qc, updated,
-        { from: updated.status, to: updated.status, quiet: true })
-      setPmMiles('')
-    } catch (e) {
-      notifyErr('Could not save', e)
-    }
-  }
-
-  async function addLine() {
-    if (!wo || !lineDesc.trim()) return
-    setBusy(true)
-    try {
-      const updated = await addWoLine(wo.id, {
-        kind: lineKind, description: lineDesc.trim(),
-        qty: Number(lineQty) || 1, unit_cost: Number(lineCost) || 0,
-        part_number: lineKind === 'part' ? linePart.trim() : '',
-      })
-      refreshWo(updated)
-      setLinePart(''); setLineDesc(''); setLineQty('1'); setLineCost('')
-    } catch (e) {
-      notifyErr('Could not add line', e)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function removeLine(lineId: number) {
-    if (!wo) return
-    try {
-      refreshWo(await deleteWoLine(wo.id, lineId))
-    } catch (e) {
-      notifyErr('Could not delete line', e)
-    }
-  }
-
-  // Banner de stock: swap de una línea sin stock por una alternativa en stock
-  // (borra la línea original + agrega la alternativa con la misma cantidad).
-  async function swapLine(line: { id: number; qty: number }, alt: Part) {
-    if (!wo) return
-    try {
-      await deleteWoLine(wo.id, line.id)
-      const updated = await addWoLine(wo.id, {
-        kind: 'part', description: alt.description || alt.part_number,
-        qty: line.qty || 1, unit_cost: alt.cost || 0,
-        part_number: alt.part_number,
-      })
-      refreshWo(updated)
-      qc.invalidateQueries({ queryKey: ['parts'] })
-      notifyOk('Swapped', `${alt.part_number} · in stock`)
-    } catch (e) {
-      notifyErr('Could not swap the part', e)
-    }
-  }
-
-  async function saveField(patch: Partial<WorkOrder>) {
-    if (!wo) return
-    try {
-      refreshWo(await patchWorkOrder(wo.id, patch))
-    } catch (e) {
-      notifyErr('Could not save', e)
-    }
-  }
-
-  // v2.20: sacar un service request de esta orden (vuelve al backlog
-  // abierto). No toca el texto del complaint.
-  const [unlinking, setUnlinking] = useState<number | null>(null)
-  async function unlinkSr(id: number) {
-    setUnlinking(id)
-    try {
-      await unlinkRequest(id)
-      invalidateWoLists(qc)
-      qc.invalidateQueries({ queryKey: ['workorder'] })
-      notifyOk('Request unlinked', 'Back in the open service request backlog')
-    } catch (e) {
-      notifyErr("Couldn't unlink the request", e)
-    } finally {
-      setUnlinking(null)
-    }
-  }
-
-  // Factura original adjunta (review v1.17, estilo SquareRigger): subir
-  // reemplaza la existente; ver abre en pestaña; descargar baja con su
-  // nombre original. Refresca el WO para reflejar has_invoice_file.
-  async function uploadInvoiceFile(file: File | undefined) {
-    if (!wo || !file) return
-    setInvBusy(true)
-    try {
-      const r = await uploadWoInvoiceFile(wo.id, file)
-      qc.setQueryData<WorkOrder>(['workorder', wo.id], (prev) =>
-        prev ? { ...prev, has_invoice_file: true,
-                 invoice_file_name: r.invoice_file_name } : prev)
-      qc.invalidateQueries({ queryKey: ['workorders'] })
-      notifyOk('Invoice attached', r.invoice_file_name)
-    } catch (e) {
-      notifyErr("Couldn't upload invoice", e)
-    } finally {
-      setInvBusy(false)
-      if (invFileRef.current) invFileRef.current.value = ''
-    }
-  }
-
-  async function removeInvoiceFile() {
-    if (!wo) return
-    if (!window.confirm('Remove the attached invoice?')) return
-    setInvBusy(true)
-    try {
-      await deleteWoInvoiceFile(wo.id)
-      qc.setQueryData<WorkOrder>(['workorder', wo.id], (prev) =>
-        prev ? { ...prev, has_invoice_file: false,
-                 invoice_file_name: null } : prev)
-      qc.invalidateQueries({ queryKey: ['workorders'] })
-      notifyOk('Invoice removed')
-    } catch (e) {
-      notifyErr("Couldn't remove invoice", e)
-    } finally {
-      setInvBusy(false)
-    }
-  }
-
-  // H3-C: enviar el estimate/invoice por email (real) y/o SMS.
-  async function sendDoc() {
-    if (!wo) return
-    const channels: NotifyChannel[] = []
-    if (chEmail) channels.push('email')
-    if (chSms) channels.push('sms')
-    if (!channels.length) {
-      notifyErr('Pick a channel', 'Email or SMS')
-      return
-    }
-    setSending(true)
-    try {
-      const r = await sendWoInvoice(wo.id, {
-        channels, email: toEmail.trim(), phone: toPhone.trim(),
-        unit_info: unitInfo
-          ? { vin: unitInfo.vin, year: unitInfo.year,
-              make: unitInfo.make, model: unitInfo.model }
-          : {},
-      })
-      const parts: string[] = []
-      const fmt = (c: { ok: boolean; simulated: boolean; to: string;
-                        error: string } | undefined, label: string) => {
-        if (!c) return
-        parts.push(c.ok
-          ? (c.simulated ? `${label} simulated (dry run)`
-                         : `${label} sent to ${c.to}`)
-          : `${label} failed: ${c.error}`)
-      }
-      fmt(r.results.email, 'Email')
-      fmt(r.results.sms, 'SMS')
-      const anyFail = (r.results.email && !r.results.email.ok)
-        || (r.results.sms && !r.results.sms.ok)
-      if (anyFail) notifyErr('Send issue', parts.join(' · '))
-      else { notifyOk('Document sent', parts.join(' · ')); setSendOpen(false) }
-    } catch (e) {
-      notifyErr('Could not send', e)
-    } finally {
-      setSending(false)
-    }
-  }
-
-  return (
-    <>
-    {/* B1/B2 (review v1.26): `handleOnly` hace que SOLO el handle arrastre el
-        panel (vaul-drag), así el click-drag dentro del contenido selecciona
-        texto normalmente. `dismissible` + el onOpenChange ya cierran con
-        Escape y con clic en el overlay; el botón X llama onClose directo. */}
-    <Drawer.Root direction="right" open={open} dismissible handleOnly
-      onOpenChange={(o) => { if (!o) onClose() }}>
-      <Drawer.Portal>
-        <Drawer.Overlay className="ud-overlay" />
-        <Drawer.Content className="ud-content wo-drawer">
-          {/* Handle de arrastre (única zona que mueve el panel con vaul). */}
-          <Drawer.Handle className="wo-drawer-handle" />
-          {wo && (
-            <>
-              <div className="ud-head">
-                <div>
-                  <Drawer.Title className="ud-title">
-                    WO #{wo.links?.display_no ?? wo.id} · {wo.unit}
-                  </Drawer.Title>
-                  <span className="ud-chiprow">
-                    <span className={`wo-status ${STATUS_META[wo.status].cls}`}>
-                      {STATUS_META[wo.status].label}
-                    </span>
-                    <span className={`wo-priority ${PRIORITY_META[wo.priority].cls}`}>
-                      {PRIORITY_META[wo.priority].label}
-                    </span>
-                    {wo.is_pm && <span className="wo-pm-tag">PM</span>}
-                    {wo.source === 'defect' && (
-                      <span className="ud-chip">from defect</span>
-                    )}
-                    {wo.source === 'reefer' && (
-                      <span className="ud-chip">from reefer fault</span>
-                    )}
-                    {wo.source === 'request' && (
-                      <span className="ud-chip">from service request</span>
-                    )}
-                  </span>
-                  {/* Vínculos del invoice multi-unidad (review v1.26): "child
-                      of #4" + enlaces a las otras unidades. Navega dentro del
-                      drawer sin cerrarlo. */}
-                  {wo.links && (wo.links.parent
-                    || wo.links.children.length > 0) && (
-                    <div className="wo-link-row">
-                      {wo.links.parent && (
-                        <button type="button" className="wo-link-chip"
-                          title={`Open parent WO #${wo.links.parent.display_no}`}
-                          onClick={() => setNavId(wo.links!.parent!.id)}>
-                          <span className="wo-link-eyebrow">child of</span>
-                          #{wo.links.parent.display_no} · {wo.links.parent.unit}
-                        </button>
-                      )}
-                      {wo.links.children
-                        .filter((k) => k.id !== wo.id)
-                        .map((k) => (
-                          <button type="button" key={k.id}
-                            className="wo-link-chip"
-                            title={`Open linked WO #${k.display_no}`}
-                            onClick={() => setNavId(k.id)}>
-                            <span className="wo-link-eyebrow">linked</span>
-                            #{k.display_no} · {k.unit}
-                          </button>
-                        ))}
-                    </div>
-                  )}
-                </div>
-                <button className="icon-btn" onClick={onClose}
-                  aria-label="Close">
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
-                    stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <path d="M6 6l12 12M18 6L6 18" />
-                  </svg>
-                </button>
-              </div>
-              <Drawer.Description className="sr-only">
-                Work order {wo.links?.display_no ?? wo.id} details
-              </Drawer.Description>
-
-              <div className="ud-body">
-                {/* Barra de etapas secuencial (estilo UNIQ TMS): hover
-                    previsualiza hasta dónde llega el clic; un clic puede
-                    saltar varias etapas y los gates del backend avisan
-                    qué falta. */}
-                <StageBar wo={wo} busy={busy} onGo={setStatus}
-                  canInvoice={can('wo.invoice')} />
-
-                <div className="wo-flags">
-                  <button
-                    className={`wo-wait-toggle ${wo.waiting_parts ? 'on' : ''}`}
-                    onClick={() =>
-                      saveField({ waiting_parts: !wo.waiting_parts })}
-                  >
-                    <span className="nf-dot" />
-                    Waiting for parts
-                  </button>
-                  {wo.invoiced_at && (
-                    <span className="ud-chip">
-                      Invoiced {dateOf(wo.invoiced_at)}
-                    </span>
-                  )}
-                </div>
-
-                {/* H3-C: documento imprimible + envío */}
-                <div className="wo-doc-actions">
-                  <button className="btn btn-ghost btn-xs" disabled={!org}
-                    onClick={() => setShowDoc(true)}>
-                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
-                      stroke="currentColor" strokeWidth="1.8"
-                      strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M6 14h12v7H6z" />
-                    </svg>
-                    Print {wo.status === 'invoiced' ? 'invoice' : 'estimate'}
-                  </button>
-                  {can('wo.invoice') && (
-                    <button
-                      className={`btn btn-ghost btn-xs ${sendOpen ? 'is-on' : ''}`}
-                      onClick={() => setSendOpen((o) => !o)}>
-                      Email / SMS
-                    </button>
-                  )}
-                </div>
-                {sendOpen && (
-                  <div className="wo-send-panel">
-                    <div className="wo-send-channels">
-                      <label className="wo-check">
-                        <input type="checkbox" checked={chEmail}
-                          onChange={(e) => setChEmail(e.target.checked)} />
-                        Email
-                      </label>
-                      <label className="wo-check">
-                        <input type="checkbox" checked={chSms}
-                          onChange={(e) => setChSms(e.target.checked)} />
-                        SMS
-                      </label>
-                    </div>
-                    {chEmail && (
-                      <label className="ud-field">
-                        <span>Recipient email</span>
-                        <input className="cell-input" type="email" value={toEmail}
-                          placeholder="customer@example.com"
-                          onChange={(e) => setToEmail(e.target.value)} />
-                      </label>
-                    )}
-                    {chSms && (
-                      <label className="ud-field">
-                        <span>Recipient phone</span>
-                        <input className="cell-input" type="tel" value={toPhone}
-                          placeholder="+1 901 555 0142"
-                          onChange={(e) => setToPhone(e.target.value)} />
-                      </label>
-                    )}
-                    <div className="settings-actions">
-                      <button className="btn btn-primary btn-xs" onClick={sendDoc}
-                        disabled={sending}>
-                        {sending ? 'Sending…' : 'Send'}
-                      </button>
-                    </div>
-                    <p className="ud-muted wo-send-note">
-                      Email sends the full document; SMS sends a short summary.
-                      Live or dry run status shows after sending.
-                    </p>
-                  </div>
-                )}
-
-                {/* Antes de completar: viaja con el cambio de estado. Ya
-                    completada SIN odómetro (p.ej. movida en el Board): se
-                    guarda al salir del campo y registra el PM. */}
-                {wo.is_pm && (!reachesCompleted(wo.status)
-                  || (wo.status === 'completed' && !wo.pm_miles)) && (
-                  <label className="ud-field wo-pm-miles">
-                    <span>Odometer at PM completion (mi)</span>
-                    <input className="cell-input" type="number" value={pmMiles}
-                      placeholder={wo.mileage ? String(wo.mileage) : '431850'}
-                      onChange={(e) => setPmMiles(e.target.value)}
-                      onBlur={() => {
-                        if (reachesCompleted(wo.status)) recordPmMiles()
-                      }} />
-                  </label>
-                )}
-
-                {/* v2.20: service requests que esta orden resuelve. */}
-                {wo.service_requests && wo.service_requests.length > 0 && (
-                  <section className="ud-sec">
-                    <h3>
-                      Service requests
-                      <span className="ud-count">
-                        {wo.service_requests.length}
-                      </span>
-                    </h3>
-                    <ul className="sr-wo-list">
-                      {wo.service_requests.map((r) => (
-                        <li key={r.id} className="sr-wo-item">
-                          <span className={`sr-wo-src sr-s-${r.source}`}>
-                            {SR_SOURCE_LABEL[r.source] ?? r.source}
-                          </span>
-                          <span className="sr-wo-title" title={r.title}>
-                            {r.title}
-                          </span>
-                          {(r.priority === 'urgent'
-                            || r.priority === 'emergency') && (
-                            <Badge variant="solid"
-                              style={{ background: `var(--sr-${r.priority})` }}>
-                              {r.priority === 'urgent' ? 'Urgent' : 'Emergency'}
-                            </Badge>
-                          )}
-                          {r.status === 'done' && (
-                            <Badge tone="success">Done</Badge>
-                          )}
-                          {can('maint.edit') && r.status === 'on_wo' && (
-                            <button className="btn btn-ghost btn-xs"
-                              disabled={unlinking === r.id}
-                              title="Take it off this work order and back to the backlog"
-                              onClick={() => unlinkSr(r.id)}>
-                              {unlinking === r.id ? 'Unlinking…' : 'Unlink'}
-                            </button>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                )}
-
-                <section className="ud-sec" key={wo.id}>
-                  {/* H3: issue y complaint editables inline */}
-                  <input
-                    className="wo-title-edit" defaultValue={wo.title}
-                    title="Edit the issue title"
-                    onBlur={(e) => {
-                      if (e.target.value.trim()
-                          && e.target.value !== wo.title) {
-                        saveField({ title: e.target.value.trim() })
-                      }
-                    }}
-                  />
-                  <textarea
-                    className="cell-input ud-notes wo-complaint-edit"
-                    rows={2} defaultValue={wo.complaint}
-                    placeholder="Complaint / detail"
-                    onBlur={(e) => {
-                      if (e.target.value !== wo.complaint) {
-                        saveField({ complaint: e.target.value })
-                      }
-                    }}
-                  />
-                  <div className="wo-meta-row">
-                    <label className="ud-field">
-                      <span>Mechanic</span>
-                      <input className="cell-input" list="wo-mechanics-d"
-                        defaultValue={wo.mechanic}
-                        onBlur={(e) => {
-                          if (e.target.value !== wo.mechanic) {
-                            saveField({ mechanic: e.target.value })
-                          }
-                        }} />
-                      <datalist id="wo-mechanics-d">
-                        {mechanics.map((m) => <option key={m} value={m} />)}
-                      </datalist>
-                    </label>
-                    <label className="ud-field">
-                      <span>Priority</span>
-                      <select className="cell-input" value={wo.priority}
-                        onChange={(e) => saveField(
-                          { priority: e.target.value as WoPriority })}>
-                        <option value="low">Low</option>
-                        <option value="normal">Normal</option>
-                        <option value="high">High</option>
-                      </select>
-                    </label>
-                    <label className="ud-field">
-                      <span>Campaign</span>
-                      <select className="cell-input" value={wo.campaign}
-                        onChange={(e) =>
-                          saveField({ campaign: e.target.value })}>
-                        {CAMPAIGN_OPTS.map((c) => (
-                          <option key={c.key} value={c.key}>{c.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  {/* H3-C: datos del invoice (van al documento imprimible) */}
-                  <div className="wo-meta-row">
-                    <label className="ud-field">
-                      <span>Shop invoice #</span>
-                      <input className="cell-input" defaultValue={wo.shop_invoice}
-                        placeholder="external shop"
-                        onBlur={(e) => {
-                          if (e.target.value !== wo.shop_invoice) {
-                            saveField({ shop_invoice: e.target.value })
-                          }
-                        }} />
-                    </label>
-                    <label className="ud-field">
-                      <span>Customer PO #</span>
-                      <input className="cell-input" defaultValue={wo.po_number}
-                        placeholder="optional"
-                        onBlur={(e) => {
-                          if (e.target.value !== wo.po_number) {
-                            saveField({ po_number: e.target.value })
-                          }
-                        }} />
-                    </label>
-                    <label className="ud-field">
-                      <span>Authorizer</span>
-                      <input className="cell-input" defaultValue={wo.authorizer}
-                        placeholder="optional"
-                        onBlur={(e) => {
-                          if (e.target.value !== wo.authorizer) {
-                            saveField({ authorizer: e.target.value })
-                          }
-                        }} />
-                    </label>
-                  </div>
-                  {wo.invoice_number && (
-                    <p className="ud-muted wo-invnum">
-                      Rigsmith invoice&nbsp;#:{' '}
-                      <strong>{wo.invoice_number}</strong> · format in
-                      Settings, Company
-                    </p>
-                  )}
-                  {/* Factura original adjunta (review v1.17): el PDF/imagen
-                      del taller que dio origen a la WO. Ver/Descargar/Quitar
-                      o subir uno (reemplaza). Estilo SquareRigger. */}
-                  <div className="wo-srcinv">
-                    <span className="ud-field-label">Source invoice</span>
-                    {wo.has_invoice_file ? (
-                      <div className="wo-srcinv-card">
-                        <button type="button" className="wo-srcinv-thumb"
-                          title="View invoice" disabled={invBusy}
-                          onClick={() => viewWoInvoiceFile(wo.id)
-                            .catch((e) => notifyErr("Couldn't open", e))}>
-                          {invThumb ? (
-                            <img src={invThumb} alt="Invoice preview" />
-                          ) : (
-                            <span className="wo-srcinv-thumb-ph">
-                              <svg viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" strokeWidth="1.6"
-                                strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-                                <path d="M14 3v5h5M9 13h6M9 17h6" />
-                              </svg>
-                            </span>
-                          )}
-                          <span className="wo-srcinv-thumb-badge">
-                            {(wo.invoice_file_name?.split('.').pop() || 'DOC')
-                              .toUpperCase()}
-                          </span>
-                        </button>
-                        <div className="wo-srcinv-body">
-                          <span className="wo-srcinv-eyebrow">
-                            Attached document
-                          </span>
-                          <span className="wo-srcinv-name" title={
-                            wo.invoice_file_name ?? ''}>
-                            {wo.invoice_file_name}
-                          </span>
-                          <div className="wo-srcinv-actions">
-                            <Button variant="primary" size="sm"
-                              disabled={invBusy}
-                              onClick={() => viewWoInvoiceFile(wo.id)
-                                .catch((e) => notifyErr("Couldn't open", e))}>
-                              View
-                            </Button>
-                            <Button variant="ghost" size="sm" disabled={invBusy}
-                              onClick={() => downloadWoInvoiceFile(
-                                wo.id, wo.invoice_file_name ?? `invoice-${wo.id}`)
-                                .catch((e) => notifyErr("Couldn't download", e))}>
-                              Download
-                            </Button>
-                            <Button variant="ghost" size="sm" loading={invBusy}
-                              className="up-danger" onClick={removeInvoiceFile}>
-                              Remove
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <button type="button" className="wo-srcinv-drop"
-                        disabled={invBusy}
-                        onClick={() => invFileRef.current?.click()}>
-                        <svg viewBox="0 0 24 24" fill="none"
-                          stroke="currentColor" strokeWidth="1.6"
-                          strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M12 16V4M7 9l5-5 5 5" />
-                          <path d="M5 20h14" />
-                        </svg>
-                        <span className="wo-srcinv-drop-t">Attach invoice</span>
-                        <span className="wo-srcinv-drop-s">
-                          PDF or photo of the original shop invoice
-                        </span>
-                      </button>
-                    )}
-                    <input ref={invFileRef} type="file" hidden
-                      accept=".pdf,image/*"
-                      onChange={(e) =>
-                        uploadInvoiceFile(e.target.files?.[0])} />
-                  </div>
-                </section>
-
-                {/* Increment C: diagnóstico de la falla (solo WOs de reefer
-                    con telemetría real capturada en el complaint; si nada se
-                    parsea, faultDiag es null y la sección no se renderiza —
-                    sin datos inventados). */}
-                {faultDiag && (
-                  <section className="ud-sec">
-                    <h3>
-                      <svg viewBox="0 0 24 24" width="15" height="15"
-                        fill="none" stroke="currentColor" strokeWidth="2"
-                        strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-                      </svg>
-                      Fault diagnostics
-                      {faultDiag.source && (
-                        <span className="wo-diag-src">{faultDiag.source}</span>
-                      )}
-                    </h3>
-                    {faultDiag.cells.length > 0 && (
-                      <div className="wo-diag-grid">
-                        {faultDiag.cells.map((c) => (
-                          <div className="wo-diag-cell" key={c.k}>
-                            <span className="wo-diag-k">{c.k}</span>
-                            <span className="wo-diag-v mono">
-                              {c.v}{c.u && <span className="wo-diag-u">{c.u}</span>}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {(faultDiag.code || faultDiag.desc) && (
-                      <div className="wo-diag-foot">
-                        <svg viewBox="0 0 24 24" width="15" height="15"
-                          fill="none" stroke="currentColor" strokeWidth="2"
-                          strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
-                          <path d="M12 9v4M12 17h.01" />
-                        </svg>
-                        <span>
-                          {faultDiag.code && (
-                            <span className="wo-diag-code mono">
-                              {faultDiag.code}
-                            </span>
-                          )}
-                          {faultDiag.desc && (
-                            <span className="wo-diag-desc">
-                              {' '}{faultDiag.desc}
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    )}
-                    {faultDiag.action && (
-                      <p className="ud-muted wo-diag-action">
-                        Operator action: {faultDiag.action}
-                      </p>
-                    )}
-                  </section>
-                )}
-
-                {/* Líneas: partes + labor */}
-                <section className="ud-sec">
-                  <h3>
-                    Parts &amp; labor
-                    <span className="ud-count">{wo.lines?.length ?? 0}</span>
-                  </h3>
-                  {(wo.lines ?? []).length > 0 && (
-                    <table className="wo-lines">
-                      <tbody>
-                        {(wo.lines ?? []).map((ln) => {
-                          // ¿Parte sin stock suficiente en el catálogo? (solo
-                          // mientras la WO está activa: al facturar se consume).
-                          const cp = ln.kind === 'part' && ln.part_number
-                            ? findPart(catalog, ln.part_number) : undefined
-                          const short = !!cp
-                            && (cp.on_hand ?? 0) < (ln.qty || 1)
-                            && !['completed', 'invoiced'].includes(wo.status)
-                          const alt = short && cp
-                            ? bestAlternative(catalog, cp) : null
-                          return (
-                            <Fragment key={ln.id}>
-                              <tr className={short ? 'wo-line-short' : undefined}>
-                                <td>
-                                  <span className={`wo-line-kind k-${ln.kind}`}>
-                                    {ln.kind === 'part' ? 'Part' : 'Labor'}
-                                  </span>
-                                </td>
-                                <td className="wo-line-desc">
-                                  {ln.part_number && (
-                                    <span className="wo-line-pn">{ln.part_number}</span>
-                                  )}
-                                  {ln.description}
-                                </td>
-                                <td className="num mono">
-                                  {ln.qty} × {money(ln.unit_cost)}
-                                </td>
-                                <td className="num mono">{money(ln.total)}</td>
-                                <td>
-                                  <button className="icon-x" title="Remove line"
-                                    onClick={() => removeLine(ln.id)}>✕</button>
-                                </td>
-                              </tr>
-                              {short && cp && (
-                                <tr className="wo-line-banner-row">
-                                  <td colSpan={5}>
-                                    <WoStockBanner part={cp} alt={alt}
-                                      need={ln.qty || 1}
-                                      onSwap={(a) => swapLine(ln, a)}
-                                      onBought={() => {
-                                        qc.invalidateQueries({ queryKey: ['parts'] })
-                                        qc.invalidateQueries({ queryKey: ['purchase-orders'] })
-                                      }}
-                                      onRequest={async () => {
-                                        await createPartsRequest({
-                                          part_number: cp.part_number,
-                                          description: cp.description || cp.part_number,
-                                          qty: ln.qty || 1,
-                                          unit_cost: cp.cost || 0,
-                                          vendor: cp.vendor_name || '',
-                                          source: 'wo',
-                                          source_ref: `WO #${wo.id}`,
-                                        })
-                                        qc.invalidateQueries({ queryKey: ['parts-requests'] })
-                                        notifyOk('Parts request queued',
-                                          `${cp.part_number} · see Purchasing`)
-                                      }} />
-                                  </td>
-                                </tr>
-                              )}
-                            </Fragment>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  )}
-                  <div className="wo-line-add">
-                    <select className="cell-input" value={lineKind}
-                      onChange={(e) => changeKind(
-                        e.target.value as 'part' | 'labor')}>
-                      <option value="part">Part</option>
-                      <option value="labor">Labor</option>
-                    </select>
-                    {lineKind === 'part' && (
-                      <input className="cell-input wo-line-add-pn"
-                        list="wo-drawer-parts" title="Part number (catalog)"
-                        placeholder="Part #" value={linePart}
-                        onChange={(e) => pickPart(e.target.value)} />
-                    )}
-                    <input className="cell-input wo-line-add-desc"
-                      placeholder={lineKind === 'part'
-                        ? 'LED brake lamp' : 'Replace + test'}
-                      value={lineDesc}
-                      onChange={(e) => setLineDesc(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') addLine() }} />
-                    <input className="cell-input wo-line-add-n" type="number"
-                      title={lineKind === 'part' ? 'Quantity' : 'Hours'}
-                      placeholder={lineKind === 'part' ? 'qty' : 'hrs'}
-                      value={lineQty}
-                      onChange={(e) => setLineQty(e.target.value)} />
-                    <input className="cell-input wo-line-add-n" type="number"
-                      title={lineKind === 'part'
-                        ? 'Unit cost' : 'Hourly rate'}
-                      placeholder="$"
-                      value={lineCost}
-                      onChange={(e) => setLineCost(e.target.value)} />
-                    <button className="btn btn-ghost btn-xs" onClick={addLine}
-                      disabled={busy || !lineDesc.trim()}>
-                      Add
-                    </button>
-                    <PartOptions id="wo-drawer-parts" parts={catalog} />
-                  </div>
-                  <div className="wo-total">
-                    <span>Total</span>
-                    <strong>{money(wo.total)}</strong>
-                  </div>
-                </section>
-
-                {/* Evidencia fotográfica (v2.14, elemento 01): Before = como
-                    se encontró, After = trabajo terminado. Con ≥1 foto de
-                    cada lado aparece el comparador arrastrable — la WO
-                    cierra con prueba visual (warranty / disputas con el
-                    shop externo), no con un checkbox. */}
-                <WoPhotos woId={wo.id} />
-
-                {/* Increment C: línea de tiempo de actividad. SOLO hitos
-                    reales del ciclo de vida (timestamps que el WO ya tiene);
-                    no hay tabla de auditoría por-WO, así que no se fabrica un
-                    trail por-actor como en el mockup. */}
-                {timeline.length > 0 && (
-                  <section className="ud-sec">
-                    <h3>
-                      <svg viewBox="0 0 24 24" width="15" height="15"
-                        fill="none" stroke="currentColor" strokeWidth="2"
-                        strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 8v4l3 2" />
-                        <circle cx="12" cy="12" r="9" />
-                      </svg>
-                      Activity
-                      <span className="ud-count">{timeline.length}</span>
-                    </h3>
-                    <ol className="wo-timeline">
-                      {timeline.map((e, i) => (
-                        <li className="wo-tl-row" key={`${e.label}-${i}`}>
-                          <span className={`wo-tl-dot t-${e.tone}`} />
-                          <span className="wo-tl-when mono">
-                            {stampOf(e.when)}
-                          </span>
-                          <span className="wo-tl-text">
-                            {e.label}
-                            {e.sub && (
-                              <span className="wo-tl-sub mono">{e.sub}</span>
-                            )}
-                          </span>
-                        </li>
-                      ))}
-                    </ol>
-                  </section>
-                )}
-
-                <section className="ud-sec">
-                  <h3>Notes</h3>
-                  <textarea className="cell-input ud-notes" rows={3}
-                    defaultValue={wo.notes}
-                    placeholder="Internal notes, vendor, PO…"
-                    onBlur={(e) => {
-                      if (e.target.value !== wo.notes) {
-                        saveField({ notes: e.target.value })
-                      }
-                    }} />
-                  <p className="ud-muted wo-dates">
-                    Created {dateOf(wo.created_at)}
-                    {wo.service_date ? ` · Service ${wo.service_date}` : ''}
-                    {wo.mileage != null
-                      ? ` · ${wo.mileage.toLocaleString('en-US')} mi`
-                      : ''}
-                    {wo.closed_at ? ` · Completed ${dateOf(wo.closed_at)}` : ''}
-                  </p>
-                  <button
-                    className="btn btn-ghost btn-xs wo-delete"
-                    onClick={async () => {
-                      if (!window.confirm(
-                        `Delete work order #${wo.id} (${wo.unit})? `
-                        + 'This cannot be undone.')) return
-                      try {
-                        await deleteWorkOrder(wo.id)
-                        // Incluye service requests: los ligados vuelven a open.
-                        invalidateWoLists(qc)
-                        notifyOk(`Work order #${wo.id} deleted`)
-                        onClose()
-                      } catch (e) {
-                        notifyErr("Couldn't delete", e)
-                      }
-                    }}
-                  >
-                    Delete work order
-                  </button>
-                </section>
-              </div>
-            </>
-          )}
-        </Drawer.Content>
-      </Drawer.Portal>
-    </Drawer.Root>
-    {showDoc && wo && org && (
-      <WorkOrderInvoice wo={wo} org={org} unit={unitInfo}
-        onClose={() => setShowDoc(false)} />
-    )}
-    </>
-  )
-}
-
-// ----- Evidencia fotográfica (v2.14, elemento 01) -------------------------
-// Sección "Photos" del drawer: dos galerías por fase (Before = como se
-// encontró, After = trabajo terminado). Las galerías comparten la caché de
-// react-query con el comparador (misma queryKey), así que no hay fetches
-// duplicados.
-function WoPhotos({ woId }: { woId: number }) {
-  const listQ = useEvidenceList('wo', woId)
-  const photos = listQ.data ?? []
-  const before = photos.filter((p) => p.phase === 'before')
-  const after = photos.filter((p) => p.phase === 'after')
-  return (
-    <section className="ud-sec">
-      <h3>
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
-          stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-          strokeLinejoin="round" aria-hidden="true">
-          <path d="M4 8h3l2-2h6l2 2h3v11H4z" />
-          <circle cx="12" cy="13" r="3.2" />
-        </svg>
-        Photos
-        <span className="ud-count">{photos.length}</span>
-      </h3>
-      <div className="wo-photos">
-        <div className="wo-photos-col">
-          <span className="ud-field-label">Before · as found</span>
-          <EvidenceGallery parent="wo" parentId={woId} phase="before"
-            addLabel="Add before" />
-        </div>
-        <div className="wo-photos-col">
-          <span className="ud-field-label">After · work done</span>
-          <EvidenceGallery parent="wo" parentId={woId} phase="after"
-            addLabel="Add after" />
-        </div>
-      </div>
-      {before.length > 0 && after.length > 0 && (
-        <BeforeAfter before={before[before.length - 1]}
-          after={after[after.length - 1]} />
-      )}
-    </section>
-  )
-}
-
-// Comparador antes/después (portado del prototipo del board): dos imágenes
-// superpuestas, la de arriba recortada con clip-path; el divisor lo mueve
-// un <input type="range"> invisible que cubre todo el área (accesible con
-// teclado gratis). Usa la última foto de cada fase.
-function BeforeAfter({ before, after }: {
-  before: EvidencePhoto
-  after: EvidencePhoto
-}) {
-  const [pos, setPos] = useState(50)
-  const beforeQ = useEvidencePhotoUrl(before.id)
-  const afterQ = useEvidencePhotoUrl(after.id)
-  if (!beforeQ.data || !afterQ.data) return null
-  return (
-    <div className="ev-ba">
-      <img src={afterQ.data} alt="After" />
-      <div className="ev-ba-clip"
-        style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}>
-        <img src={beforeQ.data} alt="Before" />
-      </div>
-      <span className="ev-ba-tag is-before">BEFORE</span>
-      <span className="ev-ba-tag is-after">AFTER</span>
-      <div className="ev-ba-bar" style={{ left: `${pos}%` }}
-        aria-hidden="true">
-        <span className="ev-ba-knob">⇔</span>
-      </div>
-      <input type="range" min={2} max={98} value={pos}
-        onChange={(e) => setPos(Number(e.target.value))}
-        aria-label="Compare before and after" />
-    </div>
-  )
-}
-
-// ----- Barra de etapas secuencial (estilo UNIQ TMS) -----------------------
-// Hover sobre una etapa futura previsualiza el camino completo (tinte en
-// las intermedias); el clic salta directo y el backend valida los gates.
-function StageBar({ wo, busy, onGo, canInvoice }: {
-  wo: WorkOrder
-  busy: boolean
-  onGo: (s: WoStatus) => void
-  canInvoice: boolean
-}) {
-  const [hover, setHover] = useState<number | null>(null)
-  const idx = PIPELINE.indexOf(wo.status)
-  return (
-    <div className="wo-stagebar" role="group"
-      aria-label="Work order pipeline"
-      onMouseLeave={() => setHover(null)}>
-      {PIPELINE.map((s, i) => {
-        const state = i < idx ? 'past' : i === idx ? 'now' : 'future'
-        const preview = hover != null && i > idx && i <= hover
-        return (
-          <button
-            key={s}
-            className={`wo-stage ${state} ${preview ? 'preview' : ''}`}
-            disabled={busy || i === idx
-              || (s === 'invoiced' && !canInvoice)}
-            onMouseEnter={() => setHover(i)}
-            onFocus={() => setHover(i)}
-            onClick={() => onGo(s)}
-            title={i < idx
-              ? `Back to ${STATUS_META[s].label}`
-              : i === idx ? 'Current stage' : `Move to ${STATUS_META[s].label}`}
-          >
-            {STATUS_META[s].label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}

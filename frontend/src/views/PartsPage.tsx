@@ -9,9 +9,10 @@ import {
   listParts, listPurchaseOrders, listVendors, savePart, saveVendor,
   searchMarketplace,
   type MarketplaceResult, type Part, type PartInput, type StockMovement,
-  type Vendor, type VendorInput,
+  type Vendor, type VendorInput, type VendorKind,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
+import { VENDOR_KIND_OPTS, VENDOR_KIND_SHORT, vendorLoc } from '../vendors'
 import { Button, Tabs } from '../components/ds'
 import Barcode from '../components/Barcode'
 import Modal from '../components/Modal'
@@ -1257,10 +1258,20 @@ function VendorsTab() {
     return vendors.filter((v) =>
       v.name.toLowerCase().includes(s) ||
       v.contact.toLowerCase().includes(s) ||
-      v.phone.toLowerCase().includes(s))
+      v.phone.toLowerCase().includes(s) ||
+      (v.city ?? '').toLowerCase().includes(s) ||
+      (v.state ?? '').toLowerCase() === s)
   }, [vendors, q])
 
   async function remove(v: Vendor) {
+    // v2.21: un vendor con órdenes outside no se borra (el backend responde
+    // 400); se avisa antes para no prometer lo que no va a pasar.
+    if (v.wo_count) {
+      notifyErr("Can't delete this vendor",
+        `${v.wo_count} work order${v.wo_count === 1 ? '' : 's'} use it — `
+        + 'reassign them first')
+      return
+    }
     if (!window.confirm(
       `Delete vendor ${v.name}?` +
       (v.parts_count ? ` ${v.parts_count} part(s) will keep no vendor.` : ''))) return
@@ -1311,10 +1322,13 @@ function VendorsTab() {
                 <thead>
                   <tr>
                     <th>Vendor</th>
+                    <th>Kind</th>
+                    <th>Location</th>
                     <th>Contact</th>
                     <th>Phone</th>
                     <th>Email</th>
                     <th className="num">Parts</th>
+                    <th className="num" title="Outside work orders">WOs</th>
                     <th aria-label="Actions" />
                   </tr>
                 </thead>
@@ -1322,10 +1336,19 @@ function VendorsTab() {
                   {filtered.map((v) => (
                     <tr key={v.id} onClick={() => setEditing(v)}>
                       <td><strong>{v.name}</strong></td>
+                      <td>
+                        {v.kind
+                          ? <span className={`vk-chip vk-${v.kind}`}>
+                            {VENDOR_KIND_SHORT[v.kind]}
+                          </span>
+                          : <span className="muted">—</span>}
+                      </td>
+                      <td>{vendorLoc(v) || <span className="muted">—</span>}</td>
                       <td>{v.contact || <span className="muted">—</span>}</td>
                       <td>{v.phone || <span className="muted">—</span>}</td>
                       <td>{v.email || <span className="muted">—</span>}</td>
                       <td className="num">{v.parts_count || 0}</td>
+                      <td className="num">{v.wo_count || 0}</td>
                       <td className="num" onClick={(e) => e.stopPropagation()}>
                         <button className="icon-x" title="Delete vendor"
                           onClick={() => remove(v)}>✕</button>
@@ -1345,6 +1368,11 @@ function VendorsTab() {
           onSaved={() => {
             setAdding(false); setEditing(null)
             qc.invalidateQueries({ queryKey: ['vendors'] })
+            // v2.21: las WO llevan vendor_name/city/state desnormalizados
+            // (badge OUTSIDE); un rename del vendor debe refrescarlas.
+            qc.invalidateQueries({ queryKey: ['workorders'] })
+            qc.invalidateQueries({ queryKey: ['workorder'] })
+            qc.invalidateQueries({ queryKey: ['unit-wos'] })
           }} />
       )}
     </>
@@ -1365,6 +1393,10 @@ function VendorModal({ vendor, onClose, onSaved }: {
     address: vendor?.address ?? '',
     account: vendor?.account ?? '',
     notes: vendor?.notes ?? '',
+    // v2.21: tipo + ciudad/estado (match del escaneo, outside work).
+    kind: vendor?.kind ?? '',
+    city: vendor?.city ?? '',
+    state: vendor?.state ?? '',
   }))
   const [saving, setSaving] = useState(false)
   const set = (patch: Partial<typeof f>) => setF({ ...f, ...patch })
@@ -1394,6 +1426,28 @@ function VendorModal({ vendor, onClose, onSaved }: {
           <input className="cell-input" autoFocus value={f.name ?? ''}
             placeholder="FleetPride" onChange={(e) => set({ name: e.target.value })} />
         </label>
+        <div className="vendor-form-row">
+          <label className="ud-field">
+            <span>Kind</span>
+            <select className="cell-input" value={f.kind ?? ''}
+              onChange={(e) => set({ kind: e.target.value as VendorKind })}>
+              {VENDOR_KIND_OPTS.map((o) => (
+                <option key={o.key} value={o.key}>{o.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="ud-field">
+            <span>City</span>
+            <input className="cell-input" value={f.city ?? ''}
+              placeholder="Memphis" onChange={(e) => set({ city: e.target.value })} />
+          </label>
+          <label className="ud-field">
+            <span>State</span>
+            <input className="cell-input" value={f.state ?? ''} maxLength={2}
+              placeholder="TN"
+              onChange={(e) => set({ state: e.target.value.toUpperCase() })} />
+          </label>
+        </div>
         <div className="wo-form-row">
           <label className="ud-field">
             <span>Contact</span>

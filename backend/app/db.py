@@ -9,6 +9,7 @@ Guarda cada bloque diario generado para alimentar el panel DVIR
 
 import json
 import os
+import threading
 from datetime import date, datetime
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from sqlalchemy import (
     Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text,
     UniqueConstraint, create_engine, event, func, select, true,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import (
     DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker,
     with_loader_criteria,
@@ -201,6 +203,14 @@ class WorkOrder(OrgScoped, Base):
     # Nº de invoice del TALLER externo (Love's, etc.), del escaneo del doc.
     # Distinto del invoice_number propio de Fleet Tracker (auto, formateable).
     shop_invoice: Mapped[str] = mapped_column(String(60), default="")
+    # Outside work (v2.21, benchmark SquareRigger): 'inside' = trabajo del
+    # taller propio (mecánico asignado); 'outside' = taller de terceros
+    # (`vendor_id` = el shop; obligatorio para outside, opcional para inside).
+    # Una WO outside NO exige mecánico y NO consume stock al facturar.
+    wo_type: Mapped[str] = mapped_column(String(10), default="inside")
+    vendor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("vendor.id", name="fk_work_order_vendor"),
+        nullable=True, index=True)
 
     lines: Mapped[list["WorkOrderLine"]] = relationship(
         back_populates="wo", cascade="all, delete-orphan")
@@ -408,6 +418,13 @@ class Vendor(OrgScoped, Base):
     address: Mapped[str] = mapped_column(String(200), default="")
     account: Mapped[str] = mapped_column(String(60), default="")  # nº cuenta
     notes: Mapped[str] = mapped_column(String(300), default="")
+    # Outside work (v2.21): qué es el vendor para el taller — '' (sin
+    # clasificar) | 'parts' (vende partes) | 'shop' (taller externo que hace
+    # trabajo outside) | 'both'. city/state ayudan al match del escáner
+    # (dos Speedco en ciudades distintas son vendors distintos).
+    kind: Mapped[str] = mapped_column(String(12), default="")
+    city: Mapped[str] = mapped_column(String(80), default="")
+    state: Mapped[str] = mapped_column(String(20), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
@@ -939,6 +956,64 @@ def save_setting(key: str, value: dict) -> None:
         session.commit()
 
 
+# Un lock de proceso por (org, key) para update_setting: serializa los
+# escritores del mismo uvicorn (threadpool). Ver update_setting.
+_SETTING_LOCKS_GUARD = threading.Lock()
+_SETTING_LOCKS: dict[tuple[int, str], threading.Lock] = {}
+
+
+def _setting_lock(org: int, key: str) -> threading.Lock:
+    with _SETTING_LOCKS_GUARD:
+        return _SETTING_LOCKS.setdefault((org, key), threading.Lock())
+
+
+def update_setting(key: str, fn) -> dict:
+    """Read-modify-write ATÓMICO del blob de config `key` del tenant actual.
+
+    `fn(data | None) -> dict` recibe el valor guardado y devuelve el nuevo;
+    lectura, mutación y escritura ocurren en UNA transacción con la fila
+    org_setting bloqueada (SELECT ... FOR UPDATE: efectivo en Postgres, no-op
+    en SQLite) y bajo un lock de proceso por (org, key), que serializa los
+    escritores concurrentes del mismo uvicorn (en la SQLite de dev el FOR
+    UPDATE no existe y dos lecturas seguidas de dos escrituras perdían una;
+    con un solo worker el lock alcanza). Mismo patrón que bump_invoice_number
+    (DATA-2). Si `fn` lanza, no se escribe nada y la excepción sube. Si el
+    valor no cambia (fn devuelve lo mismo) y la fila ya existe, no se
+    escribe. Devuelve el valor nuevo."""
+    org = _setting_org()
+    with _setting_lock(org, key):
+        for attempt in (0, 1):
+            with SessionLocal() as session:
+                row = session.get(OrgSetting, (org, key),
+                                  with_for_update=True)
+                data = None
+                if row is not None:
+                    try:
+                        data = json.loads(row.value_json)
+                    except ValueError:
+                        data = None
+                new = fn(data)
+                if row is not None and new == data:
+                    return new
+                blob = json.dumps(new, ensure_ascii=False)
+                if row is None:
+                    session.add(OrgSetting(org_id=org, key=key,
+                                           value_json=blob))
+                else:
+                    row.value_json = blob
+                try:
+                    session.commit()
+                except IntegrityError:
+                    # Otro proceso creó la fila a la vez (PK): la segunda
+                    # vuelta ya la encuentra y la bloquea.
+                    session.rollback()
+                    if attempt:
+                        raise
+                    continue
+                return new
+    return new                        # pragma: no cover (el for siempre sale)
+
+
 def bump_invoice_number(default_start: int = 1001) -> int:
     """Toma el próximo número de invoice y AVANZA el contador de forma ATÓMICA
     (DATA-2). Bloquea la fila org_setting('org_config') con SELECT ... FOR
@@ -997,11 +1072,31 @@ def _migrate() -> None:
             # cubren varias unidades (#4 / #4.1).
             "parent_id": "INTEGER REFERENCES work_order(id)",
             "child_seq": "INTEGER DEFAULT 0",
+            # Outside work (v2.21): paridad con la migración Alembic
+            # d0e1f2a3b4c5 (inside|outside + taller externo).
+            "wo_type": "VARCHAR(10) DEFAULT 'inside'",
+            "vendor_id": "INTEGER REFERENCES vendor(id)",
         }
         for col, ddl in adds.items():
             if col not in cols:
                 conn.exec_driver_sql(
                     f"ALTER TABLE work_order ADD COLUMN {col} {ddl}")
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_work_order_vendor_id "
+            "ON work_order (vendor_id)")
+        # Outside work (v2.21): el vendor gana tipo + ciudad/estado (paridad
+        # con d0e1f2a3b4c5). La tabla ya existe, así que create_all no los
+        # agrega.
+        vendor_cols = {r[1] for r in conn.exec_driver_sql(
+            "PRAGMA table_info(vendor)").fetchall()}
+        for col, ddl in {
+            "kind": "VARCHAR(12) DEFAULT ''",
+            "city": "VARCHAR(80) DEFAULT ''",
+            "state": "VARCHAR(20) DEFAULT ''",
+        }.items():
+            if col not in vendor_cols:
+                conn.exec_driver_sql(
+                    f"ALTER TABLE vendor ADD COLUMN {col} {ddl}")
         # H2: waiting_parts deja de ser estado del pipeline; los WOs
         # viejos pasan a in_progress con el flag prendido.
         conn.exec_driver_sql(

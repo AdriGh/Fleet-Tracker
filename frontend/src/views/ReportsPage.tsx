@@ -390,7 +390,7 @@ export default function ReportsPage() {
             />
           </StatCluster>
 
-          {/* ----- Cost per mile (el número de Dario): gasto / millas del
+          {/* ----- Cost per mile (el número del founder): gasto / millas del
                    odómetro persistido. Solo cuenta unidades con millas; honesto
                    sobre la cobertura. ----- */}
           <section className="card rp-cpm">

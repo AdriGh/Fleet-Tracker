@@ -60,9 +60,29 @@ def file_name(wo_id: int) -> str | None:
         return None
 
 
-def save_file(wo_id: int, filename: str, data: bytes) -> dict:
-    """Guarda (o reemplaza) la factura original de la WO. Lanza ValueError
-    si el tipo no es soportado o el archivo es demasiado grande."""
+_MIME = {
+    ".pdf": "application/pdf",
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".webp": "image/webp", ".heic": "image/heic",
+}
+
+
+def media_type_for(filename_or_ext: str) -> str:
+    """Content-type según la EXTENSIÓN del archivo ('' si no se conoce). Es
+    el tipo que el sidecar guarda y con el que después se sirve/escanea el
+    adjunto: manda sobre el Content-Type del cliente (octet-stream en
+    Windows, image/png para un .pdf...)."""
+    s = (filename_or_ext or "").lower()
+    ext = s if s.startswith(".") and "/" not in s and "\\" not in s \
+        else Path(s).suffix.lower()
+    return _MIME.get(ext, "")
+
+
+def validate(filename: str, data: bytes) -> str:
+    """Valida tipo (por extensión) y tamaño SIN escribir nada; devuelve la
+    extensión en minúsculas. Lanza ValueError si el tipo no es soportado o
+    el archivo es demasiado grande. Lo usa save_file y Smart Fill (que
+    valida y escanea ANTES de reemplazar el adjunto)."""
     ext = Path(filename or "").suffix.lower()
     if ext not in ALLOWED_EXT:
         raise ValueError(
@@ -71,6 +91,13 @@ def save_file(wo_id: int, filename: str, data: bytes) -> dict:
     if len(data) > MAX_BYTES:
         raise ValueError(
             f"'{Path(filename or 'file').name}' is too large (max 25 MB).")
+    return ext
+
+
+def save_file(wo_id: int, filename: str, data: bytes) -> dict:
+    """Guarda (o reemplaza) la factura original de la WO. Lanza ValueError
+    si el tipo no es soportado o el archivo es demasiado grande."""
+    ext = validate(filename, data)
     safe = _safe_name(filename)
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     _bin_path(wo_id).write_bytes(data)
@@ -85,6 +112,22 @@ def file_path(wo_id: int) -> tuple[Path, str] | None:
     if not p.is_file():
         return None
     return p, (file_name(wo_id) or f"invoice-{wo_id}")
+
+
+def read_file(wo_id: int) -> tuple[bytes, str] | None:
+    """(bytes, media type) de la factura adjunta, o None si no hay. Lo usa
+    Smart Fill (v2.21) para re-escanear el documento ya subido."""
+    p = _bin_path(wo_id)
+    if not p.is_file():
+        return None
+    try:
+        meta = json.loads(_meta_path(wo_id).read_text(encoding="utf-8"))
+        ext = (meta.get("ext") or "").lower()
+    except (OSError, ValueError):
+        ext = ""
+    if not ext:
+        ext = Path(file_name(wo_id) or "").suffix.lower()
+    return p.read_bytes(), _MIME.get(ext, "application/octet-stream")
 
 
 def thumb(wo_id: int) -> tuple[bytes, str] | None:

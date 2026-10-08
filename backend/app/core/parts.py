@@ -18,12 +18,16 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
-from ..db import Part, SessionLocal, Vendor, WorkOrderLine
+from ..db import Part, SessionLocal, Vendor, WorkOrder, WorkOrderLine
 
 
 # ----- Vendors -------------------------------------------------------------
 
-def _vendor_dict(v: Vendor, parts_count: int = 0) -> dict:
+# Outside work (v2.21): qué es el vendor para el taller.
+VENDOR_KINDS = ("", "parts", "shop", "both")
+
+
+def _vendor_dict(v: Vendor, parts_count: int = 0, wo_count: int = 0) -> dict:
     return {
         "id": v.id,
         "name": v.name,
@@ -33,8 +37,18 @@ def _vendor_dict(v: Vendor, parts_count: int = 0) -> dict:
         "address": v.address,
         "account": v.account,
         "notes": v.notes,
+        "kind": v.kind or "",
+        "city": v.city or "",
+        "state": v.state or "",
         "parts_count": parts_count,
+        "wo_count": wo_count,          # WOs outside/inside ligadas (v2.21)
     }
+
+
+def _wo_count(session, vendor_id: int) -> int:
+    return session.scalar(
+        select(func.count()).select_from(WorkOrder)
+        .where(WorkOrder.vendor_id == vendor_id)) or 0
 
 
 def list_vendors() -> list[dict]:
@@ -42,15 +56,32 @@ def list_vendors() -> list[dict]:
         counts = dict(session.execute(
             select(Part.vendor_id, func.count())
             .group_by(Part.vendor_id)).all())
+        wo_counts = dict(session.execute(
+            select(WorkOrder.vendor_id, func.count())
+            .where(WorkOrder.vendor_id.is_not(None))
+            .group_by(WorkOrder.vendor_id)).all())
         rows = session.scalars(
             select(Vendor).order_by(func.lower(Vendor.name))).all()
-        return [_vendor_dict(v, counts.get(v.id, 0)) for v in rows]
+        return [_vendor_dict(v, counts.get(v.id, 0), wo_counts.get(v.id, 0))
+                for v in rows]
 
 
 _VENDOR_FIELDS = ("name", "contact", "phone", "email", "address",
-                  "account", "notes")
+                  "account", "notes", "kind", "city", "state")
 _VENDOR_CAPS = {"name": 120, "contact": 120, "phone": 40, "email": 120,
-                "address": 200, "account": 60, "notes": 300}
+                "address": 200, "account": 60, "notes": 300,
+                "kind": 12, "city": 80, "state": 20}
+
+
+def _clean_vendor_field(f: str, raw) -> str:
+    val = str(raw if raw is not None else "").strip()[:_VENDOR_CAPS[f]]
+    if f == "kind":
+        val = val.lower()
+        if val not in VENDOR_KINDS:
+            raise ValueError("kind must be parts, shop, both or empty")
+    if f == "state":
+        val = val.upper()
+    return val
 
 
 def create_vendor(data: dict) -> dict:
@@ -61,7 +92,7 @@ def create_vendor(data: dict) -> dict:
         v = Vendor(created_at=datetime.now())
         for f in _VENDOR_FIELDS:
             if f in data:
-                setattr(v, f, str(data[f]).strip()[:_VENDOR_CAPS[f]])
+                setattr(v, f, _clean_vendor_field(f, data[f]))
         v.name = name[:120]
         session.add(v)
         session.commit()
@@ -75,23 +106,27 @@ def update_vendor(vendor_id: int, data: dict) -> dict | None:
             return None
         for f in _VENDOR_FIELDS:
             if f in data:
-                val = str(data[f]).strip()[:_VENDOR_CAPS[f]]
+                val = _clean_vendor_field(f, data[f])
                 if f == "name" and not val:
                     raise ValueError("Vendor name is required")
                 setattr(v, f, val)
         session.commit()
         n = session.scalar(select(func.count()).select_from(Part)
                            .where(Part.vendor_id == v.id)) or 0
-        return _vendor_dict(v, n)
+        return _vendor_dict(v, n, _wo_count(session, v.id))
 
 
 def delete_vendor(vendor_id: int) -> bool:
     """Borra el vendor. Las partes que lo referenciaban quedan sin vendor
-    (vendor_id -> NULL), no se borran."""
+    (vendor_id -> NULL), no se borran. Outside work (v2.21): si tiene work
+    orders ligadas NO se borra (ValueError): la WO outside perdería su
+    taller; hay que reasignarlas primero."""
     with SessionLocal() as session:
         v = session.get(Vendor, vendor_id)
         if v is None:
             return False
+        if _wo_count(session, v.id):
+            raise ValueError("vendor has work orders; reassign them first")
         for p in session.scalars(
                 select(Part).where(Part.vendor_id == v.id)).all():
             p.vendor_id = None

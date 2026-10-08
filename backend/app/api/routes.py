@@ -34,8 +34,9 @@ from ..core import (
     teams,
     telegram_notify, terminals, thermoking, tms, traccar, tracking,
     setup_status as setup_status_core,
-    service_requests,
-    unit_photos, unit_settings, unitdocs, vin_decode, warranty,
+    service_requests, smart_fill, technicians,
+    unit_photos, unit_settings, unitdocs, vendors as vendors_core,
+    vin_decode, warranty,
     wo_invoice, wo_invoices, workorders,
 )
 from ..core import notice_templates
@@ -534,6 +535,10 @@ class WorkOrderIn(BaseModel):
     # Multi-unit (v1.26): si viene seteado, la orden se crea como HIJA del
     # invoice multi-unidad (numerada #padre.N).
     parent_id: int | None = None
+    # Outside work (v2.21): inside (taller propio) | outside (taller externo
+    # = vendor_id, obligatorio para outside).
+    wo_type: str = "inside"
+    vendor_id: int | None = None
 
 
 class WorkOrderPatch(BaseModel):
@@ -553,6 +558,10 @@ class WorkOrderPatch(BaseModel):
     po_number: str | None = None
     authorizer: str | None = None
     shop_invoice: str | None = None
+    # Outside work (v2.21). vendor_id 0 = quitar el vendor (solo si la WO
+    # queda inside; el PATCH filtra los None, por eso el 0 como centinela).
+    wo_type: str | None = None
+    vendor_id: int | None = None
 
 
 class WoLineIn(BaseModel):
@@ -561,6 +570,44 @@ class WoLineIn(BaseModel):
     qty: float = 1
     unit_cost: float = 0
     part_number: str = ""
+
+
+class WoLinesBulkIn(BaseModel):
+    lines: list[WoLineIn] = []
+    replace: bool = False
+
+
+class SmartFillVendorCreate(BaseModel):
+    name: str
+    city: str = ""
+    state: str = ""
+
+
+class SmartFillApplyIn(BaseModel):
+    """Propuesta de Smart Fill confirmada por el usuario (v2.21). `fields`
+    solo admite service_date/shop_invoice/mileage/wo_type/vendor_id/title/
+    complaint (core/smart_fill filtra el resto)."""
+    fields: dict = {}
+    vendor_create: SmartFillVendorCreate | None = None
+    lines: list[WoLineIn] = []
+    lines_mode: str = "append"          # append | replace
+
+
+class VendorMatchIn(BaseModel):
+    name: str
+    city: str = ""
+    state: str = ""
+
+
+class TechnicianIn(BaseModel):
+    name: str
+    user_id: int | None = None
+
+
+class TechnicianPatch(BaseModel):
+    name: str | None = None
+    active: bool | None = None
+    user_id: int | None = None
 
 
 class WorkOrderSendIn(BaseModel):
@@ -627,8 +674,12 @@ class PermMatrixIn(BaseModel):
 
 
 @router.get("/workorders")
-def wo_list(status: str = "", unit: str = ""):
-    return {"workorders": workorders.list_wos(status, unit),
+def wo_list(status: str = "", unit: str = "", wo_type: str = "",
+            vendor_id: int | None = None):
+    # `mechanics` se conserva por compatibilidad: ahora son los técnicos
+    # ACTIVOS del roster (v2.21, core/technicians).
+    return {"workorders": workorders.list_wos(status, unit, wo_type,
+                                              vendor_id),
             "stats": workorders.stats(),
             "mechanics": workorders.mechanics()}
 
@@ -640,20 +691,18 @@ def wo_create(body: WorkOrderIn):
             body.unit, body.title, body.complaint, body.company,
             body.mechanic, body.priority, body.is_pm, body.source,
             body.mileage, body.service_date, body.campaign,
-            body.shop_invoice, body.parent_id)
+            body.shop_invoice, body.parent_id, body.wo_type, body.vendor_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.post("/workorders/scan")
-async def wo_scan(request: Request, file: UploadFile = File(...)):
-    """Escanea un invoice/estimate (PDF o foto) y devuelve los campos
-    extraídos para autollenar la work order (fase H2.5)."""
-    # SEC-3 (extensión): el escaneo consume la API de Groq con un key COMPARTIDO
-    # (free tier ~125/día). Sin límite, un usuario podría agotar la cuota → 429
-    # para TODOS los clientes (o inflar el costo). Se limita POR USUARIO: 15/min
-    # y 150/día (config por env SEC3_SCAN_*). El middleware ya dejó el usuario
-    # autenticado en request.state.user; si faltara, cae a la IP.
+def _scan_rate_limit(request: Request) -> None:
+    """SEC-3 (extensión): el escaneo consume la API de Groq con un key
+    COMPARTIDO (free tier ~125/día). Sin límite, un usuario podría agotar la
+    cuota → 429 para TODOS los clientes (o inflar el costo). Se limita POR
+    USUARIO: 15/min y 150/día (config por env SEC3_SCAN_*). El middleware ya
+    dejó el usuario autenticado en request.state.user; si faltara, cae a la
+    IP. Lo comparten /workorders/scan y /workorders/{id}/smart-fill."""
     uid = (getattr(request.state, "user", None) or {}).get("id") \
         or ratelimit.client_ip(request)
     if not ratelimit.hit(f"scan:min:{uid}", ratelimit.SCAN_RATE,
@@ -666,16 +715,40 @@ async def wo_scan(request: Request, file: UploadFile = File(...)):
             detail=f"Daily scan limit reached ({ratelimit.SCAN_DAILY}/day). "
                    "Try again tomorrow.",
             headers={"Retry-After": str(ratelimit.SCAN_DAILY_WINDOW_S)})
-    raw = await file.read()
+
+
+def _check_scan_bytes(raw: bytes) -> None:
     if not raw:
         raise HTTPException(status_code=400, detail="Empty file")
     if len(raw) > docscan.MAX_BYTES:
         raise HTTPException(status_code=400,
                             detail="File too large (max 20 MB)")
+
+
+def _vendor_match_for(extract: dict) -> dict:
+    """Match del taller extraído contra el catálogo de vendors (v2.21)."""
+    return vendors_core.match(extract.get("vendor") or "",
+                              extract.get("vendor_city") or "",
+                              extract.get("vendor_state") or "")
+
+
+@router.post("/workorders/scan")
+async def wo_scan(request: Request, file: UploadFile = File(...)):
+    """Escanea un invoice/estimate (PDF o foto) y devuelve los campos
+    extraídos para autollenar la work order (fase H2.5). v2.21: además
+    `vendor_match` y `proposed` (el mismo mapeo que Smart Fill sobre una WO
+    existente), para que el modal de creación no duplique la lógica."""
+    _scan_rate_limit(request)
+    raw = await file.read()
+    _check_scan_bytes(raw)
     try:
-        return await docscan.scan(raw, file.content_type or "")
+        out = await docscan.scan(raw, file.content_type or "")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    extract = out.get("extract") or {}
+    out["vendor_match"] = _vendor_match_for(extract)
+    out["proposed"] = smart_fill.propose(extract, None, out["vendor_match"])
+    return out
 
 
 @router.get("/workorders/{wo_id}")
@@ -732,17 +805,135 @@ def wo_add_line(wo_id: int, body: WoLineIn):
     return wo
 
 
+@router.post("/workorders/{wo_id}/lines/bulk")
+def wo_add_lines_bulk(wo_id: int, body: WoLinesBulkIn):
+    """N líneas en UNA transacción (v2.21): lo usa Smart Fill y el modal de
+    creación (antes hacía N POSTs). `replace` reemplaza las existentes."""
+    try:
+        wo = workorders.add_lines_bulk(
+            wo_id, [ln.model_dump() for ln in body.lines], body.replace)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if wo is None:
+        raise HTTPException(status_code=404, detail="WO not found")
+    return wo
+
+
+# ----- Smart Fill sobre una WO existente (v2.21) -----------------------------
+# El escáner de facturas también sirve para una WO que YA existe (inside u
+# outside; SquareRigger solo lo tiene para outside). Dos pasos: /smart-fill
+# escanea (archivo nuevo, que queda adjunto, o el ya adjunto) y devuelve una
+# PROPUESTA; /smart-fill/apply la aplica en una transacción cuando el usuario
+# la confirma. Ambos bloqueados si la WO ya está facturada. El middleware ya
+# exige maint.edit (POST bajo /api/workorders).
+
+@router.post("/workorders/{wo_id}/smart-fill")
+async def wo_smart_fill(wo_id: int, request: Request):
+    """Multipart `file` (pdf/imagen; se guarda como factura adjunta de la
+    WO) o JSON {"use_attached": true} (re-escanea la factura ya adjunta).
+    Mismos límites de tamaño y rate limit que /workorders/scan."""
+    wo = workorders.get_wo(wo_id)
+    if wo is None:
+        raise HTTPException(status_code=404, detail="WO not found")
+    if wo["status"] == "invoiced" or wo.get("invoiced_at"):
+        raise HTTPException(status_code=400, detail=smart_fill.INVOICED_MSG)
+    _scan_rate_limit(request)
+    ctype = (request.headers.get("content-type") or "").lower()
+    new_file: tuple[str, bytes] | None = None
+    if ctype.startswith("multipart/form-data"):
+        form = await request.form()
+        up = form.get("file")
+        if up is None or not hasattr(up, "read"):
+            raise HTTPException(status_code=400, detail="file is required")
+        raw = await up.read()
+        _check_scan_bytes(raw)
+        filename = up.filename or "invoice"
+        try:
+            ext = wo_invoices.validate(filename, raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        # El tipo lo decide la EXTENSIÓN (lo que el sidecar guarda y con lo
+        # que después se sirve el adjunto), no el Content-Type del cliente
+        # (octet-stream en Windows, image/png para un .pdf). Lo que el
+        # escáner no lee (HEIC) se rechaza ANTES de tocar el adjunto.
+        media_type = wo_invoices.media_type_for(ext)
+        if media_type not in docscan.MEDIA_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail="Unsupported file type for Smart Fill. "
+                       "Use PDF, JPG, PNG or WEBP.")
+        new_file = (filename, raw)
+    else:
+        try:
+            body = await request.json()
+        except ValueError:
+            body = {}
+        if not (isinstance(body, dict) and body.get("use_attached")):
+            raise HTTPException(
+                status_code=400,
+                detail="send a file or {\"use_attached\": true}")
+        found = wo_invoices.read_file(wo_id)
+        if found is None:
+            raise HTTPException(status_code=400,
+                                detail="no invoice file attached")
+        raw, media_type = found
+        _check_scan_bytes(raw)
+    try:
+        scanned = await docscan.scan(raw, media_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    # Recién con el escaneo OK el archivo nuevo reemplaza al adjunto: un
+    # escaneo fallido (proveedor caído, foto sin texto) NO destruye la
+    # factura original que ya estaba adjunta a la WO.
+    if new_file is not None:
+        wo_invoices.save_file(wo_id, *new_file)
+    extract = scanned.get("extract") or {}
+    vendor_match = _vendor_match_for(extract)
+    return {
+        "extract": extract,
+        "vendor_match": vendor_match,
+        "proposed": smart_fill.propose(extract, wo, vendor_match),
+        "model": scanned.get("model") or "",
+    }
+
+
+@router.post("/workorders/{wo_id}/smart-fill/apply")
+def wo_smart_fill_apply(wo_id: int, body: SmartFillApplyIn):
+    """Aplica la propuesta confirmada: campos + alta opcional del vendor
+    (kind 'shop') + líneas (append|replace), TODO en una transacción.
+    Devuelve el detalle de la WO (igual que GET /workorders/{id})."""
+    try:
+        wo = smart_fill.apply(
+            wo_id, body.fields,
+            body.vendor_create.model_dump() if body.vendor_create else None,
+            [ln.model_dump() for ln in body.lines], body.lines_mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if wo is None:
+        raise HTTPException(status_code=404, detail="WO not found")
+    return wo
+
+
 # ----- Factura original adjunta por WO (review v1.17, estilo SquareRigger) ---
 # Almacenamiento por archivo (core/wo_invoices), SIN columna en la DB. El
 # middleware ya exige maint.edit para POST/DELETE bajo /api/workorders; el GET
 # es lectura (auth basta). Espeja las rutas de unitdocs (FileResponse, scope).
+# Tenant: wo_invoices indexa por id GLOBAL de WO fuera del ORM, así que el
+# filtro OrgScoped no lo cubre; _require_wo (session.get acotado a la org) es
+# la única guarda y la aplican las CINCO rutas (subir, ver, miniatura, borrar
+# y Smart Fill). Sin ella, otra org podía leer/borrar el adjunto por id.
+
+def _require_wo(wo_id: int) -> None:
+    """404 si la WO no existe EN LA ORG ACTUAL."""
+    if not workorders.wo_exists(wo_id):
+        raise HTTPException(status_code=404, detail="WO not found")
+
 
 @router.post("/workorders/{wo_id}/invoice-file")
 async def wo_invoice_file_upload(wo_id: int,
                                  file: UploadFile = File(...)):
     """Sube (o reemplaza) la factura original del taller de la WO."""
-    if workorders.get_wo(wo_id) is None:
-        raise HTTPException(status_code=404, detail="WO not found")
+    _require_wo(wo_id)
     raw = await file.read()
     try:
         result = wo_invoices.save_file(
@@ -756,6 +947,7 @@ async def wo_invoice_file_upload(wo_id: int,
 def wo_invoice_file_download(wo_id: int):
     """Devuelve la factura original. Inline-viewable (el PDF abre en el
     navegador); el nombre original se preserva para la descarga."""
+    _require_wo(wo_id)
     found = wo_invoices.file_path(wo_id)
     if found is None:
         raise HTTPException(status_code=404, detail="Invoice file not found")
@@ -770,6 +962,7 @@ def wo_invoice_file_download(wo_id: int):
 def wo_invoice_file_thumb(wo_id: int):
     """Miniatura PNG de la factura para el drawer (PDF -> 1a pagina).
     404 si no hay factura o si no se puede rasterizar."""
+    _require_wo(wo_id)
     try:
         t = wo_invoices.thumb(wo_id)
     except Exception:
@@ -783,6 +976,7 @@ def wo_invoice_file_thumb(wo_id: int):
 
 @router.delete("/workorders/{wo_id}/invoice-file")
 def wo_invoice_file_delete(wo_id: int):
+    _require_wo(wo_id)
     if not wo_invoices.delete_file(wo_id):
         raise HTTPException(status_code=404, detail="Invoice file not found")
     return {"ok": True}
@@ -1021,6 +1215,14 @@ def vendors_create(body: dict):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/vendors/match")
+def vendors_match(body: VendorMatchIn):
+    """Match (solo lectura) del nombre de taller que extrajo el escáner
+    contra el catálogo (v2.21): {vendor|null, candidates[≤5]}. Literal ANTES
+    de /vendors/{vendor_id}."""
+    return vendors_core.match(body.name, body.city, body.state)
+
+
 @router.patch("/vendors/{vendor_id}")
 def vendors_update(vendor_id: int, body: dict):
     try:
@@ -1034,9 +1236,55 @@ def vendors_update(vendor_id: int, body: dict):
 
 @router.delete("/vendors/{vendor_id}")
 def vendors_delete(vendor_id: int):
-    if not parts.delete_vendor(vendor_id):
+    try:
+        ok = parts.delete_vendor(vendor_id)
+    except ValueError as exc:
+        # v2.21: tiene work orders ligadas -> reasignar primero.
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not ok:
         raise HTTPException(status_code=404, detail="Vendor not found")
     return {"ok": True}
+
+
+# ----- Roster de técnicos (v2.21) ---------------------------------------------
+# org_setting 'technicians' (core/technicians): sin tabla nueva. Escrituras =
+# maint.edit (dispatcher Y mechanic; el dueño no quiere bloqueos acá).
+
+@router.get("/technicians")
+def technicians_list(all: int = 0):
+    """Activos por defecto; ?all=1 incluye los dados de baja."""
+    return {"technicians": technicians.list_technicians(
+        active_only=not all)}
+
+
+@router.post("/technicians")
+def technicians_create(body: TechnicianIn):
+    try:
+        return technicians.add(body.name, body.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.patch("/technicians/{tech_id}")
+def technicians_update(tech_id: int, body: TechnicianPatch):
+    # Solo los campos presentes (user_id null explícito la desliga).
+    fields = {k: v for k, v in body.model_dump(exclude_unset=True).items()}
+    try:
+        t = technicians.update(tech_id, fields)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if t is None:
+        raise HTTPException(status_code=404, detail="Technician not found")
+    return t
+
+
+@router.delete("/technicians/{tech_id}")
+def technicians_deactivate(tech_id: int):
+    """Baja SUAVE (active=False): el historial de WOs lo sigue nombrando."""
+    t = technicians.deactivate(tech_id)
+    if t is None:
+        raise HTTPException(status_code=404, detail="Technician not found")
+    return t
 
 
 @router.get("/parts")
@@ -1338,7 +1586,11 @@ def permissions_matrix_save(body: PermMatrixIn, request: Request):
 
 @router.delete("/workorders/{wo_id}/lines/{line_id}")
 def wo_del_line(wo_id: int, line_id: int):
-    wo = workorders.delete_line(wo_id, line_id)
+    try:
+        wo = workorders.delete_line(wo_id, line_id)
+    except ValueError as exc:
+        # Líneas congeladas en una WO facturada (v2.21).
+        raise HTTPException(status_code=400, detail=str(exc))
     if wo is None:
         raise HTTPException(status_code=404, detail="WO not found")
     return wo

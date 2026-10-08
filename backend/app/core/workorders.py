@@ -15,6 +15,12 @@ Retroceder está permitido (deshace sellos de invoiced/completed).
 `waiting_parts` es un FLAG (la espera de partes no rompe la secuencia).
 Al llegar a completed un WO de PM con millaje, se actualiza el override
 `last_pm_miles` del PM tracker sin re-exportar el CSV de Fullbay.
+
+Outside work (v2.21, benchmark SquareRigger): `wo_type` distingue el
+trabajo INSIDE (taller propio, mecánico asignado) del OUTSIDE (taller de
+terceros = `vendor_id`, obligatorio). Una WO outside no exige mecánico
+para avanzar y NO consume stock al facturar (las partes las puso el
+tercero). El resto del pipeline y los hooks PM/campaña son iguales.
 """
 
 from __future__ import annotations
@@ -24,23 +30,64 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
-from ..db import SessionLocal, WorkOrder, WorkOrderLine
+from ..db import SessionLocal, Vendor, WorkOrder, WorkOrderLine
 from . import pm
 
 STATUSES = ("open", "assigned", "in_progress", "completed", "invoiced")
 _ORDER = {s: i for i, s in enumerate(STATUSES)}
 PRIORITIES = ("low", "normal", "high")
 LINE_KINDS = ("part", "labor")
+WO_TYPES = ("inside", "outside")
+_TYPE_MSG = "wo_type must be inside or outside"
+_VENDOR_MISSING_MSG = "vendor not found"
+_OUTSIDE_NEEDS_VENDOR_MSG = "outside work needs a vendor (the third-party shop)"
 
 
-def gate_error(target: str, mechanic: str, total: float) -> str | None:
-    """Por qué NO se puede avanzar a `target` (None = se puede)."""
+def _total(wo: WorkOrder) -> float:
+    return round(sum(ln.qty * ln.unit_cost for ln in wo.lines), 2)
+
+
+def gate_error(target: str, wo: WorkOrder,
+               total: float | None = None) -> str | None:
+    """Por qué NO se puede avanzar a `target` (None = se puede).
+
+    Outside work: el gate de "asignar mecánico" NO aplica (el trabajo lo
+    hace un taller externo, no hay mecánico propio); el de "líneas antes
+    de facturar" sí aplica a ambos tipos."""
     ti = _ORDER[target]
-    if ti >= _ORDER["assigned"] and not (mechanic or "").strip():
+    if total is None:
+        total = _total(wo)
+    if (ti >= _ORDER["assigned"] and wo.wo_type != "outside"
+            and not (wo.mechanic or "").strip()):
         return "assign a mechanic before moving past Open"
     if ti >= _ORDER["invoiced"] and total <= 0:
         return "add parts or labor lines before invoicing"
     return None
+
+
+def _clean_vendor_id(raw) -> int | None:
+    """vendor_id del body: None/''/0 => sin vendor."""
+    if raw in (None, "", 0, "0"):
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(_VENDOR_MISSING_MSG)
+
+
+def _resolve_type_vendor(session, wo_type: str,
+                         vendor_id) -> tuple[str, int | None]:
+    """Valida la pareja (wo_type, vendor_id): tipo válido, vendor existente
+    en la org y vendor obligatorio para outside. Devuelve la pareja limpia."""
+    wo_type = (wo_type or "inside").strip().lower()
+    if wo_type not in WO_TYPES:
+        raise ValueError(_TYPE_MSG)
+    vid = _clean_vendor_id(vendor_id)
+    if vid is not None and session.get(Vendor, vid) is None:
+        raise ValueError(_VENDOR_MISSING_MSG)
+    if wo_type == "outside" and vid is None:
+        raise ValueError(_OUTSIDE_NEEDS_VENDOR_MSG)
+    return wo_type, vid
 
 
 def _line_dict(ln: WorkOrderLine) -> dict:
@@ -93,10 +140,33 @@ def _links_dict(wo: WorkOrder, session) -> dict:
     return out
 
 
+def _vendor_info(wo: WorkOrder, session=None,
+                 vendors: dict[int, Vendor] | None = None) -> dict:
+    """Campos del vendor (taller externo) de la WO para el serializer.
+    `vendors` es un prefetch {id: Vendor} para los listados (evita N+1);
+    si no viene, se resuelve con session.get (identity map)."""
+    v = None
+    if wo.vendor_id is not None:
+        if vendors is not None:
+            v = vendors.get(wo.vendor_id)
+        elif session is not None:
+            v = session.get(Vendor, wo.vendor_id)
+        else:
+            with SessionLocal() as s:
+                v = s.get(Vendor, wo.vendor_id)
+    return {
+        "wo_type": wo.wo_type or "inside",
+        "vendor_id": wo.vendor_id,
+        "vendor_name": v.name if v is not None else "",
+        "vendor_city": (v.city or "") if v is not None else "",
+        "vendor_state": (v.state or "") if v is not None else "",
+    }
+
+
 def _wo_dict(wo: WorkOrder, with_lines: bool = False,
-             session=None) -> dict:
+             session=None, vendors: dict[int, Vendor] | None = None) -> dict:
     from . import wo_invoices            # import diferido (orden de carga)
-    total = round(sum(ln.qty * ln.unit_cost for ln in wo.lines), 2)
+    total = _total(wo)
     # Factura original adjunta: campos calculados desde el archivo en disco
     # (NO hay columna en la DB; el almacenamiento es por archivo).
     inv_name = wo_invoices.file_name(wo.id)
@@ -133,6 +203,8 @@ def _wo_dict(wo: WorkOrder, with_lines: bool = False,
         "invoice_file_name": inv_name,
         "total": total,
         "n_lines": len(wo.lines),
+        # Outside work (v2.21): tipo + taller externo.
+        **_vendor_info(wo, session, vendors),
     }
     if with_lines:
         out["lines"] = [_line_dict(ln) for ln in wo.lines]
@@ -152,16 +224,24 @@ def _detail_dict(wo: WorkOrder, session) -> dict:
     return out
 
 
-def list_wos(status: str = "", unit: str = "", limit: int = 200) -> list[dict]:
+def list_wos(status: str = "", unit: str = "", wo_type: str = "",
+             vendor_id: int | None = None, limit: int = 200) -> list[dict]:
     """Órdenes por id desc. Con `status`: las `limit` más nuevas de ese
     estado. Sin `status`: TODAS las activas (no facturadas) + las `limit`
     facturadas más nuevas. Antes eran las `limit` más nuevas a secas: con
     historial largo una WO abierta vieja desaparecía del Board y del "Add
-    to…" de Service Requests (y se terminaba creando una duplicada)."""
+    to…" de Service Requests (y se terminaba creando una duplicada).
+
+    Filtros v2.21: `wo_type` (inside|outside) y `vendor_id` (taller
+    externo)."""
     with SessionLocal() as session:
         q = select(WorkOrder).order_by(WorkOrder.id.desc())
         if unit:
             q = q.where(WorkOrder.unit == unit)
+        if wo_type in WO_TYPES:
+            q = q.where(WorkOrder.wo_type == wo_type)
+        if vendor_id not in (None, "", 0):
+            q = q.where(WorkOrder.vendor_id == int(vendor_id))
         if status:
             rows = session.scalars(
                 q.where(WorkOrder.status == status).limit(limit)).all()
@@ -172,7 +252,9 @@ def list_wos(status: str = "", unit: str = "", limit: int = 200) -> list[dict]:
                 q.where(WorkOrder.status == "invoiced").limit(limit)).all()
             rows = sorted([*active, *history], key=lambda w: w.id,
                           reverse=True)
-        return [_wo_dict(w) for w in rows]
+        # Prefetch de vendors (un SELECT) para no hacer N+1 en el listado.
+        vendors = {v.id: v for v in session.scalars(select(Vendor)).all()}
+        return [_wo_dict(w, vendors=vendors) for w in rows]
 
 
 def get_wo(wo_id: int) -> dict | None:
@@ -191,7 +273,9 @@ def create_wo_in(session, unit: str, title: str, complaint: str = "",
                  source: str = "manual", mileage: int | None = None,
                  service_date: str = "", campaign: str = "",
                  shop_invoice: str = "",
-                 parent_id: int | None = None) -> WorkOrder:
+                 parent_id: int | None = None,
+                 wo_type: str = "inside",
+                 vendor_id: int | None = None) -> WorkOrder:
     """Arma la work order DENTRO de una sesión ajena: add + flush (asigna el
     id) pero NO commitea — la transacción es del caller. La usa create_wo y
     también Service Requests (v2.20), que necesita insertar la WO y ligar los
@@ -200,8 +284,13 @@ def create_wo_in(session, unit: str, title: str, complaint: str = "",
     Si `parent_id` viene seteado, la orden es una HIJA del invoice
     multi-unidad (review v1.26): se le asigna el siguiente `child_seq` libre
     bajo ese padre para numerarla #padre.N (#4.1, #4.2…). Puede lanzar
-    IntegrityError en el flush (colisión de child_seq): decide el caller."""
-    from . import maint                  # import diferido (orden de carga)
+    IntegrityError en el flush (colisión de child_seq): decide el caller.
+
+    Outside work (v2.21): `wo_type` inside|outside; outside exige
+    `vendor_id` (el taller externo); inside puede llevarlo o no. Un
+    mecánico en una WO outside se acepta (nace 'assigned') pero no se
+    exige."""
+    from . import maint, technicians     # import diferido (orden de carga)
     unit = (unit or "").strip()
     title = (title or "").strip()
     if not unit or not title:
@@ -210,7 +299,14 @@ def create_wo_in(session, unit: str, title: str, complaint: str = "",
         priority = "normal"
     if campaign and campaign not in maint.CAMPAIGNS:
         campaign = ""
-    mechanic = (mechanic or "").strip()
+    # Roster de técnicos (v2.21): la WO lleva la grafía del roster (lectura
+    # pura). El alta de un mecánico NUEVO la hace el dueño de la transacción
+    # DESPUÉS del commit (ensure_technician): technicians escribe org_setting
+    # en su propia transacción y en SQLite no puede hacerlo si la sesión del
+    # caller ya tiene una escritura a medias (service_requests flushea antes
+    # de llamar acá) -> "database is locked".
+    mechanic = technicians.canonical_name(mechanic)
+    wo_type, vendor_id = _resolve_type_vendor(session, wo_type, vendor_id)
     now = datetime.now()
     wo = WorkOrder(
         created_at=now, updated_at=now,
@@ -226,6 +322,7 @@ def create_wo_in(session, unit: str, title: str, complaint: str = "",
         mileage=(int(mileage) if mileage not in (None, "") else None),
         service_date=((service_date or "").strip()[:10] or None),
         shop_invoice=(shop_invoice or "").strip()[:60],
+        wo_type=wo_type, vendor_id=vendor_id,
     )
     if parent_id is not None:
         parent = session.get(WorkOrder, parent_id)
@@ -247,7 +344,8 @@ def create_wo(unit: str, title: str, complaint: str = "",
               priority: str = "normal", is_pm: bool = False,
               source: str = "manual", mileage: int | None = None,
               service_date: str = "", campaign: str = "",
-              shop_invoice: str = "", parent_id: int | None = None) -> dict:
+              shop_invoice: str = "", parent_id: int | None = None,
+              wo_type: str = "inside", vendor_id: int | None = None) -> dict:
     """Crea una work order (sesión propia + commit). La lógica vive en
     create_wo_in; acá solo se maneja la transacción."""
     with SessionLocal() as session:
@@ -255,7 +353,7 @@ def create_wo(unit: str, title: str, complaint: str = "",
             wo = create_wo_in(
                 session, unit, title, complaint, company, mechanic,
                 priority, is_pm, source, mileage, service_date, campaign,
-                shop_invoice, parent_id)
+                shop_invoice, parent_id, wo_type, vendor_id)
             session.commit()
         except IntegrityError:
             # DATA-4: colisión de child_seq por dos creaciones concurrentes
@@ -265,7 +363,83 @@ def create_wo(unit: str, title: str, complaint: str = "",
             session.rollback()
             raise ValueError(
                 "work order number collision (concurrent create), retry")
-        return _detail_dict(wo, session)
+        out = _detail_dict(wo, session)
+    # Roster de técnicos (v2.21): un mecánico nuevo se agrega solo, DESPUÉS
+    # del commit (ver create_wo_in). Si la creación falló, no queda nadie
+    # fantasma en el roster.
+    ensure_technician(out.get("mechanic") or "")
+    return out
+
+
+def ensure_technician(mechanic: str) -> None:
+    """Agrega `mechanic` al roster si falta (technicians.ensure). Llamar
+    FUERA de la transacción de la WO (después del commit): escribe
+    org_setting en su propia transacción."""
+    if (mechanic or "").strip():
+        from . import technicians        # import diferido (orden de carga)
+        technicians.ensure(mechanic)
+
+
+def wo_exists(wo_id: int) -> bool:
+    """¿Existe la WO en la org actual? (session.get pasa por el filtro
+    OrgScoped). Es la guarda de tenant de las rutas de archivos adjuntos,
+    que indexan por id global fuera del ORM."""
+    with SessionLocal() as session:
+        return session.get(WorkOrder, wo_id) is not None
+
+
+def apply_fields_in(session, wo: WorkOrder, fields: dict) -> None:
+    """Aplica los campos EDITABLES simples (no el status) sobre `wo` dentro
+    de la sesión del caller. Lo comparten update_wo y smart_fill.apply.
+    Lanza ValueError si wo_type/vendor_id no validan (el caller decide el
+    rollback)."""
+    from . import maint                  # import diferido (orden de carga)
+    if "priority" in fields and fields["priority"] in PRIORITIES:
+        wo.priority = fields["priority"]
+    # invoice_number (el propio de Fleet Tracker) NO es editable por WO:
+    # se asigna solo al facturar y su formato se configura en Settings.
+    for key, cap in (("title", 140), ("mechanic", 80),
+                     ("company", 64), ("po_number", 60),
+                     ("authorizer", 80), ("shop_invoice", 60)):
+        if key in fields:
+            setattr(wo, key, str(fields[key]).strip()[:cap])
+    if "mechanic" in fields and wo.mechanic:
+        # Grafía del roster (v2.21, lectura pura): 'luis' -> 'Luis'. El alta
+        # de un nombre nuevo la hace el caller tras el commit.
+        from . import technicians        # import diferido (orden de carga)
+        wo.mechanic = technicians.canonical_name(wo.mechanic)
+    for key in ("complaint", "notes"):
+        if key in fields:
+            setattr(wo, key, str(fields[key]).strip())
+    if "is_pm" in fields:
+        wo.is_pm = bool(fields["is_pm"])
+    if "campaign" in fields:
+        c = str(fields["campaign"]).strip()
+        wo.campaign = c if c in maint.CAMPAIGNS else ""
+        if wo.campaign == "pm":
+            wo.is_pm = True
+    if "waiting_parts" in fields:
+        wo.waiting_parts = bool(fields["waiting_parts"])
+    for key in ("pm_miles", "mileage"):
+        if key in fields:
+            try:
+                setattr(wo, key, (int(fields[key])
+                                  if fields[key] not in ("", None)
+                                  else None))
+            except (TypeError, ValueError):
+                pass
+    if "service_date" in fields:
+        wo.service_date = (str(fields["service_date"]).strip()[:10]
+                           or None)
+    # Outside work (v2.21): tipo y taller externo se validan JUNTOS, para
+    # que "pasar a outside + elegir vendor" entre en el mismo PATCH y que
+    # una WO outside nunca se quede sin vendor (vendor_id 0/''/null = quitar;
+    # solo se permite si queda inside).
+    if "wo_type" in fields or "vendor_id" in fields:
+        wo_type = fields.get("wo_type", wo.wo_type) or wo.wo_type or "inside"
+        vendor_id = fields["vendor_id"] if "vendor_id" in fields else wo.vendor_id
+        wo.wo_type, wo.vendor_id = _resolve_type_vendor(
+            session, wo_type, vendor_id)
 
 
 def update_wo(wo_id: int, fields: dict) -> dict | None:
@@ -279,47 +453,28 @@ def update_wo(wo_id: int, fields: dict) -> dict | None:
         if wo is None:
             return None
         was_invoiced = wo.invoiced_at is not None
+        # Cargar las líneas ANTES de tocar nada y aplicar los campos SIN
+        # autoflush: la sesión no escribe hasta el commit. Si no, "cambiar un
+        # campo + facturar" en el mismo PATCH flusheaba el UPDATE de la WO
+        # (lock de escritura) antes de que bump_invoice_number abriera SU
+        # sesión para avanzar el contador -> "database is locked" en la
+        # SQLite de dev (en Postgres no bloqueaba, pero el orden es el mismo).
+        _ = len(wo.lines)
 
         # Campos simples primero: permite "asignar mecánico + avanzar"
         # en el mismo request (el gate ve el mecánico nuevo).
-        if "priority" in fields and fields["priority"] in PRIORITIES:
-            wo.priority = fields["priority"]
-        # invoice_number (el propio de Fleet Tracker) NO es editable por WO:
-        # se asigna solo al facturar y su formato se configura en Settings.
-        for key, cap in (("title", 140), ("mechanic", 80),
-                         ("company", 64), ("po_number", 60),
-                         ("authorizer", 80), ("shop_invoice", 60)):
-            if key in fields:
-                setattr(wo, key, str(fields[key]).strip()[:cap])
-        for key in ("complaint", "notes"):
-            if key in fields:
-                setattr(wo, key, str(fields[key]).strip())
-        if "is_pm" in fields:
-            wo.is_pm = bool(fields["is_pm"])
-        if "campaign" in fields:
-            c = str(fields["campaign"]).strip()
-            wo.campaign = c if c in maint.CAMPAIGNS else ""
-            if wo.campaign == "pm":
-                wo.is_pm = True
-        if "waiting_parts" in fields:
-            wo.waiting_parts = bool(fields["waiting_parts"])
-        for key in ("pm_miles", "mileage"):
-            if key in fields:
-                try:
-                    setattr(wo, key, (int(fields[key])
-                                      if fields[key] not in ("", None)
-                                      else None))
-                except (TypeError, ValueError):
-                    pass
-        if "service_date" in fields:
-            wo.service_date = (str(fields["service_date"]).strip()[:10]
-                               or None)
+        try:
+            with session.no_autoflush:
+                apply_fields_in(session, wo, fields)
+        except ValueError:
+            session.rollback()
+            raise
 
         if "status" in fields and fields["status"] in STATUSES:
             target = fields["status"]
-            total = round(sum(ln.qty * ln.unit_cost for ln in wo.lines), 2)
+            total = _total(wo)
             if _ORDER[target] > _ORDER[wo.status]:      # avance: gates
-                err = gate_error(target, wo.mechanic, total)
+                err = gate_error(target, wo, total)
                 if err:
                     session.rollback()
                     raise ValueError(err)
@@ -353,19 +508,26 @@ def update_wo(wo_id: int, fields: dict) -> dict | None:
         # Capturar (line_id, part_number, qty) de las líneas de PARTE con
         # part_number conocido ANTES de cerrar la sesión, para alimentar el
         # hook de inventario (las líneas son lazy y el WO sale del scope).
+        # Outside work (v2.21): una WO de taller externo NO consume stock —
+        # las partes las puso el tercero, nunca tocaron nuestro inventario.
         is_invoiced = wo.invoiced_at is not None
         consume_lines = [
             (ln.id, ln.part_number, ln.qty) for ln in wo.lines
             if ln.kind == "part" and (ln.part_number or "").strip()
-        ] if is_invoiced else []
+        ] if is_invoiced and wo.wo_type != "outside" else []
+        new_mechanic = wo.mechanic if "mechanic" in fields else ""
         session.commit()
+
+        # Roster de técnicos (v2.21): un mecánico nuevo se agrega solo
+        # (después del commit: technicians escribe org_setting en su sesión).
+        ensure_technician(new_mechanic)
 
         # Hook de inventario (fase Inventory): al FACTURAR (invoiced) se
         # consume el stock de cada línea de parte con part_number conocido.
         # Idempotente vía el guard (reason, ref_type, ref_id) en
         # inventory.adjust: re-facturar (o des-facturar y re-facturar) NO
         # duplica el descuento. Fuera del flush: adjust abre su sesión.
-        if is_invoiced:
+        if consume_lines:
             from . import inventory
             for line_id, pn, qty in consume_lines:
                 inventory.adjust(pn, -float(qty or 0), "wo_consume",
@@ -411,24 +573,74 @@ def update_wo(wo_id: int, fields: dict) -> dict | None:
         return _detail_dict(wo, session)
 
 
+def build_line(d: dict) -> WorkOrderLine:
+    """Arma (sin persistir) una línea desde un dict {kind, description, qty,
+    unit_cost, part_number}. Misma validación que add_line; la comparten
+    add_line, add_lines_bulk y smart_fill.apply."""
+    kind = str(d.get("kind") or "").strip()
+    if kind not in LINE_KINDS:
+        raise ValueError(f"invalid kind: {kind}")
+    description = str(d.get("description") or "").strip()
+    if not description:
+        raise ValueError("description is required")
+    try:
+        qty = max(0.0, float(d.get("qty") or 0))
+        unit_cost = max(0.0, float(d.get("unit_cost") or 0))
+    except (TypeError, ValueError):
+        raise ValueError("qty and unit_cost must be numbers")
+    return WorkOrderLine(
+        kind=kind, description=description[:160],
+        part_number=str(d.get("part_number") or "").strip()[:60],
+        qty=qty, unit_cost=unit_cost,
+    )
+
+
+LINES_LOCKED_MSG = "un-invoice the work order before changing lines"
+
+
+def _check_lines_editable(wo: WorkOrder) -> None:
+    """Las líneas de una WO FACTURADA están congeladas (v2.21): el consumo
+    de stock ya se registró por id de línea (inventory 'wo_consume'), así
+    que borrar/reemplazar una línea dejaría el movimiento huérfano y
+    re-facturar la consumiría de nuevo. Mismo bloqueo que Smart Fill
+    (smart_fill.INVOICED_MSG) y que el drawer (`locked`). ValueError."""
+    if wo.invoiced_at is not None or wo.status == "invoiced":
+        raise ValueError(LINES_LOCKED_MSG)
+
+
 def add_line(wo_id: int, kind: str, description: str,
              qty: float, unit_cost: float,
              part_number: str = "") -> dict | None:
-    if kind not in LINE_KINDS:
-        raise ValueError(f"invalid kind: {kind}")
-    description = description.strip()
-    if not description:
-        raise ValueError("description is required")
+    line = build_line({"kind": kind, "description": description,
+                       "qty": qty, "unit_cost": unit_cost,
+                       "part_number": part_number})
     with SessionLocal() as session:
         wo = session.get(WorkOrder, wo_id)
         if wo is None:
             return None
-        wo.lines.append(WorkOrderLine(
-            kind=kind, description=description[:160],
-            part_number=(part_number or "").strip()[:60],
-            qty=max(0.0, float(qty or 0)),
-            unit_cost=max(0.0, float(unit_cost or 0)),
-        ))
+        _check_lines_editable(wo)
+        wo.lines.append(line)
+        wo.updated_at = datetime.now()
+        session.commit()
+        return _detail_dict(wo, session)
+
+
+def add_lines_bulk(wo_id: int, lines: list[dict],
+                   replace: bool = False) -> dict | None:
+    """Agrega N líneas en UNA transacción (v2.21; antes el modal hacía N
+    POSTs). Con `replace`, las líneas existentes se reemplazan por estas.
+    Si una línea no valida, no se guarda ninguna. Bloqueado si la WO está
+    facturada."""
+    new_lines = [build_line(ln) for ln in (lines or [])]
+    with SessionLocal() as session:
+        wo = session.get(WorkOrder, wo_id)
+        if wo is None:
+            return None
+        _check_lines_editable(wo)
+        if replace:
+            wo.lines = []
+        for ln in new_lines:
+            wo.lines.append(ln)
         wo.updated_at = datetime.now()
         session.commit()
         return _detail_dict(wo, session)
@@ -439,6 +651,7 @@ def delete_line(wo_id: int, line_id: int) -> dict | None:
         wo = session.get(WorkOrder, wo_id)
         if wo is None:
             return None
+        _check_lines_editable(wo)
         wo.lines = [ln for ln in wo.lines if ln.id != line_id]
         wo.updated_at = datetime.now()
         session.commit()
@@ -476,11 +689,12 @@ def delete_wo(wo_id: int) -> bool:
 
 
 def mechanics() -> list[str]:
-    """Mecánicos usados antes (para autocompletar)."""
-    with SessionLocal() as session:
-        rows = session.scalars(
-            select(WorkOrder.mechanic).distinct()).all()
-        return sorted({m for m in rows if m})
+    """Nombres de los técnicos ACTIVOS del roster, ordenados (v2.21). El
+    campo `mechanics` del GET /workorders se conserva por compatibilidad;
+    antes eran los nombres distintos ya usados en WOs, que ahora siembran
+    el roster la primera vez (core/technicians)."""
+    from . import technicians            # import diferido (orden de carga)
+    return technicians.active_names()
 
 
 def parts_used_by_unit(unit: str) -> dict:
@@ -540,6 +754,12 @@ def stats() -> dict:
                 WorkOrder.closed_at >= month_ago)).all()
         cost_30 = round(sum(
             ln.qty * ln.unit_cost for w in done_30 for ln in w.lines), 2)
+        # Outside work (v2.21): WOs en talleres externos todavía abiertas
+        # (no facturadas) — lo que hay afuera pendiente de pagar/cerrar.
+        outside_open = session.scalar(
+            select(func.count()).select_from(WorkOrder).where(
+                WorkOrder.wo_type == "outside",
+                WorkOrder.status != "invoiced")) or 0
         return {
             "open": by_status.get("open", 0),
             "assigned": by_status.get("assigned", 0),
@@ -549,4 +769,5 @@ def stats() -> dict:
             "waiting_parts": waiting,
             "completed_30d": len(done_30),
             "cost_30d": cost_30,
+            "outside_open": outside_open,
         }

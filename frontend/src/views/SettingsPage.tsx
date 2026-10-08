@@ -1,22 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  addCompany, assignTeam, assignTerminal, createAppUser, deleteCompany,
+  addCompany, assignTeam, assignTerminal, createAppUser, createTechnician,
+  deactivateTechnician, deleteCompany,
   deleteTeam, deleteTerminal,
   eldFleetPreview, fleetArchive, getAlertsSettings, getHealth,
   getIntegrationSpecs, getIntegrations, getOrg, getSettings, importUnitsCsv,
   listAppUsers, listCompanies,
-  listFleet, patchAppUser, renameCompany, saveAlertsSettings,
+  listFleet, listTechnicians, patchAppUser, patchTechnician, renameCompany,
+  saveAlertsSettings,
   saveIntegrationConfig, saveOrg, saveSettings, saveTeam, saveTerminal,
   setEldActive,
   testIntegration, unitsCsvTemplate,
   type AlertsSettings, type Company, type Driver, type FleetUnit,
   type IntegrationGroup,
   type IntegrationProvider, type IntegrationSpec, type IntegrationStatus,
-  type OrgConfig, type TeamDef, type TeamsConfig,
+  type OrgConfig, type TeamDef, type TeamsConfig, type Technician,
   type TerminalDef, type TerminalsConfig,
   type UnitImportResult,
 } from '../api'
+import { usePerms } from '../perms'
+import { initialsOf } from '../technicians'
 import { useTerminals } from '../terminal'
 import { useTeams } from '../teams'
 import FleetBoard from '../components/FleetBoard'
@@ -273,6 +277,8 @@ export default function SettingsPage(
       {isAdmin && <TerminalsCard activeUnits={activeUnits} />}
       {isAdmin && <TeamsCard activeUnits={activeUnits} />}
       {isAdmin && <UsersCard />}
+      {/* v2.21: roster de técnicos (quien edita WOs lo administra). */}
+      <TechniciansCard />
       {isAdmin && <PermissionsCard />}
 
       {/* ----- Alertas de flota (G3) ----- */}
@@ -1305,6 +1311,212 @@ function UsersCard() {
                 </button>
               </div>
               <p className="settings-help">{ROLE_HINTS[nRole]}</p>
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+// ----- Técnicos (v2.21) ----------------------------------------------------
+// Roster de técnicos (org_setting "technicians"): alimenta el
+// TechnicianPicker de las work orders. Renombrar también actualiza las WOs
+// que llevan el nombre viejo; la baja es suave (active=false, nunca se
+// borra). Visible para quien puede editar WOs (maint.edit): asignar un
+// técnico nunca se bloquea por permisos.
+function TechniciansCard() {
+  const qc = useQueryClient()
+  const { can } = usePerms()
+  const [open, setOpen] = useState(false)
+  const [showInactive, setShowInactive] = useState(false)
+  const q = useQuery({
+    queryKey: ['technicians', 'all'],
+    queryFn: () => listTechnicians(true),
+    enabled: open,
+  })
+  const techs = useMemo(
+    () => [...(q.data ?? [])].sort((a, b) =>
+      Number(b.active) - Number(a.active) || a.name.localeCompare(b.name)),
+    [q.data])
+  const shown = showInactive ? techs : techs.filter((t) => t.active)
+  const inactiveN = techs.length - techs.filter((t) => t.active).length
+
+  const [nName, setNName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [editId, setEditId] = useState<number | null>(null)
+  const [editName, setEditName] = useState('')
+
+  // El roster alimenta el picker y las WOs muestran el nombre: refrescar todo.
+  function refresh() {
+    qc.invalidateQueries({ queryKey: ['technicians'] })
+    qc.invalidateQueries({ queryKey: ['workorders'] })
+    qc.invalidateQueries({ queryKey: ['workorder'] })
+    qc.invalidateQueries({ queryKey: ['unit-wos'] })
+    qc.invalidateQueries({ queryKey: ['service-requests'] })
+  }
+
+  async function add() {
+    const name = nName.trim()
+    if (!name) return
+    setBusy(true)
+    try {
+      await createTechnician({ name })
+      refresh()
+      setNName('')
+      notifyOk('Technician added', name)
+    } catch (e) {
+      notifyErr("Couldn't add technician", e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function rename(t: Technician) {
+    const name = editName.trim()
+    setEditId(null)
+    if (!name || name === t.name) return
+    try {
+      await patchTechnician(t.id, { name })
+      refresh()
+      notifyOk('Technician renamed', `${t.name} → ${name} · work orders updated`)
+    } catch (e) {
+      notifyErr("Couldn't rename", e)
+    }
+  }
+
+  async function toggle(t: Technician) {
+    try {
+      if (t.active) await deactivateTechnician(t.id)
+      else await patchTechnician(t.id, { active: true })
+      refresh()
+      notifyOk(t.active ? `${t.name} deactivated` : `${t.name} reactivated`,
+        t.active ? 'Hidden from the picker; existing work orders keep the name'
+          : undefined)
+    } catch (e) {
+      notifyErr("Couldn't update technician", e)
+    }
+  }
+
+  if (!can('maint.edit')) return null
+
+  return (
+    <section className="card settings-card">
+      <button className="collapse-head" onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}>
+        <svg className={`collapse-chevron ${open ? 'open' : ''}`}
+          viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m9 18 6-6-6-6" />
+        </svg>
+        <div>
+          <h2>Technicians</h2>
+          <span className="sub">
+            Who can be assigned inside work
+            {techs.length ? ` · ${techs.filter((t) => t.active).length} active` : ''}
+          </span>
+        </div>
+      </button>
+
+      {open && (
+        <div className="card-body">
+          {q.isPending ? (
+            <Skeleton h={120} />
+          ) : q.error ? (
+            <div className="empty mini"><p>Could not load the roster.</p></div>
+          ) : (
+            <>
+              {shown.length === 0 ? (
+                <div className="empty mini">
+                  <p>
+                    No technicians yet. Add them here or type a name on any
+                    work order — it joins the roster automatically.
+                  </p>
+                </div>
+              ) : (
+                <table className="defects-table tech-table">
+                  <thead>
+                    <tr>
+                      <th>Technician</th>
+                      <th>Account</th>
+                      <th>Added</th>
+                      <th>Active</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shown.map((t) => (
+                      <tr key={t.id} className={t.active ? '' : 'is-off'}>
+                        <td>
+                          {editId === t.id ? (
+                            <span className="tech-rename">
+                              <input className="cell-input" autoFocus
+                                value={editName} aria-label="Technician name"
+                                onChange={(e) => setEditName(e.target.value)}
+                                onBlur={() => rename(t)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') rename(t)
+                                  if (e.key === 'Escape') setEditId(null)
+                                }} />
+                            </span>
+                          ) : (
+                            <span className="tech-name">
+                              <span className="tp-avatar" aria-hidden="true">
+                                {initialsOf(t.name)}
+                              </span>
+                              <strong>{t.name}</strong>
+                              <button className="btn btn-ghost btn-xs tech-edit"
+                                title="Rename (updates their work orders)"
+                                onClick={() => {
+                                  setEditId(t.id)
+                                  setEditName(t.name)
+                                }}>
+                                Rename
+                              </button>
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          {t.user_id != null
+                            ? <span className="intg-chip">linked user</span>
+                            : <span className="muted">—</span>}
+                        </td>
+                        <td className="muted">
+                          {t.created_at ? t.created_at.slice(0, 10) : '—'}
+                        </td>
+                        <td>
+                          <input type="checkbox" checked={t.active}
+                            aria-label={`${t.name} active`}
+                            onChange={() => toggle(t)} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {inactiveN > 0 && (
+                <label className="tech-filter">
+                  <input type="checkbox" checked={showInactive}
+                    onChange={(e) => setShowInactive(e.target.checked)} />
+                  Show {inactiveN} inactive
+                </label>
+              )}
+
+              <hr className="settings-divider" />
+              <h3 className="settings-sub-h">Add technician</h3>
+              <div className="tech-add">
+                <input className="cell-input" placeholder="Name"
+                  value={nName} onChange={(e) => setNName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') add() }} />
+                <button className="btn btn-primary btn-xs" onClick={add}
+                  disabled={busy || !nName.trim()}>
+                  {busy ? 'Adding…' : 'Add'}
+                </button>
+              </div>
+              <p className="settings-help">
+                Deactivating hides a technician from the picker; their work
+                orders keep the name. Users with the mechanic role are added
+                on first use.
+              </p>
             </>
           )}
         </div>

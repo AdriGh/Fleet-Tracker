@@ -978,6 +978,8 @@ export async function getDriverCompliance(): Promise<DriverComplianceReport> {
 export type WoStatus =
   'open' | 'assigned' | 'in_progress' | 'completed' | 'invoiced'
 export type WoPriority = 'low' | 'normal' | 'high'
+// v2.21: inside = taller propio (técnico); outside = taller externo (vendor).
+export type WoType = 'inside' | 'outside'
 
 export interface WoLine {
   id: number
@@ -1034,6 +1036,14 @@ export interface WorkOrder {
   po_number: string
   authorizer: string
   shop_invoice: string        // nº de invoice del TALLER externo (del escaneo)
+  // v2.21: trabajo propio (inside, con técnico) o tercerizado (outside, con
+  // un Vendor = el taller externo). vendor_* vienen desnormalizados del
+  // vendor para pintar el badge sin otro fetch.
+  wo_type: WoType
+  vendor_id: number | null
+  vendor_name: string
+  vendor_city: string
+  vendor_state: string
   // Factura original adjunta (review v1.17): el documento PDF/imagen que dio
   // origen a la WO. Campos calculados en el backend desde el archivo en disco.
   has_invoice_file: boolean
@@ -1061,14 +1071,20 @@ export interface WoStats {
   waiting_parts: number
   completed_30d: number
   cost_30d: number
+  // v2.21: órdenes outside (taller externo) todavía no facturadas.
+  outside_open: number
 }
 
+// `mechanics` (compat): nombres de los técnicos ACTIVOS del roster (v2.21).
 export async function listWorkOrders(
   status = '', unit = '',
+  extra: { wo_type?: WoType | ''; vendor_id?: number | null } = {},
 ): Promise<{ workorders: WorkOrder[]; stats: WoStats; mechanics: string[] }> {
   const qs = new URLSearchParams()
   if (status) qs.set('status', status)
   if (unit) qs.set('unit', unit)
+  if (extra.wo_type) qs.set('wo_type', extra.wo_type)
+  if (extra.vendor_id != null) qs.set('vendor_id', String(extra.vendor_id))
   const res = await fetch(`/api/workorders?${qs}`)
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
@@ -1345,6 +1361,8 @@ export async function createWorkOrder(body: {
   mechanic?: string; priority?: WoPriority; is_pm?: boolean; source?: string
   mileage?: number | null; service_date?: string; campaign?: string
   shop_invoice?: string; parent_id?: number | null
+  // v2.21: outside exige vendor_id (el backend responde 400 si falta).
+  wo_type?: WoType; vendor_id?: number | null
 }): Promise<WorkOrder> {
   const res = await fetch('/api/workorders', {
     method: 'POST',
@@ -1429,6 +1447,153 @@ export async function sendWoInvoice(
   })
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
+}
+
+// ----- Outside work & technicians (v2.21) ---------------------------------
+// Trabajo tercerizado (vendor = taller externo) + Smart Fill sobre una WO
+// existente + roster de técnicos (org_setting "technicians").
+
+export interface VendorCandidate {
+  id: number
+  name: string
+  city: string
+  state: string
+  score: number
+}
+
+// Resultado del match de un nombre de taller escaneado contra los vendors.
+export interface VendorMatch {
+  vendor: Vendor | null
+  candidates: VendorCandidate[]
+}
+
+export async function matchVendor(b: {
+  name: string; city?: string; state?: string
+}): Promise<VendorMatch> {
+  const res = await fetch('/api/vendors/match', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(b),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// Campos que Smart Fill propone/aplica sobre la WO (todos opcionales).
+export interface SmartFillFields {
+  service_date?: string
+  shop_invoice?: string
+  mileage?: number | null
+  wo_type?: WoType
+  vendor_id?: number | null
+  title?: string
+  complaint?: string
+}
+
+export interface SmartFillResult {
+  extract: WoScanExtract
+  vendor_match: VendorMatch
+  proposed: { fields: SmartFillFields; lines: WoScanLine[] }
+  model: string
+}
+
+// `file` null = re-escanear el invoice ya adjunto ({use_attached: true}).
+// Con archivo, el backend lo guarda como invoice de la WO al mismo tiempo.
+export async function smartFillWo(
+  id: number, file: File | null,
+): Promise<SmartFillResult> {
+  const init: RequestInit = { method: 'POST' }
+  if (file) {
+    const fd = new FormData()
+    fd.append('file', file)
+    init.body = fd
+  } else {
+    init.headers = { 'Content-Type': 'application/json' }
+    init.body = JSON.stringify({ use_attached: true })
+  }
+  const res = await fetch(`/api/workorders/${id}/smart-fill`, init)
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export type WoLineInput = {
+  kind: 'part' | 'labor'; description: string; qty: number
+  unit_cost: number; part_number?: string
+}
+
+// Una transacción: campos + (vendor nuevo) + líneas. Devuelve el detalle.
+export async function applySmartFill(id: number, b: {
+  fields: SmartFillFields
+  vendor_create?: { name: string; city?: string; state?: string }
+  lines: WoLineInput[]
+  lines_mode: 'append' | 'replace'
+}): Promise<WorkOrder> {
+  const res = await fetch(`/api/workorders/${id}/smart-fill/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(b),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// N líneas en una llamada (en vez de N POST /lines); replace borra las previas.
+export async function addWoLinesBulk(
+  id: number, lines: WoLineInput[], replace = false,
+): Promise<WorkOrder> {
+  const res = await fetch(`/api/workorders/${id}/lines/bulk`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lines, replace }),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// Roster de técnicos: WorkOrder.mechanic sigue siendo el NOMBRE (string);
+// el roster solo alimenta el picker y permite renombrar/desactivar.
+export interface Technician {
+  id: number
+  name: string
+  active: boolean
+  user_id: number | null
+  created_at: string
+}
+
+export async function listTechnicians(all = false): Promise<Technician[]> {
+  const res = await fetch(`/api/technicians${all ? '?all=1' : ''}`)
+  if (!res.ok) throw new Error(await readError(res))
+  return (await res.json()).technicians as Technician[]
+}
+
+export async function createTechnician(b: {
+  name: string; user_id?: number | null
+}): Promise<Technician> {
+  const res = await fetch('/api/technicians', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(b),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+export async function patchTechnician(id: number, b: {
+  name?: string; active?: boolean; user_id?: number | null
+}): Promise<Technician> {
+  const res = await fetch(`/api/technicians/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(b),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// Baja suave (active=false): nunca se borra del roster.
+export async function deactivateTechnician(id: number): Promise<void> {
+  const res = await fetch(`/api/technicians/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await readError(res))
 }
 
 // ----- Service Requests (v2.20) ---------------------------------------------
@@ -2304,7 +2469,14 @@ export interface Vendor {
   account: string
   notes: string
   parts_count: number
+  // v2.21: tipo de vendor (proveedor de partes / taller de servicio / ambos),
+  // ciudad/estado (para el match del escaneo) y órdenes outside ligadas.
+  kind: VendorKind
+  city: string
+  state: string
+  wo_count: number
 }
+export type VendorKind = '' | 'parts' | 'shop' | 'both'
 
 export interface Part {
   id: number
@@ -2328,7 +2500,8 @@ export interface Part {
   notes: string
 }
 
-export type VendorInput = Partial<Omit<Vendor, 'id' | 'parts_count'>>
+export type VendorInput =
+  Partial<Omit<Vendor, 'id' | 'parts_count' | 'wo_count'>>
 export type PartInput = Partial<Omit<Part, 'id' | 'vendor_name'>>
 
 export async function listVendors(): Promise<Vendor[]> {
@@ -2899,7 +3072,7 @@ export async function getSpendReport(
   return (await res.json()) as SpendReport
 }
 
-// --- Cost per mile (v2.8, el número ancla de Dario) ----------------------
+// --- Cost per mile (v2.8, el número ancla del founder) -------------------
 // Gasto de mantenimiento / millas manejadas (del odómetro persistido). El
 // Fleet CPM solo agrega unidades CON millas; las que tienen gasto pero no
 // odómetro se cuentan aparte. `coverage.since` = desde cuándo hay datos.

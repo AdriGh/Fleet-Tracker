@@ -7,6 +7,161 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.21.0] - 2026-10-07
+
+Segunda vuelta del benchmark contra SquareRigger, centrada en Work Orders:
+el taller distingue el trabajo **propio (inside)** del que hace un **taller
+externo (outside = vendor)**, el escáner de facturas (**Smart Fill**) sirve
+también sobre una orden que ya existe (y para ambos tipos; SquareRigger solo
+lo tiene para outside), asignar técnico pasa a un **roster** que nunca
+bloquea, y la página adopta el layout que al dueño le gusta de SquareRigger
+(lista maestra + detalle, filtros con conteos, acción principal fija) sin las
+seis tarjetas negras de métricas.
+
+### Agregado
+- **Inside / Outside work**: `WorkOrder.wo_type` (`inside` | `outside`) y
+  `vendor_id` (FK a `vendor`, con índice). Reglas en `core/workorders`: una
+  WO outside **exige vendor** al crear y no puede quedarse sin él (400
+  `outside work needs a vendor (the third-party shop)`); pasar inside →
+  outside por PATCH requiere `vendor_id` en el mismo PATCH o ya seteado;
+  inside puede llevar vendor o no (`vendor_id: 0` lo quita). El gate
+  "assign a mechanic" **no aplica** a outside (el de líneas antes de
+  facturar sí). Facturar una WO outside **no consume stock** (las partes
+  las puso el tercero); los hooks PM/campaña son iguales para ambos tipos.
+  El dict serializado suma `wo_type`, `vendor_id`, `vendor_name`,
+  `vendor_city`, `vendor_state`. `GET /api/workorders?wo_type=&vendor_id=`
+  y `stats.outside_open` (outside sin facturar).
+  - **Vendors**: `kind` (`parts` | `shop` | `both` | vacío), `city`,
+    `state` y `wo_count`; borrar un vendor con WOs ligadas => 400
+    `vendor has work orders; reassign them first`. **`POST
+    /api/vendors/match`** `{name, city?, state?}` → `{vendor | null,
+    candidates[≤5]}`: marca de cadena (Speedco, Love's, TA, Petro…) por
+    palabra completa + `difflib`; misma cadena en otra ciudad/estado o
+    empate entre dos talleres **no se liga sola** (queda como candidato).
+  - **UI**: badge rosa de vendor en las WOs outside (con popover de
+    contacto), switch Inside/Outside en el modal de creación y en el
+    detalle, `VendorPicker` (combobox con "+ Create vendor" inline) y
+    filtros por tipo y vendor. Vendors en Parts muestran tipo, ciudad,
+    estado y cuántas WOs los usan.
+- **Smart Fill sobre una WO existente**: `POST
+  /api/workorders/{id}/smart-fill` (multipart `file`, que queda adjunto
+  como factura de la WO, o JSON `{"use_attached": true}` para re-leer el
+  adjunto) devuelve `{extract, vendor_match, proposed, model}`; `POST
+  /smart-fill/apply` aplica la propuesta confirmada (campos + alta opcional
+  del vendor como `shop` + líneas `append` | `replace`) en **una
+  transacción**. Ambos bloqueados en WOs facturadas (400 `un-invoice the
+  work order before importing`). Mismos límites de tamaño y rate limit que
+  `/workorders/scan`, que ahora también devuelve `vendor_match` y
+  `proposed`. **`POST /workorders/{id}/lines/bulk`** `{lines, replace}`
+  (el modal de creación deja de hacer N POSTs). Modal de revisión
+  (`SmartFillReviewModal`): campos y líneas con checkbox, vendor
+  matcheado / candidato / crear nuevo / ninguno.
+- **Roster de técnicos** (`org_setting` `technicians`, sin tabla nueva):
+  `core/technicians` con siembra automática en la primera lectura
+  (mecánicos ya usados en WOs + usuarios con rol `mechanic`, dedupe
+  case-insensitive y grafía determinista), alta con 400 por duplicado,
+  renombre en cascada a `WorkOrder.mechanic` (todas las grafías), baja
+  suave (nunca se borra). Una WO creada o editada con un mecánico que no
+  está en el roster **lo agrega sola** (después del commit) y guarda la
+  grafía del roster. Rutas `GET/POST /api/technicians`, `PATCH/DELETE
+  /api/technicians/{id}` con **RBAC `maint.edit`** (dispatcher y mechanic:
+  el dueño no quiere bloqueos acá). `TechnicianPicker` en el detalle, en el
+  modal de creación y en el despacho de Service Requests; sección
+  **Technicians** en Settings.
+- **Nuevo layout de Work Orders**: vista **List** maestro-detalle (lista a
+  la izquierda, `WoDetail` a la derecha con pestañas Info · Parts & Labor ·
+  Invoice · PM, pie fijo con la acción principal "Start work ▾" / "Mark
+  complete", etiquetas de fuente en mayúsculas pequeñas), panel **Filters**
+  con grupos de checkboxes y conteos facetados (status, tipo, vendor,
+  técnico, prioridad, campaña, unidad, esperando partes, fechas), tira de
+  pipeline (`PipelineStrip`: segmentos clicables + KPIs "Parts blocking",
+  "At vendors", "Cost 30d") en lugar de las tarjetas negras, sidebar
+  compacto colapsable y deep link `?wo=`. Table / Board / History siguen
+  abriendo el drawer (`WoDrawer`, el mismo `WoDetail`).
+- **Migraciones Alembic**: `d0e1f2a3b4c5_outside_work` (columnas
+  `work_order.wo_type`/`vendor_id`, `vendor.kind`/`city`/`state`, índice
+  `ix_work_order_vendor_id`, FK `fk_work_order_vendor`; `batch_alter_table`
+  para SQLite) y `e1f2a3b4c5d6_parts_request_backfill` (**idempotente**:
+  crea la tabla `parts_request` y el índice
+  `ix_purchase_order_backorder_of_po_id` solo si faltan; `downgrade`
+  no-op, nunca borra datos). `db._migrate()` agrega las cinco columnas en
+  la SQLite de dev.
+- **Tests**: `backend/tests/test_outside_work.py` (reglas de vendor,
+  gates, inventario, match de vendors con ubicación/marca/empate, Smart
+  Fill propose/apply/ruta, lines/bulk, líneas congeladas al facturar,
+  adjuntos acotados a la org, filtros/stats, RBAC) y
+  `backend/tests/test_technicians.py` (siembra, duplicados, cascada con
+  grafías mixtas, baja suave, auto-alta, validación de `user_id`,
+  concurrencia, aislamiento por tenant).
+
+### Cambiado
+- La vista "Cards" de Work Orders pasa a llamarse **Table**.
+- `GET /api/workorders` conserva el campo `mechanics` por compatibilidad,
+  pero ahora son los **técnicos activos del roster** (antes, los nombres
+  distintos ya usados en WOs).
+- Las seis **StatCards** de Work Orders se reemplazan por la tira de
+  pipeline (`PipelineStrip`), reutilizable por otras páginas.
+- El `.modal-backdrop` sube a `--z-modal` (por encima del drawer vaul y del
+  panel de detalle móvil): un modal abierto desde el detalle (QuickBuy,
+  Smart Fill) ya no queda tapado.
+- Las líneas (partes/labor) de una WO **facturada** quedan congeladas
+  también en la API (`POST /lines`, `/lines/bulk`, `DELETE /lines/{id}` =>
+  400 `un-invoice the work order before changing lines`): el consumo de
+  stock se registra por id de línea y borrarla dejaba el movimiento
+  huérfano y lo duplicaba al re-facturar.
+
+### Corregido
+- **`parts_request` faltaba en Alembic**: la tabla (y el índice de
+  backorders) existían solo vía `create_all` en dev; en producción no se
+  creaban. Backfill idempotente en `e1f2a3b4c5d6`.
+- Las rutas del **adjunto de factura** (`GET /invoice-file`, `/thumb`,
+  `DELETE /invoice-file`) no verificaban que la WO fuera de la org actual
+  (los archivos se indexan por id global, fuera del ORM): otra organización
+  podía leer o borrar el adjunto por id. Ahora las cinco rutas (incluido
+  Smart Fill) pasan por `workorders.wo_exists` (404).
+- **Smart Fill** escanea **antes** de reemplazar el adjunto: un HEIC (que
+  el escáner no lee), un proveedor caído o una foto sin texto devolvían 400
+  pero ya habían destruido la factura original adjunta. El tipo del
+  archivo lo decide la extensión (lo que el sidecar guarda y después se
+  sirve), no el Content-Type del cliente. En la UI, un escaneo fallido
+  re-sincroniza el estado del adjunto; soltar texto o un enlace en la zona
+  de Smart Fill ya no re-escanea el adjunto.
+- **Roster de técnicos**: el alta automática iba dentro de la transacción
+  de la WO y trababa la SQLite de dev ("database is locked") cuando el
+  caller ya había flusheado (defecto re-abierto → WO desde el UnitDrawer);
+  ahora va después del commit (y una creación fallida no deja técnicos
+  fantasma). Las mutaciones del roster son un read-modify-write en **una**
+  transacción con la fila bloqueada (`db.update_setting`, mismo patrón que
+  `bump_invoice_number`): dos altas concurrentes ya no se pisan ni reparten
+  el mismo id. El renombre arrastra todas las grafías del nombre viejo y
+  las WOs guardan la grafía del roster. `user_id` debe ser un usuario de la
+  org (400 `user not found`).
+- **Drawer**: Escape dentro de un combobox, del menú de estado, del popover
+  del vendor o del modal de Smart Fill cerraba el drawer entero (Radix lo
+  escucha en captura); ahora cierra solo la capa interna.
+- **Work Orders**: en History ya no aplica un filtro de status invisible
+  (la lista quedaba vacía con "1 active" y nada que destildar); el conteo
+  "Unassigned" del grupo Technician coincide con el resultado (las outside
+  no cuentan como sin asignar); pasar una WO de outside a inside quita el
+  vínculo con el vendor (si no, seguía contando para "reassign them first"
+  y el filtro); el campo Vendor se marca inválido (rojo + `aria-invalid`)
+  cuando el escaneo no encontró el taller o el usuario lo vació; la tira
+  de pipeline muestra `outside_open` ("At vendors"); el efecto de medición
+  del split ya no se re-suscribe en cada render; CSS y props del drawer
+  viejo eliminados.
+
+### Notas
+- **PII**: el nombre del founder se retira de CHANGELOG, comentarios de
+  código y `handoff.md` ("el founder" / "the founder"); la historia de git
+  no se reescribe.
+- Limitaciones conocidas: el match de vendors de cadena (Speedco, Love's…)
+  exige ciudad coincidente para ligarse solo; un vendor del catálogo sin
+  ciudad queda como candidato y el usuario lo elige con un clic. El roster
+  vive en un JSON de `org_setting` (sin FK a usuarios); el lock de
+  escritura es por proceso + `FOR UPDATE` (Postgres), suficiente con un
+  worker de uvicorn por instancia. Smart Fill no lee HEIC (convertir a
+  JPG/PDF antes).
+
 ## [2.20.0] - 2026-10-06
 
 Benchmark contra SquareRigger: el taller pasa a despachar desde un backlog
@@ -645,7 +800,7 @@ permanente por decisión del founder). El board vive en
 - **Registro manual de odómetro por unidad — el atajo del CPM sin ELD.** El
   cost-per-mile ahora funciona sin ninguna integración: si el taller carga el
   odómetro a mano, alimenta el mismo `odometer_reading` que el backfill/Samsara.
-  (Desbloquea el CPM para el piloto de Dario, que usa Panda ELD — sin esperar
+  (Desbloquea el CPM para el piloto del founder, que usa Panda ELD — sin esperar
   al adapter.)
   - `odometer.log_reading` (idempotente por día: re-registrar la misma fecha
     corrige, no duplica) + `unit_readings`. Endpoints `GET/POST
@@ -664,7 +819,7 @@ permanente por decisión del founder). El board vive en
 ## [2.8.0] - 2026-07-07
 
 ### Añadido
-- **Cost per mile — el número de Dario** (dashboard telematics, Fase 2). El KPI
+- **Cost per mile — el número del founder** (dashboard telematics, Fase 2). El KPI
   ancla de flota: gasto de mantenimiento ÷ millas manejadas. Provider-agnóstico
   por diseño (un futuro adapter de Panda ELD alimenta la misma tabla).
   - **Persistencia de odómetro** (`odometer_reading`, migración Alembic
@@ -696,7 +851,7 @@ permanente por decisión del founder). El board vive en
   (no hay fuente de ingresos), MPG/combustible-por-milla (Samsara da nivel de
   tanque, no galones). El CPM aquí es **de mantenimiento** (~10–15% del costo
   operativo total), etiquetado como tal.
-- Pendiente para que Dario vea SU CPM: adapter de **Panda ELD** (su flota no usa
+- Pendiente para que el founder vea SU CPM: adapter de **Panda ELD** (su flota no usa
   Samsara) — la persistencia ya es provider-agnóstica y lo espera.
 
 ## [2.7.0] - 2026-07-07

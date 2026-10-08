@@ -97,6 +97,11 @@ def _scope_for(method: str, path: str) -> str | None:
     # (deny/snooze/crear o sumar a una WO) es trabajo de mantenimiento.
     if path.startswith("/api/service-requests"):
         return "maint.edit"
+    # Roster de técnicos (v2.21): asignar/renombrar/dar de baja técnicos es
+    # trabajo de mantenimiento, abierto a dispatcher Y mechanic. A propósito
+    # NO es settings.manage: el dueño no quiere bloqueos de permisos acá.
+    if path.startswith("/api/technicians"):
+        return "maint.edit"
     # Avisos: envío real por email/SMS.
     if path.startswith("/api/notify/"):
         return "notices.send"
