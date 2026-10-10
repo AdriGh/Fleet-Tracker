@@ -21,6 +21,7 @@ import StatCard from '../components/StatCard'
 import { StatCluster } from '../components/ds'
 import { QuickBuyButton } from './PurchaseOrdersPage'
 import MarketplacePanel from './MarketplacePanel'
+import type { NavIntent } from '../shell'
 
 // ¿La parte está en/bajo su punto de reorden? (solo cuenta si reorder_point > 0)
 function isLow(p: { on_hand: number; reorder_point: number }): boolean {
@@ -32,6 +33,10 @@ const STOCK_REASON_LABEL: Record<string, string> = {
   po_receive: 'PO received',
   wo_consume: 'WO consumed',
   manual: 'Manual',
+  // v2.22: corrección de costo post-recepción (cambia valor, no cantidad) y
+  // reversa de una recepción.
+  po_cost_adj: 'PO cost adjusted',
+  po_unreceive: 'PO unreceived',
 }
 
 type Tab = 'parts' | 'vendors' | 'marketplace'
@@ -39,8 +44,11 @@ type Tab = 'parts' | 'vendors' | 'marketplace'
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
-export default function PartsPage() {
+// v2.22: `intent` del shell — {part: id} abre esa parte en la vista List.
+// App re-monta la página con cada intent nuevo.
+export default function PartsPage({ intent }: { intent?: NavIntent } = {}) {
   const [tab, setTab] = useState<Tab>('parts')
+  const initialPartId = typeof intent?.part === 'number' ? intent.part : null
 
   return (
     <div className="page page-wide">
@@ -67,7 +75,7 @@ export default function PartsPage() {
         </div>
       </div>
 
-      {tab === 'parts' && <PartsTab />}
+      {tab === 'parts' && <PartsTab initialPartId={initialPartId} />}
       {tab === 'vendors' && <VendorsTab />}
       {tab === 'marketplace' && <MarketplacePanel />}
     </div>
@@ -108,7 +116,7 @@ function guessCategory(desc: string, known: string[]): string {
 type PartsView = 'overview' | 'list' | 'grid'
 
 // ----- Pestaña Parts (3 vistas: Overview / List / Data grid) --------------
-function PartsTab() {
+function PartsTab({ initialPartId = null }: { initialPartId?: number | null }) {
   const qc = useQueryClient()
   const partsQ = useQuery({ queryKey: ['parts'], queryFn: listParts })
   const vendorsQ = useQuery({ queryKey: ['vendors'], queryFn: listVendors })
@@ -116,9 +124,18 @@ function PartsTab() {
     queryKey: ['purchase-orders', ''], queryFn: () => listPurchaseOrders(),
   })
 
-  const [view, setView] = useState<PartsView>('overview')
+  const [view, setView] = useState<PartsView>(
+    initialPartId != null ? 'list' : 'overview')
   const [q, setQ] = useState('')
   const [selectedPn, setSelectedPn] = useState<string | null>(null)
+  // Intent {part: id}: se resuelve a part_number cuando llega el catálogo
+  // (ajuste de estado en render, sin efecto).
+  const [wantPartId, setWantPartId] = useState(initialPartId)
+  if (wantPartId != null && partsQ.data) {
+    const hit = partsQ.data.parts.find((p) => p.id === wantPartId)
+    setWantPartId(null)
+    if (hit) setSelectedPn(hit.part_number)
+  }
   const [spendCat, setSpendCat] = useState<string | null>(null)
   const [lowOnly, setLowOnly] = useState(false)
   const [editing, setEditing] = useState<Part | null>(null)
@@ -889,10 +906,21 @@ function AdjustStockModal({ part, onClose, onAdjusted }: {
                           {STOCK_REASON_LABEL[m.reason] ?? m.reason}
                         </span>
                       </td>
-                      <td className={`num mono adj-delta ${
-                        m.delta < 0 ? 'is-neg' : 'is-pos'}`}>
-                        {m.delta > 0 ? `+${m.delta}` : m.delta}
-                      </td>
+                      {/* v2.22: una corrección de costo no mueve cantidad:
+                          se muestra el cambio de VALOR ($). */}
+                      {m.reason === 'po_cost_adj' && m.value_delta != null ? (
+                        <td className={`num mono adj-delta ${
+                          m.value_delta < 0 ? 'is-neg' : 'is-pos'}`}
+                          title="Value change (quantity unchanged)">
+                          {m.value_delta >= 0 ? '+' : '−'}$
+                          {Math.abs(m.value_delta).toFixed(2)}
+                        </td>
+                      ) : (
+                        <td className={`num mono adj-delta ${
+                          m.delta < 0 ? 'is-neg' : 'is-pos'}`}>
+                          {m.delta > 0 ? `+${m.delta}` : m.delta}
+                        </td>
+                      )}
                       <td>{m.note || <span className="muted">—</span>}</td>
                     </tr>
                   ))}
@@ -910,12 +938,13 @@ function AdjustStockModal({ part, onClose, onAdjusted }: {
   )
 }
 
-function PartModal({ part, vendors, categories, onClose, onSaved }: {
+// Exportado (v2.22): alta desde el menú "+" Add New del shell.
+export function PartModal({ part, vendors, categories, onClose, onSaved }: {
   part: Part | null
   vendors: Vendor[]
   categories: string[]
   onClose: () => void
-  onSaved: () => void
+  onSaved: (saved: Part) => void
 }) {
   const [f, setF] = useState<PartInput & { id?: number }>(() => ({
     id: part?.id,
@@ -982,9 +1011,20 @@ function PartModal({ part, vendors, categories, onClose, onSaved }: {
     }
     setSaving(true)
     try {
-      await savePart(f)
+      // Edición: on_hand NO viaja en el PATCH (el backend lo ignora). Si el
+      // usuario cambió "On hand", se postea un ajuste manual por la
+      // DIFERENCIA contra lo que vio al abrir — relativo, así no pisa una
+      // recepción o consumo que haya entrado mientras el modal estaba abierto.
+      const { on_hand: onHand, ...rest } = f
+      let saved = await savePart(part ? rest : f)
+      const delta = part ? Number(onHand ?? 0) - Number(part.on_hand ?? 0) : 0
+      if (part && Math.abs(delta) > 1e-9) {
+        const r = await adjustPartStock(saved.part_number, delta,
+          'Edited in part form')
+        saved = { ...saved, on_hand: r.on_hand ?? saved.on_hand + delta }
+      }
       notifyOk(part ? 'Part updated' : 'Part added', f.part_number)
-      onSaved()
+      onSaved(saved)
     } catch (e) {
       notifyErr("Couldn't save part", e)
       setSaving(false)
@@ -1083,6 +1123,8 @@ function PartModal({ part, vendors, categories, onClose, onSaved }: {
             <span>On hand</span>
             <input className="cell-input" type="number"
               value={f.on_hand ?? 0}
+              title={part ? 'A change posts a stock adjustment for the '
+                + 'difference' : undefined}
               onChange={(e) => set({ on_hand: Number(e.target.value) })} />
           </label>
         </div>
@@ -1244,7 +1286,8 @@ function PartLabelModal({ part, onClose }: { part: Part; onClose: () => void }) 
 }
 
 // ----- Pestaña Vendors -----------------------------------------------------
-function VendorsTab() {
+// Exportado (v2.22): la sección Resources → Vendors lo reusa.
+export function VendorsTab() {
   const qc = useQueryClient()
   const vendorsQ = useQuery({ queryKey: ['vendors'], queryFn: listVendors })
   const [q, setQ] = useState('')
@@ -1379,10 +1422,11 @@ function VendorsTab() {
   )
 }
 
-function VendorModal({ vendor, onClose, onSaved }: {
+// Exportado (v2.22): alta desde el menú "+" Add New del shell.
+export function VendorModal({ vendor, onClose, onSaved }: {
   vendor: Vendor | null
   onClose: () => void
-  onSaved: () => void
+  onSaved: (saved: Vendor) => void
 }) {
   const [f, setF] = useState<VendorInput & { id?: number }>(() => ({
     id: vendor?.id,
@@ -1408,9 +1452,9 @@ function VendorModal({ vendor, onClose, onSaved }: {
     }
     setSaving(true)
     try {
-      await saveVendor(f)
+      const saved = await saveVendor(f)
       notifyOk(vendor ? 'Vendor updated' : 'Vendor added', f.name)
-      onSaved()
+      onSaved(saved)
     } catch (e) {
       notifyErr("Couldn't save vendor", e)
       setSaving(false)

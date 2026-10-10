@@ -5,14 +5,17 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   addMaintRecord, decodeVin, deleteUnitDoc, deleteWorkOrder, downloadUnitDoc,
   fetchUnitPhotoUrl, getReefer, getUnitCampaigns, getOdometerLog,
-  getUnitPartsUsed, listFleet, listUnitsWithPhoto,
-  listOpenDefects, logOdometer,
+  getUnitEngineHours, getUnitPartsUsed, listFleet, listUnitsWithPhoto,
+  listOpenDefects, logOdometer, logUnitEngineHours,
   listUnitDocs, listWorkOrders, toggleUnitCampaign, uploadUnitDocs,
   uploadUnitPhoto,
-  type MaintKind, type PartUsed, type UnitCampaign, type WorkOrder,
+  type PartUsed, type UnitCampaign, type WorkOrder,
   type WoStatus,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
+import Modal from '../components/Modal'
+import { useShell } from '../shell'
+import { useUnitOwners } from '../customers'
 import { analyzeUnit } from '../defectGroups'
 import type { Kind } from '../truckZones'
 import TruckDiagram from '../components/TruckDiagram'
@@ -33,7 +36,7 @@ const CAMP_STATUS: Record<string, { label: string; cls: string }> = {
   upcoming: { label: 'Upcoming', cls: 's-upcoming' },
   overdue: { label: 'Overdue', cls: 's-overdue' },
   never: { label: 'Never performed', cls: 's-never' },
-  no_meter: { label: 'No odometer', cls: 's-never' },
+  no_meter: { label: 'No meter reading', cls: 's-never' },
   tracked: { label: 'Tracked', cls: 's-on_track' },
 }
 
@@ -45,8 +48,22 @@ const STATUS_BUCKETS: { cls: string; label: string; token: string }[] = [
   { cls: 's-on_track', label: 'On track', token: '--st-on-track' },
   { cls: 's-never', label: 'Never', token: '--st-never' },
 ]
-const dueUnitOf = (c: UnitCampaign) =>
-  c.due === 'miles' ? 'mi' : c.due === 'days' ? 'days' : ''
+// Valor "a vencer" de una campaña en SU unidad. v2.22: las campañas por
+// horas (PM del reefer) usan horas mientras haya horómetro y venzan primero;
+// si no, la fecha de respaldo (días). Nunca millas.
+function campDue(c: UnitCampaign): { v: number; unit: string } | null {
+  if (c.due === 'hours') {
+    if (c.to_due != null && c.due_by !== 'days') {
+      return { v: c.to_due, unit: 'hrs' }
+    }
+    if (c.to_due_days != null) return { v: c.to_due_days, unit: 'days' }
+    return c.to_due != null ? { v: c.to_due, unit: 'hrs' } : null
+  }
+  if (c.to_due == null) return null
+  return { v: c.to_due, unit: c.due === 'miles' ? 'mi' : c.due === 'days' ? 'days' : '' }
+}
+const fmtHrs = (n: number | null | undefined) =>
+  n == null ? '' : Math.round(n).toLocaleString('en-US')
 
 const money = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
@@ -129,6 +146,52 @@ export default function UnitProfilePage({ unit, onClose }: {
       notifyErr("Couldn't log the reading", e)
     } finally {
       setOdoBusy(false)
+    }
+  }
+
+  // v2.22 horómetro (engine hours) del reefer: medidor PROPIO de la unidad
+  // (tabla meter_reading), nunca el odómetro. Alimenta el Reefer PM.
+  const hrsQ = useQuery({
+    queryKey: ['unit-engine-hours', unit],
+    queryFn: () => getUnitEngineHours(unit),
+    retry: false,
+  })
+  const [hrsOpen, setHrsOpen] = useState(false)
+  const [hrsVal, setHrsVal] = useState('')
+  const [hrsDate, setHrsDate] = useState(todayISO)
+  const [hrsBusy, setHrsBusy] = useState(false)
+  async function saveHrs() {
+    const v = Number(hrsVal)
+    if (!hrsVal.trim() || !Number.isFinite(v) || v < 0) {
+      notifyErr('Enter valid engine hours',
+        new Error('engine hours must be zero or more'))
+      return
+    }
+    setHrsBusy(true)
+    try {
+      try {
+        await logUnitEngineHours(unit, { value: v, date: hrsDate })
+      } catch (e) {
+        // Lectura inverosímil (más baja que la anterior / > 24 h por día):
+        // el backend pide confirmación explícita (horómetro reseteado).
+        if (!window.confirm(
+          `${e instanceof Error ? e.message : String(e)}\n\n`
+          + 'Save it anyway? Use this when the hour meter was reset or the controller was replaced.')) {
+          return
+        }
+        await logUnitEngineHours(unit, { value: v, date: hrsDate, force: true })
+      }
+      notifyOk(`Engine hours logged — ${fmtHrs(v)} hrs`)
+      setHrsOpen(false)
+      setHrsVal('')
+      qc.invalidateQueries({ queryKey: ['unit-engine-hours', unit] })
+      qc.invalidateQueries({ queryKey: ['unit-campaigns', unit] })
+      qc.invalidateQueries({ queryKey: ['maint'] })
+      qc.invalidateQueries({ queryKey: ['service-requests'] })
+    } catch (e) {
+      notifyErr("Couldn't log engine hours", e)
+    } finally {
+      setHrsBusy(false)
     }
   }
 
@@ -217,18 +280,35 @@ export default function UnitProfilePage({ unit, onClose }: {
     return c
   }, [campQ.data])
   // Acción más urgente: el componente vencido por más margen; si ninguno,
-  // el más próximo a vencer.
+  // el más próximo a vencer. (v2.22: cada uno en su unidad — mi/días/hrs.)
   const urgent = useMemo(() => {
     const byDue = (a: UnitCampaign, b: UnitCampaign) =>
-      (a.to_due as number) - (b.to_due as number)
+      (campDue(a)?.v ?? 0) - (campDue(b)?.v ?? 0)
     const od = camps.filter((c) =>
-      CAMP_STATUS[c.status]?.cls === 's-overdue' && c.to_due != null).sort(byDue)
+      CAMP_STATUS[c.status]?.cls === 's-overdue' && campDue(c)).sort(byDue)
     if (od[0]) return { camp: od[0], overdue: true }
     const soon = camps.filter((c) =>
-      CAMP_STATUS[c.status]?.cls === 's-upcoming' && c.to_due != null).sort(byDue)
+      CAMP_STATUS[c.status]?.cls === 's-upcoming' && campDue(c)).sort(byDue)
     if (soon[0]) return { camp: soon[0], overdue: false }
     return null
   }, [campQ.data])
+  const urgentDue = urgent ? campDue(urgent.camp) : null
+
+  // v2.22: la tarjeta del horómetro aparece en unidades reefer (campaña por
+  // horas activa, feed del reefer) o si ya tienen lecturas de horas.
+  const reeferCamp = camps.find((c) => c.due === 'hours')
+  const curHours = campQ.data?.current_hours ?? hrsQ.data?.latest?.value ?? null
+  const curHoursSrc = campQ.data?.current_hours != null
+    ? campQ.data?.current_hours_source : hrsQ.data?.latest?.source
+  const curHoursDate = campQ.data?.current_hours != null
+    ? campQ.data?.current_hours_date : hrsQ.data?.latest?.date
+  const showHours = !!reeferCamp || curHours != null
+    || (hrsQ.data?.readings.length ?? 0) > 0 || !!reefer
+
+  // v2.22 [C]: dueño (cliente owner-operator) de la unidad.
+  const { navigate } = useShell()
+  const owners = useUnitOwners()
+  const owner = owners.ownerOf(unit)
 
   function refreshAll() {
     qc.invalidateQueries({ queryKey: ['unit-campaigns', unit] })
@@ -315,7 +395,56 @@ export default function UnitProfilePage({ unit, onClose }: {
               : ''}
           </span>
         </div>
+        {/* v2.22: horómetro del reefer, al lado del odómetro (dos medidores
+            independientes, como en el equipo real). */}
+        {showHours && (
+          <div className="up-card up-card-violet up-card-odo">
+            <button type="button" className="up-odo-log"
+              title="Log an engine-hours reading"
+              aria-expanded={hrsOpen}
+              onClick={() => setHrsOpen((v) => !v)}>+ Log</button>
+            <strong>{curHours != null ? `${fmtHrs(curHours)} hrs` : '—'}</strong>
+            <span>
+              Engine hours
+              {curHours != null && curHoursSrc ? ` · ${curHoursSrc}` : ''}
+              {curHours != null && curHoursDate ? ` · ${curHoursDate}` : ''}
+              {reeferCamp && campDue(reeferCamp)
+                ? (() => {
+                    const d = campDue(reeferCamp)!
+                    return d.v < 0
+                      ? ` · PM overdue by ${fmtMi(Math.abs(Math.round(d.v)))} ${d.unit}`
+                      : ` · PM in ${fmtMi(Math.round(d.v))} ${d.unit}`
+                  })()
+                : ''}
+            </span>
+          </div>
+        )}
       </div>
+
+      {hrsOpen && (
+        <div className="up-odo-form">
+          <label>Engine hours
+            <input type="number" min={0} step="0.1" value={hrsVal} autoFocus
+              placeholder={curHours != null ? String(Math.round(curHours))
+                : 'Hour meter reading'}
+              onChange={(e) => setHrsVal(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') saveHrs() }} />
+          </label>
+          <label>Date
+            <input type="date" value={hrsDate}
+              max={todayISO()}
+              onChange={(e) => setHrsDate(e.target.value)} />
+          </label>
+          <button className="btn btn-primary btn-xs" disabled={hrsBusy}
+            onClick={saveHrs}>{hrsBusy ? 'Saving…' : 'Save reading'}</button>
+          <button className="btn btn-ghost btn-xs"
+            onClick={() => setHrsOpen(false)}>Cancel</button>
+          <span className="up-odo-hint">
+            Reefer PM is tracked on this hour meter, never on the odometer.
+            Readings from Lynx, Thermo King or Traccar land here automatically.
+          </span>
+        </div>
+      )}
 
       {/* Log de odómetro: el atajo del CPM sin ELD. Dos lecturas en el tiempo
           = cost-per-mile de esta unidad. */}
@@ -372,9 +501,9 @@ export default function UnitProfilePage({ unit, onClose }: {
               ? 'is-overdue' : 'is-upcoming'}`}>
               {urgent.overdue
                 ? `${urgent.camp.label} · overdue by ${fmtMi(
-                    Math.abs(urgent.camp.to_due as number))} ${dueUnitOf(urgent.camp)}`
+                    Math.abs(Math.round(urgentDue?.v ?? 0)))} ${urgentDue?.unit ?? ''}`
                 : `Next: ${urgent.camp.label} · ${fmtMi(
-                    urgent.camp.to_due as number)} ${dueUnitOf(urgent.camp)}`}
+                    Math.round(urgentDue?.v ?? 0))} ${urgentDue?.unit ?? ''}`}
             </span>
           ) : (
             <span className="up-status-hl is-ok">All components on track</span>
@@ -520,6 +649,29 @@ export default function UnitProfilePage({ unit, onClose }: {
                 )}
               </span>
             </div>
+            {showHours && (
+              <div className="up-spec-row">
+                <span className="k">Engine hours</span>
+                <span className="v mono">
+                  {curHours != null ? `${fmtHrs(curHours)} hrs` : '—'}
+                  {curHours != null && curHoursSrc && (
+                    <em className="up-spec-src">{curHoursSrc}</em>
+                  )}
+                </span>
+              </div>
+            )}
+            {/* v2.22 [C]: dueño de la unidad (owner-operator facturado). */}
+            {owner && (
+              <div className="up-spec-row">
+                <span className="k">Owner</span>
+                <span className="v">
+                  <button type="button" className="link-btn"
+                    onClick={() => navigate('customers', { customer: owner.id })}>
+                    {owner.name}
+                  </button>
+                </span>
+              </div>
+            )}
             <div className="up-spec-row">
               <span className="k">Open defects</span>
               <span className={`v ${(info?.open_defects ?? 0) > 0
@@ -744,8 +896,11 @@ function CampaignsTab({ unit, data, loading, onChanged }: {
                 <span>
                   <em>Last done</em>
                   {c.last_date
-                    ? `${c.last_date}${c.last_miles != null
-                        ? ` · ${fmtMi(c.last_miles)} mi` : ''}`
+                    ? `${c.last_date}${c.due === 'hours'
+                        ? (c.last_hours != null
+                          ? ` · ${fmtHrs(c.last_hours)} hrs` : '')
+                        : c.last_miles != null
+                          ? ` · ${fmtMi(c.last_miles)} mi` : ''}`
                     : 'Never'}
                 </span>
                 <span>
@@ -754,14 +909,26 @@ function CampaignsTab({ unit, data, loading, onChanged }: {
                     ? `${fmtMi(c.next_due_miles)} mi`
                     : c.due === 'days' && c.next_due_date
                       ? c.next_due_date
-                      : c.due === 'none' ? 'On condition' : '—'}
+                      : c.due === 'hours'
+                        ? ([c.next_due_hours != null
+                          ? `${fmtHrs(c.next_due_hours)} hrs` : '',
+                          c.next_due_date
+                            ? `${c.next_due_hours != null ? 'or ' : ''}${c.next_due_date}`
+                            : ''].filter(Boolean).join(' · ') || '—')
+                        : c.due === 'none' ? 'On condition' : '—'}
                 </span>
                 <span>
-                  <em>{c.due === 'miles' ? 'Miles to due'
-                    : c.due === 'days' ? 'Days to due' : 'Interval'}</em>
-                  {c.to_due != null
-                    ? `${c.to_due < 0 ? '-' : ''}${fmtMi(Math.abs(c.to_due))}`
-                    : '—'}
+                  {c.due === 'hours' ? (
+                    <HoursToDue c={c} />
+                  ) : (
+                    <>
+                      <em>{c.due === 'miles' ? 'Miles to due'
+                        : c.due === 'days' ? 'Days to due' : 'Interval'}</em>
+                      {c.to_due != null
+                        ? `${c.to_due < 0 ? '-' : ''}${fmtMi(Math.abs(c.to_due))}`
+                        : '—'}
+                    </>
+                  )}
                 </span>
                 <button className="btn btn-ghost btn-xs"
                   onClick={(e) => {
@@ -788,6 +955,7 @@ function CampaignsTab({ unit, data, loading, onChanged }: {
                   {c.records.map((r) => (
                     <span key={r.id}>
                       {r.date}
+                      {r.hours != null ? ` · ${fmtHrs(r.hours)} hrs` : ''}
                       {r.mileage != null ? ` · ${fmtMi(r.mileage)} mi` : ''}
                       {r.notes ? ` · ${r.notes}` : ''}
                     </span>
@@ -818,6 +986,7 @@ function CampaignsTab({ unit, data, loading, onChanged }: {
       {recordFor && (
         <RecordModal unit={unit} campaign={recordFor}
           currentMiles={data.current_miles}
+          currentHours={data.current_hours ?? null}
           onClose={() => setRecordFor(null)}
           onSaved={() => {
             const key = recordFor.key
@@ -835,69 +1004,111 @@ function CampaignsTab({ unit, data, loading, onChanged }: {
   )
 }
 
-function RecordModal({ unit, campaign, currentMiles, onClose, onSaved }: {
+// "Hours to due" de una campaña por horas, con la fecha de respaldo abajo
+// (vence lo que llegue primero). Sin horómetro: solo días.
+function HoursToDue({ c }: { c: UnitCampaign }) {
+  const byHours = c.to_due != null && c.due_by !== 'days'
+  return (
+    <>
+      <em>{byHours ? 'Hours to due' : 'Days to due'}</em>
+      {byHours
+        ? `${(c.to_due as number) < 0 ? '-' : ''}${fmtHrs(Math.abs(c.to_due as number))}`
+        : c.to_due_days != null
+          ? `${c.to_due_days < 0 ? '-' : ''}${fmtMi(Math.abs(c.to_due_days))}`
+          : '—'}
+      {byHours && c.to_due_days != null && (
+        <small className="up-camp-alt">
+          or {c.to_due_days < 0
+            ? `${fmtMi(Math.abs(c.to_due_days))} days over`
+            : `${fmtMi(c.to_due_days)} days`} by date
+        </small>
+      )}
+      {c.meter_missing && (
+        <small className="up-camp-alt">No engine-hours reading · by date</small>
+      )}
+    </>
+  )
+}
+
+function RecordModal({
+  unit, campaign, currentMiles, currentHours, onClose, onSaved,
+}: {
   unit: string
   campaign: UnitCampaign
   currentMiles: number | null
+  currentHours: number | null
   onClose: () => void
   onSaved: () => void
 }) {
+  // v2.22: las campañas por horas (PM del reefer) registran HORAS de motor;
+  // el resto, millas. Nunca se mezclan.
+  const byHours = campaign.due === 'hours'
   const [date, setDate] = useState(todayISO())
   const [miles, setMiles] = useState(
-    currentMiles != null ? String(currentMiles) : '')
+    !byHours && currentMiles != null ? String(currentMiles) : '')
+  const [hours, setHours] = useState(
+    byHours && currentHours != null ? String(currentHours) : '')
   const [notes, setNotes] = useState('')
   const [busy, setBusy] = useState(false)
 
+  async function save() {
+    if (busy) return
+    setBusy(true)
+    try {
+      await addMaintRecord(byHours
+        ? { kind: campaign.key, unit, date,
+            hours: hours ? Number(hours) : null, notes }
+        : { kind: campaign.key, unit, date,
+            mileage: miles ? Number(miles) : null, notes })
+      notifyOk(`${campaign.label} recorded`, unit)
+      onSaved()
+    } catch (e) {
+      notifyErr("Couldn't save", e)
+      setBusy(false)
+    }
+  }
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 420 }}
-        onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <h2>Record · {campaign.label}</h2>
-          <button className="modal-x" onClick={onClose} aria-label="Close">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round">
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
-          </button>
-        </div>
-        <div className="modal-body mnt-form">
-          <label><span>Date</span>
-            <input type="date" className="cell-input" value={date}
-              onChange={(e) => setDate(e.target.value)} />
+    <Modal title={`Record · ${campaign.label}`} onClose={onClose} width={420}>
+      <form className="mnt-form"
+        onSubmit={(e) => { e.preventDefault(); void save() }}>
+        <label><span>Date</span>
+          <input type="date" className="cell-input" value={date} autoFocus
+            onChange={(e) => setDate(e.target.value)} />
+        </label>
+        {byHours ? (
+          <label><span>Engine hours</span>
+            <input type="number" className="cell-input" value={hours}
+              min={0} step="0.1"
+              placeholder="hour meter at the service"
+              onChange={(e) => setHours(e.target.value)} />
           </label>
+        ) : (
           <label><span>Mileage</span>
             <input type="number" className="cell-input" value={miles}
               placeholder="optional"
               onChange={(e) => setMiles(e.target.value)} />
           </label>
-          <label><span>Notes</span>
-            <input className="cell-input" value={notes} placeholder="optional"
-              onChange={(e) => setNotes(e.target.value)} />
-          </label>
-          <div className="mnt-form-actions">
-            <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-            <button className="btn btn-primary" disabled={busy}
-              onClick={async () => {
-                setBusy(true)
-                try {
-                  await addMaintRecord({
-                    kind: campaign.key as MaintKind, unit, date,
-                    mileage: miles ? Number(miles) : null, notes,
-                  })
-                  notifyOk(`${campaign.label} recorded`, unit)
-                  onSaved()
-                } catch (e) {
-                  notifyErr("Couldn't save", e)
-                  setBusy(false)
-                }
-              }}>
-              {busy ? 'Saving…' : 'Save'}
-            </button>
-          </div>
+        )}
+        <label><span>Notes</span>
+          <input className="cell-input" value={notes} placeholder="optional"
+            onChange={(e) => setNotes(e.target.value)} />
+        </label>
+        {byHours && (
+          <p className="field-hint">
+            The hours are also saved as an engine-hours reading for {unit}.
+          </p>
+        )}
+        <div className="mnt-form-actions">
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={busy}>
+            {busy ? 'Saving…' : 'Save'}
+          </button>
         </div>
-      </div>
-    </div>
+      </form>
+    </Modal>
   )
 }
 

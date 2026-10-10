@@ -9,6 +9,7 @@ comporta idéntico — y otra empresa solo necesita su propio org.local.
 Consumidores cableados (con fallback a default):
 - cc_routing.cc_for_region   -> cc por terminal + always_cc
 - pm (intervalo y upcoming)  -> thresholds.pm_*
+- maint (PM del reefer)      -> thresholds.reefer_pm_* (v2.22, horas + días)
 - samsara (lookback defectos)-> thresholds.defect_lookback_days
 - engine (umbral DVIR rojo)  -> thresholds.dvir_min_minutes
 """
@@ -16,8 +17,16 @@ Consumidores cableados (con fallback a default):
 from __future__ import annotations
 
 import json
+import re
+from datetime import date, datetime, time, timedelta, tzinfo
+from zoneinfo import ZoneInfo
 
 from .. import config, db
+
+# v2.22: zona horaria de la org (IANA). Define "hoy", "esta semana" (lun–dom),
+# los presets de reportes y la hora de envío de los schedules. Default
+# America/Chicago (la misma que ya usaba samsara.py para los DVIR).
+DEFAULT_TIMEZONE = "America/Chicago"
 
 # H6 fase 3d: la config vive por-tenant en la tabla org_setting (clave
 # 'org_config'); el JSON legacy se importa una sola vez a la org 'default'.
@@ -39,6 +48,12 @@ DEFAULTS: dict = {
         "pm_interval_miles": 20000,
         "pm_upcoming_miles": 5500,
         "defect_lookback_days": 270,
+        # v2.22: PM del reefer por HORAS de motor (meter_reading), con la
+        # fecha como respaldo: vence lo que llegue primero.
+        "reefer_pm_interval_hours": 1500,
+        "reefer_pm_upcoming_hours": 150,
+        "reefer_pm_interval_days": 365,
+        "reefer_pm_upcoming_days": 30,
     },
     # H3: tarifa de labor del taller ($/hora). 0 = sin tarifa por defecto
     # (las líneas de labor no se autollenan). Decisión del usuario: una
@@ -64,7 +79,19 @@ DEFAULTS: dict = {
     "invoice": {
         "next_number": 1001, "prefix": "", "terms": "", "footer": "",
     },
+    # v2.22: zona horaria IANA de la org (ver org_now/org_today abajo).
+    "timezone": DEFAULT_TIMEZONE,
+    # v2.22 (Reports): asistente de IA que arma reportes en lenguaje
+    # natural. `ai_assistant_enabled` es el interruptor del plan (Settings,
+    # admin); `assistant_model` vacío = el modelo por defecto del asistente
+    # (core/report_assistant.DEFAULT_MODEL).
+    "ai_assistant_enabled": True,
+    "assistant_model": "",
 }
+
+# Id de modelo de Claude aceptable en Settings (la UI ofrece la lista de
+# core/report_assistant.ASSISTANT_MODELS; acá solo se valida la forma).
+_MODEL_RE = re.compile(r"^claude-[a-z0-9][a-z0-9.-]{1,60}$")
 
 # Campos de texto de una dirección de Bill-To (se sanean al guardar).
 _ADDR_FIELDS = ("name", "address", "city", "state", "zip", "phone", "email")
@@ -114,6 +141,14 @@ def get() -> dict:
             str(co): {f: str(addr.get(f, "")) for f in _ADDR_FIELDS}
             for co, addr in data["billing"].items() if isinstance(addr, dict)
         }
+    tz_name = str(data.get("timezone") or "").strip()
+    if tz_name and _zone(tz_name) is not None:
+        out["timezone"] = tz_name
+    if isinstance(data.get("ai_assistant_enabled"), bool):
+        out["ai_assistant_enabled"] = data["ai_assistant_enabled"]
+    model = str(data.get("assistant_model") or "").strip()
+    if model and _MODEL_RE.match(model):
+        out["assistant_model"] = model
     out["branding"]["app_name"] = APP_NAME      # nombre fijo, no editable
     return out
 
@@ -165,6 +200,20 @@ def save(new: dict) -> dict:
                            for f in _ADDR_FIELDS}
             for co, addr in new["billing"].items() if isinstance(addr, dict)
         }
+    if "timezone" in new:
+        tz_name = str(new.get("timezone") or "").strip()[:64]
+        if not tz_name:
+            tz_name = DEFAULT_TIMEZONE
+        if _zone(tz_name) is None:
+            raise ValueError(f"invalid timezone: {tz_name}")
+        cur["timezone"] = tz_name
+    if "ai_assistant_enabled" in new:
+        cur["ai_assistant_enabled"] = bool(new.get("ai_assistant_enabled"))
+    if "assistant_model" in new:
+        model = str(new.get("assistant_model") or "").strip()
+        if model and not _MODEL_RE.match(model):
+            raise ValueError(f"invalid assistant model: {model[:60]}")
+        cur["assistant_model"] = model
     _write(cur)
     return cur
 
@@ -215,3 +264,88 @@ def cc_override() -> tuple[dict[str, list[str]], list[str]]:
     """(cc_por_terminal, always_cc). Vacíos = usar los hardcodeados."""
     data = get()
     return data["cc"], data["always_cc"]
+
+
+# ----- Zona horaria de la org (v2.22) ---------------------------------------
+# Los timestamps de la base son NAIVE en hora LOCAL DEL SERVIDOR
+# (datetime.now(); en el contenedor eso es UTC). Para "hoy" / "esta semana" /
+# presets de reportes / hora de envío de schedules se usa la zona de la org:
+#   - org_now()/org_today(): reloj de pared de la org.
+#   - to_org()/to_org_date(): un timestamp de la base -> hora/fecha de la org.
+#   - org_day_start()/org_range(): límites de días de la org expresados como
+#     datetimes naive del servidor, listos para filtrar columnas DateTime.
+
+def _zone(name: str) -> tzinfo | None:
+    """ZoneInfo de `name`, o None si no es una zona IANA válida (o si el
+    sistema no tiene base de zonas: requirements trae `tzdata`)."""
+    try:
+        return ZoneInfo(str(name))
+    except Exception:  # ZoneInfoNotFoundError, ValueError, OSError…
+        return None
+
+
+def timezone_name() -> str:
+    """Zona IANA configurada para la org actual (default America/Chicago)."""
+    return get().get("timezone") or DEFAULT_TIMEZONE
+
+
+def org_tz() -> tzinfo:
+    """tzinfo de la org. Fallbacks: zona default; si el sistema no tiene
+    ninguna base de zonas, la zona local del servidor."""
+    return (_zone(timezone_name()) or _zone(DEFAULT_TIMEZONE)
+            or datetime.now().astimezone().tzinfo)
+
+
+def org_now() -> datetime:
+    """Ahora, AWARE, en la zona de la org."""
+    return datetime.now(org_tz())
+
+
+def org_today() -> date:
+    """Fecha de hoy en la zona de la org."""
+    return org_now().date()
+
+
+def to_org(dt: datetime | None) -> datetime | None:
+    """Convierte un timestamp a la zona de la org (aware). Los naive se
+    interpretan como hora local del servidor (así se guardan en la base)."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.astimezone()          # naive -> local del servidor (aware)
+    return dt.astimezone(org_tz())
+
+
+def org_iso(dt: datetime | None) -> str | None:
+    """ISO naive en la hora de la org, para mostrar (igual que los reportes).
+    El frontend interpreta un ISO sin offset como hora de pared: así el
+    historial muestra la hora del taller y no la del servidor (UTC en prod)."""
+    o = to_org(dt)
+    return o.replace(tzinfo=None, microsecond=0).isoformat() if o else None
+
+
+def to_org_date(dt: datetime | None) -> date | None:
+    """Fecha de la org de un timestamp de la base (None -> None)."""
+    o = to_org(dt)
+    return o.date() if o is not None else None
+
+
+def org_day_start(d: date) -> datetime:
+    """Medianoche de la fecha `d` de la org, como datetime NAIVE en hora del
+    servidor (comparable con las columnas DateTime de la base)."""
+    aware = datetime.combine(d, time(0, 0), tzinfo=org_tz())
+    return aware.astimezone().replace(tzinfo=None)
+
+
+def org_range(start: date, end_inclusive: date) -> tuple[datetime, datetime]:
+    """[inicio, fin) naive del servidor que cubre los días de la org
+    start..end_inclusive. Uso: col >= a AND col < b."""
+    return org_day_start(start), org_day_start(end_inclusive
+                                               + timedelta(days=1))
+
+
+def week_bounds(d: date | None = None) -> tuple[date, date]:
+    """(lunes, domingo) de la semana de `d` (default: hoy en la org)."""
+    d = d or org_today()
+    monday = d - timedelta(days=d.weekday())
+    return monday, monday + timedelta(days=6)

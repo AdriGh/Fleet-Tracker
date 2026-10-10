@@ -565,3 +565,171 @@ def cpm_report(date_from: str = "", date_to: str = "",
         "coverage": cov,       # {readings, since, latest}
         "by_unit": rows,
     }
+
+
+# ---------------------------------------------------------------------------
+# v2.22 Reports (biblioteca + builder): filas atómicas para los providers
+# ---------------------------------------------------------------------------
+# El motor de reportes (core/report_engine) NO re-implementa el gasto ni el
+# CPM en SQL: consume estas funciones, que recorren EXACTAMENTE lo mismo que
+# spend_report / cpm_report (misma fecha efectiva, mismo filtro de terminal,
+# mismo redondeo por línea, mismo clasificador). Los tests de paridad
+# (tests/test_reports_engine.py) comparan sus agregados contra esos
+# endpoints sobre una base sembrada.
+
+def _as_date(value) -> date | None:
+    """'YYYY-MM-DD' | date | None -> date | None."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return _parse_date(str(value))
+
+
+def spend_lines(date_from=None, date_to=None, terminal: str = "") -> list[dict]:
+    """Una fila por LÍNEA de gasto (monto != 0) de las WOs del rango: la
+    granularidad de la que salen TODOS los agregados de spend_report
+    (totales, por categoría, unidad, mes, top de partes y el split
+    preventivo/reactivo). `spend_type` replica el split por WO de
+    spend_report: 'Preventive' / 'Reactive' solo si la WO suma > 0 (si no,
+    '' — spend_report tampoco la cuenta en pm/reactive)."""
+    from sqlalchemy.orm import selectinload
+
+    d_from = _as_date(date_from)
+    d_to = _as_date(date_to)
+    term = (terminal or "").strip().upper()
+    cfg = terminals.get_all()
+    out: list[dict] = []
+    with SessionLocal() as session:
+        catalog: dict[str, str] = {
+            (pn or "").strip().lower(): (cat or "")
+            for pn, cat in session.execute(
+                select(Part.part_number, Part.category)).all()
+            if (pn or "").strip()
+        }
+        q = select(WorkOrder).options(selectinload(WorkOrder.lines))
+        if _EXCLUDED_STATUSES:
+            q = q.where(WorkOrder.status.notin_(_EXCLUDED_STATUSES))
+        for wo in session.scalars(q).all():
+            eff = _effective_date(wo)
+            if eff is None:
+                continue
+            if d_from is not None and eff < d_from:
+                continue
+            if d_to is not None and eff > d_to:
+                continue
+            term_key = terminals.resolve(wo.unit, wo.company, cfg=cfg)
+            if term and term_key != term:
+                continue
+            items = []
+            wo_total = 0.0
+            for ln in wo.lines:
+                amount = round((ln.qty or 0) * (ln.unit_cost or 0), 2)
+                if amount == 0:
+                    continue
+                wo_total += amount
+                items.append((ln, amount))
+            planned = _is_planned(wo)
+            spend_type = (("Preventive" if planned else "Reactive")
+                          if wo_total > 0 else "")
+            wo_no = (f"{wo.parent_id}.{wo.child_seq}"
+                     if wo.parent_id and wo.child_seq else str(wo.id))
+            for ln, amount in items:
+                kind = ("labor" if (ln.kind or "").strip().lower() == "labor"
+                        else "part")
+                cat = classify_line(
+                    ln.kind, ln.part_number, ln.description,
+                    catalog.get((ln.part_number or "").strip().lower(), ""))
+                out.append({
+                    "line_id": ln.id,
+                    "wo_id": wo.id,
+                    "wo_no": wo_no,
+                    "unit": (wo.unit or "").strip() or "—",
+                    "company": wo.company or "",
+                    "terminal": term_key,
+                    "date": eff.isoformat(),
+                    "month": eff.strftime("%Y-%m"),
+                    "kind": kind,
+                    "category": cat,
+                    "category_label": CATEGORY_LABELS.get(cat, cat),
+                    "part_number": (ln.part_number or "").strip(),
+                    "description": ln.description or "",
+                    "qty": float(ln.qty or 0),
+                    "unit_cost": float(ln.unit_cost or 0),
+                    "amount": amount,
+                    "spend_type": spend_type,
+                    "planned": planned,
+                    "wo_type": wo.wo_type or "inside",
+                    "mechanic": wo.mechanic or "",
+                    "campaign": wo.campaign or "",
+                    "status": wo.status or "",
+                })
+    return out
+
+
+def _unit_spend_split(d_from: date | None, d_to: date | None,
+                      term: str) -> dict[str, dict[str, float]]:
+    """{unit -> {labor, parts}} con el MISMO criterio que _unit_spend (solo
+    WOs del rango con total > 0): la suma labor + parts de una unidad es
+    exactamente su `spend` del CPM."""
+    from sqlalchemy.orm import selectinload
+
+    cfg = terminals.get_all()
+    out: dict[str, dict[str, float]] = {}
+    with SessionLocal() as session:
+        q = select(WorkOrder).options(selectinload(WorkOrder.lines))
+        for wo in session.scalars(q).all():
+            eff = _effective_date(wo)
+            if eff is None:
+                continue
+            if d_from is not None and eff < d_from:
+                continue
+            if d_to is not None and eff > d_to:
+                continue
+            if term and terminals.resolve(wo.unit, wo.company,
+                                          cfg=cfg) != term:
+                continue
+            unit = (wo.unit or "").strip() or "—"
+            labor = parts = 0.0
+            for ln in wo.lines:
+                amount = round((ln.qty or 0) * (ln.unit_cost or 0), 2)
+                if not amount:
+                    continue
+                if (ln.kind or "").strip().lower() == "labor":
+                    labor += amount
+                else:
+                    parts += amount
+            if labor + parts > 0:
+                e = out.setdefault(unit, {"labor": 0.0, "parts": 0.0})
+                e["labor"] += labor
+                e["parts"] += parts
+    return out
+
+
+def cpm_rows(date_from=None, date_to=None, terminal: str = "") -> dict:
+    """cpm_report (sin cambios: spend / miles / cpm por unidad y de flota)
+    + el split Labor CPM / Parts CPM por unidad que SquareRigger muestra.
+    Devuelve el mismo dict de cpm_report con `by_unit[]` enriquecido."""
+    d_from = _as_date(date_from)
+    d_to = _as_date(date_to)
+    term = (terminal or "").strip().upper()
+    rep = cpm_report(date_from=d_from.isoformat() if d_from else "",
+                     date_to=d_to.isoformat() if d_to else "",
+                     terminal=term)
+    split = _unit_spend_split(d_from, d_to, term)
+    rows = []
+    for r in rep["by_unit"]:
+        s = split.get(r["unit"], {})
+        labor = round(s.get("labor", 0.0), 2)
+        parts = round(s.get("parts", 0.0), 2)
+        mi = r.get("miles") or 0
+        rows.append({
+            **r,
+            "labor_spend": labor,
+            "parts_spend": parts,
+            "labor_cpm": round(labor / mi, 3) if mi else None,
+            "parts_cpm": round(parts / mi, 3) if mi else None,
+        })
+    return {**rep, "by_unit": rows}

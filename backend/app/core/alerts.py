@@ -406,6 +406,15 @@ async def run_loop() -> None:
         # mano para que los AlertEvent/WorkOrder que inserta queden tagueados
         # y visibles. Single-tenant -> org 'default'. Multi-tenant (post-3e)
         # deberia iterar las organizaciones evaluando cada una con su contexto.
+        # v2.22 Reports: envíos programados por email. Itera TODAS las orgs
+        # activas fijando el tenant de cada una (no la 'default' de abajo) y
+        # reclama cada envío en la base (sin doble envío entre workers).
+        # Aislado: si falla no frena las alertas.
+        try:
+            from . import report_schedules
+            await report_schedules.maybe_run()
+        except Exception:
+            pass
         org_token = tenant.set_current_org(default_org_id())
         try:
             # Ingesta diaria de odómetro (v2.8, habilitador del CPM): corre

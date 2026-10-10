@@ -61,9 +61,11 @@ export function maskDefault(): boolean {
 type Props = {
   /** Render compacto para incrustar dentro de Settings (sin page chrome). */
   embedded?: boolean
+  /** v2.22: título de la página standalone (Resources → Drivers). */
+  title?: string
 }
 
-export default function RosterPage({ embedded = false }: Props) {
+export default function RosterPage({ embedded = false, title = 'Roster' }: Props) {
   const [company, setCompany] = useState('')
   const [q, setQ] = useState('')
   const [syncing, setSyncing] = useState(false)
@@ -334,7 +336,7 @@ export default function RosterPage({ embedded = false }: Props) {
       {fetching && <div className="loadbar" aria-hidden="true" />}
       <div className="page-head">
         <div>
-          <h1>Roster</h1>
+          <h1>{title}</h1>
           <p className="page-sub">
             Active drivers across all companies.
             {masked && ' Sensitive data is masked.'}

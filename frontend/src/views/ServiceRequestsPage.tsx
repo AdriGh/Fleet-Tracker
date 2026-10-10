@@ -28,12 +28,13 @@ import TechnicianPicker from '../components/TechnicianPicker'
 import UnitPicker from '../components/UnitPicker'
 import { notifyErr, notifyOk, notifyUndo, notifyWarn } from '../toast'
 import { usePerms } from '../perms'
+import type { NavIntent } from '../shell'
 import { unitsFromNames, useUnitMatcher, type PickerUnit } from '../unitMatch'
 import { STATUS_META, WoDrawer } from './WorkOrdersPage'
 
 // ----- Metadatos de presentación ---------------------------------------------
 
-const SOURCES: SrSource[] = ['defect', 'pm', 'dot', 'manual']
+const SOURCES: SrSource[] = ['defect', 'pm', 'dot', 'reefer', 'manual']
 
 // label = etiqueta chica del card (va en mayúsculas por CSS); chip = filtro;
 // one/many = resumen del encabezado ("2 DVIR defects · 1 scheduled PM").
@@ -43,8 +44,13 @@ const SOURCE_META: Record<SrSource, {
   defect: { label: 'DVIR defect', chip: 'Defects', one: 'DVIR defect', many: 'DVIR defects' },
   pm: { label: 'Scheduled PM', chip: 'PM', one: 'scheduled PM', many: 'scheduled PMs' },
   dot: { label: 'DOT inspection', chip: 'DOT', one: 'DOT inspection', many: 'DOT inspections' },
+  // v2.22: PM del reefer por horas de motor (horómetro propio).
+  reefer: { label: 'Reefer PM · engine hours', chip: 'Reefer PM', one: 'reefer PM', many: 'reefer PMs' },
   manual: { label: 'Service request', chip: 'Requests', one: 'request', many: 'requests' },
 }
+
+const emptyBySource = (): Record<SrSource, number> =>
+  ({ defect: 0, pm: 0, dot: 0, reefer: 0, manual: 0 })
 
 const STATUS_TABS: { id: SrListStatus; label: string }[] = [
   { id: 'open', label: 'Open' },
@@ -139,6 +145,7 @@ interface UnitRow {
   top: SrPriority
   overMiles: number | null   // peor PM vencido (millas pasadas)
   overDays: number | null    // DOT vencido (días pasados)
+  overHours: number | null   // v2.22: PM del reefer vencido (horas pasadas)
 }
 
 // ----- Iconos ----------------------------------------------------------------
@@ -162,6 +169,16 @@ function SrIcon({ source }: { source: SrSource }) {
       <svg {...common}>
         <rect x="3" y="5" width="18" height="16" rx="2" />
         <path d="M16 3v4M8 3v4M3 10h18" />
+      </svg>
+    )
+  }
+  if (source === 'reefer') {
+    // Copo + reloj chico: PM del equipo de frío por horas de motor.
+    return (
+      <svg {...common}>
+        <path d="M10 3v14M4.2 6.5l11.6 6.7M4.2 13.2 15.8 6.5" />
+        <circle cx="17.5" cy="17.5" r="4" />
+        <path d="M17.5 15.6v2l1.3.9" />
       </svg>
     )
   }
@@ -285,7 +302,11 @@ function SrMenu({ label, icon, disabled, hint, align = 'left', children }: {
 
 // ----- Página ----------------------------------------------------------------
 
-export default function ServiceRequestsPage() {
+// v2.22: `intent` del shell ({unit} elige la unidad; {sr} resalta el
+// request). App re-monta la página con cada intent nuevo.
+export default function ServiceRequestsPage(
+  { intent }: { intent?: NavIntent } = {},
+) {
   const qc = useQueryClient()
   const { can } = usePerms()
   const editable = can('maint.edit')
@@ -295,9 +316,10 @@ export default function ServiceRequestsPage() {
   const [prio, setPrio] = useState<SrPriority | ''>('')
   const [q, setQ] = useState('')
   // Clave normalizada (norm) de la unidad elegida.
-  const [selUnit, setSelUnit] = useState('')
+  const [selUnit, setSelUnit] = useState(
+    () => (intent?.unit ? norm(String(intent.unit)) : ''))
   // Móvil (<=760px): la lista y el detalle se alternan (botón "back").
-  const [showDetail, setShowDetail] = useState(false)
+  const [showDetail, setShowDetail] = useState(() => !!intent?.unit)
   const [picked, setPicked] = useState<Set<number>>(() => new Set())
   const [mech, setMech] = useState('')
   const [woPrio, setWoPrio] = useState<WoPriority | ''>('')
@@ -306,7 +328,8 @@ export default function ServiceRequestsPage() {
   // Borrado en lote (selección o "Remove N duplicates") en curso.
   const [bulkBusy, setBulkBusy] = useState(false)
   // Tarjeta a resaltar ("Duplicate of #id" → scroll al keeper).
-  const [flashId, setFlashId] = useState<number | null>(null)
+  const [flashId, setFlashId] = useState<number | null>(
+    () => (typeof intent?.sr === 'number' ? intent.sr : null))
   const [syncing, setSyncing] = useState(false)
   const [openWo, setOpenWo] = useState<number | null>(null)
   // Modal de alta/edición: null = cerrado; {req} = editar; {unit} = alta.
@@ -375,7 +398,7 @@ export default function ServiceRequestsPage() {
         || r.detail.toLowerCase().includes(s)))
   }, [requests, q, prio])
   const sourceCounts = useMemo(() => {
-    const c: Record<SrSource, number> = { defect: 0, pm: 0, dot: 0, manual: 0 }
+    const c = emptyBySource()
     for (const r of textFiltered) if (r.source in c) c[r.source] += 1
     return c
   }, [textFiltered])
@@ -416,10 +439,11 @@ export default function ServiceRequestsPage() {
           company: r.company || fu?.company || '',
           model: fleetModel(fu) || sum?.model || String(r.meta?.model ?? ''),
           count: 0,
-          bySource: { defect: 0, pm: 0, dot: 0, manual: 0 },
+          bySource: emptyBySource(),
           top: r.priority,
           overMiles: null,
           overDays: null,
+          overHours: null,
         }
         by.set(key, row)
       }
@@ -433,11 +457,24 @@ export default function ServiceRequestsPage() {
       if (toDue != null && toDue < 0) {
         if (r.source === 'pm') row.overMiles = Math.max(row.overMiles ?? 0, -toDue)
         if (r.source === 'dot') row.overDays = Math.max(row.overDays ?? 0, -toDue)
+        // v2.22: el reefer vence por HORAS (to_due en horas)…
+        if (r.source === 'reefer') {
+          row.overHours = Math.max(row.overHours ?? 0, -toDue)
+        }
+      }
+      // …o por la fecha de respaldo (to_due_days): sin horómetro, o cuando
+      // la fecha es lo que venció (due_by 'days') aunque queden horas —
+      // misma regla que la tarjeta del request.
+      const toDays = metaNum(r.meta?.to_due_days)
+      if (r.source === 'reefer' && toDays != null && toDays < 0
+          && (toDue == null || r.meta?.due_by === 'days')) {
+        row.overDays = Math.max(row.overDays ?? 0, -toDays)
       }
     }
     return [...by.values()].sort((a, b) =>
       (PRIO_RANK[b.top] ?? 1) - (PRIO_RANK[a.top] ?? 1)
       || (b.overMiles ?? 0) - (a.overMiles ?? 0)
+      || (b.overHours ?? 0) - (a.overHours ?? 0)
       || (b.overDays ?? 0) - (a.overDays ?? 0)
       || a.unit.localeCompare(b.unit, 'en', { numeric: true }))
   }, [filtered, fleetByUnit, summaryByKey, dupsByKey])
@@ -879,9 +916,15 @@ export default function ServiceRequestsPage() {
                       <span className="sr-over">
                         {fmtNum(row.overMiles)} mi over
                       </span>
+                    ) : row.overHours ? (
+                      <span className="sr-over"
+                        title="Reefer PM overdue by engine hours">
+                        {fmtNum(row.overHours)} hrs over
+                      </span>
                     ) : row.overDays ? (
                       <span className="sr-over">
-                        DOT {plural(row.overDays, 'day', 'days')} over
+                        {row.bySource.dot ? 'DOT ' : ''}
+                        {plural(row.overDays, 'day', 'days')} over
                       </span>
                     ) : null}
                   </span>
@@ -1198,6 +1241,29 @@ function RequestCard({
           : toDue === 0 ? 'due today' : `in ${plural(toDue, 'day', 'days')}`)
       }
     }
+  } else if (r.source === 'reefer') {
+    // v2.22: vence lo que llegue primero — horas del horómetro o la fecha.
+    const toDue = metaNum(m.to_due)           // horas (null sin horómetro)
+    const toDays = metaNum(m.to_due_days)
+    const nh = metaNum(m.next_due_hours)
+    const nd = m.next_due_date ? fmtDate(String(m.next_due_date)) : ''
+    if (nh != null) {
+      bits.push(`Due ${fmtNum(nh)} hrs${nd ? ` · or ${nd}` : ''}`)
+    } else if (nd) {
+      bits.push(`Due ${nd}`)
+    }
+    if (toDue != null && (m.due_by !== 'days' || toDays == null)) {
+      bits.push(toDue < 0
+        ? <span key="due" className="sr-over">{fmtNum(-toDue)} hrs over</span>
+        : `in ${fmtNum(toDue)} hrs`)
+    } else if (toDays != null) {
+      bits.push(toDays < 0
+        ? <span key="due" className="sr-over">
+            {plural(-toDays, 'day', 'days')} over
+          </span>
+        : toDays === 0 ? 'due today' : `in ${plural(toDays, 'day', 'days')}`)
+    }
+    if (m.meter_missing) bits.push('no engine-hours reading')
   } else {
     bits.push(`${fmtDate(r.created_at)}${r.created_by ? ` by ${r.created_by}` : ''}`)
   }
@@ -1447,7 +1513,8 @@ function RequestCard({
 
 // ----- Modal: alta / edición de request --------------------------------------
 
-function RequestModal({
+// Exportado (v2.22): alta desde el menú "+" Add New del shell.
+export function RequestModal({
   req, unitDefault, extraUnits, onClose, onSaved,
 }: {
   req?: ServiceRequest

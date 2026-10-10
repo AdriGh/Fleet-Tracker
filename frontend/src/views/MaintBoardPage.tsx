@@ -8,9 +8,9 @@ import {
 } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  addMaintRecord, getMaintBoard, getUnitOdometer, setOpsStatus,
-  setPMExcluded, setPMOverride,
-  type MaintKind, type MaintRow, type OpsStatus,
+  addMaintRecord, getMaintBoard, getUnitEngineHours, getUnitOdometer,
+  logUnitEngineHours, setOpsStatus, setPMExcluded, setPMOverride,
+  type MaintBoardResult, type MaintKind, type MaintRow, type OpsStatus,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 import { useTerminals } from '../terminal'
@@ -40,7 +40,42 @@ const KIND_META: Record<MaintKind, {
     noun: 'DOT',
     add: 'Add DOT',
   },
+  // v2.22: PM del reefer por HORAS de motor — horómetro propio de cada
+  // unidad, nunca el odómetro (el error de SquareRigger).
+  reefer: {
+    title: 'Reefer PM',
+    sub: 'By engine hours, with a date fallback — whichever comes first.',
+    noun: 'Reefer PM',
+    add: 'Add PM',
+  },
 }
+
+// Valor "a vencer" de una fila en SU unidad. El reefer usa horas mientras
+// haya horómetro y venzan primero; si no, la fecha de respaldo (días).
+function dueOf(kind: MaintKind, u: MaintRow):
+  { v: number; unit: 'mi' | 'days' | 'hrs' } | null {
+  if (kind === 'pm') return u.to_due == null ? null : { v: u.to_due, unit: 'mi' }
+  if (kind === 'dot') {
+    return u.to_due == null ? null : { v: u.to_due, unit: 'days' }
+  }
+  if (u.to_due != null && u.due_by !== 'days') {
+    return { v: u.to_due, unit: 'hrs' }
+  }
+  if (u.to_due_days != null) return { v: u.to_due_days, unit: 'days' }
+  return u.to_due != null ? { v: u.to_due, unit: 'hrs' } : null
+}
+
+// Urgencia comparable entre horas y días: en "ventanas de aviso".
+function dueRatio(kind: MaintKind, u: MaintRow, d: MaintBoardResult): number {
+  const x = dueOf(kind, u)
+  if (!x) return Number.POSITIVE_INFINITY
+  const w = x.unit === 'mi' ? d.upcoming_miles
+    : x.unit === 'hrs' ? (d.upcoming_hours ?? 150) : d.upcoming_days
+  return w ? x.v / w : x.v
+}
+
+const fmtHrs = (n: number | null | undefined) =>
+  n == null ? '' : Math.round(n).toLocaleString('en-US')
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
   on_track: { label: 'On track', color: '#16a34a' },
@@ -89,7 +124,12 @@ function usToISO(s: string): string | null {
 
 export default function MaintBoardPage({ kind }: Props) {
   const meta = KIND_META[kind]
+  const isHours = kind === 'reefer'
   const qc = useQueryClient()
+  // "No odometer" no aplica al reefer: su medidor es el horómetro.
+  const stMeta = (st: string) => (st === 'no_meter' && isHours
+    ? { ...STATUS_META.no_meter, label: 'No hours reading' }
+    : STATUS_META[st] ?? STATUS_META.never)
   // Registro / override / exclusión cambian lo que vence: el backend olvida
   // el TTL del sync de Service Requests y acá se refrescan badge y backlog
   // (si no, un "PM due" ya registrado seguía abierto y tentaba otra WO).
@@ -164,15 +204,19 @@ export default function MaintBoardPage({ kind }: Props) {
   const pieData = useMemo(() =>
     STATUS_ORDER.filter((st) => counts[st])
       .map((st) => ({
-        label: STATUS_META[st].label,
+        label: stMeta(st).label,
         value: counts[st],
-        color: STATUS_META[st].color,
-      })), [counts])
+        color: stMeta(st).color,
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [counts, isHours])
 
   function startEdit(u: MaintRow) {
     setEditing(u.unit)
     setEDate(fmtDate(u.last_date ?? todayISO()))   // US: M/D/YYYY
-    setEMiles(u.last_miles != null ? String(u.last_miles) : '')
+    // Reefer: el campo es HORAS del último PM (si no, millas).
+    const last = isHours ? u.last_hours : u.last_miles
+    setEMiles(last != null ? String(last) : '')
   }
 
   async function saveEdit(u: MaintRow) {
@@ -184,10 +228,11 @@ export default function MaintBoardPage({ kind }: Props) {
     }
     setSavingRow(true)
     try {
-      await addMaintRecord({
-        kind, unit: u.unit, date: iso,
-        mileage: eMiles ? Number(eMiles) : null,
-      })
+      await addMaintRecord(isHours
+        ? { kind, unit: u.unit, date: iso,
+            hours: eMiles ? Number(eMiles) : null }
+        : { kind, unit: u.unit, date: iso,
+            mileage: eMiles ? Number(eMiles) : null })
       setEditing(null)
       refreshSr()
       await qc.invalidateQueries({ queryKey: ['maint', kind] })
@@ -230,6 +275,33 @@ export default function MaintBoardPage({ kind }: Props) {
     }
   }
 
+  // v2.22 reefer: lectura manual del horómetro desde la celda. Si el backend
+  // la rechaza por inverosímil (más baja que la anterior / > 24 h por día),
+  // se ofrece guardarla igual (horómetro reseteado o controlador cambiado).
+  async function saveHours(u: MaintRow, raw: string) {
+    const v = Number(raw)
+    if (raw.trim() === '' || !Number.isFinite(v) || v < 0) return
+    try {
+      try {
+        await logUnitEngineHours(u.unit, { value: v })
+      } catch (e) {
+        if (!window.confirm(
+          `${e instanceof Error ? e.message : String(e)}\n\n`
+          + 'Save this engine-hours reading anyway? (meter reset or controller replaced)')) {
+          return
+        }
+        await logUnitEngineHours(u.unit, { value: v, force: true })
+      }
+      refreshSr()
+      qc.invalidateQueries({ queryKey: ['unit-engine-hours', u.unit] })
+      qc.invalidateQueries({ queryKey: ['unit-campaigns', u.unit] })
+      await qc.invalidateQueries({ queryKey: ['maint'] })
+      celebrate(u.unit)
+    } catch (e) {
+      notifyErr("Couldn't log engine hours", e)
+    }
+  }
+
   async function saveCurrent(u: MaintRow, raw: string) {
     try {
       await setPMOverride(
@@ -248,17 +320,25 @@ export default function MaintBoardPage({ kind }: Props) {
   // Readiness = unidades que NO están vencidas ni sin servicio realizado.
   const readyN = Math.max(0, total - (counts.overdue ?? 0) - (counts.never ?? 0))
   const readyPct = total ? Math.round((readyN / total) * 100) : 0
-  const dueUnit = kind === 'pm' ? 'mi' : 'days'
-  // Unidad más vencida (to_due más negativo) y la próxima a vencer (menor +).
-  const worst = useMemo(() =>
-    units.filter((u) => u.status === 'overdue' && u.to_due != null)
-      .sort((a, b) => (a.to_due as number) - (b.to_due as number))[0] ?? null,
-    [units])
-  const nextDue = useMemo(() =>
-    units.filter((u) => u.to_due != null && (u.to_due as number) >= 0 &&
-      (u.status === 'upcoming' || u.status === 'on_track'))
-      .sort((a, b) => (a.to_due as number) - (b.to_due as number))[0] ?? null,
-    [units])
+  // Unidad más vencida y la próxima a vencer. El reefer mezcla horas y días:
+  // se compara en "ventanas de aviso" (dueRatio), igual que el backend.
+  const worst = useMemo(() => {
+    if (!data) return null
+    return units.filter((u) => u.status === 'overdue' && dueOf(kind, u))
+      .sort((a, b) => dueRatio(kind, a, data) - dueRatio(kind, b, data))[0]
+      ?? null
+  }, [units, kind, data])
+  const nextDue = useMemo(() => {
+    if (!data) return null
+    return units.filter((u) => {
+      const d = dueOf(kind, u)
+      return d != null && d.v >= 0
+        && (u.status === 'upcoming' || u.status === 'on_track')
+    }).sort((a, b) => dueRatio(kind, a, data) - dueRatio(kind, b, data))[0]
+      ?? null
+  }, [units, kind, data])
+  const worstDue = worst ? dueOf(kind, worst) : null
+  const nextDueV = nextDue ? dueOf(kind, nextDue) : null
 
   return (
     <div className="page page-wide">
@@ -310,7 +390,9 @@ export default function MaintBoardPage({ kind }: Props) {
           <p>
             {kind === 'pm'
               ? 'Drop the Fullbay fleet export at backend/pm.local.csv or add a PM manually.'
-              : `Add the first DOT inspection with the ${meta.add} button.`}
+              : isHours
+                ? 'Reefer units show up here automatically: trailers marked as reefer, units in your Lynx, Thermo King or Traccar feed, and any unit with an engine-hours reading. Record a reefer PM to start tracking one by hand.'
+                : `Add the first DOT inspection with the ${meta.add} button.`}
           </p>
           <Button variant="primary" onClick={() => setAddOpen(true)}>
             {meta.add}
@@ -347,7 +429,7 @@ export default function MaintBoardPage({ kind }: Props) {
                 </span>
               </button>
               {STATUS_ORDER.filter((st) => counts[st]).map((st) => {
-                const m = STATUS_META[st]
+                const m = stMeta(st)
                 const n = counts[st]
                 const pct = total ? Math.round((n / total) * 1000) / 10 : 0
                 return (
@@ -395,10 +477,10 @@ export default function MaintBoardPage({ kind }: Props) {
                 <div className="mnt-health-chips">
                   <div className="mnt-hl mnt-hl-worst">
                     <span className="mnt-hl-k">Most overdue</span>
-                    {worst ? (
+                    {worst && worstDue ? (
                       <span className="mnt-hl-v">
                         <strong>{worst.unit}</strong>
-                        <em>-{fmtMi(Math.abs(worst.to_due as number))} {dueUnit}</em>
+                        <em>-{fmtMi(Math.abs(Math.round(worstDue.v)))} {worstDue.unit}</em>
                       </span>
                     ) : (
                       <span className="mnt-hl-none">None — all current</span>
@@ -406,10 +488,10 @@ export default function MaintBoardPage({ kind }: Props) {
                   </div>
                   <div className="mnt-hl mnt-hl-next">
                     <span className="mnt-hl-k">Next due</span>
-                    {nextDue ? (
+                    {nextDue && nextDueV ? (
                       <span className="mnt-hl-v">
                         <strong>{nextDue.unit}</strong>
-                        <em>{fmtMi(nextDue.to_due as number)} {dueUnit}</em>
+                        <em>{fmtMi(Math.round(nextDueV.v))} {nextDueV.unit}</em>
                       </span>
                     ) : (
                       <span className="mnt-hl-none">—</span>
@@ -423,7 +505,8 @@ export default function MaintBoardPage({ kind }: Props) {
             <div className="card mnt-donut">
               <div className="card-head"><h2>{meta.noun} status</h2></div>
               <div className="card-body">
-                <PieChart data={pieData} size={172} centerUnit="trucks" />
+                <PieChart data={pieData} size={172}
+                  centerUnit={isHours ? 'units' : 'trucks'} />
               </div>
             </div>
           </div>
@@ -433,7 +516,7 @@ export default function MaintBoardPage({ kind }: Props) {
             <div className="card-head mnt-table-head">
               <h2>
                 {statusFilter
-                  ? STATUS_META[statusFilter].label
+                  ? stMeta(statusFilter).label
                   : 'All units'}
                 <span className="mnt-count">{filtered.length}</span>
               </h2>
@@ -449,12 +532,15 @@ export default function MaintBoardPage({ kind }: Props) {
                 <thead>
                   <tr>
                     <th>Unit</th>
-                    <th className="num">Current meter</th>
+                    <th className="num">
+                      {isHours ? 'Engine hours' : 'Current meter'}
+                    </th>
                     <th className="num">Last {meta.noun}</th>
-                    <th className="num">Miles</th>
+                    <th className="num">{isHours ? 'Hours' : 'Miles'}</th>
                     <th className="num">Next due</th>
                     <th className="num">
-                      {kind === 'pm' ? 'Miles to due' : 'Days to due'}
+                      {kind === 'pm' ? 'Miles to due'
+                        : isHours ? 'To due' : 'Days to due'}
                     </th>
                     <th>Status</th>
                     <th aria-label="Actions" />
@@ -462,12 +548,16 @@ export default function MaintBoardPage({ kind }: Props) {
                 </thead>
                 <tbody>
                   {filtered.map((u, i) => {
-                    const sm = STATUS_META[u.status] ?? STATUS_META.never
+                    const sm = stMeta(u.status)
                     const isEdit = editing === u.unit
                     const isConfirmed = confirmed === u.unit
-                    const frac = u.to_due == null ? 0 : Math.max(0,
-                      Math.min(1, u.to_due / (kind === 'pm'
-                        ? data.interval_miles : data.interval_days)))
+                    const due = dueOf(kind, u)
+                    const span = !due ? 1
+                      : due.unit === 'mi' ? data.interval_miles
+                        : due.unit === 'hrs' ? (data.interval_hours ?? 1500)
+                          : data.interval_days
+                    const frac = !due ? 0
+                      : Math.max(0, Math.min(1, due.v / (span || 1)))
                     return (
                       <tr key={u.unit} className={`s-${u.status}`}
                         style={{ animationDelay: `${Math.min(i, 14) * 28}ms` }}>
@@ -482,6 +572,8 @@ export default function MaintBoardPage({ kind }: Props) {
                         </td>
                         {kind === 'pm' ? (
                           <MeterCell row={u} onSave={saveCurrent} />
+                        ) : isHours ? (
+                          <HoursCell row={u} onSave={saveHours} />
                         ) : (
                           <td className="num">
                             <span className="mnt-meter">
@@ -509,7 +601,10 @@ export default function MaintBoardPage({ kind }: Props) {
                             <td className="num">
                               <input
                                 type="number" className="cell-input mnt-input"
-                                placeholder="mileage" value={eMiles}
+                                placeholder={isHours ? 'hours' : 'mileage'}
+                                aria-label={isHours
+                                  ? 'Engine hours at the PM' : 'Mileage at the PM'}
+                                value={eMiles}
                                 onChange={(e) => setEMiles(e.target.value)}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') saveEdit(u)
@@ -528,7 +623,8 @@ export default function MaintBoardPage({ kind }: Props) {
                             <td className="num mnt-editable"
                               title={`Edit last ${meta.noun}`}
                               onClick={() => startEdit(u)}>
-                              {fmtMi(u.last_miles) ||
+                              {(isHours ? fmtHrs(u.last_hours)
+                                : fmtMi(u.last_miles)) ||
                                 (u.last_date ? '' : <span className="mnt-dash">add</span>)}
                               {u.last_overridden && <i className="mnt-src">manual</i>}
                             </td>
@@ -537,16 +633,27 @@ export default function MaintBoardPage({ kind }: Props) {
                         <td className="num">
                           {kind === 'pm'
                             ? fmtMi(u.next_due_miles)
-                            : fmtDate(u.next_due_date)}
+                            : isHours ? (
+                              <span className="mnt-next2">
+                                {u.next_due_hours != null && (
+                                  <span>{fmtHrs(u.next_due_hours)} hrs</span>
+                                )}
+                                {u.next_due_date && (
+                                  <i>{u.next_due_hours != null ? 'or ' : ''}
+                                    {fmtDate(u.next_due_date)}</i>
+                                )}
+                              </span>
+                            ) : fmtDate(u.next_due_date)}
                         </td>
                         <td className="num">
-                          {u.to_due != null && (
-                            <span className={`mnt-due ${u.to_due < 0 ? 'neg' : ''}`}>
-                              {u.to_due < 0 ? '-' : ''}
-                              {fmtMi(Math.abs(u.to_due))}
-                              <span className="mnt-due-unit">
-                                {kind === 'pm' ? 'mi' : 'days'}
-                              </span>
+                          {due != null && (
+                            <span className={`mnt-due ${due.v < 0 ? 'neg' : ''}`}
+                              title={isHours && u.meter_missing
+                                ? 'No engine-hours reading: due by date only'
+                                : undefined}>
+                              {due.v < 0 ? '-' : ''}
+                              {fmtMi(Math.abs(Math.round(due.v)))}
+                              <span className="mnt-due-unit">{due.unit}</span>
                               <span className="mnt-due-bar">
                                 <i style={{
                                   width: `${Math.round(frac * 100)}%`,
@@ -698,6 +805,51 @@ function MeterCell({ row, onSave }:
   )
 }
 
+// v2.22 reefer: celda del horómetro (última lectura + fuente/fecha). Clic =
+// registrar una lectura manual (Enter guarda, Escape cancela).
+function HoursCell({ row, onSave }:
+  { row: MaintRow; onSave: (u: MaintRow, raw: string) => void }) {
+  const [edit, setEdit] = useState(false)
+  const [val, setVal] = useState('')
+  if (edit) {
+    return (
+      <td className="num">
+        <input
+          type="number" min={0} step="0.1" className="cell-input mnt-input"
+          autoFocus aria-label={`Engine hours for ${row.unit}`}
+          placeholder="hours" value={val}
+          onChange={(e) => setVal(e.target.value)}
+          onBlur={() => setEdit(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { onSave(row, val); setEdit(false) }
+            if (e.key === 'Escape') setEdit(false)
+          }}
+        />
+      </td>
+    )
+  }
+  return (
+    <td className="num mnt-editable" title="Log an engine-hours reading"
+      onClick={() => {
+        setVal(row.current_hours != null ? String(row.current_hours) : '')
+        setEdit(true)
+      }}>
+      <span className="mnt-meter">
+        {row.current_hours != null
+          ? `${fmtHrs(row.current_hours)} hrs`
+          : <span className="mnt-dash">log</span>}
+        {row.current_hours_source && (
+          <i className="mnt-src"
+            title={row.current_hours_date
+              ? `Read ${fmtDate(row.current_hours_date)}` : undefined}>
+            {row.current_hours_source}
+          </i>
+        )}
+      </span>
+    </td>
+  )
+}
+
 // Modal Add PM / Add DOT: unit + date + mileage (con botón que trae el
 // odómetro actual del ELD) + notes.
 function AddModal({ kind, units, onClose, onSaved }: {
@@ -723,11 +875,30 @@ function AddModal({ kind, units, onClose, onSaved }: {
   const [busy, setBusy] = useState(false)
   const [fetching, setFetching] = useState(false)
   const unitOk = unitList.isValid(unit)
+  // v2.22 reefer: el campo es el horómetro (horas), nunca el odómetro.
+  const isHours = kind === 'reefer'
 
   async function fillCurrent() {
     if (!unitOk || fetching) return
     setFetching(true)
     const u = unitList.canonical(unit)
+    if (isHours) {
+      try {
+        const m = await getUnitEngineHours(u)
+        if (m.latest) {
+          setMiles(String(m.latest.value))
+          notifyOk('Current engine hours',
+            `${fmtHrs(m.latest.value)} hrs · ${m.latest.source} · ${fmtDate(m.latest.date)}`)
+        } else {
+          notifyErr('No engine hours', `No engine-hours reading for ${u} yet`)
+        }
+      } catch (e) {
+        notifyErr("Couldn't fetch engine hours", e)
+      } finally {
+        setFetching(false)
+      }
+      return
+    }
     try {
       const o = await getUnitOdometer(u)
       if (o.miles != null) {
@@ -758,11 +929,11 @@ function AddModal({ kind, units, onClose, onSaved }: {
     const u = unitList.canonical(unit)
     setBusy(true)
     try {
-      await addMaintRecord({
-        kind, unit: u, date: iso,
-        mileage: miles ? Number(miles) : null,
-        notes: notes.trim(),
-      })
+      await addMaintRecord(isHours
+        ? { kind, unit: u, date: iso, hours: miles ? Number(miles) : null,
+            notes: notes.trim() }
+        : { kind, unit: u, date: iso, mileage: miles ? Number(miles) : null,
+            notes: notes.trim() })
       onSaved(u)
     } catch (e) {
       notifyErr(`Couldn't save the ${meta.noun}`, e)
@@ -787,15 +958,18 @@ function AddModal({ kind, units, onClose, onSaved }: {
           />
         </label>
         <label>
-          <span>Mileage</span>
+          <span>{isHours ? 'Engine hours' : 'Mileage'}</span>
           <span className="mnt-miles-row">
             <input
               type="number" className="cell-input" placeholder="optional"
+              min={0} step={isHours ? '0.1' : '1'}
               value={miles} onChange={(e) => setMiles(e.target.value)}
             />
             <button
               className="btn btn-ghost" disabled={!unitOk || fetching}
-              title="Fetch the current odometer from the ELD"
+              title={isHours
+                ? 'Use the latest engine-hours reading of this unit'
+                : 'Fetch the current odometer from the ELD'}
               onClick={fillCurrent}
             >
               <svg viewBox="0 0 24 24" {...STROKE}

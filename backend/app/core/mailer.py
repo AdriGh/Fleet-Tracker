@@ -41,11 +41,16 @@ def load_settings() -> EmailSettings:
 
 
 def send_email(settings: EmailSettings, to: str, cc: list[str],
-               subject: str, body: str, html: str = "") -> dict:
+               subject: str, body: str, html: str = "",
+               attachments: list[tuple[str, bytes, str]] | None = None
+               ) -> dict:
     """Envia (o simula) un correo. Devuelve {ok, error, simulated}.
 
     Si `html` no esta vacio, el correo se manda como multipart/alternative:
-    texto plano (`body`) + version HTML (`html`)."""
+    texto plano (`body`) + version HTML (`html`).
+
+    v2.22 (envios programados de Reports): `attachments` = lista de
+    (nombre_archivo, bytes, mimetype) que se adjuntan (multipart/mixed)."""
     simulate = settings.dry_run or not settings.configured
     if simulate:
         return {"ok": True, "error": "", "simulated": True}
@@ -59,6 +64,12 @@ def send_email(settings: EmailSettings, to: str, cc: list[str],
     msg.set_content(body)
     if html:
         msg.add_alternative(html, subtype="html")
+    for fname, data, mime in attachments or []:
+        base = (mime or "application/octet-stream").split(";")[0].strip()
+        maintype, _, subtype = base.partition("/")
+        msg.add_attachment(data, maintype=maintype or "application",
+                           subtype=subtype or "octet-stream",
+                           filename=fname)
 
     recipients = [to] + list(cc)
     try:

@@ -310,6 +310,116 @@ def reefer_units() -> list[str]:
     return [u for u, sub in _TRAILERS if sub == "reefer"]
 
 
+# ----- Horas de motor de los reefers (v2.22, PM del reefer por horas) -------
+#
+# Igual que el odometro: el horometro ACUMULA horas diarias deterministas por
+# (unidad, dia) sobre una base en el epoch. Asi el perfil, el board "Reefer PM"
+# y el historial de lecturas nunca se contradicen y el demo no se pudre.
+
+# Horometro EN EL EPOCH (horas de motor del equipo de frio).
+_HOURS_BASE: dict[str, float] = {
+    "53108": 11240.0, "53112": 8630.0, "7841": 15420.0, "7846": 6210.0,
+}
+
+# Uso por reefer: (horas promedio por dia, variacion +/-). Los tres primeros
+# corren 8-18 h/dia (carga refrigerada continua); 7846 es un reefer de uso
+# ESTACIONAL (pocas horas): es el que vence por FECHA antes que por horas y
+# ejercita el "lo que llegue primero".
+_HOURS_PROFILE: dict[str, tuple[float, float]] = {
+    "53108": (14.0, 4.0),
+    "53112": (13.0, 5.0),
+    "7841": (15.0, 3.0),
+    "7846": (3.0, 2.0),
+}
+
+# Ultimo PM del reefer, RELATIVO a hoy: (dias_atras, horas_atras). Calibrado
+# contra el intervalo por defecto de 1500 h / 365 dias (org_config
+# reefer_pm_*): restante = 1500 - horas_atras.
+_REEFER_PM_REL: dict[str, tuple[int, int] | None] = {
+    "53108": (40, 520),     # on_track  (faltan ~980 h)
+    "53112": (105, 1420),   # upcoming  (faltan ~80 h)
+    "7841": (125, 1630),    # overdue   (~130 h pasado)
+    "7846": (372, 1110),    # overdue POR FECHA (horas al dia, 372 dias)
+}
+
+
+def _day_hours(unit: str, day: datetime.date) -> float:
+    """Horas de motor que corrio ESE reefer ESE dia (determinista)."""
+    avg, spread = _HOURS_PROFILE.get(unit, (12.0, 4.0))
+    r = random.Random(f"fleet-demo-hours-{unit}-{day.isoformat()}")
+    return round(max(0.0, min(24.0, avg + r.uniform(-spread, spread))), 1)
+
+
+_hours_cache: dict[tuple[str, str], float] = {}
+
+
+def engine_hours_at(unit: str, day: datetime.date) -> float:
+    """Horometro del reefer al FINAL de `day` (base del epoch + acumulado).
+    0 si la unidad no es un reefer del demo. Antes del epoch = la base."""
+    base = _HOURS_BASE.get(unit)
+    if base is None:
+        return 0.0
+    if day < _EPOCH:
+        return base
+    key = (unit, day.isoformat())
+    hit = _hours_cache.get(key)
+    if hit is not None:
+        return hit
+    total = base
+    d = _EPOCH
+    step = datetime.timedelta(days=1)
+    while d <= day:
+        total += _day_hours(unit, d)
+        _hours_cache[(unit, d.isoformat())] = round(total, 1)
+        d += step
+    return _hours_cache[key]
+
+
+def engine_hours_now(unit: str, ts: float) -> float:
+    """Horometro en el instante `ts` (epoch s, UTC): cierre del dia anterior
+    + la fraccion transcurrida de las horas de hoy. Lo usa el simulador del
+    reefer (`reefer._state_at`) para que la lectura crezca durante el dia."""
+    if unit not in _HOURS_BASE:
+        return 0.0
+    now = datetime.datetime.fromtimestamp(ts, datetime.timezone.utc)
+    day = now.date()
+    prev = engine_hours_at(unit, day - datetime.timedelta(days=1))
+    frac = (now.hour * 3600 + now.minute * 60 + now.second) / 86400.0
+    return round(prev + _day_hours(unit, day) * frac, 1)
+
+
+def _org_today() -> datetime.date:
+    """Hoy en la TZ de la org (sin org/config legible: el del server)."""
+    try:
+        from . import org_config         # import diferido (orden de carga)
+        return org_config.org_today()
+    except Exception:  # noqa: BLE001 — demo: nunca romper por la TZ
+        return datetime.date.today()
+
+
+def reefer_pm_rows() -> list[dict]:
+    """Ultimo PM de cada reefer demo (forma {unit, last_date, last_hours}),
+    RELATIVO a hoy y al horometro actual: los estados del board 'Reefer PM'
+    (on_track / upcoming / overdue por horas / overdue por fecha) no se
+    pudren con el tiempo. Hace de "CSV de Fullbay" del reefer en demo.
+    "Hoy" = el de la org (mismo calendario que la foto del horómetro y el
+    board), no el del server (UTC en el contenedor)."""
+    today = _org_today()
+    out: list[dict] = []
+    for unit in reefer_units():
+        rel = _REEFER_PM_REL.get(unit)
+        if not rel:
+            continue
+        days_ago, hours_ago = rel
+        cur = engine_hours_at(unit, today)
+        out.append({
+            "unit": unit,
+            "last_date": (today - datetime.timedelta(days=days_ago)).isoformat(),
+            "last_hours": round(max(0.0, cur - hours_ago), 1),
+        })
+    return out
+
+
 def day_distance(company: str | None, day: datetime.date) -> dict[str, float]:
     """Millas por unidad en `day`. MISMA fuente que el odometro."""
     return {unit: _day_miles(unit, day) for unit, *_r in _trucks_for(company)}
@@ -492,6 +602,8 @@ def pm_rows() -> list[dict]:
             "last_pm_date": last_date,
             "last_pm_miles": last_miles,
             "report_miles": odometer_at(unit, today),
+            # Relativo a hoy (no un CSV real): el ciclo del request es fijo.
+            "baseline": bool(rel),
         })
     out.sort(key=lambda r: r["unit"])
     return out

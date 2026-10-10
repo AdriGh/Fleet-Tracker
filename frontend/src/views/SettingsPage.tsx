@@ -19,6 +19,7 @@ import {
   type TerminalDef, type TerminalsConfig,
   type UnitImportResult,
 } from '../api'
+import AiAssistantCard from '../reports/AiAssistantCard'
 import { usePerms } from '../perms'
 import { initialsOf } from '../technicians'
 import { useTerminals } from '../terminal'
@@ -30,6 +31,22 @@ import Skeleton from '../components/Skeleton'
 import Modal from '../components/Modal'
 import RosterPage from './RosterPage'
 import PermissionsMatrix from '../components/PermissionsMatrix'
+import { useShell } from '../shell'
+
+// v2.22: técnicos, terminales y conductores también viven como secciones
+// propias en Resources (perfil completo). Settings los conserva y enlaza.
+function ResourcesLink({ section, label }: { section: string; label: string }) {
+  const { navigate } = useShell()
+  return (
+    <p className="settings-help settings-res-link">
+      Full profiles live in{' '}
+      <button type="button" className="link-btn"
+        onClick={() => navigate(section)}>
+        Resources → {label}
+      </button>.
+    </p>
+  )
+}
 
 const PAGE_SIZE = 50
 
@@ -273,6 +290,7 @@ export default function SettingsPage(
 
       {/* ----- Empresa y usuarios (G7, solo admin) ----- */}
       {isAdmin && <CompanyCard />}
+      {isAdmin && <AiAssistantCard />}
       {isAdmin && <CompaniesCard />}
       {isAdmin && <TerminalsCard activeUnits={activeUnits} />}
       {isAdmin && <TeamsCard activeUnits={activeUnits} />}
@@ -304,6 +322,7 @@ export default function SettingsPage(
 
         {rosterOpen && (
           <div className="card-body">
+            <ResourcesLink section="drivers" label="Drivers" />
             <label className="settings-toggle">
               <input type="checkbox" checked={maskPII}
                 onChange={(e) => toggleMask(e.target.checked)} />
@@ -547,6 +566,23 @@ const THRESHOLD_META: {
     help: 'Remaining miles that flag a PM as Upcoming' },
   { key: 'defect_lookback_days', label: 'Defect window', suffix: 'days',
     help: 'How far back the live defect stream looks' },
+  // v2.22 [B]: Reefer PM por horas de motor; vence por lo que llegue primero.
+  { key: 'reefer_pm_interval_hours', label: 'Reefer PM interval', suffix: 'hrs',
+    help: 'Engine hours between reefer PMs' },
+  { key: 'reefer_pm_upcoming_hours', label: 'Reefer PM upcoming', suffix: 'hrs',
+    help: 'Remaining engine hours that flag a reefer PM as Upcoming' },
+  { key: 'reefer_pm_interval_days', label: 'Reefer PM by date', suffix: 'days',
+    help: 'Date fallback: a reefer PM is due after this many days even if hours are low' },
+  { key: 'reefer_pm_upcoming_days', label: 'Reefer upcoming', suffix: 'days',
+    help: 'Remaining days that flag a reefer PM as Upcoming' },
+]
+
+// v2.22: zona horaria de la org ("today", "this week", presets de reportes
+// y hora de los envíos programados).
+const TIMEZONES = [
+  'America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix',
+  'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu',
+  'America/Mexico_City',
 ]
 
 // ----- Empresas + import masivo de unidades (Settings, solo admin) ---------
@@ -809,6 +845,9 @@ function CompanyCard() {
       qc.setQueryData(['org'], saved)
       qc.invalidateQueries({ queryKey: ['auth-status'] })
       qc.invalidateQueries({ queryKey: ['pm'] })
+      // Umbrales del reefer / zona horaria: tableros, PMs vencidos y Home.
+      qc.invalidateQueries({ queryKey: ['maint'] })
+      qc.invalidateQueries({ queryKey: ['home-summary'] })
       notifyOk('Company saved',
         'Branding and thresholds applied')
     } catch (e) {
@@ -874,6 +913,19 @@ function CompanyCard() {
                     onChange={(e) => setForm({ ...form,
                       branding: { ...form.branding,
                         tagline: e.target.value } })} />
+                </label>
+                <label className="ud-field"
+                  title="Used for today / this week on Home, report date presets and scheduled report send times">
+                  <span>Time zone</span>
+                  <select className="cell-input"
+                    value={form.timezone || 'America/Chicago'}
+                    onChange={(e) => setForm({ ...form,
+                      timezone: e.target.value })}>
+                    {[...new Set([...TIMEZONES,
+                      form.timezone || 'America/Chicago'])].map((tz) => (
+                      <option key={tz} value={tz}>{tz.replace('_', ' ')}</option>
+                    ))}
+                  </select>
                 </label>
               </div>
 
@@ -1420,6 +1472,7 @@ function TechniciansCard() {
 
       {open && (
         <div className="card-body">
+          <ResourcesLink section="employees" label="Employees" />
           {q.isPending ? (
             <Skeleton h={120} />
           ) : q.error ? (
@@ -2329,6 +2382,7 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
 
       {open && (
         <div className="card-body">
+          <ResourcesLink section="locations" label="Locations" />
           <p className="settings-help">
             Terminals group the fleet by yard or region, and drive the
             terminal filters in PM Tracker, DOT Inspections, Work Orders,

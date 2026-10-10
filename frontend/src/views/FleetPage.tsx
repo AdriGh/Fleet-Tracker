@@ -183,6 +183,10 @@ export default function FleetPage({ onOpenUnit }: {
           onClose={() => setShowAdd(false)}
           onSaved={async () => {
             setShowAdd(false)
+            // El texto "Who is the customer?" puede crear/ligar el owner
+            // (customers.link_unit_text): refrescar clientes y owners.
+            qc.invalidateQueries({ queryKey: ['customers'] })
+            qc.invalidateQueries({ queryKey: ['customer'] })
             await qc.invalidateQueries({ queryKey: ['fleet'] })
           }}
         />

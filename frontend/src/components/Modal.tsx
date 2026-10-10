@@ -1,5 +1,8 @@
-import { useEffect, type CSSProperties, type ReactNode } from 'react'
+import {
+  useEffect, useId, useRef, type CSSProperties, type ReactNode,
+} from 'react'
 import { createPortal } from 'react-dom'
+import { useEscLayer } from '../layers'
 
 interface Props {
   title: string
@@ -17,13 +20,27 @@ interface Props {
 export default function Modal(
   { title, onClose, children, width, fullHeight, className = '' }: Props,
 ) {
+  // v2.22: el modal es una capa de la pila (layers.ts) — con modales
+  // anidados (o el command palette encima) Escape cierra SOLO la de arriba.
+  useEscLayer(true, onClose)
+  const titleId = useId()
+  const panelRef = useRef<HTMLDivElement | null>(null)
+
+  // Foco: si ningún campo del modal se auto-enfocó, el foco entra al panel
+  // (los lectores de pantalla anuncian el diálogo); al cerrar vuelve al
+  // elemento que lo abrió, si todavía existe.
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
+    const prev = document.activeElement as HTMLElement | null
+    const panel = panelRef.current
+    if (panel && !panel.contains(document.activeElement)) {
+      panel.focus({ preventScroll: true })
     }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
+    return () => {
+      if (prev && prev !== document.body && document.contains(prev)) {
+        prev.focus({ preventScroll: true })
+      }
+    }
+  }, [])
 
   // El ancho viaja como variable CSS para que el estilo lo limite por
   // viewport (min(px, 94vw)) — así es fluido, no una caja fija en px.
@@ -35,12 +52,17 @@ export default function Modal(
   return createPortal(
     <div className={`modal-backdrop ${className}`} onClick={onClose}>
       <div
+        ref={panelRef}
         className={`modal${fullHeight ? ' is-tall' : ''}`}
         style={style}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-head">
-          <h2>{title}</h2>
+          <h2 id={titleId}>{title}</h2>
           <button className="modal-x" onClick={onClose} aria-label="Close">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
               strokeWidth="2" strokeLinecap="round">

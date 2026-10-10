@@ -130,6 +130,13 @@ def delete_vendor(vendor_id: int) -> bool:
         for p in session.scalars(
                 select(Part).where(Part.vendor_id == v.id)).all():
             p.vendor_id = None
+        # v2.22: las POs ligadas por FK conservan el NOMBRE (texto `vendor`)
+        # y pierden solo el vínculo (si no, el FK rompe el borrado en PG).
+        from ..db import PurchaseOrder
+        for po in session.scalars(select(PurchaseOrder).where(
+                PurchaseOrder.vendor_id == v.id)).all():
+            po.vendor_id = None
+        session.flush()
         session.delete(v)
         session.commit()
         return True
@@ -145,8 +152,13 @@ def _part_dict(p: Part, vendor_name: str = "") -> dict:
         "category": p.category,
         "manufacturer": p.manufacturer,
         "cost": round(p.cost, 2),
-        # Costo promedio: si no se registró, cae al costo estándar.
+        # Costo promedio: si no se registró, cae al costo estándar. v2.22: es
+        # el promedio ponderado móvil que mantiene cada recepción de PO; es
+        # el costo por defecto de una línea de parte en una WO.
         "avg_cost": round(p.avg_cost or p.cost, 2),
+        # v2.22: costo (landed) de la última recepción; None = nunca recibida.
+        "last_cost": (None if p.last_cost is None
+                      else round(p.last_cost, 2)),
         "vendor_id": p.vendor_id,
         "vendor_name": vendor_name,
         "on_hand": p.on_hand,
@@ -204,6 +216,11 @@ def create_part(data: dict) -> dict:
 
 
 def update_part(part_id: int, data: dict) -> dict | None:
+    """Edita la ficha de una parte. `on_hand` se IGNORA en la edición: la
+    existencia solo cambia con un movimiento del libro (POST /parts/adjust,
+    recepciones, consumos). Escribirla directo desde un formulario abierto
+    pisaba recepciones concurrentes y desalineaba el promedio ponderado."""
+    data = {k: v for k, v in (data or {}).items() if k != "on_hand"}
     with SessionLocal() as session:
         p = session.get(Part, part_id)
         if p is None:
@@ -304,3 +321,109 @@ def part_usage() -> dict[str, int]:
             .where(WorkOrderLine.part_number != "")
             .group_by(WorkOrderLine.part_number)).all()
         return {pn: n for pn, n in rows}
+
+
+# ----- v2.22: perfil del vendor (Resources → Vendors) ------------------------
+
+_PROFILE_LIMIT = 200
+
+
+def vendor_profile(vendor_id: int) -> dict | None:
+    """Perfil del vendor: sus WOs (outside work y cualquier WO ligada por
+    vendor_id), sus POs (por vendor_id o, si la PO no está ligada, por
+    NOMBRE case-insensitive), sus partes (Part.vendor_id) y totales:
+    - spend_ytd = POs ordered/received del año (fecha = recepción o alta;
+      total financiero de la PO) + WOs outside completed/invoiced del año
+      (fecha efectiva), en la TZ de la org;
+    - open_po_value = POs no recibidas y financieramente abiertas (misma
+      regla que purchasing.stats().open_value);
+    - outside_wo_total = Σ total de las WOs outside del vendor (histórico).
+    None = el vendor no existe en la org."""
+    from sqlalchemy import and_, or_
+    from sqlalchemy.orm import selectinload
+    from ..db import PurchaseOrder
+    from . import org_config, purchasing, workorders  # import diferido
+    with SessionLocal() as session:
+        v = session.get(Vendor, vendor_id)
+        if v is None:
+            return None
+        year = org_config.org_today().year
+        parts_rows = session.scalars(
+            select(Part).where(Part.vendor_id == v.id)
+            .order_by(func.lower(Part.part_number))).all()
+        wos = session.scalars(
+            select(WorkOrder).options(selectinload(WorkOrder.lines))
+            .where(WorkOrder.vendor_id == v.id)
+            .order_by(WorkOrder.id.desc())).all()
+        name_key = " ".join((v.name or "").split()).lower()
+        pos = session.scalars(
+            select(PurchaseOrder)
+            .options(selectinload(PurchaseOrder.lines),
+                     selectinload(PurchaseOrder.adjustments))
+            .where(or_(PurchaseOrder.vendor_id == v.id,
+                       and_(PurchaseOrder.vendor_id.is_(None),
+                            func.lower(func.trim(PurchaseOrder.vendor))
+                            == name_key)))
+            .order_by(PurchaseOrder.id.desc())).all()
+
+        po_spend_ytd = open_po_value = po_balance = 0.0
+        po_rows: list[dict] = []
+        for po in pos:
+            d = purchasing._po_dict(po)
+            fin = d["financial"]
+            if po.status in ("ordered", "received"):
+                when = org_config.to_org_date(po.received_at or po.created_at)
+                if when is not None and when.year == year:
+                    po_spend_ytd += fin["total"]
+            if po.status != "received" and (po.fin_status or "open") == "open":
+                open_po_value += fin["total"]
+            if po.status != "draft":
+                po_balance += fin["balance"]
+            if len(po_rows) < _PROFILE_LIMIT:
+                po_rows.append(d)
+
+        outside_total = outside_ytd = 0.0
+        wo_rows: list[dict] = []
+        for wo in wos:
+            total = round(sum(float(ln.qty or 0) * float(ln.unit_cost or 0)
+                              for ln in wo.lines), 2)
+            if (wo.wo_type or "inside") == "outside":
+                outside_total += total
+                eff = workorders.effective_date(wo)
+                if (wo.status in ("completed", "invoiced") and eff is not None
+                        and eff.year == year):
+                    outside_ytd += total
+            if len(wo_rows) < _PROFILE_LIMIT:
+                wo_rows.append({
+                    "id": wo.id,
+                    "display_no": workorders._display_no(wo),
+                    "unit": wo.unit,
+                    "title": wo.title,
+                    "status": wo.status,
+                    "wo_type": wo.wo_type or "inside",
+                    "shop_invoice": wo.shop_invoice or "",
+                    "created_at": (wo.created_at.isoformat()
+                                   if wo.created_at else None),
+                    "closed_at": (wo.closed_at.isoformat()
+                                  if wo.closed_at else None),
+                    "invoiced_at": (wo.invoiced_at.isoformat()
+                                    if wo.invoiced_at else None),
+                    "total": total,
+                })
+        return {
+            "vendor": _vendor_dict(v, len(parts_rows), len(wos)),
+            "work_orders": wo_rows,
+            "purchase_orders": po_rows,
+            "parts": [_part_dict(p, v.name) for p in parts_rows],
+            "totals": {
+                "spend_ytd": round(po_spend_ytd + outside_ytd, 2),
+                "po_spend_ytd": round(po_spend_ytd, 2),
+                "outside_spend_ytd": round(outside_ytd, 2),
+                "open_po_value": round(open_po_value, 2),
+                "po_balance": round(po_balance, 2),
+                "outside_wo_total": round(outside_total, 2),
+                "wo_count": len(wos),
+                "po_count": len(pos),
+                "parts_count": len(parts_rows),
+            },
+        }

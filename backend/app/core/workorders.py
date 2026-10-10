@@ -75,6 +75,36 @@ def _clean_vendor_id(raw) -> int | None:
         raise ValueError(_VENDOR_MISSING_MSG)
 
 
+_HOURS_MSG = "engine hours must be a positive number"
+
+
+def _clean_engine_hours(raw) -> float | None:
+    """engine_hours del body (v2.22): None/''/0 => sin dato (el 0 es el
+    centinela de "borrar" en el PATCH, que filtra los None)."""
+    if raw in (None, "", 0, "0"):
+        return None
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        raise ValueError(_HOURS_MSG)
+    if not (0 < v < 200_000):
+        raise ValueError(_HOURS_MSG)
+    return round(v, 1)
+
+
+PAYMENT_STATUSES = ("unpaid", "paid")
+_PAYMENT_MSG = "payment_status must be unpaid or paid"
+CUSTOMER_LOCKED_MSG = "un-invoice the work order before changing the customer"
+
+
+def _clean_payment_status(raw) -> str:
+    """payment_status del body (v2.22): unpaid | paid; otra cosa => 400."""
+    v = str(raw or "").strip().lower()
+    if v not in PAYMENT_STATUSES:
+        raise ValueError(_PAYMENT_MSG)
+    return v
+
+
 def _resolve_type_vendor(session, wo_type: str,
                          vendor_id) -> tuple[str, int | None]:
     """Valida la pareja (wo_type, vendor_id): tipo válido, vendor existente
@@ -90,7 +120,14 @@ def _resolve_type_vendor(session, wo_type: str,
     return wo_type, vid
 
 
-def _line_dict(ln: WorkOrderLine) -> dict:
+def _line_dict(ln: WorkOrderLine, parts_pct: float = 0.0,
+               labor_pct: float = 0.0) -> dict:
+    """Línea serializada. v2.22 (Customers): `unit_price` = precio
+    CONGELADO al facturar (None = sin snapshot); `billable_unit_price` /
+    `billable_amount` = lo que se le cobra al customer (snapshot o costo ×
+    markup en vivo; para Self = el costo)."""
+    from . import customers               # import diferido (orden de carga)
+    price = customers.line_price(ln, parts_pct, labor_pct)
     return {
         "id": ln.id,
         "kind": ln.kind,
@@ -99,7 +136,28 @@ def _line_dict(ln: WorkOrderLine) -> dict:
         "qty": ln.qty,
         "unit_cost": ln.unit_cost,
         "total": round(ln.qty * ln.unit_cost, 2),
+        "unit_price": ln.unit_price,
+        "billable_unit_price": price,
+        "billable_amount": round(price * float(ln.qty or 0.0), 2),
     }
+
+
+def effective_date(wo: WorkOrder):
+    """Fecha efectiva de una WO (v2.22, en la TZ de la org): service_date ->
+    closed_at -> created_at. Misma prioridad que reports._effective_date
+    (gasto por fecha de servicio), pero los sellos se pasan a la fecha de la
+    org. None si no hay ninguna."""
+    from . import org_config             # import diferido (orden de carga)
+    sd = (wo.service_date or "").strip()[:10]
+    if sd:
+        try:
+            return datetime.strptime(sd, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    for ts in (wo.closed_at, wo.created_at):
+        if ts is not None:
+            return org_config.to_org_date(ts)
+    return None
 
 
 def _display_no(wo: WorkOrder) -> str:
@@ -163,10 +221,63 @@ def _vendor_info(wo: WorkOrder, session=None,
     }
 
 
+def _customer_of(wo: WorkOrder, session=None,
+                 customers_map: dict | None = None):
+    """Customer (Bill to) de la WO, o None (Self). `customers_map` es un
+    prefetch {id: Customer} para los listados (evita N+1)."""
+    if wo.customer_id is None:
+        return None
+    from ..db import Customer
+    if customers_map is not None:
+        return customers_map.get(wo.customer_id)
+    if session is not None:
+        return session.get(Customer, wo.customer_id)
+    with SessionLocal() as s:
+        c = s.get(Customer, wo.customer_id)
+        if c is not None:
+            s.expunge(c)
+        return c
+
+
+def _customer_info(wo: WorkOrder, cust) -> dict:
+    """Campos de Bill-To / cobro de la WO (v2.22, Customers)."""
+    from . import customers               # import diferido (orden de carga)
+    return {
+        "customer_id": wo.customer_id,
+        "customer_name": cust.name if cust is not None else "",
+        "customer_markup": ({"parts_pct": float(cust.parts_markup_pct or 0),
+                             "labor_pct": float(cust.labor_markup_pct or 0)}
+                            if cust is not None else None),
+        "payment_status": wo.payment_status or "unpaid",
+        "paid_at": wo.paid_at.isoformat() if wo.paid_at else None,
+        "billable_total": customers.billable_total(wo, cust),
+        # Impuesto del customer sobre las partes (tasa congelada al facturar;
+        # antes, la vigente) y el total a cobrar.
+        "tax_pct": customers.wo_tax_pct(wo, cust),
+        "billable_tax": customers.billable_tax(wo, cust),
+        "billable_due": customers.billable_due(wo, cust),
+    }
+
+
+def _org_day(ts) -> str | None:
+    """Fecha (YYYY-MM-DD) de un sello en la TZ de la org."""
+    if ts is None:
+        return None
+    from . import org_config             # import diferido (orden de carga)
+    d = org_config.to_org_date(ts)
+    return d.isoformat() if d else None
+
+
+def _iso_or_none(d) -> str | None:
+    return d.isoformat() if d else None
+
+
 def _wo_dict(wo: WorkOrder, with_lines: bool = False,
-             session=None, vendors: dict[int, Vendor] | None = None) -> dict:
-    from . import wo_invoices            # import diferido (orden de carga)
+             session=None, vendors: dict[int, Vendor] | None = None,
+             customers_map: dict | None = None) -> dict:
+    from . import customers, wo_invoices  # import diferido (orden de carga)
     total = _total(wo)
+    cust = _customer_of(wo, session, customers_map)
     # Factura original adjunta: campos calculados desde el archivo en disco
     # (NO hay columna en la DB; el almacenamiento es por archivo).
     inv_name = wo_invoices.file_name(wo.id)
@@ -178,6 +289,11 @@ def _wo_dict(wo: WorkOrder, with_lines: bool = False,
         "created_at": wo.created_at.isoformat(),
         "updated_at": wo.updated_at.isoformat(),
         "closed_at": wo.closed_at.isoformat() if wo.closed_at else None,
+        # v2.22: fechas en la TZ de la org (los sellos son UTC/naive del
+        # server): las usan los drill-downs de Home ("completed today",
+        # "labor hours this week") para filtrar igual que el KPI.
+        "closed_date": _org_day(wo.closed_at),
+        "effective_date": _iso_or_none(effective_date(wo)),
         "invoiced_at": (wo.invoiced_at.isoformat()
                         if wo.invoiced_at else None),
         "unit": wo.unit,
@@ -192,6 +308,8 @@ def _wo_dict(wo: WorkOrder, with_lines: bool = False,
         "pm_miles": wo.pm_miles,
         "campaign": wo.campaign or "",
         "mileage": wo.mileage,
+        # v2.22: horómetro de la unidad (reefer) capturado en la WO.
+        "engine_hours": wo.engine_hours,
         "service_date": wo.service_date,
         "waiting_parts": wo.waiting_parts,
         "source": wo.source,
@@ -205,9 +323,12 @@ def _wo_dict(wo: WorkOrder, with_lines: bool = False,
         "n_lines": len(wo.lines),
         # Outside work (v2.21): tipo + taller externo.
         **_vendor_info(wo, session, vendors),
+        # v2.22 Customers: Bill to + cobro + total a cobrar (con markup).
+        **_customer_info(wo, cust),
     }
     if with_lines:
-        out["lines"] = [_line_dict(ln) for ln in wo.lines]
+        p_pct, l_pct = customers.markups(cust)
+        out["lines"] = [_line_dict(ln, p_pct, l_pct) for ln in wo.lines]
     return out
 
 
@@ -254,7 +375,14 @@ def list_wos(status: str = "", unit: str = "", wo_type: str = "",
                           reverse=True)
         # Prefetch de vendors (un SELECT) para no hacer N+1 en el listado.
         vendors = {v.id: v for v in session.scalars(select(Vendor)).all()}
-        return [_wo_dict(w, vendors=vendors) for w in rows]
+        # v2.22: idem customers (Bill to + markup del billable_total).
+        from ..db import Customer
+        cids = {w.customer_id for w in rows if w.customer_id is not None}
+        cmap = ({c.id: c for c in session.scalars(
+            select(Customer).where(Customer.id.in_(cids))).all()}
+            if cids else {})
+        return [_wo_dict(w, vendors=vendors, customers_map=cmap)
+                for w in rows]
 
 
 def get_wo(wo_id: int) -> dict | None:
@@ -275,7 +403,10 @@ def create_wo_in(session, unit: str, title: str, complaint: str = "",
                  shop_invoice: str = "",
                  parent_id: int | None = None,
                  wo_type: str = "inside",
-                 vendor_id: int | None = None) -> WorkOrder:
+                 vendor_id: int | None = None,
+                 engine_hours: float | None = None,
+                 customer_id: int | None = None,
+                 payment_status: str = "unpaid") -> WorkOrder:
     """Arma la work order DENTRO de una sesión ajena: add + flush (asigna el
     id) pero NO commitea — la transacción es del caller. La usa create_wo y
     también Service Requests (v2.20), que necesita insertar la WO y ligar los
@@ -289,8 +420,13 @@ def create_wo_in(session, unit: str, title: str, complaint: str = "",
     Outside work (v2.21): `wo_type` inside|outside; outside exige
     `vendor_id` (el taller externo); inside puede llevarlo o no. Un
     mecánico en una WO outside se acepta (nace 'assigned') pero no se
-    exige."""
-    from . import maint, technicians     # import diferido (orden de carga)
+    exige.
+
+    Customers (v2.22): `customer_id` None (no vino) => el DUEÑO de la
+    unidad (customer_unit) si tiene uno activo; 0 => Self explícito; un id
+    => debe existir. Solo lectura sobre customers (esta sesión puede tener
+    escrituras a medias)."""
+    from . import customers, maint, technicians  # import diferido
     unit = (unit or "").strip()
     title = (title or "").strip()
     if not unit or not title:
@@ -307,6 +443,9 @@ def create_wo_in(session, unit: str, title: str, complaint: str = "",
     # de llamar acá) -> "database is locked".
     mechanic = technicians.canonical_name(mechanic)
     wo_type, vendor_id = _resolve_type_vendor(session, wo_type, vendor_id)
+    engine_hours = _clean_engine_hours(engine_hours)
+    customer_id = customers.resolve_for_wo(session, unit, customer_id)
+    payment_status = _clean_payment_status(payment_status or "unpaid")
     now = datetime.now()
     wo = WorkOrder(
         created_at=now, updated_at=now,
@@ -323,6 +462,9 @@ def create_wo_in(session, unit: str, title: str, complaint: str = "",
         service_date=((service_date or "").strip()[:10] or None),
         shop_invoice=(shop_invoice or "").strip()[:60],
         wo_type=wo_type, vendor_id=vendor_id,
+        engine_hours=engine_hours,
+        customer_id=customer_id, payment_status=payment_status,
+        paid_at=now if payment_status == "paid" else None,
     )
     if parent_id is not None:
         parent = session.get(WorkOrder, parent_id)
@@ -345,15 +487,25 @@ def create_wo(unit: str, title: str, complaint: str = "",
               source: str = "manual", mileage: int | None = None,
               service_date: str = "", campaign: str = "",
               shop_invoice: str = "", parent_id: int | None = None,
-              wo_type: str = "inside", vendor_id: int | None = None) -> dict:
+              wo_type: str = "inside", vendor_id: int | None = None,
+              engine_hours: float | None = None,
+              customer_id: int | None = None,
+              payment_status: str = "unpaid") -> dict:
     """Crea una work order (sesión propia + commit). La lógica vive en
     create_wo_in; acá solo se maneja la transacción."""
+    # v2.22: el backfill de customers (Unit.customer -> dueños) escribe en
+    # su propia sesión: ANTES de abrir la de la WO (el dueño por defecto de
+    # la unidad sale de ahí).
+    from . import customers               # import diferido (orden de carga)
+    customers.ensure_backfill()
     with SessionLocal() as session:
         try:
             wo = create_wo_in(
                 session, unit, title, complaint, company, mechanic,
                 priority, is_pm, source, mileage, service_date, campaign,
-                shop_invoice, parent_id, wo_type, vendor_id)
+                shop_invoice, parent_id, wo_type, vendor_id,
+                engine_hours=engine_hours, customer_id=customer_id,
+                payment_status=payment_status)
             session.commit()
         except IntegrityError:
             # DATA-4: colisión de child_seq por dos creaciones concurrentes
@@ -368,7 +520,24 @@ def create_wo(unit: str, title: str, complaint: str = "",
     # del commit (ver create_wo_in). Si la creación falló, no queda nadie
     # fantasma en el roster.
     ensure_technician(out.get("mechanic") or "")
+    # v2.22: el horómetro cargado en la WO es también una lectura del
+    # medidor (fuente 'wo'; best-effort, fuera de la transacción).
+    _log_wo_hours(out["unit"], out.get("engine_hours"),
+                  out.get("service_date"))
     return out
+
+
+def _log_wo_hours(unit: str, hours, service_date: str | None) -> None:
+    """Registra las horas de motor de una WO como lectura del horómetro
+    (core/meters, fuente 'wo', fecha = service_date o hoy). Best-effort: una
+    lectura no creíble (o con fecha futura) se saltea; la WO no falla."""
+    if not hours:
+        return
+    from . import meters                 # import diferido (orden de carga)
+    try:
+        meters.log_reading(unit, hours, service_date or None, source="wo")
+    except ValueError:
+        pass
 
 
 def ensure_technician(mechanic: str) -> None:
@@ -428,6 +597,9 @@ def apply_fields_in(session, wo: WorkOrder, fields: dict) -> None:
                                   else None))
             except (TypeError, ValueError):
                 pass
+    # v2.22: horómetro (reefer). 0 / '' = borrar; inválido => ValueError.
+    if "engine_hours" in fields:
+        wo.engine_hours = _clean_engine_hours(fields["engine_hours"])
     if "service_date" in fields:
         wo.service_date = (str(fields["service_date"]).strip()[:10]
                            or None)
@@ -440,6 +612,28 @@ def apply_fields_in(session, wo: WorkOrder, fields: dict) -> None:
         vendor_id = fields["vendor_id"] if "vendor_id" in fields else wo.vendor_id
         wo.wo_type, wo.vendor_id = _resolve_type_vendor(
             session, wo_type, vendor_id)
+    # v2.22 Customers: Bill to (0/'' = Self). Una WO FACTURADA no cambia de
+    # customer (el invoice y sus precios congelados ya salieron): hay que
+    # des-facturar primero. Cambiar de customer borra los precios
+    # congelados (eran del markup del anterior; se re-congelan al facturar).
+    if "customer_id" in fields:
+        from . import customers            # import diferido (orden de carga)
+        from ..db import Customer
+        cid = customers.clean_customer_id(fields["customer_id"])
+        if cid is not None and session.get(Customer, cid) is None:
+            raise ValueError(customers.NOT_FOUND_MSG)
+        if cid != wo.customer_id:
+            if wo.invoiced_at is not None or wo.status == "invoiced":
+                raise ValueError(CUSTOMER_LOCKED_MSG)
+            wo.customer_id = cid
+            wo.tax_pct = None
+            for ln in wo.lines:
+                ln.unit_price = None
+    if "payment_status" in fields:
+        ps = _clean_payment_status(fields["payment_status"])
+        if ps != (wo.payment_status or "unpaid"):
+            wo.payment_status = ps
+            wo.paid_at = datetime.now() if ps == "paid" else None
 
 
 def update_wo(wo_id: int, fields: dict) -> dict | None:
@@ -495,6 +689,13 @@ def update_wo(wo_id: int, fields: dict) -> dict | None:
                     if not (wo.invoice_number or "").strip():
                         from . import org_config
                         wo.invoice_number = org_config.next_invoice_number()
+                    # v2.22: precio de venta CONGELADO por línea (costo ×
+                    # markup del customer). Después del contador (que abre
+                    # su propia sesión) y sin autoflush, por el mismo lock
+                    # de SQLite de arriba.
+                    from . import customers    # import diferido
+                    with session.no_autoflush:
+                        customers.snapshot_prices(session, wo)
             else:
                 wo.invoiced_at = None
             # Hook Service Requests (v2.20): completar/facturar cierra los
@@ -521,6 +722,10 @@ def update_wo(wo_id: int, fields: dict) -> dict | None:
         # Roster de técnicos (v2.21): un mecánico nuevo se agrega solo
         # (después del commit: technicians escribe org_setting en su sesión).
         ensure_technician(new_mechanic)
+
+        # v2.22: horas de motor cargadas en la WO -> lectura del horómetro.
+        if fields.get("engine_hours") not in (None, "", 0, "0"):
+            _log_wo_hours(wo.unit, wo.engine_hours, wo.service_date)
 
         # Hook de inventario (fase Inventory): al FACTURAR (invoiced) se
         # consume el stock de cada línea de parte con part_number conocido.
@@ -552,23 +757,54 @@ def update_wo(wo_id: int, fields: dict) -> dict | None:
         # campaña, se registra el servicio en Components & PMs del
         # perfil. Idempotente: una orden solo registra UNA vez aunque se
         # des-facture y re-facture (se busca su "WO #id:" en las notas).
-        if (wo.campaign and not was_invoiced
-                and wo.invoiced_at is not None):
-            from datetime import date as _date
-            from ..db import MaintRecord
-            rec_unit = service_requests.maint_unit_for_wo(
-                session, wo, wo.campaign)
-            already = session.scalar(
-                select(MaintRecord).where(
-                    MaintRecord.unit.in_(sorted({wo.unit, rec_unit})),
-                    MaintRecord.kind == wo.campaign,
-                    MaintRecord.notes.like(f"WO #{wo.id}:%")))
-            if already is None:
+        # v2.22: también se registran las OTRAS campañas de vencimiento de
+        # los service requests ligados (p.ej. DOT + Reefer PM del mismo
+        # trailer en una WO: antes solo la primera quedaba registrada y la
+        # otra seguía vencida en su tablero). Las campañas por horas (PM
+        # del reefer) llevan el horómetro de la WO (engine_hours).
+        if not was_invoiced and wo.invoiced_at is not None:
+            from ..db import MaintRecord, ServiceRequest
+            from . import meters, org_config
+            linked = session.scalars(
+                select(ServiceRequest.source).where(
+                    ServiceRequest.wo_id == wo.id,
+                    ServiceRequest.source.in_(
+                        service_requests.DUE_SOURCES))).all()
+            kinds = list(dict.fromkeys(
+                k for k in [wo.campaign or "", *linked]
+                if k and k in maint.CAMPAIGNS))
+            for kind in kinds:
+                rec_unit = service_requests.maint_unit_for_wo(
+                    session, wo, kind)
+                already = session.scalar(
+                    select(MaintRecord).where(
+                        MaintRecord.unit.in_(sorted({wo.unit, rec_unit})),
+                        MaintRecord.kind == kind,
+                        MaintRecord.notes.like(f"WO #{wo.id}:%")))
+                if already is not None:
+                    continue
+                by_hours = maint.CAMPAIGNS[kind]["due"] == "hours"
+                # Fecha del registro: la de servicio o HOY en la TZ de la
+                # org (no la del server, que en el contenedor es UTC: de
+                # noche fechaba el PM "mañana" y la lectura se rechazaba
+                # por futura).
+                rec_date = (wo.service_date
+                            or org_config.org_today().isoformat())
+                hrs = None
+                if by_hours:
+                    # Horas de la WO (capturadas al crearla desde el request
+                    # o tipeadas); si el horómetro ya registró más a la fecha
+                    # del servicio, esa lectura es la buena (las horas solo
+                    # suben): una copia vieja adelantaría el próximo PM.
+                    hrs = wo.engine_hours
+                    seen = meters.value_at(rec_unit, rec_date)
+                    if seen is not None and (hrs is None or seen > hrs):
+                        hrs = seen
                 maint.add_record(
-                    rec_unit, wo.campaign,
-                    wo.service_date or _date.today().isoformat(),
-                    wo.mileage or wo.pm_miles,
-                    notes=f"WO #{wo.id}: {wo.title}"[:300])
+                    rec_unit, kind, rec_date,
+                    None if by_hours else (wo.mileage or wo.pm_miles),
+                    notes=f"WO #{wo.id}: {wo.title}"[:300],
+                    hours=hrs)
 
         return _detail_dict(wo, session)
 

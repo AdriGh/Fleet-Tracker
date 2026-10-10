@@ -204,7 +204,7 @@ def test_outside_requires_vendor():
     assert again["wo_type"] == "inside" and again["title"] == "Oil change"
     # Las rutas traducen a 400.
     _http(routes.wo_create, 400,
-          routes.WorkOrderIn(unit="U-1", title="x", wo_type="outside"))
+          routes.WorkOrderIn(unit="U-1", title="x", wo_type="outside"), None)
     # Listado: todas las WOs traen los campos nuevos.
     for w in workorders.list_wos():
         for k in ("wo_type", "vendor_id", "vendor_name", "vendor_city",

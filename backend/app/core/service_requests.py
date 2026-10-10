@@ -21,6 +21,11 @@ gracias a `source_key` (clave estable, única por org). Reglas del sync:
     ciclo y el próximo vencimiento es un request NUEVO. Si el board vino
     incompleto (Samsara caído: board['errors']) no se resuelve nada, y una
     unidad SIN dato (to_due None) tampoco: "sin dato" no es "al día".
+  - Reefer PM (v2.22, fuente 'reefer'): de maint.board('reefer'). Vence por
+    HORAS de motor (horómetro propio, nunca el odómetro) o por FECHA, lo que
+    llegue primero; la clave lleva las horas del último PM (o su fecha si
+    no las tiene). Sin horómetro igual vence por fecha (meta.meter_missing).
+    Crear / sumar a una WO copia el horómetro a WorkOrder.engine_hours.
   - Los snoozes vencidos vuelven a 'open'.
   - Las transiciones de estado del sync son UPDATEs condicionales (WHERE
     status ...): si una persona actuó sobre la fila mientras el sync corría
@@ -72,8 +77,11 @@ from . import (fleet_inventory, maint, manual_units, open_defects, pm,
 
 log = logging.getLogger(__name__)
 
-SOURCES = ("defect", "pm", "dot", "manual")
-SYSTEM_SOURCES = ("defect", "pm", "dot")
+SOURCES = ("defect", "pm", "dot", "reefer", "manual")
+SYSTEM_SOURCES = ("defect", "pm", "dot", "reefer")
+# Fuentes de VENCIMIENTO (un tablero de maint.board por cada una). v2.22:
+# 'reefer' = PM del reefer por horas de motor (con la fecha de respaldo).
+DUE_SOURCES = ("pm", "dot", "reefer")
 PRIORITIES = ("low", "normal", "urgent", "emergency")
 _PRIO_RANK = {p: i for i, p in enumerate(PRIORITIES)}
 # Estados LISTABLES (filtro ?status= y conteos). 'deleted' (borrado suave)
@@ -85,13 +93,14 @@ _ACTIONABLE = ("open", "snoozed")
 _DELETABLE = ("open", "snoozed", "done", "denied")
 # Etiqueta de cada fuente en el complaint de la WO ("• [PM due] …").
 _LABELS = {"defect": "DVIR defect", "pm": "PM due", "dot": "DOT due",
-           "manual": "Request"}
+           "reefer": "Reefer PM due", "manual": "Request"}
 # Prioridad del request -> prioridad de la WO (low | normal | high).
 _WO_PRIORITY = {"emergency": "high", "urgent": "high", "normal": "normal",
                 "low": "low"}
 _CLOSED_WO = ("completed", "invoiced")
 _TITLES = {"pm": "Preventive maintenance (PM) due",
-           "dot": "Annual DOT inspection due"}
+           "dot": "Annual DOT inspection due",
+           "reefer": "Reefer PM due (engine hours)"}
 
 SYNC_TTL_S = 300
 # Tope del historial (done / denied / all) en la lista; lo accionable va
@@ -289,7 +298,7 @@ def _positional(tokens: set[str]) -> bool:
 def _is_dup(a: ServiceRequest, b: ServiceRequest, ta: str, tb: str,
             ka: set[str], kb: set[str]) -> bool:
     """¿a y b (misma unidad) piden lo mismo?
-      - mismo tipo de vencimiento (pm↔pm, dot↔dot);
+      - mismo tipo de vencimiento (pm↔pm, dot↔dot, reefer↔reefer);
       - mismo texto normalizado;
       - el más corto (≥ 12 caracteres) está contenido en el más largo
         (por palabras completas: 'brake light out' no matchea 'outlet');
@@ -298,7 +307,7 @@ def _is_dup(a: ServiceRequest, b: ServiceRequest, ta: str, tb: str,
     otro no tiene ('driver' vs 'passenger', 'left' vs 'right', 'axle 2' vs
     'axle 3') son fallas distintas aunque el resto coincida. (Un texto
     contenido en otro nunca tiene palabras propias: el veto no lo toca.)"""
-    if a.source == b.source and a.source in ("pm", "dot"):
+    if a.source == b.source and a.source in DUE_SOURCES:
         return True
     if not ta or not tb:
         return False
@@ -512,13 +521,40 @@ def _defect_specs(feed: dict | None,
 
 def _due_key(kind: str, unit: str, row: dict) -> str:
     """Clave del vencimiento: tipo + unidad NORMALIZADA + CICLO (últimas
-    millas del PM / fecha de la última DOT). Registrar el servicio cambia el
-    ciclo. La unidad va normalizada (como en defect_key): renombrar a la
-    canónica o una variante de escritura no crea un request duplicado."""
-    cycle = row.get("last_miles") if kind == "pm" else row.get("last_date")
+    millas del PM / horas del último PM del reefer / fecha de la última
+    DOT). Registrar el servicio cambia el ciclo. La unidad va normalizada
+    (como en defect_key): renombrar a la canónica o una variante de
+    escritura no crea un request duplicado. Reefer sin horas en el último PM
+    (registro viejo sin horómetro): el ciclo es su fecha.
+
+    Último PM del baseline DEMO (last_source 'baseline': se recalcula
+    relativo a hoy y al horómetro/odómetro de hoy, así que cambia cada día):
+    ciclo fijo 'baseline'. Si no, cada sync de un día nuevo cerraba el
+    request ('cleared', se perdía el snooze/deny) y abría otro."""
+    if row.get("last_source") == "baseline" and kind in ("pm", "reefer"):
+        return f"{kind}:{_norm_unit(unit)}:baseline"[:120]
+    if kind == "pm":
+        cycle = row.get("last_miles")
+    elif kind == "reefer":
+        cycle = row.get("last_hours")
+        if cycle in (None, ""):
+            cycle = row.get("last_date")
+        elif isinstance(cycle, float):
+            cycle = f"{cycle:g}"
+    else:
+        cycle = row.get("last_date")
     if cycle in (None, ""):
         cycle = "never"
     return f"{kind}:{_norm_unit(unit)}:{cycle}"[:120]
+
+
+def _no_data(kind: str, row: dict) -> bool:
+    """¿La fila del board no tiene con qué decidir el vencimiento? PM/DOT:
+    to_due None. Reefer: ni horas ni fecha (to_due y to_due_days None) — con
+    el horómetro caído igual vence por fecha."""
+    if kind == "reefer":
+        return row.get("to_due") is None and row.get("to_due_days") is None
+    return row.get("to_due") is None
 
 
 def _nodata_keys(kind: str, board: dict) -> set[str]:
@@ -528,9 +564,24 @@ def _nodata_keys(kind: str, board: dict) -> set[str]:
     out: set[str] = set()
     for row in board.get("units") or []:
         unit = (row.get("unit") or "").strip()
-        if unit and row.get("to_due") is None:
+        if unit and _no_data(kind, row):
             out.add(_due_key(kind, unit, row))
     return out
+
+
+def _reefer_due(row: dict, board: dict) -> tuple[bool, bool]:
+    """(¿vence o por vencer?, ¿vencido?) de una fila del board del reefer
+    con los umbrales del board (horas Y días: lo que llegue primero). Igual
+    que PM/DOT, se decide con to_due + umbrales y no con row['status'] (el
+    estado de operaciones lo pisa)."""
+    w_h = board.get("upcoming_hours") or 0
+    w_d = board.get("upcoming_days") or 0
+    to_h, to_d = row.get("to_due"), row.get("to_due_days")
+    overdue = ((to_h is not None and to_h < 0)
+               or (to_d is not None and to_d < 0))
+    due = (overdue or (to_h is not None and to_h <= w_h)
+           or (to_d is not None and to_d <= w_d))
+    return due, overdue
 
 
 def _due_specs(kind: str, board: dict, companies: dict[str, str],
@@ -542,11 +593,16 @@ def _due_specs(kind: str, board: dict, companies: dict[str, str],
     for row in board.get("units") or []:
         unit = (row.get("unit") or "").strip()
         to_due = row.get("to_due")
-        if not unit or to_due is None:          # never / no_meter: sin dato
+        if not unit or _no_data(kind, row):     # never / no_meter: sin dato
             continue
-        overdue = to_due < 0
-        if not overdue and to_due > window:     # on_track
-            continue
+        if kind == "reefer":
+            due, overdue = _reefer_due(row, board)
+            if not due:                         # on_track
+                continue
+        else:
+            overdue = to_due < 0
+            if not overdue and to_due > window:     # on_track
+                continue
         last_miles = row.get("last_miles")
         last_date = row.get("last_date")
         key = _due_key(kind, unit, row)
@@ -561,6 +617,32 @@ def _due_specs(kind: str, board: dict, companies: dict[str, str],
                 detail += f" on {last_date})" if last_date else ")"
             meta = {"kind": "miles", "to_due": to_due,
                     "next_due_miles": nxt}
+        elif kind == "reefer":
+            # v2.22: PM del reefer por HORAS (horómetro propio, jamás el
+            # odómetro) con la fecha de respaldo: vence lo que llegue primero.
+            nh = row.get("next_due_hours")
+            nd = row.get("next_due_date")
+            detail = maint.CAMPAIGNS["reefer"]["label"]
+            if nh is not None and nd:
+                detail += f" — next due at {nh:,.0f} hrs or {nd}"
+            elif nd:
+                detail += f" — due {nd}"
+            last_h = row.get("last_hours")
+            if last_h is not None:
+                detail += f" (last at {last_h:,.0f} hrs"
+                detail += f" on {last_date})" if last_date else ")"
+            elif last_date:
+                detail += f" (last {last_date})"
+            if row.get("meter_missing"):
+                detail += " — no engine-hours reading"
+            meta = {"kind": "hours", "to_due": to_due,
+                    "to_due_days": row.get("to_due_days"),
+                    "due_by": row.get("due_by"),
+                    "next_due_hours": nh, "next_due_date": nd,
+                    "current_hours": row.get("current_hours"),
+                    "current_hours_date": row.get("current_hours_date"),
+                    "last_hours": last_h,
+                    "meter_missing": bool(row.get("meter_missing"))}
         else:
             nxt = row.get("next_due_date")
             detail = maint.CAMPAIGNS["dot"]["label"]
@@ -585,7 +667,7 @@ def _due_specs(kind: str, board: dict, companies: dict[str, str],
             "source": kind, "unit": name, "canonical": canonical,
             "company": companies.get(_norm_unit(unit), "")[:64],
             "title": _TITLES[kind], "detail": detail,
-            "priority": (("urgent" if kind == "pm" else "emergency")
+            "priority": (("emergency" if kind == "dot" else "urgent")
                          if overdue else "normal"),
             "overdue": overdue, "meta": meta,
         }
@@ -800,7 +882,7 @@ async def sync(force: bool = False) -> dict:
             if feed.get("available") and not feed.get("error"):
                 handled.add("defect")
         companies = _company_map(feed)
-        for kind in ("pm", "dot"):
+        for kind in DUE_SOURCES:
             try:
                 board = await maint.board(kind)
             except Exception as exc:  # noqa: BLE001 — se salta esa fuente
@@ -1181,12 +1263,22 @@ def _create_wo_from(session, rows: list[ServiceRequest], title: str = "",
         worst = max(rows, key=lambda r: _PRIO_RANK.get(r.priority, 1))
         priority = _WO_PRIORITY.get(worst.priority, "normal")
     sources = {r.source for r in rows}
-    campaign = "pm" if "pm" in sources else ("dot" if "dot" in sources
-                                              else "")
+    # Campaña de la WO: la primera fuente de vencimiento (pm > dot > reefer).
+    # Al facturar, las DEMÁS campañas de vencimiento ligadas también se
+    # registran (workorders.update_wo, hook de campañas).
+    campaign = next((s for s in DUE_SOURCES if s in sources), "")
     mileage = None
     for r in rows:
         if r.source == "pm" and _meta(r).get("current_miles") is not None:
             mileage = _meta(r)["current_miles"]
+            break
+    # v2.22: el horómetro del request del reefer viaja a la WO (alimenta el
+    # registro del PM del reefer al facturar).
+    engine_hours = None
+    for r in rows:
+        if (r.source == "reefer"
+                and _meta(r).get("current_hours") is not None):
+            engine_hours = _meta(r)["current_hours"]
             break
     company = next((r.company for r in rows if r.company), "")
 
@@ -1194,7 +1286,8 @@ def _create_wo_from(session, rows: list[ServiceRequest], title: str = "",
         session, rows[0].unit, title,
         complaint="\n".join(_bullet(r) for r in rows),
         company=company, mechanic=mechanic, priority=priority,
-        source="request", mileage=mileage, campaign=campaign)
+        source="request", mileage=mileage, campaign=campaign,
+        engine_hours=engine_hours)
     now = datetime.now()
     for r in rows:
         r.status = "on_wo"
@@ -1264,7 +1357,7 @@ def add_to_wo(req_id: int, wo_id: int) -> dict | None:
         line = _bullet(r)
         wo.complaint = (f"{wo.complaint.rstrip()}\n{line}"
                         if (wo.complaint or "").strip() else line)
-        if not wo.campaign and r.source in ("pm", "dot"):
+        if not wo.campaign and r.source in DUE_SOURCES:
             wo.campaign = r.source
             if r.source == "pm":
                 wo.is_pm = True
@@ -1274,6 +1367,11 @@ def add_to_wo(req_id: int, wo_id: int) -> dict | None:
             cur = _meta(r).get("current_miles")
             if cur is not None:
                 wo.mileage = int(cur)
+        # Ídem el horómetro del reefer (v2.22).
+        if r.source == "reefer" and wo.engine_hours is None:
+            cur = _meta(r).get("current_hours")
+            if cur is not None:
+                wo.engine_hours = float(cur)
         now = datetime.now()
         wo.updated_at = now
         r.status = "on_wo"

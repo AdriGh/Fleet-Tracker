@@ -67,13 +67,70 @@ def _clean(name: str) -> str:
 
 
 def _dict(t: dict) -> dict:
+    rate = t.get("hourly_rate")
     return {
         "id": int(t.get("id") or 0),
         "name": t.get("name") or "",
         "active": bool(t.get("active", True)),
         "user_id": t.get("user_id"),
         "created_at": t.get("created_at") or "",
+        # v2.22 (Resources → Employees): ficha del empleado. phone/email son
+        # PII (la ruta los enmascara sin pii.view).
+        "role": t.get("role") or "",
+        "phone": t.get("phone") or "",
+        "email": t.get("email") or "",
+        "hourly_rate": (float(rate) if rate not in (None, "") else None),
+        "hire_date": t.get("hire_date") or "",
+        "notes": t.get("notes") or "",
     }
+
+
+# v2.22: campos de la ficha del empleado (además de name/active/user_id).
+PROFILE_FIELDS = ("role", "phone", "email", "hourly_rate", "hire_date",
+                  "notes")
+_PROFILE_CAPS = {"role": 60, "phone": 40, "email": 120, "notes": 1000}
+
+
+def _clean_profile(fields: dict) -> dict:
+    """Valida/limpia los campos de ficha presentes en `fields`. Los
+    valores enmascarados (el cliente devolvió "•••" tal cual) se ignoran.
+    ValueError con mensaje en inglés si algo no valida."""
+    from . import pii                    # import diferido (orden de carga)
+    out: dict = {}
+    for f in PROFILE_FIELDS:
+        if f not in fields or fields[f] is None:
+            continue
+        raw = fields[f]
+        if f in ("phone", "email") and pii.is_masked(raw):
+            continue
+        if f == "hourly_rate":
+            if raw == "":
+                out[f] = None
+                continue
+            try:
+                v = float(raw)
+            except (TypeError, ValueError):
+                raise ValueError("hourly_rate must be a number")
+            if v != v or v < 0 or v > 10_000:
+                raise ValueError("hourly_rate must be between 0 and 10000")
+            out[f] = round(v, 2)
+        elif f == "hire_date":
+            v = str(raw).strip()[:10]
+            if v:
+                try:
+                    datetime.strptime(v, "%Y-%m-%d")
+                except ValueError:
+                    raise ValueError("hire_date must be a date (YYYY-MM-DD)")
+            out[f] = v
+        else:
+            v = str(raw).strip()
+            if f != "notes":
+                v = " ".join(v.split())
+            v = v[:_PROFILE_CAPS[f]]
+            if f == "email" and v and "@" not in v:
+                raise ValueError("invalid email")
+            out[f] = v
+    return out
 
 
 def _next_id(rows: list[dict]) -> int:
@@ -209,16 +266,21 @@ def get(tech_id: int) -> dict | None:
     return None
 
 
-def add(name: str, user_id: int | None = None) -> dict:
+def add(name: str, user_id: int | None = None,
+        profile: dict | None = None) -> dict:
+    """Alta. v2.22: `profile` = campos de ficha opcionales (role, phone,
+    email, hourly_rate, hire_date, notes)."""
     name = _clean(name)
     if not name:
         raise ValueError("technician name is required")
     uid = _clean_user_id(user_id)
+    extra = _clean_profile(profile or {})
 
     def _fn(rows: list[dict]) -> dict:
         if _find(rows, name) is not None:
             raise ValueError("technician already exists")
         t = _new(rows, name, uid)
+        t.update(extra)
         rows.append(t)
         return _dict(t)
     return _mutate(_fn)
@@ -258,11 +320,13 @@ def ensure(name: str) -> dict | None:
 
 
 def update(tech_id: int, fields: dict) -> dict | None:
-    """Edita name/active/user_id. Renombrar actualiza en cascada el
+    """Edita name/active/user_id (+ v2.22: la ficha role/phone/email/
+    hourly_rate/hire_date/notes). Renombrar actualiza en cascada el
     `mechanic` de las WOs que llevan el nombre viejo con cualquier grafía
     (org-scoped)."""
     uid_given = "user_id" in fields
     uid = _clean_user_id(fields["user_id"]) if uid_given else None
+    extra = _clean_profile(fields)
 
     def _fn(rows: list[dict]):
         t = next((r for r in rows if int(r.get("id") or 0) == int(tech_id)),
@@ -282,6 +346,7 @@ def update(tech_id: int, fields: dict) -> dict | None:
             t["active"] = bool(fields["active"])
         if uid_given:
             t["user_id"] = uid
+        t.update(extra)
         return old_name, dict(t)
 
     res = _mutate(_fn)
@@ -319,3 +384,81 @@ def _rename_in_wos(old_name: str, new_name: str) -> int:
 def deactivate(tech_id: int) -> dict | None:
     """Baja SUAVE: active=False. Nunca se borra del roster."""
     return update(tech_id, {"active": False})
+
+
+# ----- v2.22: Employees (Resources) — ficha + carga de trabajo ---------------
+
+def mask(t: dict) -> dict:
+    """Técnico con phone/email enmascarados (sin pii.view)."""
+    from . import pii                    # import diferido (orden de carga)
+    out = dict(t)
+    out["phone"] = pii.mask_phone(out.get("phone", ""))
+    out["email"] = pii.mask_email(out.get("email", ""))
+    return out
+
+
+_PROFILE_WO_LIMIT = 50
+
+
+def profile(tech_id: int) -> dict | None:
+    """Perfil del empleado: la ficha + sus WOs (asignadas por NOMBRE, misma
+    clave case/espacios-insensitive que el roster; las 50 más nuevas) +
+    horas de labor de los últimos 30 días (Σ qty de las líneas de labor de
+    sus WOs con fecha efectiva en la ventana, TZ de la org).
+    `labor_cost_30d` = horas × hourly_rate (costo del empleado; 0 sin
+    tarifa); `labor_billed_30d` = Σ monto de esas líneas de labor (lo que
+    se cargó en las WOs)."""
+    from datetime import timedelta
+    from sqlalchemy.orm import selectinload
+    from . import org_config, workorders  # import diferido (orden de carga)
+    t = get(tech_id)
+    if t is None:
+        return None
+    key = _key(t["name"])
+    compact = key.replace(" ", "")
+    cutoff = org_config.org_today() - timedelta(days=30)
+    with db.SessionLocal() as session:
+        wos = session.scalars(
+            select(db.WorkOrder).options(selectinload(db.WorkOrder.lines))
+            .where(func.lower(func.replace(db.WorkOrder.mechanic, " ", ""))
+                   == compact)
+            .order_by(db.WorkOrder.id.desc())).all()
+        wos = [w for w in wos if _key(w.mechanic) == key]
+        hours_30 = billed_30 = 0.0
+        open_wos = 0
+        rows: list[dict] = []
+        for w in wos:
+            labor = [ln for ln in w.lines if ln.kind == "labor"]
+            hours = sum(float(ln.qty or 0.0) for ln in labor)
+            eff = workorders.effective_date(w)
+            if eff is not None and eff >= cutoff:
+                hours_30 += hours
+                billed_30 += sum(float(ln.qty or 0.0) *
+                                 float(ln.unit_cost or 0.0) for ln in labor)
+            if w.status not in ("completed", "invoiced"):
+                open_wos += 1
+            if len(rows) < _PROFILE_WO_LIMIT:
+                rows.append({
+                    "id": w.id,
+                    "display_no": workorders._display_no(w),
+                    "unit": w.unit,
+                    "title": w.title,
+                    "status": w.status,
+                    "wo_type": w.wo_type or "inside",
+                    "created_at": (w.created_at.isoformat()
+                                   if w.created_at else None),
+                    "closed_at": (w.closed_at.isoformat()
+                                  if w.closed_at else None),
+                    "effective_date": eff.isoformat() if eff else None,
+                    "labor_hours": round(hours, 2),
+                })
+    rate = float(t.get("hourly_rate") or 0.0)
+    return {
+        "technician": t,
+        "work_orders": rows,
+        "wo_count": len(wos),
+        "open_wos": open_wos,
+        "labor_hours_30d": round(hours_30, 2),
+        "labor_cost_30d": round(hours_30 * rate, 2),
+        "labor_billed_30d": round(billed_30, 2),
+    }

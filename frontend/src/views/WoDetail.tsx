@@ -21,12 +21,16 @@ import {
   addWoLine, createPartsRequest,
   deleteWoInvoiceFile, deleteWoLine,
   deleteWorkOrder, downloadWoInvoiceFile, fetchWoInvoiceThumbUrl,
-  getOrg, getWorkOrder, listFleet, listParts,
+  getCustomer, getOrg, getWorkOrder, listFleet, listParts,
   patchWorkOrder, sendWoInvoice, smartFillWo, unlinkRequest,
   uploadWoInvoiceFile, viewWoInvoiceFile,
   type EvidencePhoto, type NotifyChannel, type Part, type SmartFillResult,
+  type WoLine, type WoPaymentStatus,
   type WorkOrder, type WoPriority, type WoStatus,
 } from '../api'
+import BillToField from '../components/BillToField'
+import { isMasked, TERMS_LABEL } from '../customers'
+import { useShell } from '../shell'
 import EvidenceGallery, {
   useEvidenceList, useEvidencePhotoUrl,
 } from '../components/EvidenceGallery'
@@ -42,9 +46,9 @@ import WorkOrderInvoice from '../components/WorkOrderInvoice'
 import { CreatePoModal } from './PurchaseOrdersPage'
 import {
   afterStatusChange, bestAlternative, CAMPAIGN_OPTS, dateOf, findPart,
-  invalidateWoLists, mergeWoDetail, money, parseReeferFault, PIPELINE,
-  PRIORITY_META, reachesCompleted, SR_SOURCE_LABEL, stampOf, STATUS_META,
-  statusPatch, woTimeline,
+  invalidateWoLists, mergeWoDetail, money, parseReeferFault, partUnitCost,
+  PIPELINE, PRIORITY_META, reachesCompleted, SR_SOURCE_LABEL, stampOf,
+  STATUS_META, statusPatch, woTimeline,
 } from './woShared'
 
 // Datalist compartido de part numbers (el option muestra la descripción).
@@ -130,7 +134,7 @@ function WoStockBanner({ part, alt, need, onSwap, onBought, onRequest }: {
           </span>
         </span>
         <span className="wsb-price">
-          <span className="mono">{money(part.cost)}</span>
+          <span className="mono">{money(partUnitCost(part))}</span>
           <span className="wsb-out">OUT</span>
         </span>
       </div>
@@ -152,7 +156,7 @@ function WoStockBanner({ part, alt, need, onSwap, onBought, onRequest }: {
         <div className="wsb-tiles">
           <div className="wsb-tile">
             <span className="wsb-tile-label">Order new</span>
-            <span className="wsb-tile-price mono">{money(part.cost)}</span>
+            <span className="wsb-tile-price mono">{money(partUnitCost(part))}</span>
             <span className="wsb-tile-meta mono">
               {part.vendor_name || 'vendor'} · restock
             </span>
@@ -163,7 +167,7 @@ function WoStockBanner({ part, alt, need, onSwap, onBought, onRequest }: {
           {alt ? (
             <div className="wsb-tile is-alt">
               <span className="wsb-tile-label ok">In stock now</span>
-              <span className="wsb-tile-price mono ok">{money(alt.cost)}</span>
+              <span className="wsb-tile-price mono ok">{money(partUnitCost(alt))}</span>
               <span className="wsb-tile-meta mono">
                 {alt.part_number} · {alt.on_hand} on hand
               </span>
@@ -250,6 +254,20 @@ export function WoDetail({
   const laborRate = orgQ.data?.labor_rate ?? 0
   const catalog = partsQ.data?.parts ?? []
   const org = orgQ.data
+  // v2.22 [C]: cliente facturado (Bill to) — markups, términos y contacto de
+  // facturación para el documento y el email.
+  const custId = wo?.customer_id ?? null
+  const custQ = useQuery({
+    queryKey: ['customer', custId],
+    queryFn: () => getCustomer(custId!),
+    enabled: custId != null,
+    retry: false,
+  })
+  const custProfile = custId != null ? custQ.data : undefined
+  const { navigate } = useShell()
+  // "Customer" elegido en el switch pero todavía sin cliente (muestra el
+  // picker sin tocar la WO hasta elegir).
+  const [billPick, setBillPick] = useState(false)
   // Datos de la unidad (VIN/año/marca/modelo) para el documento y la
   // cabecera, de la caché de /fleet (no se le pega a Samsara).
   const unitInfo = useMemo(
@@ -312,18 +330,30 @@ export function WoDetail({
     return () => { alive = false; if (url) URL.revokeObjectURL(url) }
   }, [wo?.id, wo?.has_invoice_file, wo?.invoice_file_name])
 
-  // Prefill del destinatario con el email de Bill-To de la empresa.
-  useEffect(() => {
-    if (wo && org) setToEmail(org.billing?.[wo.company]?.email ?? '')
-  }, [wo?.id, org])
+  // Prefill del destinatario: v2.22 el contacto de facturación del cliente
+  // (Bill to), si no el email del cliente; sin cliente, el Bill-To de la
+  // empresa (org billing). Un email enmascarado (sin pii.view) no se usa.
+  // Se calcula en el render y se copia al campo al ABRIR el panel de envío
+  // (sin efecto que sincronice estado).
+  const defaultRecipient = (() => {
+    if (!wo) return ''
+    if (wo.customer_id != null) {
+      if (!custProfile) return ''
+      const billing = custProfile.contacts.find((c) => c.is_billing && c.email)
+      const e = billing?.email || custProfile.customer?.email || ''
+      return isMasked(e) ? '' : e
+    }
+    return org?.billing?.[wo.company]?.email ?? ''
+  })()
 
-  // Elegir un part# del catálogo autollena descripción + costo.
+  // Elegir un part# del catálogo autollena descripción + costo (v2.22:
+  // promedio ponderado real si existe; si no, el costo de catálogo).
   function pickPart(pn: string) {
     setLinePart(pn)
     const hit = findPart(catalog, pn)
     if (hit) {
       if (!lineDesc.trim()) setLineDesc(hit.description)
-      setLineCost(String(hit.cost))
+      setLineCost(String(partUnitCost(hit)))
     }
   }
 
@@ -410,7 +440,7 @@ export function WoDetail({
       await deleteWoLine(wo.id, line.id)
       const updated = await addWoLine(wo.id, {
         kind: 'part', description: alt.description || alt.part_number,
-        qty: line.qty || 1, unit_cost: alt.cost || 0,
+        qty: line.qty || 1, unit_cost: partUnitCost(alt),
         part_number: alt.part_number,
       })
       refreshWo(updated)
@@ -425,6 +455,19 @@ export function WoDetail({
     if (!wo) return
     try {
       refreshWo(await patchWorkOrder(wo.id, patch))
+    } catch (e) {
+      notifyErr('Could not save', e)
+    }
+  }
+
+  // v2.22 [C]: Bill to / estado de cobro. Cambian saldos y WOs del cliente.
+  async function saveBilling(patch: Partial<WorkOrder>, ok?: string) {
+    if (!wo) return
+    try {
+      refreshWo(await patchWorkOrder(wo.id, patch))
+      qc.invalidateQueries({ queryKey: ['customers'] })
+      qc.invalidateQueries({ queryKey: ['customer'] })
+      if (ok) notifyOk(ok)
     } catch (e) {
       notifyErr('Could not save', e)
     }
@@ -608,6 +651,33 @@ export function WoDetail({
   const laborTotal = (wo.lines ?? []).filter((l) => l.kind === 'labor')
     .reduce((s, l) => s + l.total, 0)
   const locked = wo.status === 'invoiced'
+  // El horómetro aplica si la WO es del PM del reefer O lleva ligado un
+  // request "Reefer PM due" (p.ej. DOT + Reefer PM del mismo trailer en una
+  // WO con campaña 'dot': al facturar igual se registra el PM del reefer).
+  const tracksHours = wo.campaign === 'reefer'
+    || (wo.service_requests ?? []).some((r) => r.source === 'reefer')
+
+  // v2.22 [C]: precio al cliente. unit_price = snapshot congelado al
+  // facturar; sin snapshot, costo × (1 + markup vigente del cliente).
+  const billed = wo.customer_id != null
+  const cust = custProfile?.customer
+  const markupOf = (l: WoLine) => (!cust ? 0
+    : (l.kind === 'part' ? cust.parts_markup_pct : cust.labor_markup_pct) || 0)
+  const priceOf = (l: WoLine) =>
+    l.unit_price ?? l.unit_cost * (1 + markupOf(l) / 100)
+  const r2 = (n: number) => Math.round(n * 100) / 100
+  const partsPrice = r2((wo.lines ?? []).filter((l) => l.kind === 'part')
+    .reduce((s, l) => s + priceOf(l) * l.qty, 0))
+  const laborPrice = r2((wo.lines ?? []).filter((l) => l.kind === 'labor')
+    .reduce((s, l) => s + priceOf(l) * l.qty, 0))
+  const billableTotal = wo.billable_total ?? r2(partsPrice + laborPrice)
+  // Impuesto del cliente sobre las partes (tasa congelada al facturar).
+  const taxPct = billed ? (wo.tax_pct ?? 0) : 0
+  const billableTax = wo.billable_tax ?? r2(partsPrice * taxPct / 100)
+  const amountDue = wo.billable_due ?? r2(billableTotal + billableTax)
+  const snapshotted = (wo.lines ?? []).some((l) => l.unit_price != null)
+  const payStatus: WoPaymentStatus = wo.payment_status ?? 'unpaid'
+  const billMode = billed || billPick ? 'customer' : 'self'
 
   // Bloque Smart Fill (Parts & Labor e Invoice): importar un archivo nuevo
   // o re-leer el adjunto. Oculto en órdenes facturadas.
@@ -805,6 +875,42 @@ export function WoDetail({
               {/* v2.21: inside (técnico) / outside (vendor). El switch y el
                   campo de asignación viven juntos (WoTypeField). */}
               <WoTypeField wo={wo} onSave={saveField} />
+              {/* v2.22 [C]: a quién se factura (Self = flota propia). Una
+                  WO facturada ya congeló sus precios: no se cambia. */}
+              <BillToField
+                mode={billMode}
+                customer={billed ? { id: wo.customer_id!,
+                  name: wo.customer_name || cust?.name || '' } : null}
+                disabled={locked}
+                onMode={(m) => {
+                  if (m === 'customer') { setBillPick(true); return }
+                  setBillPick(false)
+                  if (billed) saveBilling({ customer_id: 0 }, 'Billed to Self')
+                }}
+                onCustomer={(c) => {
+                  if (c) {
+                    setBillPick(false)
+                    if (c.id !== wo.customer_id) {
+                      saveBilling({ customer_id: c.id }, `Billed to ${c.name}`)
+                    }
+                  } else if (billed) {
+                    setBillPick(true)
+                    saveBilling({ customer_id: 0 })
+                  }
+                }}
+                hint={locked && billed
+                  ? 'Invoiced — prices are locked with this customer\'s markup'
+                  : billed && cust
+                    ? `Markup: parts ${cust.parts_markup_pct || 0}% · labor ${cust.labor_markup_pct || 0}%`
+                      + (cust.terms ? ` · ${TERMS_LABEL[cust.terms] ?? cust.terms}` : '')
+                    : undefined} />
+              {billed && (
+                <button type="button" className="link-btn wod-cust-link"
+                  onClick={() => navigate('customers',
+                    { customer: wo.customer_id! })}>
+                  Open {wo.customer_name || cust?.name || 'customer'} profile →
+                </button>
+              )}
               <div className="wo-meta-row">
                 <label className="ud-field">
                   <span>Priority</span>
@@ -849,6 +955,39 @@ export function WoDetail({
                     }} />
                 </label>
               </div>
+              {/* v2.22 [B]: horómetro del reefer al hacer el PM. Al facturar
+                  la WO queda como último servicio + lectura del horómetro
+                  (nunca el odómetro). */}
+              {tracksHours && (
+                <label className="ud-field wo-pm-miles">
+                  <span>Reefer engine hours at service</span>
+                  <input className="cell-input" type="number" min={0}
+                    step="0.1"
+                    key={`eh:${wo.id}:${wo.engine_hours ?? ''}`}
+                    defaultValue={wo.engine_hours ?? ''}
+                    placeholder="hour meter reading"
+                    disabled={locked}
+                    onBlur={(e) => {
+                      const raw = e.target.value.trim()
+                      const v = raw === '' ? null : Number(raw)
+                      if (v != null && (!Number.isFinite(v) || v < 0)) return
+                      if (v !== (wo.engine_hours ?? null)) {
+                        // Vaciar = 0: el PATCH ignora los null (0 limpia).
+                        saveField({ engine_hours: v ?? 0 })
+                      }
+                    }} />
+                  {!locked && (
+                    <small className="muted">
+                      {wo.engine_hours == null
+                        ? 'Read it off the hour meter: the Reefer PM is '
+                          + 'recorded with it when invoiced (or with the '
+                          + 'latest meter reading if left empty).'
+                        : 'Recorded as the Reefer PM when invoiced; a newer '
+                          + 'meter reading wins if it is higher.'}
+                    </small>
+                  )}
+                </label>
+              )}
               {/* Antes de completar: viaja con el cambio de estado. Ya
                   completada SIN odómetro (p.ej. movida en el Board): se
                   guarda al salir del campo y registra el PM. */}
@@ -1061,7 +1200,8 @@ export function WoDetail({
                                       part_number: cp.part_number,
                                       description: cp.description || cp.part_number,
                                       qty: ln.qty || 1,
-                                      unit_cost: cp.cost || 0,
+                                      // Reposición: último costo recibido.
+                                      unit_cost: cp.last_cost ?? cp.cost ?? 0,
                                       vendor: cp.vendor_name || '',
                                       source: 'wo',
                                       source_ref: `WO #${wo.id}`,
@@ -1184,6 +1324,108 @@ export function WoDetail({
               )}
             </section>
 
+            {/* v2.22 [C]: facturación al cliente (owner-operator): precio con
+                markup, total facturable y estado de cobro. */}
+            {billed && (
+              <section className="ud-sec wod-bill">
+                <h3>Customer billing</h3>
+                <div className="wod-bill-head">
+                  <span className="wod-bill-to">
+                    <span className="wod-bill-k">Bill to</span>
+                    <button type="button" className="link-btn"
+                      onClick={() => navigate('customers',
+                        { customer: wo.customer_id! })}>
+                      {wo.customer_name || cust?.name || `Customer #${wo.customer_id}`}
+                    </button>
+                    {cust?.terms && (
+                      <span className="wod-bill-terms">
+                        {TERMS_LABEL[cust.terms] ?? cust.terms}
+                      </span>
+                    )}
+                  </span>
+                  <div className="bt-seg wod-pay" role="radiogroup"
+                    aria-label="Payment status"
+                    title={can('wo.invoice') ? undefined
+                      : 'Marking payment is a billing action (needs invoicing permission)'}>
+                    {(['unpaid', 'paid'] as const).map((ps) => (
+                      <label key={ps}
+                        className={`bt-opt ${payStatus === ps ? 'is-on' : ''} ${ps === 'paid' ? 'is-paid' : ''}`}>
+                        <input type="radio" name={`pay-${wo.id}`} value={ps}
+                          checked={payStatus === ps}
+                          // Igual que el backend: marcar el cobro es de
+                          // facturación (wo.invoice), no de maint.edit.
+                          disabled={!can('wo.invoice')}
+                          onChange={() => saveBilling({ payment_status: ps },
+                            ps === 'paid' ? 'Marked as paid' : 'Marked as unpaid')} />
+                        <span>{ps === 'paid' ? 'Paid' : 'Unpaid'}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <table className="wod-bill-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Billed</th>
+                      <th scope="col" className="num">Cost</th>
+                      <th scope="col" className="num">Markup</th>
+                      <th scope="col" className="num">Price</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <th scope="row">Parts</th>
+                      <td className="num mono">{money(partsTotal)}</td>
+                      <td className="num mono">
+                        {snapshotted ? 'locked' : `${cust?.parts_markup_pct ?? 0}%`}
+                      </td>
+                      <td className="num mono">{money(partsPrice)}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Labor</th>
+                      <td className="num mono">{money(laborTotal)}</td>
+                      <td className="num mono">
+                        {snapshotted ? 'locked' : `${cust?.labor_markup_pct ?? 0}%`}
+                      </td>
+                      <td className="num mono">{money(laborPrice)}</td>
+                    </tr>
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <th scope="row">Billable total</th>
+                      <td className="num mono">{money(wo.total)}</td>
+                      <td className="num mono">
+                        +{money(Math.max(0, billableTotal - wo.total))}
+                      </td>
+                      <td className="num mono"><strong>{money(billableTotal)}</strong></td>
+                    </tr>
+                    {billableTax > 0 && (
+                      <>
+                        <tr>
+                          <th scope="row">Tax ({taxPct}% on parts)</th>
+                          <td />
+                          <td />
+                          <td className="num mono">{money(billableTax)}</td>
+                        </tr>
+                        <tr>
+                          <th scope="row">Amount due</th>
+                          <td />
+                          <td />
+                          <td className="num mono"><strong>{money(amountDue)}</strong></td>
+                        </tr>
+                      </>
+                    )}
+                  </tfoot>
+                </table>
+                <p className="ud-muted wod-bill-note">
+                  {snapshotted
+                    ? 'Prices were locked when the order was first invoiced — later markup changes don\'t rewrite this invoice.'
+                    : 'Prices lock with the customer\'s markup the first time this order is invoiced.'}
+                  {payStatus === 'paid' && wo.paid_at
+                    ? ` Paid ${dateOf(wo.paid_at)}.` : ''}
+                </p>
+              </section>
+            )}
+
             <section className="ud-sec">
               <h3>Document</h3>
               {/* H3-C: documento imprimible + envío */}
@@ -1200,7 +1442,13 @@ export function WoDetail({
                 {can('wo.invoice') && (
                   <button
                     className={`btn btn-ghost btn-xs ${sendOpen ? 'is-on' : ''}`}
-                    onClick={() => setSendOpen((o) => !o)}>
+                    aria-expanded={sendOpen}
+                    onClick={() => {
+                      // Al abrir: prefill con el destinatario por defecto
+                      // (contacto de facturación del cliente o Bill-To).
+                      if (!sendOpen) setToEmail(defaultRecipient)
+                      setSendOpen(!sendOpen)
+                    }}>
                     Email / SMS
                   </button>
                 )}
@@ -1430,6 +1678,7 @@ export function WoDetail({
       )}
       {showDoc && org && (
         <WorkOrderInvoice wo={wo} org={org} unit={unitInfo}
+          customer={billed ? custProfile : undefined}
           onClose={() => setShowDoc(false)} />
       )}
     </div>

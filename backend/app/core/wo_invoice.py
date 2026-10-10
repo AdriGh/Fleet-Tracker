@@ -12,7 +12,11 @@ Modo del documento:
 
 Datos:
 - Taller (From)  = org_config.shop()  (un solo taller, decisión del user)
-- Bill-To        = org_config.billing()[empresa de la unidad] o el nombre
+- Bill-To        = v2.22: el CUSTOMER de la WO (customers.bill_to: nombre,
+  contacto de facturación, dirección, teléfono, email, términos); si la WO
+  es de Self, org_config.billing()[empresa de la unidad] o el nombre
+- Tarifas        = precio de venta al customer (snapshot unit_price o costo
+  × markup; `billable_unit_price` del dict); sin customer = el costo
 - Unidad (VIN/año/marca/modelo) = `unit_info` que pasa el frontend desde
   su caché de /api/fleet (evita un fetch lento a Samsara al enviar).
 """
@@ -56,8 +60,35 @@ def _shop_lines(shop: dict, branding: dict) -> list[str]:
                         shop.get("email", "").strip()] if s]
 
 
-def _bill_to_lines(wo: dict, billing: dict) -> list[str]:
-    """Líneas del Bill-To: dirección de la empresa o solo su nombre."""
+def _customer_bill_to(wo: dict) -> dict | None:
+    """Bill-To del CUSTOMER de la WO (v2.22), crudo (server-side), o None
+    si la WO es de Self."""
+    if not wo.get("customer_id"):
+        return None
+    from . import customers               # import diferido (orden de carga)
+    return customers.bill_to(wo["customer_id"])
+
+
+def _bill_to_lines(wo: dict, billing: dict,
+                   cust: dict | None = None) -> list[str]:
+    """Líneas del Bill-To. v2.22: si la WO tiene customer, sus datos (nombre,
+    atención del contacto de facturación, dirección, teléfono, email); si
+    no, la dirección de la empresa (org billing) o solo su nombre."""
+    if cust is None:
+        cust = _customer_bill_to(wo)
+    if cust is not None:
+        city_zip = ", ".join(
+            x for x in [(cust.get("city") or "").strip(),
+                        " ".join(p for p in [(cust.get("state") or "").strip(),
+                                             (cust.get("zip") or "").strip()]
+                                 if p)]
+            if x)
+        attn = (cust.get("contact") or "").strip()
+        return [s for s in [(cust.get("name") or "").strip() or "—",
+                            f"Attn: {attn}" if attn else "",
+                            (cust.get("address") or "").strip(), city_zip,
+                            (cust.get("phone") or "").strip(),
+                            (cust.get("email") or "").strip()] if s]
     company = (wo.get("company") or "").strip()
     addr = billing.get(company) or {}
     name = (addr.get("name") or "").strip() or company or "—"
@@ -86,16 +117,33 @@ def _unit_lines(wo: dict, unit_info: dict) -> list[str]:
     return out
 
 
+def _rate(l: dict) -> float:
+    """Tarifa unitaria del documento: el precio de venta al customer
+    (v2.22: snapshot o costo × markup, `billable_unit_price`); sin customer
+    es el costo tal cual."""
+    p = l.get("billable_unit_price")
+    return float(p if p is not None else l["unit_cost"])
+
+
 def _totals(wo: dict) -> dict:
-    """Subtotales por tipo de línea + total. El total se calcula sobre los
-    subtotales YA redondeados para que parts + labor sumen exactamente el
-    total mostrado (sin descuadres de 1¢ en el documento)."""
+    """Subtotales por tipo de línea + impuesto + total. El total se calcula
+    sobre los subtotales YA redondeados para que parts + labor + tax sumen
+    exactamente el total mostrado (sin descuadres de 1¢ en el documento).
+    Impuesto (v2.22): tasa del customer (congelada al facturar) sobre las
+    partes; sin customer / exento = 0."""
     lines = wo.get("lines") or []
-    parts = round(sum(l["qty"] * l["unit_cost"]
+    parts = round(sum(l["qty"] * _rate(l)
                       for l in lines if l["kind"] == "part"), 2)
-    labor = round(sum(l["qty"] * l["unit_cost"]
+    labor = round(sum(l["qty"] * _rate(l)
                       for l in lines if l["kind"] == "labor"), 2)
-    return {"parts": parts, "labor": labor, "total": round(parts + labor, 2)}
+    pct = float(wo.get("tax_pct") or 0.0) if wo.get("customer_id") else 0.0
+    tax = round(parts * pct / 100.0, 2) if pct > 0 else 0.0
+    return {"parts": parts, "labor": labor, "tax": tax, "tax_pct": pct,
+            "total": round(parts + labor + tax, 2)}
+
+
+def _pct(v: float) -> str:
+    return f"{v:g}%"
 
 
 # --------------------------------------------------------------------------
@@ -116,6 +164,11 @@ def render(wo: dict, unit_info: dict | None = None) -> tuple[str, str, str]:
     shop_name = (shop.get("name") or "").strip() or branding.get("app_name", "")
     totals = _totals(wo)
     subject = f"{shop_name} · {kind.title()} {number} · {wo.get('unit', '')}"
+    # v2.22: Bill-To del customer (si la WO tiene uno) y sus términos de pago
+    # en lugar de los generales del invoice.
+    cust = _customer_bill_to(wo)
+    terms = ((cust or {}).get("terms_label") or inv.get("terms") or "")
+    bill_to = _bill_to_lines(wo, billing, cust)
 
     # ----- Texto plano -----
     tl: list[str] = [f"{shop_name} — {kind}", ""]
@@ -124,22 +177,25 @@ def render(wo: dict, unit_info: dict | None = None) -> tuple[str, str, str]:
            f"Unit: {wo.get('unit', '')}"]
     if wo.get("po_number"):
         tl.append(f"PO #: {wo['po_number']}")
-    if inv.get("terms"):
-        tl.append(f"Terms: {inv['terms']}")
-    tl += ["", "Bill To:"] + _bill_to_lines(wo, billing)
+    if terms:
+        tl.append(f"Terms: {terms}")
+    tl += ["", "Bill To:"] + bill_to
     if wo.get("complaint"):
         tl += ["", "Complaint:", wo["complaint"]]
     tl += ["", "Lines:"]
     for l in (wo.get("lines") or []):
         tag = "Part " if l["kind"] == "part" else "Labor"
         tl.append(f"  {tag}  {l['description']}  "
-                  f"{l['qty']} x {_money(l['unit_cost'])} = "
-                  f"{_money(l['qty'] * l['unit_cost'])}")
+                  f"{l['qty']} x {_money(_rate(l))} = "
+                  f"{_money(l['qty'] * _rate(l))}")
     if not (wo.get("lines") or []):
         tl.append("  (no lines yet)")
     tl += ["", f"Parts:  {_money(totals['parts'])}",
-           f"Labor:  {_money(totals['labor'])}",
-           f"Total:  {_money(totals['total'])}"]
+           f"Labor:  {_money(totals['labor'])}"]
+    if totals["tax"]:
+        tl.append(f"Tax ({_pct(totals['tax_pct'])} on parts):  "
+                  f"{_money(totals['tax'])}")
+    tl.append(f"Total:  {_money(totals['total'])}")
     if inv.get("footer"):
         tl += ["", inv["footer"]]
     text = "\n".join(tl)
@@ -160,10 +216,10 @@ def render(wo: dict, unit_info: dict | None = None) -> tuple[str, str, str]:
                 f'{desc}</td>'
                 f'<td style="padding:7px 8px;border-bottom:1px solid #eee;'
                 f'text-align:right;white-space:nowrap">{l["qty"]:g} &times; '
-                f'{_money(l["unit_cost"])}</td>'
+                f'{_money(_rate(l))}</td>'
                 f'<td style="padding:7px 8px;border-bottom:1px solid #eee;'
                 f'text-align:right;white-space:nowrap">'
-                f'{_money(l["qty"] * l["unit_cost"])}</td>'
+                f'{_money(l["qty"] * _rate(l))}</td>'
                 f'</tr>')
         if not out:
             out.append('<tr><td colspan="4" style="padding:10px 8px;'
@@ -181,7 +237,7 @@ def render(wo: dict, unit_info: dict | None = None) -> tuple[str, str, str]:
     for label, val in [("Date", date), ("Unit", wo.get("unit", "")),
                        ("Shop ref #", wo.get("shop_invoice", "")),
                        ("PO #", wo.get("po_number", "")),
-                       ("Terms", inv.get("terms", "")),
+                       ("Terms", terms),
                        ("Technician", wo.get("mechanic", "")),
                        ("Authorizer", wo.get("authorizer", ""))]:
         if val:
@@ -206,6 +262,13 @@ def render(wo: dict, unit_info: dict | None = None) -> tuple[str, str, str]:
             f'<p style="margin-top:18px;font-size:12px;color:#6b7280;'
             f'white-space:pre-wrap">{_e(inv["footer"])}</p>')
 
+    tax_row = ""
+    if totals["tax"]:
+        tax_row = (f'<tr><td style="padding:3px 8px;color:#6b7280">'
+                   f'Tax ({_e(_pct(totals["tax_pct"]))} on parts)</td>'
+                   f'<td style="padding:3px 8px;text-align:right">'
+                   f'{_money(totals["tax"])}</td></tr>')
+
     html_doc = f"""\
 <div style="max-width:680px;margin:0 auto;font-family:Arial,Helvetica,sans-serif;\
 color:#111827;background:#fff">
@@ -219,7 +282,7 @@ color:{_e(accent)}">{kind}</div>
     </td>
   </tr></table>
   <table style="width:100%;margin-top:20px"><tr>
-    <td style="vertical-align:top;width:55%">{block("Bill To", _bill_to_lines(wo, billing))}</td>
+    <td style="vertical-align:top;width:55%">{block("Bill To", bill_to)}</td>
     <td style="vertical-align:top">{block("Unit", _unit_lines(wo, unit_info))}</td>
   </tr></table>
   <table style="width:100%;margin-top:18px;border-top:1px solid #eee;\
@@ -246,6 +309,7 @@ text-transform:uppercase;text-align:right">Amount</th>
         <td style="padding:3px 8px;text-align:right">{_money(totals['parts'])}</td></tr>
         <tr><td style="padding:3px 8px;color:#6b7280">Labor</td>
         <td style="padding:3px 8px;text-align:right">{_money(totals['labor'])}</td></tr>
+        {tax_row}
         <tr><td style="padding:8px;font-weight:800;border-top:2px solid #111827">\
 Total</td>
         <td style="padding:8px;text-align:right;font-weight:800;\

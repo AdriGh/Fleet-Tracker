@@ -105,6 +105,9 @@ STATE: dict = {
     "feed": {"available": True, "source": "samsara", "defects": []},
     "pm": {"upcoming_miles": 2000, "units": []},
     "dot": {"upcoming_days": 30, "units": []},
+    # v2.22: tablero del PM del reefer (horas + días); vacío salvo en los
+    # tests del reefer (test_meters.py cubre el board real).
+    "reefer": {"upcoming_hours": 150, "upcoming_days": 30, "units": []},
     # Universo de GET /fleet: nombres de unidad. Vacío = flota no disponible
     # (todo se acepta como vino); una Exception => fleet con `error`.
     "fleet": [],
@@ -627,7 +630,7 @@ def test_list_units_summary():
     first = out["units"][0]
     assert first["unit"] == "U-DOT" and first["top_priority"] == "emergency"
     assert first["by_source"] == {"defect": 0, "pm": 0, "dot": 1,
-                                  "manual": 0}
+                                  "reefer": 0, "manual": 0}
     big = next(u for u in out["units"] if u["unit"] == "U-PM-BIG")
     assert big["worst_overdue_miles"] == 3000
     assert big["model"] == "2020 International LT"

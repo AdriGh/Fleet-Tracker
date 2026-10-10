@@ -34,13 +34,16 @@ function hexA(hex: string, a: number): string {
 }
 
 export default function MaintReport({ kind, title, units, scope, onClose }: {
-  kind: 'pm' | 'dot'
+  kind: 'pm' | 'dot' | 'reefer'
   title: string
   units: MaintRow[]
   scope: string          // 'All terminals' o el label de la terminal filtrada
   onClose: () => void
 }) {
-  const noun = kind === 'pm' ? 'PM' : 'DOT'
+  const noun = kind === 'pm' ? 'PM' : kind === 'reefer' ? 'Reefer PM' : 'DOT'
+  // v2.22: el reefer vence por HORAS de motor (horómetro propio) o por la
+  // fecha de respaldo, lo que llegue primero.
+  const hours = kind === 'reefer'
   const generated = useMemo(() => new Date().toLocaleString('en-US', {
     year: 'numeric', month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit',
@@ -124,7 +127,8 @@ export default function MaintReport({ kind, title, units, scope, onClose }: {
             })}
           </div>
           <div className="mr-donut">
-            <PieChart data={pieData} size={172} centerUnit="trucks" />
+            <PieChart data={pieData} size={172}
+              centerUnit={hours ? 'units' : 'trucks'} />
           </div>
         </section>
 
@@ -142,10 +146,12 @@ export default function MaintReport({ kind, title, units, scope, onClose }: {
               <th className="num">Current meter</th>
               <th className="num">Last {noun}</th>
               <th className="num">
-                {kind === 'pm' ? 'Next due (mi)' : 'Next due'}
+                {kind === 'pm' ? 'Next due (mi)'
+                  : hours ? 'Next due (hrs · date)' : 'Next due'}
               </th>
               <th className="num">
-                {kind === 'pm' ? 'Miles to due' : 'Days to due'}
+                {kind === 'pm' ? 'Miles to due'
+                  : hours ? 'To due' : 'Days to due'}
               </th>
               <th>Status</th>
             </tr>
@@ -153,7 +159,11 @@ export default function MaintReport({ kind, title, units, scope, onClose }: {
           <tbody>
             {sorted.map((u) => {
               const sm = STATUS_META[u.status] ?? STATUS_META.never
-              const neg = u.to_due != null && u.to_due < 0
+              // Reefer: horas si hay horómetro (y vencen primero); si no, días.
+              const byDays = hours
+                && (u.to_due == null || u.due_by === 'days')
+              const due = byDays ? (u.to_due_days ?? null) : u.to_due
+              const neg = due != null && due < 0
               return (
                 <tr key={u.unit} className="mr-row"
                   style={{ background: hexA(sm.color, 0.06) }}>
@@ -162,16 +172,27 @@ export default function MaintReport({ kind, title, units, scope, onClose }: {
                     {u.model && <span className="mr-model">{u.model}</span>}
                   </td>
                   <td>{u.driver || '—'}</td>
-                  <td className="num">{fmtMi(u.current_miles) || '—'}</td>
+                  <td className="num">
+                    {hours
+                      ? (u.current_hours != null
+                        ? `${fmtMi(Math.round(u.current_hours))} hrs` : '—')
+                      : (fmtMi(u.current_miles) || '—')}
+                  </td>
                   <td className="num">{fmtDate(u.last_date) || '—'}</td>
                   <td className="num">
                     {kind === 'pm'
                       ? (fmtMi(u.next_due_miles) || '—')
-                      : (fmtDate(u.next_due_date) || '—')}
+                      : hours
+                        ? ([u.next_due_hours != null
+                          ? `${fmtMi(Math.round(u.next_due_hours))} hrs` : '',
+                          fmtDate(u.next_due_date)].filter(Boolean)
+                          .join(' · ') || '—')
+                        : (fmtDate(u.next_due_date) || '—')}
                   </td>
                   <td className={`num ${neg ? 'neg' : ''}`}>
-                    {u.to_due == null ? '—'
-                      : `${neg ? '-' : ''}${fmtMi(Math.abs(u.to_due))}`}
+                    {due == null ? '—'
+                      : `${neg ? '-' : ''}${fmtMi(Math.abs(Math.round(due)))}`
+                        + (hours ? (byDays ? ' days' : ' hrs') : '')}
                   </td>
                   <td>
                     <span className="mr-pill" style={{

@@ -158,6 +158,14 @@ def _build_unit(dev: dict, pos: dict, s: dict) -> dict:
         if dv is not None:
             door = "Open" if dv in (True, 1, "1", "true", "open") else "Closed"
     battery = _num(attrs.get(s["battery_attr"]))
+    # v2.22: horas de motor. El atributo estándar de Traccar `hours` viene en
+    # MILISEGUNDOS (contador acumulado del dispositivo) -> horas. Fuera de
+    # rango = sin dato (no se inventa una lectura).
+    hours_ms = _num(attrs.get("hours"))
+    engine_hours = (round(hours_ms / 3_600_000.0, 1)
+                    if hours_ms is not None and hours_ms > 0 else None)
+    if engine_hours is not None and engine_hours >= 200000:
+        engine_hours = None
 
     # Alarmas por umbral (lo que da el "mínimo estándar"): desvío de temp,
     # sin datos recientes, batería baja.
@@ -192,6 +200,7 @@ def _build_unit(dev: dict, pos: dict, s: dict) -> dict:
         "fuel_pct": battery,         # se reusa la columna para batería del tracker
         "door": door,
         "alarms": alarms,
+        "engine_hours": engine_hours,
         "updated": updated,
         "demo": False,
         "source": "traccar",

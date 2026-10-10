@@ -24,17 +24,21 @@ from ..core import (
     demo_eld, driver_contacts, engine, evidence,
     excel, fleet_inventory, integrations_admin, inventory, local_config,
     lynx, mailer, maint,
-    manual_units, media_host, notify_service, odometer, open_defects,
+    manual_units, media_host, meters, notify_service, odometer,
+    open_defects,
     org_config,
     parts, parts_marketplace, permissions, pm, pois, pretrip, providers,
     purchasing, ratelimit, reefer,
-    reports,
+    reports, report_assistant, report_engine, report_export,
+    report_library, report_registry, report_saved, report_schedules,
     samsara,
     sms_service,
     teams,
     telegram_notify, terminals, thermoking, tms, traccar, tracking,
     setup_status as setup_status_core,
     service_requests, smart_fill, technicians,
+    customers as customers_core, home as home_core, pii,
+    search as search_core,
     unit_photos, unit_settings, unitdocs, vendors as vendors_core,
     vin_decode, warranty,
     wo_invoice, wo_invoices, workorders,
@@ -77,16 +81,13 @@ def _safe_label(text: str) -> str:
 
 
 def _mask_email(e: str) -> str:
-    e = (e or "").strip()
-    if "@" not in e:
-        return "•••" if e else ""
-    name, dom = e.split("@", 1)
-    return (name[:1] + "•••") + "@" + dom
+    # v2.22: una sola implementación del enmascarado (core/pii), compartida
+    # con customers, empleados y la búsqueda global.
+    return pii.mask_email(e)
 
 
 def _mask_phone(p: str) -> str:
-    digits = re.sub(r"\D", "", p or "")
-    return ("•••-" + digits[-4:]) if len(digits) >= 4 else ("•••" if p else "")
+    return pii.mask_phone(p)
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +156,340 @@ async def reports_cpm_refresh():
     snapped = await odometer.snapshot_now()
     return {"backfilled": backfilled + seeded, "snapshot": snapped,
             "coverage": odometer.coverage()}
+
+
+# ---------------------------------------------------------------------------
+# Reports v2.22: biblioteca de sistema, builder, guardados, favoritos,
+# envíos programados, export y asistente de IA ("Ask Rigsmith").
+# ---------------------------------------------------------------------------
+# RBAC (main._scope_for): run / export / assistant / saved / favorites =
+# basta estar autenticado (la ruta exige maint.edit para compartir con la
+# org o tocar reportes 'org' ajenos); schedules = maint.edit. Van ANTES de
+# /reports/{report_id}/download (jobs de DVIR) para no chocar de forma.
+
+class ReportRunIn(BaseModel):
+    spec: dict | None = None
+    ref: str | None = None
+    version: str | None = None
+    overrides: dict | None = None
+
+
+class ReportExportIn(ReportRunIn):
+    format: str = "csv"
+
+
+class SavedReportIn(BaseModel):
+    name: str
+    description: str = ""
+    visibility: str = "mine"
+    spec: dict
+    based_on: str = ""
+
+
+class SavedReportPatch(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    visibility: str | None = None
+    spec: dict | None = None
+
+
+class ReportFavoriteIn(BaseModel):
+    ref: str
+
+
+class ReportScheduleIn(BaseModel):
+    report_ref: str
+    version: str = ""
+    name: str = ""
+    cadence: str = "weekly"
+    weekday: int | None = None
+    day_of_month: int | None = None
+    hour: int = 7
+    recipients: list[str] | str = []
+    format: str = "csv"
+    active: bool = True
+
+
+class ReportSchedulePatch(BaseModel):
+    report_ref: str | None = None
+    version: str | None = None
+    name: str | None = None
+    cadence: str | None = None
+    weekday: int | None = None
+    day_of_month: int | None = None
+    hour: int | None = None
+    recipients: list[str] | str | None = None
+    format: str | None = None
+    active: bool | None = None
+
+
+class ReportAssistantIn(BaseModel):
+    prompt: str
+    spec: dict | None = None
+
+
+def _report_user(request: Request) -> tuple[int | None, bool]:
+    """(user_id, puede_gestionar_reportes_de_la_org = maint.edit)."""
+    user = _user_from(request) if request is not None else None
+    if user is None:
+        return None, not auth.users_exist()
+    return user.get("id"), permissions.has_scope(
+        user.get("org_id"), user["role"], "maint.edit")
+
+
+def _report_spec(body: ReportRunIn, request: Request) -> tuple[dict, dict]:
+    """Spec efectiva de un pedido {spec} o {ref, version, overrides}."""
+    if body.spec is not None:
+        if body.overrides:
+            raise ValueError("overrides only apply to a ref")
+        return body.spec, {}
+    if body.ref:
+        uid, _can = _report_user(request)
+        return report_saved.resolve(body.ref, body.version, body.overrides,
+                                    user_id=uid)
+    raise ValueError("send a report spec or a report ref")
+
+
+@router.get("/reports/library")
+def reports_library(request: Request):
+    """Lista estilo SquareRigger: reportes de sistema (pestaña Rigsmith),
+    guardados visibles (Mine / Org) y favoritos del usuario."""
+    uid, can = _report_user(request)
+    return {"system": report_library.list_system(),
+            "saved": report_saved.list_saved(uid, can),
+            "favorites": report_saved.list_favorites(uid),
+            "categories": list(report_library.CATEGORIES)}
+
+
+@router.get("/reports/sources")
+def reports_sources():
+    """Registro para el builder: fuentes ("One row per …"), campos con
+    tipo/etiqueta/descripción, operadores, agregaciones y presets."""
+    return {
+        "sources": report_registry.catalog(),
+        "ops": [{"key": k, "label": report_engine.OP_LABELS[k]}
+                for k in report_engine.OPS],
+        "aggs": [{"key": k, "label": report_engine.AGG_LABELS[k]}
+                 for k in report_engine.AGGS],
+        "presets": [{"key": k, "label": report_engine.PRESET_LABELS[k]}
+                    for k in report_engine.PRESETS],
+        "chart_types": list(report_engine.CHART_TYPES),
+        "limits": {"max_rows": report_engine.MAX_LIMIT,
+                   "default_rows": report_engine.DEFAULT_LIMIT,
+                   "max_columns": report_engine.MAX_COLUMNS},
+    }
+
+
+@router.get("/reports/system/{slug}")
+def reports_system(slug: str):
+    r = report_library.get_system(slug)
+    if r is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return {**report_library.summary(r), "spec": r["spec"],
+            "versions": r["versions"]}
+
+
+@router.post("/reports/run")
+async def reports_run(body: ReportRunIn, request: Request):
+    """Ejecuta una spec o un ref (sys:<slug> | saved:<id>) con versión y
+    overrides. Lectura: basta estar autenticado. PII enmascarada sin
+    pii.view."""
+    try:
+        spec, meta = _report_spec(body, request)
+        result = await report_engine.run(spec,
+                                         mask_pii=_pii_masked(request))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if meta:
+        result["report"] = meta
+    return result
+
+
+@router.post("/reports/export")
+async def reports_export(body: ReportExportIn, request: Request):
+    """Descarga CSV / XLSX del resultado (mismo pedido que /reports/run)."""
+    try:
+        spec, meta = _report_spec(body, request)
+        result = await report_engine.run(spec,
+                                         mask_pii=_pii_masked(request))
+        title = meta.get("name") or "Report"
+        sub = " · ".join(x for x in (
+            meta.get("version_label"),
+            (result.get("time") or {}).get("label")) if x)
+        data, mime, fname = report_export.render(result, body.format, title,
+                                                 sub)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return Response(content=data, media_type=mime, headers={
+        "Content-Disposition": f'attachment; filename="{fname}"',
+        "Cache-Control": "no-store"})
+
+
+# ----- Guardados (Mine / Org) ---------------------------------------------
+
+@router.post("/reports/saved")
+def reports_saved_create(body: SavedReportIn, request: Request):
+    uid, can = _report_user(request)
+    try:
+        return report_saved.create_saved(body.model_dump(), uid, can)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.get("/reports/saved/{report_id}")
+def reports_saved_get(report_id: int, request: Request):
+    uid, can = _report_user(request)
+    r = report_saved.get_saved(report_id, uid, can)
+    if r is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return r
+
+
+@router.patch("/reports/saved/{report_id}")
+def reports_saved_patch(report_id: int, body: SavedReportPatch,
+                        request: Request):
+    uid, can = _report_user(request)
+    try:
+        r = report_saved.update_saved(
+            report_id, body.model_dump(exclude_unset=True), uid, can)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if r is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return r
+
+
+@router.delete("/reports/saved/{report_id}")
+def reports_saved_delete(report_id: int, request: Request):
+    uid, can = _report_user(request)
+    try:
+        ok = report_saved.delete_saved(report_id, uid, can)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    if ok is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return {"deleted": True}
+
+
+# ----- Favoritos -----------------------------------------------------------
+
+@router.post("/reports/favorites")
+def reports_favorite_add(body: ReportFavoriteIn, request: Request):
+    uid, _can = _report_user(request)
+    try:
+        return {"favorites": report_saved.add_favorite(body.ref, uid)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/reports/favorites")
+def reports_favorite_remove(request: Request, ref: str = "",
+                            body: ReportFavoriteIn | None = None):
+    """Quita una ★. El ref llega en el body o como ?ref= (fetch DELETE)."""
+    uid, _can = _report_user(request)
+    target = (body.ref if body is not None else "") or ref
+    if not target:
+        raise HTTPException(status_code=400, detail="ref is required")
+    return {"favorites": report_saved.remove_favorite(target, uid)}
+
+
+# ----- Envíos programados (maint.edit para escribir) ---------------------
+
+@router.get("/reports/schedules")
+def reports_schedules_list(report_ref: str = ""):
+    return {"schedules": report_schedules.list_schedules(report_ref)}
+
+
+@router.post("/reports/schedules")
+def reports_schedules_create(body: ReportScheduleIn, request: Request):
+    uid, _can = _report_user(request)
+    try:
+        return report_schedules.create_schedule(
+            body.model_dump(), actor=_actor_name(request), user_id=uid)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.patch("/reports/schedules/{schedule_id}")
+def reports_schedules_patch(schedule_id: int, body: ReportSchedulePatch,
+                            request: Request):
+    uid, _can = _report_user(request)
+    try:
+        r = report_schedules.update_schedule(
+            schedule_id, body.model_dump(exclude_unset=True), user_id=uid)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if r is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return r
+
+
+@router.delete("/reports/schedules/{schedule_id}")
+def reports_schedules_delete(schedule_id: int):
+    if not report_schedules.delete_schedule(schedule_id):
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return {"deleted": True}
+
+
+@router.post("/reports/schedules/{schedule_id}/send-now")
+async def reports_schedules_send_now(schedule_id: int):
+    """Envía YA (no mueve el próximo envío). last_status dice si salió de
+    verdad ('sent'), si el mailer está en modo prueba ('dry_run') o el
+    error."""
+    r = await report_schedules.send_now(schedule_id)
+    if r is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return r
+
+
+# ----- Asistente de IA ------------------------------------------------------
+
+@router.get("/reports/assistant/status")
+def reports_assistant_status():
+    """¿Está disponible "Ask Rigsmith"? (clave configurada + interruptor de
+    la org) y los modelos que ofrece Settings."""
+    return report_assistant.status()
+
+
+def _assistant_rate_limit(request: Request) -> None:
+    """Mismo límite por usuario que el escaneo con IA (SEC-3): la clave es
+    compartida y cada pedido cuesta."""
+    uid = (getattr(request.state, "user", None) or {}).get("id") \
+        or ratelimit.client_ip(request)
+    if not ratelimit.hit(f"assist:min:{uid}", ratelimit.SCAN_RATE,
+                         ratelimit.SCAN_RATE_WINDOW_S):
+        raise _too_many(ratelimit.SCAN_RATE_WINDOW_S)
+    if not ratelimit.hit(f"assist:day:{uid}", ratelimit.SCAN_DAILY,
+                         ratelimit.SCAN_DAILY_WINDOW_S):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Daily AI assistant limit reached "
+                   f"({ratelimit.SCAN_DAILY}/day). Try again tomorrow.",
+            headers={"Retry-After": str(ratelimit.SCAN_DAILY_WINDOW_S)})
+
+
+@router.post("/reports/assistant")
+async def reports_assistant(body: ReportAssistantIn, request: Request):
+    """Pedido en lenguaje natural -> {spec, explanation, warnings[]}. La
+    spec ya viene validada por el motor (el frontend la previsualiza con
+    /reports/run). 503 si no hay clave o la org lo apagó."""
+    st = report_assistant.status()
+    if not st["available"]:
+        raise HTTPException(status_code=503, detail=st["message"])
+    _assistant_rate_limit(request)
+    try:
+        return await report_assistant.ask(body.prompt, body.spec,
+                                          mask_pii=_pii_masked(request))
+    except report_assistant.AssistantUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except report_assistant.AssistantError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/reports/{report_id}/download")
@@ -539,6 +874,12 @@ class WorkOrderIn(BaseModel):
     # = vendor_id, obligatorio para outside).
     wo_type: str = "inside"
     vendor_id: int | None = None
+    # v2.22: horómetro de la unidad (reefer) al crear la WO.
+    engine_hours: float | None = None
+    # v2.22 Customers (Bill to): None = el dueño de la unidad (si tiene);
+    # 0 = Self explícito; un id = ese customer.
+    customer_id: int | None = None
+    payment_status: str = "unpaid"      # unpaid | paid
 
 
 class WorkOrderPatch(BaseModel):
@@ -562,6 +903,12 @@ class WorkOrderPatch(BaseModel):
     # queda inside; el PATCH filtra los None, por eso el 0 como centinela).
     wo_type: str | None = None
     vendor_id: int | None = None
+    # v2.22: horómetro (reefer). 0 = borrar (el PATCH filtra los None).
+    engine_hours: float | None = None
+    # v2.22 Customers: 0 = Self (quitar el customer; el PATCH filtra los
+    # None). Bloqueado en una WO facturada. payment_status exige wo.invoice.
+    customer_id: int | None = None
+    payment_status: str | None = None   # unpaid | paid
 
 
 class WoLineIn(BaseModel):
@@ -602,12 +949,25 @@ class VendorMatchIn(BaseModel):
 class TechnicianIn(BaseModel):
     name: str
     user_id: int | None = None
+    # v2.22 (Resources → Employees): ficha opcional del empleado.
+    role: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    hourly_rate: float | None = None
+    hire_date: str | None = None
+    notes: str | None = None
 
 
 class TechnicianPatch(BaseModel):
     name: str | None = None
     active: bool | None = None
     user_id: int | None = None
+    role: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    hourly_rate: float | None = None
+    hire_date: str | None = None
+    notes: str | None = None
 
 
 class WorkOrderSendIn(BaseModel):
@@ -626,18 +986,49 @@ class POLineIn(BaseModel):
     description: str = ""
     qty: float = 1
     unit_cost: float = 0
+    taxable: bool = False               # v2.22: línea gravada
+    dry_run: bool = False               # v2.22: preview del re-prorrateo
 
 
 class PurchaseOrderIn(BaseModel):
     vendor: str = ""
     notes: str = ""
     lines: list[POLineIn] = []          # QuickBuy: crea la PO con líneas
+    vendor_id: int | None = None        # v2.22: si no viene, se resuelve por nombre
 
 
 class PurchaseOrderPatch(BaseModel):
     vendor: str | None = None
     notes: str | None = None
     status: str | None = None           # draft | ordered | received
+    # v2.22: datos de la factura del proveedor (editables a cualquier status).
+    invoice_no: str | None = None
+    invoice_date: str | None = None     # YYYY-MM-DD ('' = sin fecha)
+    tracking_no: str | None = None
+    payment_method: str | None = None   # '' | invoice | paid | card | cash
+    vendor_id: int | None = None
+
+
+class POLinePatch(BaseModel):
+    """v2.22: edición de una línea a CUALQUIER status / fin_status. Con
+    dry_run=true devuelve el preview (revaluations) sin guardar."""
+    unit_cost: float | None = None
+    qty: float | None = None
+    taxable: bool | None = None
+    description: str | None = None
+    dry_run: bool = False
+
+
+class PoAdjustmentIn(BaseModel):
+    kind: str                           # discount|credit|shipping|tax|fee|payment
+    amount: float                       # > 0 (el signo lo da kind)
+    note: str = ""
+    allocate: bool = False              # repartir en landed cost (no payment)
+    dry_run: bool = False
+
+
+class PoVoidIn(BaseModel):
+    reason: str = ""
 
 
 class ReceiptLineIn(BaseModel):
@@ -685,13 +1076,20 @@ def wo_list(status: str = "", unit: str = "", wo_type: str = "",
 
 
 @router.post("/workorders")
-def wo_create(body: WorkOrderIn):
+def wo_create(body: WorkOrderIn, request: Request):
+    # v2.22: crear una WO ya cobrada es una acción de facturación (igual que
+    # el PATCH de payment_status): sin esto un rol con solo maint.edit
+    # (mechanic) creaba WOs 'paid' que nunca entraban al saldo del cliente.
+    if (body.payment_status or "unpaid").strip().lower() != "unpaid":
+        require_scope("wo.invoice", request)
     try:
         return workorders.create_wo(
             body.unit, body.title, body.complaint, body.company,
             body.mechanic, body.priority, body.is_pm, body.source,
             body.mileage, body.service_date, body.campaign,
-            body.shop_invoice, body.parent_id, body.wo_type, body.vendor_id)
+            body.shop_invoice, body.parent_id, body.wo_type, body.vendor_id,
+            engine_hours=body.engine_hours, customer_id=body.customer_id,
+            payment_status=body.payment_status)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -771,7 +1169,8 @@ def wo_delete(wo_id: int):
 async def wo_patch(wo_id: int, body: WorkOrderPatch,
                    request: Request):
     # El middleware ya exigió maint.edit; FACTURAR exige además wo.invoice.
-    if body.status == "invoiced":
+    # v2.22: marcar el cobro (payment_status) también es de facturación.
+    if body.status == "invoiced" or body.payment_status is not None:
         require_scope("wo.invoice", request)
     before = workorders.get_wo(wo_id)
     if before is None:
@@ -1223,6 +1622,17 @@ def vendors_match(body: VendorMatchIn):
     return vendors_core.match(body.name, body.city, body.state)
 
 
+@router.get("/vendors/{vendor_id}/profile")
+def vendors_profile(vendor_id: int):
+    """v2.22 (Resources → Vendors): WOs del vendor (outside work), sus POs
+    (por vendor_id o nombre), sus partes y totales (spend YTD, valor de POs
+    abiertas, total de outside work)."""
+    p = parts.vendor_profile(vendor_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    return p
+
+
 @router.patch("/vendors/{vendor_id}")
 def vendors_update(vendor_id: int, body: dict):
     try:
@@ -1250,23 +1660,57 @@ def vendors_delete(vendor_id: int):
 # org_setting 'technicians' (core/technicians): sin tabla nueva. Escrituras =
 # maint.edit (dispatcher Y mechanic; el dueño no quiere bloqueos acá).
 
+def _pii_masked(request: Request) -> bool:
+    """¿Hay que enmascarar PII para este usuario? (sin `pii.view`). user
+    None = bootstrap (sin usuarios): se muestra, como en /drivers."""
+    if request is None:                  # llamada directa (tests/scripts)
+        return False
+    user = _user_from(request)
+    return user is not None and not permissions.has_scope(
+        user.get("org_id"), user["role"], "pii.view")
+
+
+def _tech_out(t: dict, request: Request) -> dict:
+    """Técnico con phone/email enmascarados sin pii.view (v2.22)."""
+    return technicians.mask(t) if _pii_masked(request) else t
+
+
 @router.get("/technicians")
-def technicians_list(all: int = 0):
+def technicians_list(all: int = 0, request: Request = None):
     """Activos por defecto; ?all=1 incluye los dados de baja."""
-    return {"technicians": technicians.list_technicians(
-        active_only=not all)}
+    masked = _pii_masked(request)
+    rows = technicians.list_technicians(active_only=not all)
+    return {"technicians": [technicians.mask(t) if masked else t
+                            for t in rows],
+            "pii_masked": masked}
 
 
 @router.post("/technicians")
-def technicians_create(body: TechnicianIn):
+def technicians_create(body: TechnicianIn, request: Request = None):
+    profile = body.model_dump(
+        exclude_unset=True, include=set(technicians.PROFILE_FIELDS))
     try:
-        return technicians.add(body.name, body.user_id)
+        t = technicians.add(body.name, body.user_id, profile)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    return _tech_out(t, request)
+
+
+@router.get("/technicians/{tech_id}")
+def technicians_profile(tech_id: int, request: Request = None):
+    """v2.22 (Resources → Employees): ficha + WOs asignadas (por nombre,
+    las 50 más nuevas) + horas/costo de labor de los últimos 30 días."""
+    p = technicians.profile(tech_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Technician not found")
+    p["technician"] = _tech_out(p["technician"], request)
+    p["pii_masked"] = _pii_masked(request)
+    return p
 
 
 @router.patch("/technicians/{tech_id}")
-def technicians_update(tech_id: int, body: TechnicianPatch):
+def technicians_update(tech_id: int, body: TechnicianPatch,
+                       request: Request = None):
     # Solo los campos presentes (user_id null explícito la desliga).
     fields = {k: v for k, v in body.model_dump(exclude_unset=True).items()}
     try:
@@ -1275,16 +1719,260 @@ def technicians_update(tech_id: int, body: TechnicianPatch):
         raise HTTPException(status_code=400, detail=str(exc))
     if t is None:
         raise HTTPException(status_code=404, detail="Technician not found")
-    return t
+    return _tech_out(t, request)
 
 
 @router.delete("/technicians/{tech_id}")
-def technicians_deactivate(tech_id: int):
+def technicians_deactivate(tech_id: int, request: Request = None):
     """Baja SUAVE (active=False): el historial de WOs lo sigue nombrando."""
     t = technicians.deactivate(tech_id)
     if t is None:
         raise HTTPException(status_code=404, detail="Technician not found")
-    return t
+    return _tech_out(t, request)
+
+
+# ----- Customers (v2.22, Resources → Customers) -------------------------------
+# core/customers. GET = lectura (PII enmascarada sin pii.view); escrituras =
+# maint.edit (prefijo /api/customers en _scope_for). Literales (/quick,
+# /owner) ANTES de /{customer_id}.
+
+class CustomerIn(BaseModel):
+    name: str
+    kind: str | None = None             # owner_operator | carrier | external
+    active: bool | None = None
+    since: str | None = None            # YYYY-MM-DD
+    email: str | None = None
+    phone: str | None = None
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    zip: str | None = None
+    terms: str | None = None            # '' cod net7 net15 net30 2_10_net30 prepay
+    labor_markup_pct: float | None = None
+    parts_markup_pct: float | None = None
+    tax_exempt: bool | None = None
+    tax_rate_pct: float | None = None
+    accounting_id: str | None = None
+    driver_name: str | None = None
+    notes: str | None = None
+    tags: str | list[str] | None = None
+
+
+class CustomerPatch(CustomerIn):
+    name: str | None = None
+
+
+class CustomerQuickIn(BaseModel):
+    name: str
+    kind: str | None = None
+    phone: str | None = None
+    email: str | None = None
+
+
+class CustomerContactIn(BaseModel):
+    name: str = ""
+    role: str = ""
+    email: str = ""
+    phone: str = ""
+    is_billing: bool = False
+
+
+class CustomerContactPatch(BaseModel):
+    name: str | None = None
+    role: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    is_billing: bool | None = None
+
+
+class CustomerUnitIn(BaseModel):
+    unit: str
+
+
+def _cust_out(d: dict, request: Request) -> dict:
+    return customers_core.mask_customer(d) if _pii_masked(request) else d
+
+
+def _contact_out(d: dict, request: Request) -> dict:
+    return customers_core.mask_contact(d) if _pii_masked(request) else d
+
+
+async def _fleet_units() -> list[dict]:
+    """Unidades de la flota (Samsara + manuales) para el perfil del
+    customer; best-effort (Samsara caído => el core completa con las
+    manuales)."""
+    try:
+        fleet = await asyncio.wait_for(fleet_inventory.load(), 6.0)
+        return [u for u in fleet.get("units") or [] if u.get("unit")]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+async def _customer_profile(customer_id: int, request: Request) -> dict:
+    units = await _fleet_units()
+    models = {customers_core.norm_unit(u["unit"]): {
+        "model": u.get("model") or "", "make": u.get("make") or "",
+        "year": str(u.get("year") or "")} for u in units}
+    p = customers_core.profile(customer_id, models)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return customers_core.mask_profile(p) if _pii_masked(request) else p
+
+
+def _active_param(active: str) -> bool | None:
+    a = (active or "").strip().lower()
+    if a in ("1", "true", "yes", "active"):
+        return True
+    if a in ("0", "false", "no", "inactive"):
+        return False
+    return None                          # '' | all
+
+
+@router.get("/customers")
+def customers_list(q: str = "", active: str = "", request: Request = None):
+    """{customers:[{id, name, kind, active, city, state, since, units_count,
+    units, open_wos, balance, …}]}. `active` = ''/all | true | false."""
+    return {"customers": customers_core.list_customers(
+        q, _active_param(active)), "pii_masked": _pii_masked(request)}
+
+
+@router.post("/customers")
+def customers_create(body: CustomerIn, request: Request = None):
+    try:
+        c = customers_core.create_customer(body.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _cust_out(c, request)
+
+
+@router.post("/customers/quick")
+def customers_quick(body: CustomerQuickIn, request: Request = None):
+    """Alta rápida desde el picker de la WO. Si ya existe uno con ese nombre
+    lo devuelve (existing: true) en vez de fallar."""
+    try:
+        c = customers_core.quick_create(body.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _cust_out(c, request)
+
+
+@router.get("/customers/owner")
+def customers_owner(unit: str = ""):
+    """Dueño (customer activo) de una unidad: {customer: {id, name} | null}.
+    Lo usa el alta de WO para precargar "Bill to: Customer"."""
+    customers_core.ensure_backfill()
+    return {"unit": unit, "customer": customers_core.owner_of(unit)}
+
+
+@router.get("/customers/{customer_id}")
+async def customers_get(customer_id: int, request: Request = None):
+    """Perfil: customer, contacts, units (con modelo), work_orders,
+    parts_billed, totals {billed_ytd, billed_all, open_balance, wo_count…},
+    bill_to."""
+    customers_core.ensure_backfill()
+    return await _customer_profile(customer_id, request)
+
+
+@router.patch("/customers/{customer_id}")
+def customers_patch(customer_id: int, body: CustomerPatch,
+                    request: Request = None):
+    try:
+        c = customers_core.update_customer(
+            customer_id, body.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if c is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return _cust_out(c, request)
+
+
+@router.delete("/customers/{customer_id}")
+def customers_delete(customer_id: int, request: Request = None):
+    """Suave (active=false) si tiene WOs; si no, se borra del todo."""
+    r = customers_core.delete_customer(customer_id)
+    if r is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    if r.get("customer"):
+        r["customer"] = _cust_out(r["customer"], request)
+    return r
+
+
+@router.post("/customers/{customer_id}/contacts")
+def customers_add_contact(customer_id: int, body: CustomerContactIn,
+                          request: Request = None):
+    try:
+        ct = customers_core.add_contact(customer_id, body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if ct is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return _contact_out(ct, request)
+
+
+@router.patch("/customers/{customer_id}/contacts/{contact_id}")
+def customers_patch_contact(customer_id: int, contact_id: int,
+                            body: CustomerContactPatch,
+                            request: Request = None):
+    try:
+        ct = customers_core.update_contact(
+            customer_id, contact_id, body.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if ct is None:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return _contact_out(ct, request)
+
+
+@router.delete("/customers/{customer_id}/contacts/{contact_id}")
+def customers_delete_contact(customer_id: int, contact_id: int):
+    if not customers_core.delete_contact(customer_id, contact_id):
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return {"ok": True}
+
+
+@router.post("/customers/{customer_id}/units")
+async def customers_set_unit(customer_id: int, body: CustomerUnitIn):
+    """Liga la unidad al customer; si tenía otro dueño la propiedad se MUEVE
+    (un dueño por unidad). Toma la grafía de la flota si la reconoce."""
+    known = [u["unit"] for u in await _fleet_units()]
+    try:
+        r = customers_core.set_unit(customer_id, body.unit, known)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if r is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return r
+
+
+@router.delete("/customers/{customer_id}/units/{unit}")
+def customers_remove_unit(customer_id: int, unit: str):
+    r = customers_core.remove_unit(customer_id, unit)
+    if r is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    if not r:
+        raise HTTPException(status_code=404,
+                            detail="Unit not owned by this customer")
+    return {"ok": True}
+
+
+# ----- Búsqueda global + Home (v2.22, shell) --------------------------------
+# Ambas son GET: el middleware solo exige estar autenticado.
+
+@router.get("/search")
+async def global_search(q: str = "", limit: int = 8,
+                        request: Request = None):
+    """Command palette: {groups:[{key, label, items:[{id, title, subtitle,
+    section, intent}]}]}. q mínimo 2 caracteres; PII enmascarada sin
+    pii.view."""
+    return await search_core.search(q, limit, mask_pii=_pii_masked(request))
+
+
+@router.get("/home/summary")
+async def home_summary(request: Request = None):
+    """KPIs del Home + semana actual vs anterior (TZ de la org) + PMs
+    vencidos/por vencer (maint.due)."""
+    user = _user_from(request) if request is not None else None
+    return await home_core.summary(user)
 
 
 @router.get("/parts")
@@ -1347,11 +2035,12 @@ def parts_movements(part_number: str):
 
 
 @router.post("/parts/adjust")
-def parts_adjust(body: StockAdjustIn):
+def parts_adjust(body: StockAdjustIn, request: Request):
     """Ajuste manual de existencia (reason='manual'). `delta` puede ser
     negativo (merma/corrección) o positivo (conteo físico, hallazgo)."""
     try:
-        return inventory.manual_adjust(body.part_number, body.delta, body.note)
+        return inventory.manual_adjust(body.part_number, body.delta, body.note,
+                                       actor=_actor_name(request))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1383,20 +2072,31 @@ def parts_marketplace_search(q: str = "", limit: int = 20):
 # bajo /api/purchase-orders (cubierto por el prefijo /api/parts? NO — se
 # agrega abajo en _scope_for). GET es lectura (basta estar autenticado).
 
+def _po_call(fn, *args, not_found: str = "PO not found", **kw):
+    """Ejecuta una operación de core/purchasing con el mapeo estándar:
+    ValueError (regla de negocio, mensaje en inglés) -> 400; None -> 404."""
+    try:
+        res = fn(*args, **kw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if res is None:
+        raise HTTPException(status_code=404, detail=not_found)
+    return res
+
+
 @router.get("/purchase-orders")
-def po_list(status: str = ""):
-    return {"purchase_orders": purchasing.list_pos(status),
+def po_list(status: str = "", fin_status: str = ""):
+    return {"purchase_orders": purchasing.list_pos(status,
+                                                   fin_status=fin_status),
             "stats": purchasing.stats()}
 
 
 @router.post("/purchase-orders")
-def po_create(body: PurchaseOrderIn):
-    try:
-        return purchasing.create_po(
-            body.vendor, body.notes,
-            [ln.model_dump() for ln in body.lines])
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+def po_create(body: PurchaseOrderIn, request: Request):
+    return _po_call(
+        purchasing.create_po, body.vendor, body.notes,
+        [ln.model_dump() for ln in body.lines],
+        actor=_actor_name(request), vendor_id=body.vendor_id)
 
 
 @router.get("/purchase-orders/{po_id}")
@@ -1407,60 +2107,111 @@ def po_get(po_id: int):
     return po
 
 
+@router.get("/purchase-orders/{po_id}/audit")
+def po_audit(po_id: int, limit: int = 500):
+    """v2.22: historia completa de la PO (cabecera + líneas + ajustes)."""
+    return _po_call(purchasing.get_po_audit, po_id,
+                    limit=max(1, min(int(limit), 2000)))
+
+
 @router.patch("/purchase-orders/{po_id}")
-def po_patch(po_id: int, body: PurchaseOrderPatch):
-    try:
-        po = purchasing.update_po(
-            po_id, {k: v for k, v in body.model_dump().items()
-                    if v is not None})
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    if po is None:
-        raise HTTPException(status_code=404, detail="PO not found")
-    return po
+def po_patch(po_id: int, body: PurchaseOrderPatch, request: Request):
+    return _po_call(
+        purchasing.update_po, po_id,
+        {k: v for k, v in body.model_dump().items() if v is not None},
+        actor=_actor_name(request))
 
 
 @router.delete("/purchase-orders/{po_id}")
-def po_delete(po_id: int):
-    if not purchasing.delete_po(po_id):
-        raise HTTPException(status_code=404, detail="PO not found")
+def po_delete(po_id: int, request: Request):
+    """Borra una PO SIN nada recibido (con recibido -> 400: unreceive
+    primero). Desliga los parts requests que la originaron."""
+    _po_call(lambda: purchasing.delete_po(po_id, actor=_actor_name(request))
+             or None)
     return {"ok": True}
 
 
 @router.post("/purchase-orders/{po_id}/receive")
-def po_receive(po_id: int, body: ReceivePoIn):
+def po_receive(po_id: int, body: ReceivePoIn, request: Request):
     """Recepción por línea (parcial o total). Repone stock idempotentemente y,
     si se pide y quedan faltantes, auto-genera una PO de backorder. Bajo el
     prefijo /api/purchase-orders => scope maint.edit (igual que el resto)."""
-    try:
-        res = purchasing.receive_po(
-            po_id, [r.model_dump() for r in body.receipts],
-            token=body.token, create_backorder=body.create_backorder)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    if res is None:
-        raise HTTPException(status_code=404, detail="PO not found")
-    return res
+    return _po_call(
+        purchasing.receive_po, po_id,
+        [r.model_dump() for r in body.receipts],
+        token=body.token, create_backorder=body.create_backorder,
+        actor=_actor_name(request))
+
+
+@router.post("/purchase-orders/{po_id}/close")
+def po_close(po_id: int, request: Request):
+    """v2.22: cierre FINANCIERO (fin_status closed). No toca stock ni
+    congela costos: líneas y ajustes siguen editables."""
+    return _po_call(purchasing.close_po, po_id, actor=_actor_name(request))
+
+
+@router.post("/purchase-orders/{po_id}/reopen")
+def po_reopen(po_id: int, request: Request):
+    """v2.22: reabre el ciclo financiero (solo fin_status)."""
+    return _po_call(purchasing.reopen_po, po_id, actor=_actor_name(request))
+
+
+@router.post("/purchase-orders/{po_id}/adjustments")
+def po_add_adjustment(po_id: int, body: PoAdjustmentIn, request: Request):
+    """v2.22: descuento/crédito/flete/tax/fee/pago a cualquier status."""
+    return _po_call(
+        purchasing.add_adjustment, po_id, body.kind, body.amount,
+        note=body.note, allocate=body.allocate, actor=_actor_name(request),
+        dry_run=body.dry_run)
+
+
+@router.post("/purchase-orders/{po_id}/adjustments/{adj_id}/void")
+def po_void_adjustment(po_id: int, adj_id: int, request: Request,
+                       body: PoVoidIn | None = None):
+    """v2.22: anula un ajuste (nunca se borra). Body opcional {reason}."""
+    return _po_call(
+        purchasing.void_adjustment, po_id, adj_id,
+        reason=body.reason if body else "",
+        actor=_actor_name(request), not_found="PO or adjustment not found")
 
 
 @router.post("/purchase-orders/{po_id}/lines")
-def po_add_line(po_id: int, body: POLineIn):
-    try:
-        po = purchasing.add_line(po_id, body.part_number, body.description,
-                                 body.qty, body.unit_cost)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    if po is None:
-        raise HTTPException(status_code=404, detail="PO not found")
-    return po
+def po_add_line(po_id: int, body: POLineIn, request: Request):
+    return _po_call(
+        purchasing.add_line, po_id, body.part_number, body.description,
+        body.qty, body.unit_cost, actor=_actor_name(request),
+        taxable=body.taxable, dry_run=body.dry_run)
+
+
+@router.patch("/purchase-orders/{po_id}/lines/{line_id}")
+def po_patch_line(po_id: int, line_id: int, body: POLinePatch,
+                  request: Request):
+    """v2.22: edita costo/qty/taxable/descripción a CUALQUIER status. En una
+    línea con unidades recibidas, un cambio de costo revalúa el inventario
+    (movimiento po_cost_adj + avg_cost por la porción en stock)."""
+    fields = {k: v for k, v in body.model_dump().items()
+              if v is not None and k != "dry_run"}
+    return _po_call(
+        purchasing.update_line, po_id, line_id, fields,
+        actor=_actor_name(request), dry_run=body.dry_run,
+        not_found="PO or line not found")
+
+
+@router.post("/purchase-orders/{po_id}/lines/{line_id}/unreceive")
+def po_unreceive_line(po_id: int, line_id: int, request: Request):
+    """v2.22: único camino de regresión desde 'received' — revierte el stock
+    de la línea (po_unreceive) y anula sus cores pendientes."""
+    return _po_call(
+        purchasing.unreceive_line, po_id, line_id,
+        actor=_actor_name(request), not_found="PO or line not found")
 
 
 @router.delete("/purchase-orders/{po_id}/lines/{line_id}")
-def po_del_line(po_id: int, line_id: int):
-    po = purchasing.delete_line(po_id, line_id)
-    if po is None:
-        raise HTTPException(status_code=404, detail="PO not found")
-    return po
+def po_del_line(po_id: int, line_id: int, request: Request,
+                dry_run: bool = False):
+    """?dry_run=true: preview del re-prorrateo (revaluations) sin borrar."""
+    return _po_call(purchasing.delete_line, po_id, line_id,
+                    actor=_actor_name(request), dry_run=dry_run)
 
 
 # ----- Core tracking (banco de cores, v2.5) ---------------------------------
@@ -1550,9 +2301,10 @@ def parts_requests_generate():
 
 
 @router.post("/parts-requests/bundle")
-def parts_requests_bundle(body: BundleRequestsIn):
+def parts_requests_bundle(body: BundleRequestsIn, request: Request):
     try:
-        return purchasing.bundle_requests(body.request_ids)
+        return purchasing.bundle_requests(body.request_ids,
+                                          actor=_actor_name(request))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1963,7 +2715,10 @@ def org_get():
 def org_save(body: dict,
              request: Request):
     _require_admin(request)
-    return org_config.save(body)
+    try:
+        return org_config.save(body)
+    except ValueError as exc:             # v2.22: p.ej. timezone inválida
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 # ----- Terminales dinámicas (Settings → Terminals) -------------------------
@@ -1972,6 +2727,15 @@ class TerminalIn(BaseModel):
     key: str = ""            # vacío = crear; existente = editar
     label: str
     prefixes: list[str] = []
+    # v2.22 (Resources → Locations): ficha opcional de la location. Al
+    # editar, los campos que no vienen se conservan.
+    type: str | None = None             # '' | shop | yard | terminal
+    code: str | None = None
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    zip: str | None = None
+    phone: str | None = None
 
 
 class TerminalAssignIn(BaseModel):
@@ -1989,8 +2753,11 @@ def terminals_get():
 def terminals_save(body: TerminalIn,
                    request: Request):
     _require_admin(request)
+    location = body.model_dump(exclude_unset=True,
+                               include=set(terminals.LOCATION_FIELDS))
     try:
-        return terminals.save_terminal(body.key, body.label, body.prefixes)
+        return terminals.save_terminal(body.key, body.label, body.prefixes,
+                                       location)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -2537,9 +3304,17 @@ async def pm_tracker(refresh: bool = False):
 
 # ----- Tableros gemelos PM / DOT (fase H1) -------------------------------
 
+@router.get("/maint/due")
+async def maint_due(limit: int = 100):
+    """PMs vencidos y por vencer de pm + dot + reefer en UNA lista (tarjeta
+    "PMs Due & Overdue" del Home). Literal: va ANTES de /maint/{kind}."""
+    return await maint.due(max(1, min(int(limit or 100), 1000)))
+
+
 @router.get("/maint/{kind}")
 async def maint_board(kind: str, refresh: bool = False):
-    """Tablero editable de PM o DOT Inspections (misma forma para ambos)."""
+    """Tablero editable de PM, DOT Inspections o Reefer PM (v2.22, por
+    horas de motor): misma forma de fila para los tres."""
     try:
         return await maint.board(kind, refresh=refresh)
     except ValueError as exc:
@@ -2547,18 +3322,19 @@ async def maint_board(kind: str, refresh: bool = False):
 
 
 class MaintRecordIn(BaseModel):
-    kind: str            # pm | dot
+    kind: str            # pm | dot | reefer | … (maint.CAMPAIGNS)
     unit: str
     date: str            # YYYY-MM-DD
     mileage: int | None = None
     notes: str = ""
+    hours: float | None = None   # v2.22: horas de motor del servicio
 
 
 @router.post("/maint/record")
 def maint_add_record(body: MaintRecordIn):
     try:
         rec = maint.add_record(body.unit, body.kind, body.date,
-                               body.mileage, body.notes)
+                               body.mileage, body.notes, hours=body.hours)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True, "record": rec}
@@ -2602,7 +3378,11 @@ def unit_campaign_toggle(unit: str, body: CampaignIn):
     if body.key not in maint.CAMPAIGNS or maint.CAMPAIGNS[body.key]["default"]:
         raise HTTPException(status_code=400, detail="invalid campaign")
     try:
-        unit_settings.set_campaign(unit, body.key, body.enabled)
+        # v2.22: una campaña AUTOMÁTICA (PM del reefer) apagada a mano queda
+        # apagada aunque la unidad se siga detectando como reefer (opt-out).
+        unit_settings.set_campaign(
+            unit, body.key, body.enabled,
+            opt_out=bool(maint.CAMPAIGNS[body.key].get("auto")))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True}
@@ -2635,6 +3415,43 @@ def unit_odometer_log(unit: str, body: OdometerIn):
         raise HTTPException(
             400, "Enter a positive mileage and a valid date (YYYY-MM-DD).")
     return r
+
+
+class MeterReadingIn(BaseModel):
+    value: float
+    date: str = ""      # YYYY-MM-DD; vacío = hoy (zona de la org)
+    # Guardar aunque no sea creíble (más baja que la anterior o más de 24 h
+    # por día): horómetro reseteado o controlador cambiado.
+    force: bool = False
+
+
+def _check_meter(meter: str) -> None:
+    if meter not in meters.METERS:
+        raise HTTPException(status_code=404, detail="unknown meter")
+
+
+@router.get("/units/{unit}/meters/{meter}")
+def unit_meter_readings(unit: str, meter: str):
+    """Lecturas del medidor de la unidad (v2.22: engine_hours, el horómetro
+    del reefer — tabla propia, nunca el odómetro). {latest, count,
+    readings}."""
+    _check_meter(meter)
+    return meters.unit_readings(unit, meter)
+
+
+@router.post("/units/{unit}/meters/{meter}")
+def unit_meter_log(unit: str, meter: str, body: MeterReadingIn):
+    """Registra (o corrige: mismo día) una lectura MANUAL del medidor y
+    devuelve la lectura vigente {value, date, source}. 400 si no es creíble
+    (reintentar con force=true). Bajo maint.edit (prefijo /api/units)."""
+    _check_meter(meter)
+    try:
+        meters.log_reading(unit, body.value, body.date, source="manual",
+                           meter=meter, force=body.force)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    service_requests.mark_stale()   # cambió lo que vence (PM del reefer)
+    return {"unit": unit.strip(), **(meters.latest(unit, meter) or {})}
 
 
 @router.get("/units/{unit}/docs")

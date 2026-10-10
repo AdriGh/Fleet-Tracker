@@ -561,7 +561,17 @@ export interface TerminalDef {
   key: string
   label: string
   prefixes: string[]
+  // v2.22 [C] Resources → Locations (opcionales).
+  type?: LocationType
+  code?: string
+  address?: string
+  city?: string
+  state?: string
+  zip?: string
+  phone?: string
 }
+
+export type LocationType = '' | 'shop' | 'yard' | 'terminal'
 
 export interface TerminalsConfig {
   terminals: TerminalDef[]
@@ -576,11 +586,14 @@ export async function listTerminals(): Promise<TerminalsConfig> {
 
 export async function saveTerminal(t: {
   key?: string; label: string; prefixes: string[]
-}): Promise<TerminalsConfig> {
+} & Partial<Pick<TerminalDef, 'type' | 'code' | 'address' | 'city'
+  | 'state' | 'zip' | 'phone'>>): Promise<TerminalsConfig> {
   const res = await fetch('/api/terminals', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key: t.key ?? '', label: t.label,
+    // v2.22: los campos de ubicación viajan solo si vienen (un save viejo
+    // desde Settings → Terminals no los pisa).
+    body: JSON.stringify({ ...t, key: t.key ?? '', label: t.label,
       prefixes: t.prefixes }),
   })
   if (!res.ok) throw new Error(await readError(res))
@@ -856,6 +869,11 @@ export interface OrgConfig {
     pm_interval_miles: number
     pm_upcoming_miles: number
     defect_lookback_days: number
+    // v2.22 [B]: PM del reefer por horas de motor (+ respaldo por días).
+    reefer_pm_interval_hours: number
+    reefer_pm_upcoming_hours: number
+    reefer_pm_interval_days: number
+    reefer_pm_upcoming_days: number
   }
   labor_rate: number
   cc: Record<string, string[]>
@@ -864,6 +882,11 @@ export interface OrgConfig {
   shop: ShopIdentity
   billing: Record<string, BillingAddress>
   invoice: InvoiceConfig
+  // v2.22: zona horaria IANA de la org y el asistente de reportes
+  // (interruptor del plan + modelo; vacío = el default del server).
+  timezone?: string
+  ai_assistant_enabled?: boolean
+  assistant_model?: string
 }
 
 export async function getOrg(): Promise<OrgConfig> {
@@ -989,7 +1012,14 @@ export interface WoLine {
   qty: number
   unit_cost: number
   total: number
+  // v2.22 [C]: precio al cliente congelado al facturar por primera vez una
+  // WO con customer_id (unit_cost × (1 + markup)). null = todavía sin
+  // snapshot (se muestra el precio calculado con el markup vigente).
+  unit_price?: number | null
 }
+
+// v2.22 [C]: cobro al cliente (owner-operator) de una WO facturada.
+export type WoPaymentStatus = 'unpaid' | 'paid'
 
 // Vínculo a otra unidad del mismo invoice multi-unidad (review v1.26).
 export interface WoLink {
@@ -1015,6 +1045,10 @@ export interface WorkOrder {
   created_at: string
   updated_at: string
   closed_at: string | null
+  // v2.22: fechas en la TZ de la org (closed_at / fecha efectiva:
+  // service_date -> closed -> created). Filtros de los KPIs de Home.
+  closed_date?: string | null
+  effective_date?: string | null
   unit: string
   company: string
   status: WoStatus
@@ -1060,6 +1094,22 @@ export interface WorkOrder {
     id: number; source: SrSource; title: string
     status: SrStatus; priority: SrPriority
   }[]
+  // v2.22 [B]: horómetro del reefer al hacer el servicio (campaña 'reefer').
+  engine_hours?: number | null
+  // v2.22 [C]: Bill To = cliente (null = Self: la flota propia).
+  customer_id?: number | null
+  customer_name?: string
+  payment_status?: WoPaymentStatus
+  paid_at?: string | null
+  // Σ (unit_price ?? unit_cost × (1 + markup)) × qty. Igual al total sin
+  // cliente.
+  billable_total?: number
+  // Impuesto del cliente sobre las partes facturadas: tasa (%) congelada al
+  // facturar (antes, la vigente; 0 = Self / exento) y monto; due = total +
+  // impuesto (lo que se le cobra).
+  tax_pct?: number
+  billable_tax?: number
+  billable_due?: number
 }
 
 export interface WoStats {
@@ -1099,16 +1149,29 @@ export async function deleteWorkOrder(id: number): Promise<void> {
 export interface UnitCampaign {
   key: string
   label: string
-  due: 'miles' | 'days' | 'none'
+  // v2.22: 'hours' = PM del reefer por horas de motor (horómetro propio,
+  // NUNCA el odómetro) con la fecha como respaldo.
+  due: 'miles' | 'days' | 'hours' | 'none'
   default: boolean
+  // v2.22: prendida sola (la unidad es un reefer), no por opt-in manual.
+  auto?: boolean
   last_date: string | null
   last_miles: number | null
+  last_hours?: number | null
   next_due_miles?: number | null
   next_due_date?: string | null
+  next_due_hours?: number | null
+  // En las unidades de `due` (hours: HORAS o null si solo vence por días).
   to_due: number | null
+  to_due_days?: number | null
+  // Qué vence primero en una campaña por horas ('hours' | 'days').
+  due_by?: 'miles' | 'days' | 'hours' | null
+  // Sin lectura de horas: solo cuenta la fecha.
+  meter_missing?: boolean
+  meter_reset?: boolean
   status: string
   records: { id: number; date: string; mileage: number | null
-             notes: string }[]
+             hours?: number | null; notes: string }[]
 }
 
 export interface UnitCampaignsResult {
@@ -1116,6 +1179,10 @@ export interface UnitCampaignsResult {
   model: string
   current_miles: number | null
   current_source: string | null
+  // v2.22: horómetro (engine hours) — medidor propio del reefer.
+  current_hours?: number | null
+  current_hours_source?: string | null
+  current_hours_date?: string | null
   campaigns: UnitCampaign[]
   available: { key: string; label: string }[]
 }
@@ -1363,6 +1430,9 @@ export async function createWorkOrder(body: {
   shop_invoice?: string; parent_id?: number | null
   // v2.21: outside exige vendor_id (el backend responde 400 si falta).
   wo_type?: WoType; vendor_id?: number | null
+  // v2.22: sin customer_id el backend usa el dueño de la unidad (si tiene).
+  customer_id?: number | null; payment_status?: WoPaymentStatus
+  engine_hours?: number | null
 }): Promise<WorkOrder> {
   const res = await fetch('/api/workorders', {
     method: 'POST',
@@ -1558,6 +1628,21 @@ export interface Technician {
   active: boolean
   user_id: number | null
   created_at: string
+  // v2.22 [C] Resources → Employees (campos opcionales del roster JSON).
+  // phone/email llegan enmascarados ("•••") sin pii.view.
+  role?: string
+  phone?: string
+  email?: string
+  hourly_rate?: number | null
+  hire_date?: string
+  notes?: string
+}
+
+// Campos editables del perfil de empleado (PATCH /api/technicians/{id}).
+export interface TechnicianInput {
+  name?: string; active?: boolean; user_id?: number | null
+  role?: string; phone?: string; email?: string
+  hourly_rate?: number | null; hire_date?: string; notes?: string
 }
 
 export async function listTechnicians(all = false): Promise<Technician[]> {
@@ -1578,9 +1663,9 @@ export async function createTechnician(b: {
   return res.json()
 }
 
-export async function patchTechnician(id: number, b: {
-  name?: string; active?: boolean; user_id?: number | null
-}): Promise<Technician> {
+export async function patchTechnician(
+  id: number, b: TechnicianInput,
+): Promise<Technician> {
   const res = await fetch(`/api/technicians/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -1600,7 +1685,8 @@ export async function deactivateTechnician(id: number): Promise<void> {
 // Backlog por unidad (defectos DVIR abiertos + PM/DOT por vencer + pedidos
 // manuales) desde el que se despacha: Deny / Snooze / Add to WO / Create WO.
 // El GET ya corre el sync con TTL en el backend; "Check for due" lo fuerza.
-export type SrSource = 'defect' | 'pm' | 'dot' | 'manual'
+// v2.22: 'reefer' = PM del reefer por horas de motor (con fecha de respaldo).
+export type SrSource = 'defect' | 'pm' | 'dot' | 'reefer' | 'manual'
 export type SrPriority = 'low' | 'normal' | 'urgent' | 'emergency'
 // 'deleted' (v2.20 addendum) = borrado suave: el backend lo excluye de
 // toda lista, conteo y units[]; solo vuelve con restoreServiceRequests.
@@ -1645,7 +1731,9 @@ export interface SrUnitSummary {
   company: string
   model: string
   open: number
-  by_source: { defect: number; pm: number; dot: number; manual: number }
+  by_source: {
+    defect: number; pm: number; dot: number; reefer?: number; manual: number
+  }
   top_priority: SrPriority
   worst_overdue_miles: number | null
   // Requests de la unidad con duplicate_of != null (botón "Remove N").
@@ -1821,6 +1909,7 @@ export interface ReeferUnit {
   demo: boolean
   source?: string            // lynx | thermoking | traccar | demo
   can_control?: boolean      // OEM con tier que habilita two-way
+  engine_hours?: number | null  // v2.22: horómetro del reefer (si el feed lo trae)
 }
 
 export interface ReeferResponse {
@@ -2194,7 +2283,8 @@ export async function setPMExcluded(
 }
 
 // --- Tableros gemelos PM / DOT (fase H1) -------------------------------
-export type MaintKind = 'pm' | 'dot'
+// v2.22: 'reefer' = Reefer PM por horas de motor (board propio).
+export type MaintKind = 'pm' | 'dot' | 'reefer'
 export type OpsStatus = '' | 'out_of_service' | 'in_shop'
 
 export interface MaintRow {
@@ -2210,9 +2300,18 @@ export interface MaintRow {
   last_miles: number | null
   last_overridden?: boolean          // solo pm
   next_due_miles?: number | null     // pm
-  next_due_date?: string | null      // dot
-  to_due: number | null              // pm: millas · dot: días
+  next_due_date?: string | null      // dot · reefer (fecha de respaldo)
+  to_due: number | null              // pm: millas · dot: días · reefer: horas
   status: string   // on_track|upcoming|overdue|never|no_meter|out_of_service|in_shop
+  // v2.22 reefer (por horas de motor, horómetro propio):
+  current_hours?: number | null
+  current_hours_date?: string | null
+  current_hours_source?: string | null
+  last_hours?: number | null
+  next_due_hours?: number | null
+  to_due_days?: number | null
+  due_by?: 'hours' | 'days' | 'miles' | null
+  meter_missing?: boolean
 }
 
 export interface MaintBoardResult {
@@ -2222,6 +2321,9 @@ export interface MaintBoardResult {
   upcoming_miles: number
   interval_days: number
   upcoming_days: number
+  // v2.22 reefer: umbrales por horas (org_config thresholds).
+  interval_hours?: number
+  upcoming_hours?: number
   units: MaintRow[]
   excluded: { unit: string; model: string }[]
 }
@@ -2235,8 +2337,11 @@ export async function getMaintBoard(
 }
 
 export async function addMaintRecord(p: {
-  kind: MaintKind; unit: string; date: string;
+  kind: MaintKind | string; unit: string; date: string;
   mileage?: number | null; notes?: string
+  // v2.22: horas de motor del servicio (campañas por horas). El backend
+  // también lo registra como lectura del horómetro (source 'maint').
+  hours?: number | null
 }): Promise<void> {
   const res = await fetch('/api/maint/record', {
     method: 'POST',
@@ -2485,7 +2590,11 @@ export interface Part {
   category: string
   manufacturer: string
   cost: number
-  avg_cost: number        // costo promedio (cae al cost si no se registró)
+  // v2.22: promedio ponderado móvil real (lo mantiene cada recepción de PO y
+  // las correcciones de costo post-recepción). Es el costo por defecto de
+  // una línea de WO (si > 0; si no, `cost`).
+  avg_cost: number
+  last_cost?: number | null  // v2.22: costo (landed) de la última recepción
   vendor_id: number | null
   vendor_name: string
   on_hand: number
@@ -2567,7 +2676,10 @@ export async function deletePart(id: number): Promise<void> {
 
 // Razón del movimiento: alta por PO recibida, consumo por WO facturada, o
 // ajuste manual desde este catálogo.
-export type StockReason = 'po_receive' | 'wo_consume' | 'manual'
+// v2.22: po_cost_adj = corrección de costo de unidades ya recibidas (delta 0,
+// cambia valor); po_unreceive = reversa de una recepción (delta negativo).
+export type StockReason =
+  'po_receive' | 'wo_consume' | 'manual' | 'po_cost_adj' | 'po_unreceive'
 
 export interface StockMovement {
   id: number
@@ -2575,9 +2687,14 @@ export interface StockMovement {
   delta: number             // +/- (positivo = entra, negativo = sale)
   reason: StockReason
   ref_type: string          // 'po_line' | 'wo_line' | '' (manual)
-  ref_id: number | null
+  // Texto ("42:full", "42:c1"…): el backend lo guarda como String(40).
+  ref_id: string | null
   note: string
   created_at: string
+  // v2.22 costeo: costo unitario del movimiento, impacto en $ y quién.
+  unit_cost?: number | null
+  value_delta?: number | null
+  actor?: string
 }
 
 // Parte por debajo (o en) su punto de reorden — vista compacta para reponer.
@@ -2632,6 +2749,19 @@ export async function listPartMovements(
 
 export type POStatus = 'draft' | 'ordered' | 'received'
 
+// v2.22: una entrada de la bitácora de recepción de la línea (del libro de
+// movimientos: po_receive / po_unreceive / po_cost_adj).
+export interface POReceivedLog {
+  date: string | null
+  qty: number
+  unit_cost: number | null
+  value_delta?: number | null
+  reason?: StockReason
+  ref: string
+  actor: string
+  note?: string
+}
+
 export interface POLine {
   id: number
   part_number: string
@@ -2641,10 +2771,82 @@ export interface POLine {
   total: number
   qty_received: number      // acumulado recibido de esta línea
   qty_outstanding: number   // qty - qty_received
+  received_at?: string | null
+  // v2.22 costeo post-recepción.
+  taxable?: boolean
+  // Costo unitario con los ajustes asignados (flete/tax/fee/descuento)
+  // repartidos; null = sin prorrateo (el costo efectivo es unit_cost).
+  landed_unit_cost?: number | null
+  effective_unit_cost?: number
+  received_log?: POReceivedLog[]
 }
 
 // Estado DERIVADO de recepción (no es el status del pipeline).
 export type ReceivingState = 'none' | 'partial' | 'full'
+
+// v2.22: ciclo FINANCIERO independiente de la recepción. Cerrar NO bloquea
+// nada: líneas y ajustes siguen editables (la ventaja sobre SquareRigger).
+export type POFinStatus = 'open' | 'closed'
+export type POPaymentMethod = '' | 'invoice' | 'paid' | 'card' | 'cash'
+export type POAdjustmentKind =
+  'discount' | 'credit' | 'shipping' | 'tax' | 'fee' | 'payment'
+
+export interface POFinancial {
+  subtotal: number
+  taxable_subtotal?: number
+  discount: number
+  credit: number
+  shipping: number
+  tax: number
+  fees: number
+  total: number
+  paid: number
+  balance: number
+}
+
+export interface POAdjustment {
+  id: number
+  kind: POAdjustmentKind
+  amount: number            // siempre > 0; el signo lo da kind
+  signed_amount?: number
+  note: string
+  allocate: boolean         // repartido en el landed cost
+  actor: string
+  created_at: string | null
+  voided: boolean
+  voided_at?: string | null
+  void_reason?: string
+}
+
+// Evento de auditoría genérico (tabla audit_event).
+export interface AuditEvent {
+  id: number
+  entity: string            // 'po' | 'po_line' | 'part' | …
+  entity_id: string
+  action: string
+  field: string
+  old: string
+  new: string
+  actor: string
+  created_at: string | null
+}
+
+// Detalle de una revaluación de inventario (edición de costo / ajuste
+// asignado sobre unidades ya recibidas).
+export interface PORevaluation {
+  line_id?: number
+  part_number: string
+  in_catalog?: boolean
+  qty_received: number
+  on_hand?: number
+  revalued_qty: number      // porción todavía en stock (cambia el promedio)
+  consumed_qty?: number     // porción ya consumida (solo varianza)
+  old_cost: number
+  new_cost: number
+  avg_old: number | null
+  avg_new: number | null
+  value_delta?: number
+}
 
 export interface PurchaseOrder {
   id: number
@@ -2657,15 +2859,31 @@ export interface PurchaseOrder {
   n_lines: number
   received_at: string | null
   backorder_of_po_id: number | null
+  // POs de backorder generadas desde esta (el faltante se movió ahí).
+  backorder_po_ids?: number[]
   receiving_state: ReceivingState
   lines?: POLine[]
+  // v2.22 [A] ciclo financiero + factura del proveedor.
+  fin_status?: POFinStatus
+  closed_at?: string | null
+  invoice_no?: string
+  invoice_date?: string
+  tracking_no?: string
+  payment_method?: POPaymentMethod
+  vendor_id?: number | null
+  financial?: POFinancial
+  adjustments?: POAdjustment[]
+  audit?: AuditEvent[]
+  // Respuesta de una edición que revaluó inventario (o su preview).
+  revaluations?: PORevaluation[]
+  dry_run?: boolean
 }
 
 export interface POStats {
   draft: number
   ordered: number
   received: number
-  open_value: number   // total de las POs no recibidas
+  open_value: number   // total de las POs no recibidas y con fin_status open
 }
 
 // Línea de entrada al crear/agregar (sin id ni total: los pone el backend).
@@ -2674,6 +2892,9 @@ export interface POLineInput {
   description?: string
   qty?: number
   unit_cost?: number
+  taxable?: boolean
+  // Preview del re-prorrateo de ajustes asignados (revaluations) sin guardar.
+  dry_run?: boolean
 }
 
 export async function listPurchaseOrders(
@@ -2705,7 +2926,12 @@ export async function createPurchaseOrder(body: {
 }
 
 export async function patchPurchaseOrder(
-  id: number, patch: { vendor?: string; notes?: string; status?: POStatus },
+  id: number, patch: {
+    vendor?: string; notes?: string; status?: POStatus
+    // v2.22: datos de la factura del proveedor (editables a cualquier status).
+    invoice_no?: string; invoice_date?: string; tracking_no?: string
+    payment_method?: POPaymentMethod; vendor_id?: number | null
+  },
 ): Promise<PurchaseOrder> {
   const res = await fetch(`/api/purchase-orders/${id}`, {
     method: 'PATCH',
@@ -2752,9 +2978,10 @@ export async function addPoLine(
 }
 
 export async function deletePoLine(
-  id: number, lineId: number,
+  id: number, lineId: number, dryRun = false,
 ): Promise<PurchaseOrder> {
-  const res = await fetch(`/api/purchase-orders/${id}/lines/${lineId}`, {
+  const qs = dryRun ? '?dry_run=true' : ''
+  const res = await fetch(`/api/purchase-orders/${id}/lines/${lineId}${qs}`, {
     method: 'DELETE',
   })
   if (!res.ok) throw new Error(await readError(res))
@@ -3305,3 +3532,949 @@ export async function getPmCompliance(): Promise<{
   if (!res.ok) throw new Error(await readError(res))
   return res.json()
 }
+
+// ===== v2.22 [E] Shell: búsqueda global (palette) + Home + PMs vencidos =====
+// (Sección del agente F1. Los demás agentes agregan sus secciones DESPUÉS.)
+
+// --- Búsqueda global (/api/search, solo GET; PII enmascarada sin pii.view) ---
+export type SearchGroupKey =
+  | 'work_orders' | 'units' | 'customers' | 'parts' | 'vendors'
+  | 'service_requests' | 'technicians' | 'drivers'
+
+export interface SearchItem {
+  id: string
+  title: string
+  subtitle: string
+  // Id de sección del frontend ('workorders', 'flota', 'customers', …).
+  section: string
+  // Intent para abrir el registro: {wo: 12} | {unit: 'MEM 77'} | {customer: 3}…
+  intent: Record<string, unknown>
+}
+
+export interface SearchGroup {
+  key: SearchGroupKey
+  label: string
+  items: SearchItem[]
+}
+
+export interface SearchResult {
+  groups: SearchGroup[]
+}
+
+export async function globalSearch(
+  q: string, limit = 8, signal?: AbortSignal,
+): Promise<SearchResult> {
+  const qs = new URLSearchParams({ q, limit: String(limit) })
+  const res = await fetch(`/api/search?${qs}`, { signal })
+  if (!res.ok) throw new Error(await readError(res))
+  const data = (await res.json()) as Partial<SearchResult>
+  return { groups: Array.isArray(data.groups) ? data.groups : [] }
+}
+
+// --- Home (/api/home/summary): KPIs + semana actual vs anterior (TZ org) ---
+export interface HomeWeek {
+  closed_wos: number
+  closed_value: number
+  inside: number
+  outside: number
+  new_pm: number
+  service_requests: number
+  avg_days_to_close: number | null
+  invoiced_value: number
+  parts_spend: number
+  labor_spend: number
+}
+
+export interface HomeSummary {
+  user_first_name: string
+  // Hoy y semanas (lun–dom) en la TZ de la org: rangos de los drill-downs.
+  today?: string
+  week_ranges?: {
+    this: { from: string; to: string }
+    last: { from: string; to: string }
+  }
+  kpis: {
+    in_progress: number
+    completed_today: number
+    labor_hours_week: number
+    parts_blocking: number
+    open_service_requests: number
+  }
+  wo_by_status: {
+    open: number
+    assigned: number
+    in_progress: number
+    completed: number
+    waiting_parts: number
+  }
+  weeks: { this: HomeWeek; last: HomeWeek }
+  top_units_week: { unit: string; total: number }[]
+  pm_due: { overdue: number; upcoming: number }
+}
+
+export async function getHomeSummary(): Promise<HomeSummary> {
+  const res = await fetch('/api/home/summary')
+  if (!res.ok) throw new Error(await readError(res))
+  return res.json()
+}
+
+// --- PMs vencidos / por vencer (/api/maint/due): PM (mi) + DOT (días) +
+// Reefer (horas de motor). Reemplaza al legacy /api/pm en Home/Overview. ---
+export type MaintDueBy = 'miles' | 'days' | 'hours'
+
+export interface MaintDueItem {
+  unit: string
+  campaign: 'pm' | 'dot' | 'reefer'
+  label: string
+  status: 'overdue' | 'upcoming'
+  due_by: MaintDueBy
+  // En las unidades de due_by; negativo = vencido.
+  to_due: number
+  to_due_days: number | null
+  unit_label: 'mi' | 'days' | 'hrs'
+  next_due: string
+  model: string
+}
+
+export interface MaintDue {
+  items: MaintDueItem[]
+  counts: { overdue: number; upcoming: number }
+}
+
+export async function getMaintDue(limit?: number): Promise<MaintDue> {
+  const qs = limit != null ? `?limit=${limit}` : ''
+  const res = await fetch(`/api/maint/due${qs}`)
+  if (!res.ok) throw new Error(await readError(res))
+  const data = (await res.json()) as Partial<MaintDue>
+  return {
+    items: Array.isArray(data.items) ? data.items : [],
+    counts: data.counts ?? { overdue: 0, upcoming: 0 },
+  }
+}
+// ===== fin v2.22 [E] =====
+
+// ===== v2.22 [A][B][C] POs editables post-recepción + horómetro + Resources =====
+// (Sección del agente F2. Tipos ampliados en su lugar: PurchaseOrder/POLine,
+// Part.last_cost, StockMovement, UnitCampaign, MaintRow, WorkOrder, Technician,
+// TerminalDef. Acá van las funciones y los tipos nuevos.)
+
+// JSON helper de esta sección: 204/cuerpo vacío → undefined.
+async function sendJson<T>(
+  url: string, method: string, body?: unknown,
+): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    headers: body === undefined
+      ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await readError(res))
+  const text = await res.text()
+  return (text ? JSON.parse(text) : undefined) as T
+}
+
+// Algunas rutas devuelven {customer: {...}} y otras el objeto pelado.
+function unwrap<T>(data: unknown, key: string): T {
+  if (data && typeof data === 'object' && key in (data as object)) {
+    return (data as Record<string, unknown>)[key] as T
+  }
+  return data as T
+}
+
+// --- [A] Purchase Orders: edición a CUALQUIER status / fin_status ----------
+
+// Edita una línea (costo, qty, taxable, descripción). Si la línea ya tiene
+// unidades recibidas y su costo efectivo cambia, el backend revalúa el
+// inventario (po_cost_adj). dry_run=true devuelve el preview (revaluations)
+// sin guardar.
+export async function patchPoLine(
+  poId: number, lineId: number, b: {
+    unit_cost?: number; qty?: number; taxable?: boolean
+    description?: string; dry_run?: boolean
+  },
+): Promise<PurchaseOrder> {
+  return sendJson(`/api/purchase-orders/${poId}/lines/${lineId}`, 'PATCH', b)
+}
+
+// Des-recibe todo lo recibido de la línea (movimiento po_unreceive negativo,
+// revierte el promedio, anula cores pendientes). Único camino de regresión.
+export async function unreceivePoLine(
+  poId: number, lineId: number,
+): Promise<PurchaseOrder> {
+  return sendJson(
+    `/api/purchase-orders/${poId}/lines/${lineId}/unreceive`, 'POST', {})
+}
+
+export async function addPoAdjustment(poId: number, b: {
+  kind: POAdjustmentKind; amount: number; note?: string
+  allocate?: boolean; dry_run?: boolean
+}): Promise<PurchaseOrder> {
+  return sendJson(`/api/purchase-orders/${poId}/adjustments`, 'POST', b)
+}
+
+// Anula (nunca borra) un ajuste; si estaba asignado, re-prorratea.
+export async function voidPoAdjustment(
+  poId: number, adjId: number, reason = '',
+): Promise<PurchaseOrder> {
+  return sendJson(
+    `/api/purchase-orders/${poId}/adjustments/${adjId}/void`, 'POST',
+    { reason })
+}
+
+// Cierre FINANCIERO: no toca stock ni congela costos.
+export async function closePo(id: number): Promise<PurchaseOrder> {
+  return sendJson(`/api/purchase-orders/${id}/close`, 'POST', {})
+}
+
+export async function reopenPo(id: number): Promise<PurchaseOrder> {
+  return sendJson(`/api/purchase-orders/${id}/reopen`, 'POST', {})
+}
+
+// Historia completa (el dict de la PO trae solo los últimos 100 eventos).
+export async function getPoAudit(id: number): Promise<AuditEvent[]> {
+  const data = await sendJson<unknown>(
+    `/api/purchase-orders/${id}/audit`, 'GET')
+  if (Array.isArray(data)) return data as AuditEvent[]
+  const o = (data ?? {}) as { events?: AuditEvent[]; audit?: AuditEvent[] }
+  return o.events ?? o.audit ?? []
+}
+
+// --- [B] Horómetro (engine hours) por unidad — NUNCA el odómetro ----------
+export interface MeterReadingRow {
+  id?: number
+  date: string               // YYYY-MM-DD
+  value: number              // horas
+  source: string             // manual | wo | maint | lynx | thermoking | traccar | demo
+  // Lectura forzada más baja = reseteo del horómetro (abre un tramo nuevo);
+  // superseded = del tramo anterior a un reseteo (ya no cuenta).
+  is_reset?: boolean
+  superseded?: boolean
+}
+
+export interface MeterLatest {
+  value: number
+  date: string
+  source: string
+}
+
+export interface UnitMeter {
+  unit?: string
+  meter?: string
+  latest: MeterLatest | null
+  count?: number
+  readings: MeterReadingRow[]
+}
+
+export async function getUnitEngineHours(unit: string): Promise<UnitMeter> {
+  const data = await sendJson<Partial<UnitMeter> | undefined>(
+    `/api/units/${encodeURIComponent(unit)}/meters/engine_hours`, 'GET')
+  return {
+    ...(data ?? {}),
+    latest: data?.latest ?? null,
+    readings: Array.isArray(data?.readings) ? data.readings : [],
+  }
+}
+
+// Registra (o corrige: mismo día) una lectura manual. 400 si no es creíble
+// (más baja que la anterior o > 24 h/día): reintentar con force=true.
+export async function logUnitEngineHours(unit: string, b: {
+  value: number; date?: string; force?: boolean
+}): Promise<MeterLatest | null> {
+  const data = await sendJson<Partial<MeterLatest> | null>(
+    `/api/units/${encodeURIComponent(unit)}/meters/engine_hours`, 'POST', b)
+  return data && typeof data.value === 'number'
+    ? { value: data.value, date: data.date ?? '', source: data.source ?? '' }
+    : null
+}
+
+// --- [C] Customers (owner-operators facturados por partes/labor) ----------
+export type CustomerKind = 'owner_operator' | 'carrier' | 'external'
+export type CustomerTerms =
+  '' | 'cod' | 'net7' | 'net15' | 'net30' | '2_10_net30' | 'prepay'
+
+// email/phone/address llegan enmascarados ("•••") sin pii.view.
+export interface Customer {
+  id: number
+  name: string
+  kind: CustomerKind
+  active: boolean
+  since: string | null       // YYYY-MM-DD
+  email: string
+  phone: string
+  address: string
+  city: string
+  state: string
+  zip: string
+  terms: CustomerTerms
+  labor_markup_pct: number
+  parts_markup_pct: number
+  tax_exempt: boolean
+  tax_rate_pct: number
+  accounting_id: string
+  driver_name: string        // vínculo blando a TmsDriver.name
+  notes: string
+  tags: string               // separadas por coma
+  created_at: string
+  updated_at: string
+}
+
+export type CustomerInput =
+  Partial<Omit<Customer, 'id' | 'created_at' | 'updated_at'>>
+
+export interface CustomerContact {
+  id: number
+  customer_id?: number
+  name: string
+  role: string
+  email: string
+  phone: string
+  is_billing: boolean
+}
+
+export type CustomerContactInput =
+  Partial<Omit<CustomerContact, 'id' | 'customer_id'>>
+
+export interface CustomerSummary {
+  id: number
+  name: string
+  kind: CustomerKind
+  active: boolean
+  city: string
+  state: string
+  since: string | null
+  units_count: number
+  units?: string[]           // unidades de las que es dueño
+  open_wos: number
+  balance: number            // facturado y sin pagar
+}
+
+export interface CustomerWoRow {
+  id: number
+  display_no: string
+  unit: string
+  title: string
+  status: WoStatus
+  wo_type: WoType
+  created_at: string
+  invoiced_at: string | null
+  billable_total: number
+  // Con el impuesto del cliente (sobre partes).
+  billable_tax?: number
+  billable_due?: number
+  payment_status: WoPaymentStatus
+}
+
+export interface CustomerPartBilled {
+  part_number: string
+  description: string
+  qty: number
+  amount: number
+}
+
+export interface CustomerProfile {
+  customer: Customer
+  contacts: CustomerContact[]
+  units: { unit: string; model: string }[]
+  work_orders: CustomerWoRow[]
+  parts_billed: CustomerPartBilled[]
+  totals: {
+    billed_ytd: number
+    billed_all: number
+    open_balance: number     // facturado y sin pagar
+    wo_count: number
+  }
+}
+
+export async function listCustomers(
+  params: { q?: string; active?: boolean | 'all' } = {},
+): Promise<CustomerSummary[]> {
+  const qs = new URLSearchParams()
+  if (params.q) qs.set('q', params.q)
+  if (params.active === true) qs.set('active', '1')
+  else if (params.active === false) qs.set('active', '0')
+  const s = qs.toString()
+  const data = await sendJson<{ customers?: CustomerSummary[] } | undefined>(
+    `/api/customers${s ? `?${s}` : ''}`, 'GET')
+  return Array.isArray(data?.customers) ? data.customers : []
+}
+
+export async function getCustomer(id: number): Promise<CustomerProfile> {
+  const d = (await sendJson<Partial<CustomerProfile> | undefined>(
+    `/api/customers/${id}`, 'GET')) ?? {}
+  return {
+    customer: d.customer as Customer,
+    contacts: d.contacts ?? [],
+    units: d.units ?? [],
+    work_orders: d.work_orders ?? [],
+    parts_billed: d.parts_billed ?? [],
+    totals: d.totals ?? {
+      billed_ytd: 0, billed_all: 0, open_balance: 0, wo_count: 0,
+    },
+  }
+}
+
+export async function createCustomer(
+  b: CustomerInput & { name: string },
+): Promise<Customer> {
+  return unwrap<Customer>(
+    await sendJson('/api/customers', 'POST', b), 'customer')
+}
+
+// Alta rápida desde el picker de la WO ("+ Quick add customer").
+export async function quickCreateCustomer(b: {
+  name: string; kind?: CustomerKind; phone?: string; email?: string
+}): Promise<Customer> {
+  return unwrap<Customer>(
+    await sendJson('/api/customers/quick', 'POST', b), 'customer')
+}
+
+export async function patchCustomer(
+  id: number, b: CustomerInput,
+): Promise<Customer> {
+  return unwrap<Customer>(
+    await sendJson(`/api/customers/${id}`, 'PATCH', b), 'customer')
+}
+
+// Baja suave si tiene WOs (active=false); si no, se borra.
+export async function deleteCustomer(
+  id: number,
+): Promise<{ deleted: boolean; deactivated: boolean }> {
+  const d = await sendJson<Record<string, unknown> | undefined>(
+    `/api/customers/${id}`, 'DELETE')
+  const deactivated = !!d && (d.deactivated === true || d.active === false
+    || d.soft === true)
+  return { deactivated, deleted: !deactivated }
+}
+
+export async function addCustomerContact(
+  id: number, b: CustomerContactInput & { name: string },
+): Promise<CustomerContact> {
+  return unwrap<CustomerContact>(
+    await sendJson(`/api/customers/${id}/contacts`, 'POST', b), 'contact')
+}
+
+export async function patchCustomerContact(
+  id: number, contactId: number, b: CustomerContactInput,
+): Promise<CustomerContact> {
+  return unwrap<CustomerContact>(await sendJson(
+    `/api/customers/${id}/contacts/${contactId}`, 'PATCH', b), 'contact')
+}
+
+export async function deleteCustomerContact(
+  id: number, contactId: number,
+): Promise<void> {
+  await sendJson(`/api/customers/${id}/contacts/${contactId}`, 'DELETE')
+}
+
+// Asigna la unidad a este cliente (mueve el dueño si tenía otro).
+export async function setCustomerUnit(id: number, unit: string): Promise<void> {
+  await sendJson(`/api/customers/${id}/units`, 'POST', { unit })
+}
+
+export async function removeCustomerUnit(
+  id: number, unit: string,
+): Promise<void> {
+  await sendJson(
+    `/api/customers/${id}/units/${encodeURIComponent(unit)}`, 'DELETE')
+}
+
+// --- [C] Employees (perfil del técnico) -----------------------------------
+export interface TechnicianWoRow {
+  id: number
+  display_no?: string
+  unit: string
+  title: string
+  status: WoStatus
+  wo_type?: WoType
+  created_at: string
+  closed_at?: string | null
+  total?: number
+}
+
+export interface TechnicianProfile {
+  technician: Technician
+  work_orders: TechnicianWoRow[]   // asignadas por nombre (últimas 50)
+  labor_hours_30d: number
+  labor_cost_30d: number
+}
+
+export async function getTechnician(id: number): Promise<TechnicianProfile> {
+  const d = (await sendJson<Partial<TechnicianProfile> | undefined>(
+    `/api/technicians/${id}`, 'GET')) ?? {}
+  return {
+    technician: d.technician as Technician,
+    work_orders: d.work_orders ?? [],
+    labor_hours_30d: d.labor_hours_30d ?? 0,
+    labor_cost_30d: d.labor_cost_30d ?? 0,
+  }
+}
+
+// --- [C] Vendors (perfil: outside WOs, POs, partes, gasto) -----------------
+export interface VendorProfile {
+  vendor: Vendor
+  work_orders: {
+    id: number; display_no?: string; unit: string; title: string
+    status: WoStatus; created_at: string; invoiced_at?: string | null
+    total: number
+  }[]
+  purchase_orders: {
+    id: number; status: POStatus; fin_status?: POFinStatus; total: number
+    created_at: string; n_lines?: number; invoice_no?: string
+    financial?: POFinancial
+  }[]
+  parts: {
+    id: number; part_number: string; description: string; on_hand: number
+    cost: number; avg_cost?: number
+  }[]
+  totals: { spend_ytd: number; open_po_value: number; outside_wo_total: number }
+}
+
+export async function getVendorProfile(id: number): Promise<VendorProfile> {
+  const d = (await sendJson<Partial<VendorProfile> | undefined>(
+    `/api/vendors/${id}/profile`, 'GET')) ?? {}
+  return {
+    vendor: d.vendor as Vendor,
+    work_orders: d.work_orders ?? [],
+    purchase_orders: d.purchase_orders ?? [],
+    parts: d.parts ?? [],
+    totals: d.totals ?? { spend_ytd: 0, open_po_value: 0, outside_wo_total: 0 },
+  }
+}
+// ===== fin v2.22 [A][B][C] =====
+
+// ===== v2.22 [D] Reports: motor por spec, biblioteca, guardados, favoritos,
+// envíos programados, export y asistente de IA ("Ask Rigsmith") =====
+// (Sección del agente F3. Contrato: /api/reports/* — ver backend
+// core/report_engine, report_library, report_saved, report_schedules y
+// report_assistant.)
+
+// Error HTTP con status: la UI distingue 503 (asistente no configurado /
+// apagado por plan), 429 (límite), 403 (sin permiso) y 400 (spec inválida).
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+async function rptJson<T>(
+  url: string, method = 'GET', body?: unknown, signal?: AbortSignal,
+): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    signal,
+    headers: body === undefined
+      ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  const text = await res.text()
+  return (text ? JSON.parse(text) : undefined) as T
+}
+
+export type ReportFieldType =
+  | 'text' | 'number' | 'money' | 'date' | 'datetime' | 'bool'
+export type ReportAgg =
+  | 'count' | 'count_distinct' | 'sum' | 'avg' | 'min' | 'max'
+export type ReportOp =
+  | 'eq' | 'ne' | 'in' | 'not_in' | 'gt' | 'gte' | 'lt' | 'lte' | 'between'
+  | 'contains' | 'empty' | 'not_empty'
+export type ReportPreset =
+  | 'today' | 'yesterday' | 'this_week' | 'prev_week' | 'mtd' | 'prev_month'
+  | 'last_30d' | 'last_90d' | 'qtd' | 'ytd' | 'last_12m' | 'all' | 'custom'
+export type ReportChartType = 'bar' | 'line' | 'donut' | 'kpi' | 'none'
+export type ReportCategory =
+  | 'Work orders' | 'Equipment' | 'Parts & inventory' | 'Purchasing'
+  | 'Labor' | 'PM & compliance' | 'Customers' | 'Financial'
+
+export interface ReportEnumOption { value: string; label: string }
+
+export interface ReportField {
+  name: string
+  label: string
+  type: ReportFieldType
+  desc: string
+  pii?: boolean
+  enum?: ReportEnumOption[]
+  // Campos que no se suman en el total (ids, odómetros, tasas…).
+  nosum?: boolean
+}
+
+export interface ReportSource {
+  key: string
+  label: string
+  description: string          // "One row per …"
+  category: string
+  kind: 'table' | 'computed'
+  default_time_field: string | null
+  time_fields: string[]
+  // El tiempo es un PERÍODO del provider (CPM, millas): no filtra fila a
+  // fila; el preset define el período que se calcula.
+  time_is_period: boolean
+  fields: ReportField[]
+}
+
+export interface ReportSources {
+  sources: ReportSource[]
+  ops: { key: ReportOp; label: string }[]
+  aggs: { key: ReportAgg; label: string }[]
+  presets: { key: ReportPreset; label: string }[]
+  chart_types: ReportChartType[]
+  limits: { max_rows: number; default_rows: number; max_columns: number }
+}
+
+// ----- ReportSpec (mismo shape que core/report_engine.ReportSpec) -----
+export interface ReportColumnSpec {
+  field: string
+  agg?: ReportAgg | null
+  label?: string | null
+}
+export interface ReportCond {
+  field: string
+  op: ReportOp
+  value?: unknown
+}
+// Grupo de UN nivel (sin recursión — contrato v2.22).
+export interface ReportCondGroup {
+  match: 'all' | 'any'
+  items: ReportCond[]
+}
+export interface ReportFilters {
+  match: 'all' | 'any'
+  items: (ReportCond | ReportCondGroup)[]
+}
+export interface ReportTimeSpec {
+  field: string
+  preset: ReportPreset
+  from?: string | null
+  to?: string | null
+}
+export interface ReportSortSpec { field: string; dir: 'asc' | 'desc' }
+export interface ReportChartSpec {
+  type: ReportChartType
+  x?: string | null
+  y?: string[]
+}
+export interface ReportSpec {
+  source: string
+  columns: ReportColumnSpec[]
+  filters?: ReportFilters
+  time?: ReportTimeSpec | null
+  group_by?: string[]
+  sort?: ReportSortSpec[]
+  limit?: number
+  totals?: boolean
+  chart?: ReportChartSpec | null
+}
+
+export function isCondGroup(
+  it: ReportCond | ReportCondGroup,
+): it is ReportCondGroup {
+  return Array.isArray((it as ReportCondGroup).items)
+}
+
+// ----- Resultado de /reports/run -----
+export type ReportCell = string | number | boolean | null
+// (ReportRow ya es el tipo de las filas del DVIR, por eso ReportDataRow.)
+export type ReportDataRow = Record<string, ReportCell>
+
+export interface ReportRunColumn {
+  key: string                  // agg ? `${agg}_${field}` : field
+  label: string
+  type: ReportFieldType
+  field: string
+  agg?: ReportAgg | null
+  pii?: boolean
+  enum?: ReportEnumOption[]
+}
+
+export interface ReportRunMeta {
+  ref: string
+  name: string
+  version: string
+  version_label: string
+  kind: 'system' | 'saved'
+  slug?: string
+  id?: number
+}
+
+export interface ReportRun {
+  source: string
+  columns: ReportRunColumn[]
+  rows: ReportDataRow[]
+  row_count: number
+  total_count: number
+  truncated: boolean
+  ms: number
+  totals?: Record<string, ReportCell>
+  chart: ReportChartSpec | null
+  time: {
+    field: string; preset: ReportPreset; label: string
+    from: string | null; to: string | null
+  } | null
+  warnings: string[]
+  spec: ReportSpec
+  pii_masked: boolean
+  report?: ReportRunMeta
+}
+
+export interface ReportOverrides {
+  filters?: ReportFilters | null
+  columns?: ReportColumnSpec[] | null
+  sort?: ReportSortSpec[] | null
+  time?: ReportTimeSpec | null
+}
+
+// {spec} (builder / asistente) o {ref, version?, overrides?} (biblioteca).
+export type ReportRunRequest =
+  | { spec: ReportSpec }
+  | { ref: string; version?: string; overrides?: ReportOverrides }
+
+// ----- Biblioteca -----
+export interface ReportVersion { key: string; label: string }
+export type ReportDashboard =
+  | 'spend' | 'cpm' | 'pm_compliance' | 'driver_compliance'
+
+export interface SystemReport {
+  ref: string                  // 'sys:<slug>'
+  slug: string
+  name: string
+  category: ReportCategory | string
+  description: string
+  info: string                 // aproximaciones / notas (popover ⓘ)
+  origin: 'squarerigger' | 'rigsmith'
+  // Vista rica heredada (tablero de gasto, CPM, PM / driver compliance).
+  dashboard?: ReportDashboard | null
+  source: string
+  default_version: string
+  default_version_label: string
+  versions: ReportVersion[]
+}
+
+export interface SystemReportDef extends Omit<SystemReport, 'versions'> {
+  spec: ReportSpec
+  versions: (ReportVersion & {
+    time?: ReportTimeSpec
+    overrides?: Partial<ReportSpec>
+  })[]
+}
+
+export interface SavedReport {
+  id: number
+  ref: string                  // 'saved:<id>'
+  name: string
+  description: string
+  visibility: 'mine' | 'org'
+  owner_user_id: number | null
+  mine: boolean
+  can_edit: boolean
+  based_on: string             // 'sys:<slug>' | 'saved:<id>' | ''
+  source: string
+  created_at: string | null
+  updated_at: string | null
+  spec?: ReportSpec
+}
+
+export interface ReportLibrary {
+  system: SystemReport[]
+  saved: SavedReport[]
+  favorites: string[]
+  categories?: string[]
+}
+
+export interface SavedReportIn {
+  name: string
+  description?: string
+  visibility: 'mine' | 'org'
+  spec: ReportSpec
+  based_on?: string
+}
+
+// ----- Envíos programados -----
+export type ReportCadence = 'daily' | 'weekly' | 'monthly'
+export type ReportFormat = 'csv' | 'xlsx'
+
+export interface ReportSchedule {
+  id: number
+  report_ref: string
+  version: string
+  name: string
+  cadence: ReportCadence
+  weekday: number | null       // 0 = lunes … 6 = domingo
+  day_of_month: number | null
+  hour: number                 // 0–23, hora de la org
+  when: string                 // "Every Monday at 7:00 AM"
+  recipients: string[]
+  format: ReportFormat
+  active: boolean
+  last_run_at: string | null
+  next_run_at: string | null
+  last_status: '' | 'sent' | 'dry_run' | 'error'
+  last_error: string
+  created_by: string
+  created_at: string | null
+  updated_at: string | null
+  rows?: number                // solo en la respuesta de send-now
+}
+
+export interface ReportScheduleIn {
+  report_ref: string
+  version?: string
+  name?: string
+  cadence: ReportCadence
+  weekday?: number | null
+  day_of_month?: number | null
+  hour: number
+  recipients: string[]
+  format: ReportFormat
+  active?: boolean
+}
+
+// ----- Asistente ("Ask Rigsmith") -----
+export interface ReportAssistantAnswer {
+  spec: ReportSpec | null
+  explanation: string
+  warnings: string[]
+  model?: string
+  ok?: boolean
+}
+
+export interface ReportAssistantStatus {
+  enabled: boolean
+  configured: boolean
+  available: boolean
+  model: string
+  default_model: string
+  models: string[]
+  key_source: string | null
+  message: string
+}
+
+// ----- Funciones -----
+export async function getReportLibrary(): Promise<ReportLibrary> {
+  const d = await rptJson<Partial<ReportLibrary>>('/api/reports/library')
+  return {
+    system: d?.system ?? [],
+    saved: d?.saved ?? [],
+    favorites: d?.favorites ?? [],
+    categories: d?.categories,
+  }
+}
+
+export function getReportSources(): Promise<ReportSources> {
+  return rptJson<ReportSources>('/api/reports/sources')
+}
+
+export function runReport(
+  req: ReportRunRequest, signal?: AbortSignal,
+): Promise<ReportRun> {
+  return rptJson<ReportRun>('/api/reports/run', 'POST', req, signal)
+}
+
+export function getSystemReport(slug: string): Promise<SystemReportDef> {
+  return rptJson<SystemReportDef>(
+    `/api/reports/system/${encodeURIComponent(slug)}`)
+}
+
+export function getSavedReport(id: number): Promise<SavedReport> {
+  return rptJson<SavedReport>(`/api/reports/saved/${id}`)
+}
+
+export function saveReport(body: SavedReportIn): Promise<SavedReport> {
+  return rptJson<SavedReport>('/api/reports/saved', 'POST', body)
+}
+
+export function patchSavedReport(
+  id: number, patch: Partial<SavedReportIn>,
+): Promise<SavedReport> {
+  return rptJson<SavedReport>(`/api/reports/saved/${id}`, 'PATCH', patch)
+}
+
+export async function deleteSavedReport(id: number): Promise<void> {
+  await rptJson<unknown>(`/api/reports/saved/${id}`, 'DELETE')
+}
+
+// on=true agrega la ★, false la quita. Devuelve la lista de favoritos.
+export async function toggleFavorite(
+  ref: string, on: boolean,
+): Promise<string[]> {
+  const d = on
+    ? await rptJson<{ favorites: string[] }>(
+      '/api/reports/favorites', 'POST', { ref })
+    : await rptJson<{ favorites: string[] }>(
+      `/api/reports/favorites?ref=${encodeURIComponent(ref)}`, 'DELETE')
+  return d?.favorites ?? []
+}
+
+export async function listSchedules(
+  reportRef = '',
+): Promise<ReportSchedule[]> {
+  const q = reportRef ? `?report_ref=${encodeURIComponent(reportRef)}` : ''
+  const d = await rptJson<{ schedules: ReportSchedule[] }>(
+    `/api/reports/schedules${q}`)
+  return d?.schedules ?? []
+}
+
+export function saveSchedule(
+  body: ReportScheduleIn,
+): Promise<ReportSchedule> {
+  return rptJson<ReportSchedule>('/api/reports/schedules', 'POST', body)
+}
+
+export function patchSchedule(
+  id: number, patch: Partial<ReportScheduleIn>,
+): Promise<ReportSchedule> {
+  return rptJson<ReportSchedule>(
+    `/api/reports/schedules/${id}`, 'PATCH', patch)
+}
+
+export async function deleteSchedule(id: number): Promise<void> {
+  await rptJson<unknown>(`/api/reports/schedules/${id}`, 'DELETE')
+}
+
+export function sendScheduleNow(id: number): Promise<ReportSchedule> {
+  return rptJson<ReportSchedule>(
+    `/api/reports/schedules/${id}/send-now`, 'POST')
+}
+
+// Descarga CSV / XLSX armado por el server (mismo pedido que /run). El
+// nombre sale del Content-Disposition; `fallbackName` si no viene.
+export async function exportReport(
+  req: ReportRunRequest & { format: ReportFormat },
+  fallbackName = 'report',
+): Promise<void> {
+  const res = await fetch('/api/reports/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+  if (!res.ok) throw new ApiError(await readError(res), res.status)
+  const cd = res.headers.get('Content-Disposition') ?? ''
+  const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd)
+  const name = m ? decodeURIComponent(m[1]) : `${fallbackName}.${req.format}`
+  const url = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+// 503 = no configurado / apagado por la org (ApiError.status).
+export function askReportAssistant(
+  body: { prompt: string; spec?: ReportSpec | null },
+  signal?: AbortSignal,
+): Promise<ReportAssistantAnswer> {
+  return rptJson<ReportAssistantAnswer>(
+    '/api/reports/assistant', 'POST',
+    { prompt: body.prompt, spec: body.spec ?? null }, signal)
+}
+
+export function getReportAssistantStatus(): Promise<ReportAssistantStatus> {
+  return rptJson<ReportAssistantStatus>('/api/reports/assistant/status')
+}
+// ===== fin v2.22 [D] =====

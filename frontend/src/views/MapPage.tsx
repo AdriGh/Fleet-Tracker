@@ -85,6 +85,13 @@ function coordsOf(v: TrackVehicle): string {
 export default function MapPage({ theme }: Props) {
   const mapRef = useRef<MapRef | null>(null)
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  // v2.22: el sidebar anima su ancho (256↔70px); al terminar avisa con
+  // 'ft-sidebar-resized' y el canvas de maplibre se reajusta al contenedor.
+  useEffect(() => {
+    const onResized = () => mapRef.current?.resize()
+    window.addEventListener('ft-sidebar-resized', onResized)
+    return () => window.removeEventListener('ft-sidebar-resized', onResized)
+  }, [])
   const [q, setQ] = useState('')
   const [onlyMoving, setOnlyMoving] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)

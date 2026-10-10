@@ -102,9 +102,27 @@ def _scope_for(method: str, path: str) -> str | None:
     # NO es settings.manage: el dueño no quiere bloqueos de permisos acá.
     if path.startswith("/api/technicians"):
         return "maint.edit"
+    # Customers (v2.22, Resources): alta/edición de customers (owner-
+    # operators a los que se les cobra), contactos y unidades — trabajo del
+    # taller, mismo scope que las WOs que los usan. (/api/search y
+    # /api/home son solo GET: basta estar autenticado.)
+    if path.startswith("/api/customers"):
+        return "maint.edit"
     # Avisos: envío real por email/SMS.
     if path.startswith("/api/notify/"):
         return "notices.send"
+    # Reports v2.22: ejecutar / exportar / pedirle al asistente de IA son
+    # LECTURAS que viajan por POST (llevan la spec en el body); guardar un
+    # reporte propio y marcar ★ son personales -> basta estar autenticado
+    # (la ruta exige maint.edit para compartir con la org o tocar reportes
+    # 'org' ajenos). Los envíos programados por email son de la org ->
+    # maint.edit. /reports/cpm/refresh sigue en maint.edit (abajo).
+    if path.startswith("/api/reports/schedules"):
+        return "maint.edit"
+    if path in ("/api/reports/run", "/api/reports/export",
+                "/api/reports/assistant") or path.startswith(
+                    ("/api/reports/saved", "/api/reports/favorites")):
+        return None
     # Mantenimiento: PM/DOT, parts, vendors, órdenes de compra (QuickBuy),
     # campañas/docs de unidad.
     if path.startswith(("/api/parts", "/api/vendors", "/api/purchase-orders",

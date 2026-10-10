@@ -231,7 +231,11 @@ def test_list_route_order_and_rbac():
     assert all(t["active"] for t in routes.technicians_list(0)["technicians"])
     allrows = routes.technicians_list(1)["technicians"]
     assert len(allrows) >= len(names)
-    assert all(set(t) == {"id", "name", "active", "user_id", "created_at"}
+    # v2.22 (Resources → Employees): la ficha suma role/phone/email/
+    # hourly_rate/hire_date/notes.
+    assert all(set(t) == {"id", "name", "active", "user_id", "created_at",
+                          "role", "phone", "email", "hourly_rate",
+                          "hire_date", "notes"}
                for t in allrows)
     paths = [r.path for r in routes.router.routes]
     assert "/api/technicians" in paths
@@ -243,7 +247,9 @@ def test_list_route_order_and_rbac():
         if r.path.startswith("/api/technicians"):
             methods.setdefault(r.path, set()).update(r.methods)
     assert methods["/api/technicians"] == {"GET", "POST"}
-    assert methods["/api/technicians/{tech_id}"] == {"PATCH", "DELETE"}
+    # v2.22: GET /technicians/{id} = perfil del empleado (Resources).
+    assert methods["/api/technicians/{tech_id}"] == {"GET", "PATCH",
+                                                     "DELETE"}
     # RBAC: escrituras = maint.edit (dispatcher Y mechanic), nunca
     # settings.manage; GET abierto a cualquier autenticado.
     from app.core import permissions

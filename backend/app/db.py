@@ -15,7 +15,7 @@ from pathlib import Path
 
 from sqlalchemy import (
     Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text,
-    UniqueConstraint, create_engine, event, func, select, true,
+    UniqueConstraint, create_engine, event, false, func, select, true,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import (
@@ -211,6 +211,26 @@ class WorkOrder(OrgScoped, Base):
     vendor_id: Mapped[int | None] = mapped_column(
         ForeignKey("vendor.id", name="fk_work_order_vendor"),
         nullable=True, index=True)
+    # v2.22: horas de motor de la unidad (reefer) al momento del servicio.
+    # Las copia el Service Request de 'Reefer PM due' y, al FACTURAR una WO
+    # de campaña 'reefer', alimentan el registro del PM (maint_record.hours).
+    # Medidor propio: JAMÁS se compara contra el odómetro (mileage).
+    engine_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # v2.22 (Customers, benchmark SquareRigger "Bill to: Self | Customer"):
+    # a quién se le cobra la WO. NULL = Self (gasto propio de la flota). Al
+    # crear sin customer_id se toma el DUEÑO de la unidad (customer_unit).
+    # Al FACTURAR por primera vez se congela el precio de cada línea
+    # (WorkOrderLine.unit_price = costo × (1 + markup del customer)) y la
+    # tasa de impuesto del customer (`tax_pct`: 0 si es exento; se aplica a
+    # las partes facturadas). `payment_status` (unpaid|paid) + `paid_at` =
+    # cobro al customer; el saldo abierto es facturado & unpaid.
+    customer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("customer.id", name="fk_work_order_customer"),
+        nullable=True, index=True)
+    payment_status: Mapped[str] = mapped_column(
+        String(12), default="unpaid", server_default="unpaid")
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    tax_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     lines: Mapped[list["WorkOrderLine"]] = relationship(
         back_populates="wo", cascade="all, delete-orphan")
@@ -229,6 +249,12 @@ class WorkOrderLine(OrgScoped, Base):
     # H3: referencia opcional al catálogo (Part.part_number) cuando la
     # línea se cargó eligiendo una parte; vacío para líneas a mano.
     part_number: Mapped[str] = mapped_column(String(60), default="")
+    # v2.22: precio de venta CONGELADO al facturar una WO con customer
+    # (unit_cost × (1 + markup de partes/labor del customer)). NULL = sin
+    # snapshot (WO de Self o todavía no facturada): el precio se calcula en
+    # vivo. Nunca se recalcula después (cambiar el markup no reescribe
+    # invoices viejos).
+    unit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     wo: Mapped[WorkOrder] = relationship(back_populates="lines")
 
@@ -392,14 +418,18 @@ class EvidencePhoto(OrgScoped, Base):
 class MaintRecord(OrgScoped, Base):
     """Evento de mantenimiento por unidad (fase H1): kind 'pm' (servicio
     preventivo) o 'dot' (inspección anual DOT). Historial editable desde
-    los dashboards gemelos PM/DOT; el más reciente por fecha manda."""
+    los dashboards gemelos PM/DOT; el más reciente por fecha manda.
+    v2.22: `kind` acepta cualquier campaña de maint.CAMPAIGNS (incl.
+    'reefer', String(16)) y `hours` guarda las horas de motor del servicio
+    (campañas por horas: el PM del reefer). NUNCA se mezcla con `mileage`."""
     __tablename__ = "maint_record"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     unit: Mapped[str] = mapped_column(String(64), index=True)
-    kind: Mapped[str] = mapped_column(String(8), index=True)   # pm | dot
+    kind: Mapped[str] = mapped_column(String(16), index=True)  # pm | dot | reefer…
     date: Mapped[str] = mapped_column(String(10))              # YYYY-MM-DD
     mileage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    hours: Mapped[float | None] = mapped_column(Float, nullable=True)
     notes: Mapped[str] = mapped_column(String(300), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
@@ -462,7 +492,13 @@ class Part(OrgScoped, Base):
     manufacturer: Mapped[str] = mapped_column(String(80), default="")
     bin: Mapped[str] = mapped_column(String(40), default="")  # ubicación física
     max_qty: Mapped[float] = mapped_column(Float, default=0.0)  # stock objetivo
+    # v2.22: avg_cost es un PROMEDIO PONDERADO MÓVIL real, mantenido en cada
+    # recepción de PO (core/inventory): avg = (oh*avg + q*c)/(oh+q). Las
+    # correcciones de costo post-recepción lo revalúan solo por la porción
+    # todavía en stock. `last_cost` = costo (landed si lo hay) de la última
+    # recepción; NULL = nunca se recibió por PO.
     avg_cost: Mapped[float] = mapped_column(Float, default=0.0)  # costo promedio
+    last_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
     upc: Mapped[str] = mapped_column(String(40), default="")
     fits: Mapped[str] = mapped_column(String(200), default="")  # compatibilidad
     source: Mapped[str] = mapped_column(String(30), default="manual")  # origen
@@ -484,13 +520,20 @@ class PartStockMovement(OrgScoped, Base):
     esta tabla es la fuente de verdad de POR QUÉ cambió.
 
     `delta` suma (recepción de PO) o resta (consumo de WO / ajuste). `reason`:
-        po_receive  -> +stock al pasar una PO a 'received'
-        wo_consume  -> -stock al FACTURAR una WO (línea kind=part)
-        manual      -> ajuste manual del usuario
+        po_receive   -> +stock al recibir una línea de PO
+        po_unreceive -> -stock al des-recibir una línea (v2.22, delta negativo)
+        po_cost_adj  -> delta 0: corrección de costo post-recepción (v2.22);
+                        solo cambia VALOR (value_delta), nunca cantidad
+        wo_consume   -> -stock al FACTURAR una WO (línea kind=part)
+        manual       -> ajuste manual del usuario
     `ref_type`/`ref_id` identifican el origen exacto (p.ej. ref_type='po_line',
-    ref_id=42). El triple (reason, ref_type, ref_id) es ÚNICO por org: así
-    re-correr una transición (toggle de status ida y vuelta) NO duplica el
-    movimiento (guard de idempotencia en core/inventory.adjust). org-scoped."""
+    ref_id='42:full'). El triple (reason, ref_type, ref_id) es ÚNICO por org
+    (a nivel app, sin constraint de BD): así re-correr una transición NO
+    duplica el movimiento (guard de idempotencia en core/inventory).
+    v2.22 (costeo): `unit_cost` = costo unitario del evento (landed en las
+    recepciones; avg vigente en consumos/ajustes), `value_delta` = impacto en
+    $ del inventario, `actor` = quién lo hizo. NULL en filas pre-v2.22.
+    org-scoped."""
     __tablename__ = "part_stock_movement"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -501,6 +544,10 @@ class PartStockMovement(OrgScoped, Base):
     ref_id: Mapped[str] = mapped_column(String(40), default="")
     note: Mapped[str] = mapped_column(String(200), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime)
+    unit_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    value_delta: Mapped[float | None] = mapped_column(Float, nullable=True)
+    actor: Mapped[str] = mapped_column(String(80), default="",
+                                       server_default="")
 
 
 class PurchaseOrder(OrgScoped, Base):
@@ -532,14 +579,43 @@ class PurchaseOrder(OrgScoped, Base):
     received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     backorder_of_po_id: Mapped[int | None] = mapped_column(
         Integer, nullable=True, index=True)
+    # v2.22 (costeo post-recepción, benchmark SquareRigger): `status` sigue
+    # siendo el ciclo de RECEPCIÓN (draft|ordered|received); `fin_status` es
+    # el ciclo FINANCIERO aparte (open|closed). Cerrar NO bloquea nada: las
+    # líneas y los ajustes siguen editables (nuestra ventaja sobre SR, que
+    # obliga a reabrir). `vendor_id` liga al Vendor por nombre al crear; el
+    # texto `vendor` se conserva (POs viejas / vendors sin ficha).
+    fin_status: Mapped[str] = mapped_column(String(16), default="open",
+                                            server_default="open")
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    invoice_no: Mapped[str] = mapped_column(String(40), default="",
+                                            server_default="")
+    invoice_date: Mapped[str] = mapped_column(String(10), default="",
+                                              server_default="")  # YYYY-MM-DD
+    tracking_no: Mapped[str] = mapped_column(String(60), default="",
+                                             server_default="")
+    # '' | invoice | paid | card | cash
+    payment_method: Mapped[str] = mapped_column(String(20), default="",
+                                                server_default="")
+    vendor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("vendor.id"), nullable=True, index=True)
 
     lines: Mapped[list["POLine"]] = relationship(
         back_populates="po", cascade="all, delete-orphan")
+    adjustments: Mapped[list["PoAdjustment"]] = relationship(
+        back_populates="po", cascade="all, delete-orphan",
+        order_by="PoAdjustment.id")
 
 
 class POLine(OrgScoped, Base):
     """Línea de una orden de compra: una parte (qty × costo unitario).
-    Espeja WorkOrderLine; `part_number` referencia el catálogo Part."""
+    Espeja WorkOrderLine; `part_number` referencia el catálogo Part.
+
+    v2.22: `taxable` marca la línea como gravada (el ajuste de tax con
+    allocate se reparte solo entre las gravadas, si hay alguna);
+    `landed_unit_cost` = unit_cost + su parte prorrateada de los ajustes que
+    se asignan al costo (descuento/crédito/flete/tax/fee). NULL = sin
+    prorrateo (el costo efectivo es unit_cost)."""
     __tablename__ = "po_line"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -552,8 +628,61 @@ class POLine(OrgScoped, Base):
     # completa; entre medio = parcial → el faltante va a una PO de backorder).
     qty_received: Mapped[float] = mapped_column(Float, default=0.0)
     received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    taxable: Mapped[bool] = mapped_column(Boolean, default=False,
+                                          server_default=false())
+    landed_unit_cost: Mapped[float | None] = mapped_column(Float,
+                                                           nullable=True)
 
     po: Mapped[PurchaseOrder] = relationship(back_populates="lines")
+
+
+class PoAdjustment(OrgScoped, Base):
+    """Ajuste financiero de una PO (v2.22): descuento, crédito, flete, tax,
+    fee o pago. `amount` siempre > 0; el signo lo da `kind` (discount/credit
+    restan, shipping/tax/fee suman, payment reduce el saldo). `allocate`
+    (no aplica a payment) lo reparte en el landed cost de las líneas y
+    revalúa lo ya recibido. Nunca se borra: se ANULA (voided_at +
+    void_reason) para conservar el rastro. Se permite en cualquier status /
+    fin_status. org-scoped."""
+    __tablename__ = "po_adjustment"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    po_id: Mapped[int] = mapped_column(
+        ForeignKey("purchase_order.id", ondelete="CASCADE"), index=True)
+    # discount | credit | shipping | tax | fee | payment
+    kind: Mapped[str] = mapped_column(String(12))
+    amount: Mapped[float] = mapped_column(Float, default=0.0)
+    note: Mapped[str] = mapped_column(String(200), default="")
+    allocate: Mapped[bool] = mapped_column(Boolean, default=False,
+                                           server_default=false())
+    actor: Mapped[str] = mapped_column(String(80), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    void_reason: Mapped[str] = mapped_column(String(200), default="")
+
+    po: Mapped[PurchaseOrder] = relationship(back_populates="adjustments")
+
+
+class AuditEvent(OrgScoped, Base):
+    """Rastro de auditoría GENÉRICO (v2.22): quién cambió qué, cuándo, y de
+    qué valor a cuál. `entity` = 'po' | 'po_line' | 'part' | … (reusable por
+    otros módulos); `entity_id` es texto (ids numéricos, part_numbers o
+    compuestos como '<po_id>:<line_id>' para que la historia de una PO se lea
+    con un solo prefijo). Solo se inserta; nunca se edita. org-scoped."""
+    __tablename__ = "audit_event"
+    __table_args__ = (
+        Index("ix_audit_event_entity", "entity", "entity_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entity: Mapped[str] = mapped_column(String(20))
+    entity_id: Mapped[str] = mapped_column(String(40))
+    action: Mapped[str] = mapped_column(String(30))
+    field: Mapped[str] = mapped_column(String(40), default="")
+    old: Mapped[str] = mapped_column(String(200), default="")
+    new: Mapped[str] = mapped_column(String(200), default="")
+    actor: Mapped[str] = mapped_column(String(80), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
 class CoreItem(OrgScoped, Base):
@@ -642,6 +771,41 @@ class OdometerReading(OrgScoped, Base):
     )
 
 
+class MeterReading(OrgScoped, Base):
+    """Lectura de un medidor NO-odómetro por unidad y fecha (v2.22): hoy solo
+    'engine_hours' (horas de motor del reefer). Tabla APARTE de
+    `odometer_reading` a propósito: el CPM lee el odómetro sin filtro de
+    tipo, y mezclar horas con millas es justo el error de SquareRigger (que
+    vence el PM de horas contra el odómetro).
+
+    `source`: manual | wo | maint | lynx | thermoking | traccar | demo.
+    UNA lectura por (org, unit, meter, date, source): re-registrar el mismo
+    día y fuente es una CORRECCIÓN (core/meters.log_reading), no un
+    duplicado. Las unidades se comparan normalizadas (core/meters.norm_unit,
+    misma regla que Service Requests). org-scoped.
+
+    `is_reset`: lectura forzada MÁS BAJA que la vigente (cambio de
+    controlador / horómetro reseteado) = inicio de un tramo nuevo del
+    medidor; las lecturas del tramo anterior dejan de contar como vigentes
+    (core/meters._segment)."""
+    __tablename__ = "meter_reading"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    unit: Mapped[str] = mapped_column(String(64), index=True)
+    meter: Mapped[str] = mapped_column(String(16), default="engine_hours")
+    date: Mapped[str] = mapped_column(String(10), index=True)    # YYYY-MM-DD
+    value: Mapped[float] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(16), default="manual")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    is_reset: Mapped[bool] = mapped_column(Boolean, default=False,
+                                           server_default=false())
+
+    __table_args__ = (
+        UniqueConstraint("org_id", "unit", "meter", "date", "source",
+                         name="uq_meter_org_unit_meter_date_source"),
+    )
+
+
 class PartsRequest(OrgScoped, Base):
     """Pedido de parte pendiente de compra (fase Purchasing / Increment 4).
 
@@ -709,6 +873,171 @@ class Unit(OrgScoped, Base):
     plate: Mapped[str] = mapped_column(String(20), default="")
     plate_state: Mapped[str] = mapped_column(String(8), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class Customer(OrgScoped, Base):
+    """Customer del taller (v2.22, Resources → Customers; benchmark
+    SquareRigger). El caso real del dueño: owner-operators cuyos camiones
+    reciben partes/labor del taller que después se les COBRAN. `kind`:
+    owner_operator | carrier | external.
+
+    Pricing: `parts_markup_pct` / `labor_markup_pct` se aplican sobre el
+    costo de las líneas al facturar (snapshot en WorkOrderLine.unit_price).
+    `terms`: '' | cod | net7 | net15 | net30 | 2_10_net30 | prepay.
+    `driver_name` es un vínculo BLANDO a TmsDriver.name (sin FK: el roster
+    vive en Samsara). email/phone/address son PII: salen enmascarados sin
+    `pii.view`. Nombre único por org (case-insensitive) a nivel app
+    (core/customers). Borrado: suave (active=False) si tiene WOs.
+    org-scoped."""
+    __tablename__ = "customer"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), index=True)
+    kind: Mapped[str] = mapped_column(String(20), default="owner_operator")
+    active: Mapped[bool] = mapped_column(Boolean, default=True,
+                                         server_default=true())
+    since: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    email: Mapped[str] = mapped_column(String(120), default="")
+    phone: Mapped[str] = mapped_column(String(40), default="")
+    address: Mapped[str] = mapped_column(String(200), default="")
+    city: Mapped[str] = mapped_column(String(80), default="")
+    state: Mapped[str] = mapped_column(String(20), default="")
+    zip: Mapped[str] = mapped_column(String(12), default="")
+    terms: Mapped[str] = mapped_column(String(20), default="")
+    labor_markup_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    parts_markup_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    tax_exempt: Mapped[bool] = mapped_column(Boolean, default=False,
+                                             server_default=false())
+    tax_rate_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    accounting_id: Mapped[str] = mapped_column(String(60), default="")
+    driver_name: Mapped[str] = mapped_column(String(120), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    tags: Mapped[str] = mapped_column(String(200), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+    contacts: Mapped[list["CustomerContact"]] = relationship(
+        back_populates="customer", cascade="all, delete-orphan",
+        order_by="CustomerContact.id")
+    units: Mapped[list["CustomerUnit"]] = relationship(
+        back_populates="customer", cascade="all, delete-orphan",
+        order_by="CustomerUnit.id")
+
+
+class CustomerContact(OrgScoped, Base):
+    """Contacto de un customer (v2.22). `is_billing` marca el contacto de
+    facturación (a lo sumo uno por customer; el Bill-To del invoice lo usa
+    para el email/teléfono). email/phone = PII. org-scoped."""
+    __tablename__ = "customer_contact"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customer.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(120), default="")
+    role: Mapped[str] = mapped_column(String(60), default="")
+    email: Mapped[str] = mapped_column(String(120), default="")
+    phone: Mapped[str] = mapped_column(String(40), default="")
+    is_billing: Mapped[bool] = mapped_column(Boolean, default=False,
+                                             server_default=false())
+
+    customer: Mapped[Customer] = relationship(back_populates="contacts")
+
+
+class CustomerUnit(OrgScoped, Base):
+    """Unidad que pertenece a un customer (v2.22): el owner-operator dueño
+    del camión/trailer. UN dueño por unidad (comparación normalizada:
+    mayúsculas sin espacios, la regla de Service Requests), garantizado a
+    nivel app (core/customers.set_unit MUEVE la propiedad). `unit` guarda la
+    grafía de la flota; puede ser una unidad que no está en Samsara. La WO
+    nueva de una unidad con dueño nace con ese customer. org-scoped."""
+    __tablename__ = "customer_unit"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customer.id", ondelete="CASCADE"), index=True)
+    unit: Mapped[str] = mapped_column(String(64), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+    customer: Mapped[Customer] = relationship(back_populates="units")
+
+
+class SavedReport(OrgScoped, Base):
+    """Reporte guardado por un usuario (v2.22, Reports estilo SquareRigger).
+
+    `spec_json` es un ReportSpec (core/report_engine) serializado: fuente,
+    columnas, filtros, rango de tiempo, agrupado, orden, límite, totales y
+    gráfico. `visibility`: 'mine' (solo el dueño lo ve) | 'org' (toda la
+    organización; crearlo/editarlo exige maint.edit). `based_on` = slug del
+    reporte de sistema del que se clonó ("Save as mine"), o ''. Los reportes
+    de SISTEMA no viven acá: están en código (core/report_library).
+    org-scoped."""
+    __tablename__ = "saved_report"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(160))
+    description: Mapped[str] = mapped_column(Text, default="")
+    owner_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True,
+                                                      index=True)
+    visibility: Mapped[str] = mapped_column(String(8), default="mine")
+    spec_json: Mapped[str] = mapped_column(Text)
+    based_on: Mapped[str] = mapped_column(String(80), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class ReportFavorite(OrgScoped, Base):
+    """Reporte marcado con ★ por un usuario (v2.22). `report_ref` =
+    'sys:<slug>' (reporte de sistema) o 'saved:<id>' (guardado). Único por
+    (org, usuario, ref). org-scoped."""
+    __tablename__ = "report_favorite"
+    __table_args__ = (
+        UniqueConstraint("org_id", "user_id", "report_ref",
+                         name="uq_report_favorite_org_user_ref"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    report_ref: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class ReportSchedule(OrgScoped, Base):
+    """Envío programado de un reporte por email (v2.22). `report_ref` como en
+    ReportFavorite; `version` = versión del reporte de sistema ('' = la por
+    defecto). `cadence` daily|weekly|monthly a la hora `hour` (0-23, zona de
+    la org); `weekday` 0=lunes (weekly) / `day_of_month` 1-31 (monthly, se
+    recorta al último día del mes). `next_run_at` es NAIVE en hora del
+    servidor (como el resto de los DateTime): el scheduler (core/
+    report_schedules.maybe_run) la RECLAMA con un UPDATE condicional antes de
+    enviar, así dos workers nunca mandan el mismo envío. `last_status`:
+    sent | dry_run (mailer en modo simulado / sin configurar) | error | ''.
+    org-scoped."""
+    __tablename__ = "report_schedule"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_ref: Mapped[str] = mapped_column(String(100))
+    version: Mapped[str] = mapped_column(String(40), default="")
+    name: Mapped[str] = mapped_column(String(160), default="")
+    cadence: Mapped[str] = mapped_column(String(10), default="weekly")
+    weekday: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    day_of_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    hour: Mapped[int] = mapped_column(Integer, default=7)
+    recipients: Mapped[str] = mapped_column(Text, default="")
+    format: Mapped[str] = mapped_column(String(8), default="csv")
+    active: Mapped[bool] = mapped_column(Boolean, default=True,
+                                         server_default=true())
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime,
+                                                         nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime,
+                                                         nullable=True,
+                                                         index=True)
+    last_status: Mapped[str] = mapped_column(String(20), default="",
+                                             server_default="")
+    last_error: Mapped[str] = mapped_column(String(300), default="",
+                                            server_default="")
+    created_by: Mapped[str] = mapped_column(String(80), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
 
 
 class ServiceRequest(OrgScoped, Base):
@@ -1165,10 +1494,94 @@ def _migrate() -> None:
         # Backfill: las POs ya 'received' (pre-feature) se marcan completas
         # (qty_received = qty) para que no se "re-reciban" con la lógica de
         # remaining. Solo toca líneas todavía en 0 (no pisa parciales).
+        # v2.22: SOLO la vez que se agrega la columna. Antes corría en cada
+        # arranque y, ahora que una PO recibida se edita (agregar una línea
+        # nueva, qty 0 recibida), la marcaba recibida SIN movimiento de stock.
+        if "qty_received" not in poline_cols:
+            conn.exec_driver_sql(
+                "UPDATE po_line SET qty_received = qty "
+                "WHERE qty_received = 0 "
+                "AND po_id IN (SELECT id FROM purchase_order "
+                "WHERE status='received')")
+        # v2.22 costeo de POs post-recepción: paridad con la migración
+        # Alembic f2a3b4c5d6e7 (las tablas nuevas po_adjustment/audit_event
+        # las crea create_all; acá solo las columnas en tablas existentes).
+        _v222_po_cols = {
+            "purchase_order": {
+                "fin_status": "VARCHAR(16) DEFAULT 'open'",
+                "closed_at": "DATETIME",
+                "invoice_no": "VARCHAR(40) DEFAULT ''",
+                "invoice_date": "VARCHAR(10) DEFAULT ''",
+                "tracking_no": "VARCHAR(60) DEFAULT ''",
+                "payment_method": "VARCHAR(20) DEFAULT ''",
+                "vendor_id": "INTEGER REFERENCES vendor(id)",
+            },
+            "po_line": {
+                "taxable": "BOOLEAN DEFAULT 0",
+                "landed_unit_cost": "FLOAT",
+            },
+            "part": {"last_cost": "FLOAT"},
+            "part_stock_movement": {
+                "unit_cost": "FLOAT",
+                "value_delta": "FLOAT",
+                "actor": "VARCHAR(80) DEFAULT ''",
+            },
+        }
+        for _tbl, _adds in _v222_po_cols.items():
+            _have = {r[1] for r in conn.exec_driver_sql(
+                f'PRAGMA table_info("{_tbl}")').fetchall()}
+            for col, ddl in _adds.items():
+                if col not in _have:
+                    conn.exec_driver_sql(
+                        f'ALTER TABLE "{_tbl}" ADD COLUMN {col} {ddl}')
         conn.exec_driver_sql(
-            "UPDATE po_line SET qty_received = qty WHERE qty_received = 0 "
-            "AND po_id IN (SELECT id FROM purchase_order "
-            "WHERE status='received')")
+            "CREATE INDEX IF NOT EXISTS ix_purchase_order_vendor_id "
+            "ON purchase_order (vendor_id)")
+        # v2.22 horas de motor (reefer PM): paridad con la migración Alembic
+        # a3b4c5d6e7f8. La tabla nueva meter_reading la crea create_all; acá
+        # solo las columnas en tablas existentes. (El ensanche de
+        # maint_record.kind a VARCHAR(16) no hace falta en SQLite: no aplica
+        # el largo de VARCHAR.)
+        for _tbl, _adds in {
+            "work_order": {"engine_hours": "FLOAT"},
+            "maint_record": {"hours": "FLOAT"},
+            # Reseteo del horómetro (inicio de tramo). La tabla puede venir
+            # de un create_all previo sin la columna.
+            "meter_reading": {"is_reset": "BOOLEAN DEFAULT 0 NOT NULL"},
+        }.items():
+            _have = {r[1] for r in conn.exec_driver_sql(
+                f'PRAGMA table_info("{_tbl}")').fetchall()}
+            for col, ddl in _adds.items():
+                if col not in _have:
+                    conn.exec_driver_sql(
+                        f'ALTER TABLE "{_tbl}" ADD COLUMN {col} {ddl}')
+        # v2.22 Customers (Resources): paridad con la migración Alembic
+        # b4c5d6e7f8a9. Las tablas nuevas customer / customer_contact /
+        # customer_unit las crea create_all; acá solo las columnas en tablas
+        # existentes (WO: a quién se le cobra + cobro; línea: precio
+        # congelado al facturar).
+        for _tbl, _adds in {
+            "work_order": {
+                "customer_id": "INTEGER REFERENCES customer(id)",
+                "payment_status": "VARCHAR(12) DEFAULT 'unpaid'",
+                "paid_at": "DATETIME",
+                "tax_pct": "FLOAT",
+            },
+            "work_order_line": {"unit_price": "FLOAT"},
+        }.items():
+            _have = {r[1] for r in conn.exec_driver_sql(
+                f'PRAGMA table_info("{_tbl}")').fetchall()}
+            for col, ddl in _adds.items():
+                if col not in _have:
+                    conn.exec_driver_sql(
+                        f'ALTER TABLE "{_tbl}" ADD COLUMN {col} {ddl}')
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_work_order_customer_id "
+            "ON work_order (customer_id)")
+        # v2.22 Reports (saved_report / report_favorite / report_schedule):
+        # paridad con la migración Alembic c5d6e7f8a9b0. Son tablas NUEVAS
+        # (las crea create_all, que corre antes): no hay columnas que
+        # agregar a tablas existentes.
         # H6 fase 3: cada fila pertenece a una organizacion (tenant). El
         # usuario y las 11 tablas de datos llevan org_id; las DBs viejas no
         # tienen la columna, asi que se agrega y se backfillea a 'default'.

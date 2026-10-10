@@ -7,6 +7,272 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.22.0] - 2026-10-09
+
+Tercera vuelta del benchmark contra SquareRigger (SR), con seis objetivos
+del dueño: **POs editables después de recibir/cerrar** sin reabrir ni
+romper el inventario, **PM del reefer por horas de motor** con un
+horómetro propio por unidad (SR vence las horas contra el odómetro),
+una sección **Resources** al estilo SR (Customers = owner-operators a los
+que se les cobra el taller, Employees, Equipment, Locations, Parts,
+Vendors, Drivers), un **sistema de reportes** a la altura del de SR
+(biblioteca, viewer, builder, envíos programados) **más un asistente de IA
+que arma reportes** en lenguaje natural sobre los datos de la org, un
+**Home** como el de SR y un **sidebar** con sus grupos, animación y
+buscador. Detalle del benchmark: `docs/competitive/07-squarerigger-ui-parity.md`.
+
+### Agregado
+- **[A] Purchase Orders: edición post-recepción + costeo real.**
+  - Dos ciclos independientes: `status` (recepción: draft → ordered →
+    received) y el nuevo **`fin_status`** (`open` | `closed`, `closed_at`).
+    `POST /purchase-orders/{id}/close` y `/reopen` solo mueven el ciclo
+    financiero: cerrar **no** toca stock ni congela costos.
+  - Datos de la factura del proveedor: `invoice_no`, `invoice_date`,
+    `tracking_no`, `payment_method` (`invoice|paid|card|cash`) y
+    `vendor_id` (FK, se resuelve por nombre al crear).
+  - **Líneas editables a CUALQUIER status y fin_status**: `PATCH
+    /purchase-orders/{id}/lines/{line_id}` (`unit_cost`, `qty`, `taxable`,
+    `description`, `dry_run`). La qty no baja de lo recibido (400 "use
+    unreceive"). Si cambia el costo efectivo de algo ya recibido: UN
+    movimiento `po_cost_adj` (delta 0, `value_delta` = Δc × recibido) y
+    revaluación de `Part.avg_cost` solo por las unidades de esa recepción
+    que siguen en stock; lo consumido queda como varianza y las WOs
+    facturadas no se tocan. Todo en una transacción + auditoría.
+  - **Ajustes financieros** (`po_adjustment`): descuento, crédito, flete,
+    tax, fee y pago (`POST …/adjustments`, `POST …/adjustments/{id}/void`
+    con motivo; nunca se borran). Los asignables (`allocate`) se reparten
+    pro-rata en el **landed cost** de cada línea (el tax solo entre las
+    gravadas) y revalúan lo recibido por el mismo camino. Resumen
+    `financial` (subtotal, descuentos, créditos, flete, tax, fees, total,
+    pagado, saldo).
+  - **Des-recibir** (`POST …/lines/{line_id}/unreceive`): único camino de
+    regresión desde `received` (el PATCH de status lo rechaza: "unreceive
+    lines instead"); movimiento `po_unreceive`, reversión del promedio y
+    anulación de los cores pendientes de esa línea. Borrar una línea o una
+    PO con unidades recibidas → 400; borrar una PO desliga sus parts
+    requests.
+  - **Promedio ponderado móvil real** en `Part.avg_cost` (cada recepción) +
+    `Part.last_cost`; los movimientos guardan `unit_cost`, `value_delta` y
+    `actor`. Las líneas de parte de una WO toman por defecto `avg_cost`
+    (si no hay, el costo estándar).
+  - **Auditoría genérica** (`audit_event`): historia de cabecera y líneas
+    (`GET …/audit`), bitácora de recepción por línea (`received_log`).
+  - UI: drawer de la PO rediseñado con pestañas **Info · Lines · Financial
+    · History**, chips de recepción + Open/Closed, Close / Reopen, edición
+    inline de costo/qty/taxable con **preview y confirmación del impacto**
+    ("Revalue N on-hand units — avg $X → $Y"), "Add adjustment ▾" y void
+    con motivo. La PO sigue editable después de cerrada (la ventaja sobre
+    SR, que obliga a reabrir y des-recibir).
+- **[B] Horas de motor + PM del reefer.**
+  - Tabla nueva **`meter_reading`** (medidor `engine_hours`, fuentes
+    manual / wo / maint / lynx / thermoking / traccar / demo), separada del
+    odómetro: el cost-per-mile nunca lee horas como millas.
+    `core/meters.py`: corrección por día y fuente, plausibilidad (no bajar
+    más de 5 %, no más de 24 h por día), unidades normalizadas como en
+    Service Requests, foto del feed del reefer (Traccar ms → h, Lynx /
+    Thermo King) y simulador demo.
+  - Campaña **`reefer`** ("Reefer PM (engine hours)"): vence por horas
+    (1500 h, aviso a 150 h) **o** por fecha de respaldo (365 / 30 días),
+    lo que llegue primero (`due_by`, `meter_missing`); se activa sola en
+    los reefers. `MaintRecord.hours`, `WorkOrder.engine_hours`.
+  - Nueva sección **Reefer PM** (`MaintBoardPage` kind `reefer`), tarjeta
+    **Engine hours** (+ Log) en el perfil de la unidad, horas en
+    Campaigns / RecordModal / Service Requests (fuente `reefer`: "N hrs
+    over" / "Due N hrs · or <fecha>") y en la WO.
+  - `GET /api/maint/due` (PM en millas + DOT en días + reefer en horas,
+    vencidos primero) reemplaza al `/api/pm` legacy en Home y en el
+    UnitDrawer. `GET/POST /api/units/{unit}/meters/engine_hours`.
+- **[C] Resources: Customers, Employees, Locations, Vendors, búsqueda.**
+  - **Customers** (`customer`, `customer_contact`, `customer_unit`):
+    owner-operators / carriers / externos con perfil completo (contacto,
+    dirección, términos, markups de partes y labor, impuesto, ID contable,
+    conductor ligado, tags, notas), contactos (uno de facturación),
+    **unidades propias** (un dueño por unidad; backfill desde el texto
+    "Who is the customer?" de las unidades manuales), WOs, partes
+    cobradas y totales (cobrado YTD, saldo abierto). Página maestro-detalle
+    con pestañas, `CustomerModal` y **quick-add** desde la WO.
+  - **Bill to: Self | Customer** en la WO (por defecto el dueño de la
+    unidad). Al facturar por primera vez se **congelan** los precios
+    (`WorkOrderLine.unit_price` = costo × markup) y la tasa de impuesto;
+    `payment_status` Unpaid/Paid (marcarlo exige `wo.invoice`, también al
+    crear). Invoice impreso / por email con el Bill-To del customer.
+  - **Employees** (roster de técnicos con rol, teléfono, email, tarifa,
+    fecha de alta; perfil con WOs asignadas y horas / costo de labor de
+    30 días), **Locations** (terminales con tipo, código y dirección),
+    **Vendors** como sección propia (perfil con outside WOs, POs, partes y
+    gasto) y **Drivers** (roster) como sección.
+  - **`GET /api/search`**: búsqueda global agrupada (WOs —todas, no solo
+    las 200 recientes—, equipos, customers, partes, vendors, service
+    requests, técnicos, conductores), con PII enmascarada sin `pii.view`.
+  - **`GET /api/home/summary`** con la zona horaria de la org.
+- **[D] Motor de reportes + biblioteca + envíos + asistente de IA.**
+  - `core/report_registry.py`: **26 fuentes** declarativas (campos con
+    tipo, descripción y marca de PII; joins declarados; derivados en
+    Python). `core/report_engine.py`: `ReportSpec` validada (columnas con
+    agregación, filtros de dos niveles, rango de tiempo con presets en la
+    zona de la org, group by, orden, límite, totales, gráfico), valores
+    tipados y parametrizados, filtro de org explícito por join,
+    `statement_timeout` en Postgres, PII enmascarada sin `pii.view`.
+  - **Biblioteca de 49 reportes de sistema** en 8 categorías (los del
+    catálogo de SR que los datos permiten, marcando las aproximaciones,
+    más los propios: Spend overview, Cost per mile, PM compliance, Driver
+    compliance, Reefer PM due, Service requests backlog, Customer billing,
+    Outside work by vendor, Parts revaluation log), con versiones (presets
+    de período). Los cálculos de spend / CPM siguen en `reports.py`
+    (proveedores, sin re-implementar).
+  - Reportes guardados (`saved_report`, Mine / Org), favoritos
+    (`report_favorite`) y **envíos programados** (`report_schedule`:
+    diario / semanal / mensual, hora de la org, CSV o XLSX adjunto;
+    `maybe_run` desde el loop de alertas, recorre las orgs y reclama cada
+    envío avanzando `next_run_at` para no mandar dos veces; `last_status`
+    real — `dry_run` cuando el mailer está simulado). Export CSV/XLSX.
+  - **Asistente "Ask Rigsmith"** (`POST /api/reports/assistant`): arma la
+    spec desde lenguaje natural con structured outputs sobre el catálogo
+    del registro (prompt cacheado, nunca viajan datos de la org), el
+    server la valida con el mismo motor y la repara una vez si falla;
+    clave desde secretstore → `ANTHROPIC_API_KEY` → docscan; modelo y
+    interruptor del plan (`ai_assistant_enabled`) en Settings; rate limit.
+- **[E] Shell.** `Sidebar.tsx` (un solo árbol para expandido/colapsado,
+  256 ↔ 70 px con `cubic-bezier(0,0,.2,1)` .3 s, etiquetas recortadas,
+  grupos WORK / RESOURCES / INSIGHTS / ADMIN plegables y persistidos,
+  flyouts y tooltips en portal, botón ⚡, `prefers-reduced-motion`),
+  menú **"+" Add New** (Service Request, Work Order, Outside Work,
+  Purchase Order, Parts Request, Customer, Employee, Equipment, Location,
+  Part, Vendor) vía `CreateHost`, **command palette** (Ctrl/⌘+K: Go to /
+  Create / Preferences + búsqueda de registros), navegación con *intents*
+  (`{wo}`, `{unit}`, `{customer}`, `{filter}`…), pila de capas para
+  Escape (`layers.ts`) y "+"/Search en la barra móvil.
+- **[E] Home** (`dashboard`): bienvenida, 4 KPIs clicables (WOs en curso,
+  completadas hoy, horas de labor de la semana, partes bloqueando),
+  Quick Navigation 2×3 con conteos, tarjeta ancha de Work Orders (donut,
+  semana pasada vs esta, top 5 unidades) y **PMs Due & Overdue** con orden
+  Days | Readings. El contenido del Dashboard anterior pasa a **Fleet
+  overview** (`overview`).
+- **[F/G] Frontend de Resources, PO, horómetro y Reportes**: páginas
+  Customers / Employees / Locations / Vendors / Drivers, `CustomerPicker`,
+  drawer de PO, UI del horómetro y **Reportes estilo SR**: lista Mine / Org
+  / Rigsmith con búsqueda, favoritos y categorías; viewer con versiones,
+  ★, ⓘ, "Save as mine", Data | Charts, filtros por columna, Σ totales,
+  selector de columnas, orden por encabezado, export PDF / CSV / XLSX y
+  "Schedule email…"; **Report Builder** con preview en vivo, group &
+  summarize, filtros con grupos, orden, totales y gráfico; tableros
+  heredados (spend, CPM, PM compliance, driver compliance) dentro de
+  Reports.
+- `org_config`: **zona horaria de la org** (`timezone`, default
+  `America/Chicago`; `org_now` / `org_today` / semanas lun–dom) para "hoy",
+  "esta semana", presets y envíos. `tzdata` en requirements.
+- **Migraciones Alembic** (cadena lineal desde `e1f2a3b4c5d6`):
+  `f2a3b4c5d6e7_po_costing`, `a3b4c5d6e7f8_engine_hours`,
+  `b4c5d6e7f8a9_customers`, `c5d6e7f8a9b0_reports`, cada una con paridad
+  en `db._migrate()` (SQLite de dev).
+- **Tests** nuevos: `test_po_costing.py`, `test_meters.py`,
+  `test_customers.py`, `test_resources.py`, `test_reports_engine.py`,
+  `test_reports_saved.py` (+ casos nuevos en `test_service_requests.py` y
+  `test_technicians.py`).
+
+### Cambiado
+- Navegación reagrupada como SR; los ids de sección se conservan
+  (`setup_status` y las guías los usan). Settings deja links "Managed in
+  Resources → …" donde una tarjeta se mudó.
+- `request_stats` y `stats().open_value` cuentan "en vuelo" solo POs
+  draft/ordered **financieramente abiertas**; `received_30d` usa
+  `received_at`.
+- El Paid/Unpaid de la WO y del perfil del customer se habilitan con
+  `wo.invoice` (la misma regla que el backend).
+- Exportes de reportes: título, subtítulo y encabezados también se
+  neutralizan contra fórmulas (antes solo las celdas de datos).
+- `based_on` de un reporte guardado se guarda como ref (`sys:<slug>` o
+  `saved:<id>`); "Save as mine" de un guardado ajeno funciona.
+
+### Corregido
+- Revisión de la versión (antes de publicar):
+  - **Backorder sin doble conteo**: al backordear, la línea de la PO
+    original baja su qty a lo recibido (o se mueve entera) en la misma
+    transacción que crea la hija; ya no se podía recibir el faltante dos
+    veces (stock, valor y on-order inflados). POs viejas con backorder:
+    recibir el faltante en la original se rechaza y la UI lo indica.
+    `qty_on_order` cuenta solo POs `ordered`.
+  - **Des-recibir después de consumir**: las unidades de esa recepción
+    que siguen en stock salen a su costo y el resto al promedio de las
+    demás (antes el avg podía caer a ~$0 o inflarse). Sin stock, vuelve
+    el costo previo y `last_cost` a la última recepción no revertida.
+  - **Revaluación proporcional**: con stock previo en la parte, el consumo
+    se reparte entre lo viejo y lo recibido (promedio móvil); antes se
+    asumía que lo recibido era lo último en usarse.
+  - Cambiar qty, agregar o borrar una línea con ajustes asignados pasa por
+    el mismo preview + confirmación de la revaluación (`dry_run` en alta y
+    baja de líneas).
+  - **Reseteo del horómetro**: una lectura forzada más baja abre un tramo
+    nuevo (`meter_reading.is_reset`); las lecturas del tramo anterior dejan
+    de ganar el "vigente", el feed ya no queda rechazado para siempre y un
+    PM recién hecho no aparece ~13,000 h vencido. El feed se recupera solo
+    si reporta un valor bajo consistente dos días seguidos.
+  - Las horas del PM del reefer se ven y editan también en una WO DOT +
+    Reefer PM (campaña `dot`); al facturar gana la lectura más nueva del
+    horómetro si es mayor que la copiada al crear la WO.
+  - El registro de campaña al facturar se fecha con el **hoy de la org**
+    (antes la fecha UTC del server: de noche quedaba "mañana" y la lectura
+    se descartaba por futura).
+  - Demo: el último PM del baseline (PM y reefer) tiene un ciclo fijo en
+    Service Requests; antes cada día cerraba el request y abría otro
+    (se perdían snooze y deny).
+  - Home: "PMs Due & Overdue" pone siempre los vencidos primero y muestra
+    todos los vencidos (+ "Show all"); los KPIs abren la lista de WOs con
+    el mismo criterio del número (cerradas hoy / fecha efectiva de esta
+    semana, facturadas incluidas; filtros nuevos "Closed date" y "Work
+    date").
+  - Service Requests: la lista por unidad marca "N days over" a un reefer
+    vencido por fecha aunque le queden horas.
+  - Add New → Equipment / Part / Vendor abre el registro creado y refresca
+    los caches de customers (el texto "Who is the customer?" puede crear
+    el dueño).
+  - Escape en el drawer móvil respeta la pila de capas; el command palette
+    no abre un resultado viejo con Enter mientras busca el texto nuevo.
+  - Reportes: "Save as mine" con una columna oculta que usaba el gráfico,
+    el builder al apagar Group & summarize con orden por métrica, un
+    `group_by` del asistente con dimensiones fuera de las columnas (ahora
+    se agregan como columnas), filtros guardados que no daban las mismas
+    filas que la vista ("is not" numérico, meses formateados), y editar
+    un envío programado de un reporte privado de otro usuario.
+  - Resultados recortados (más filas que las que trae el viewer): el orden
+    y los filtros de la vista corren en el server sobre todas las filas, y
+    el Σ dice qué conjunto suma.
+  - El modal de edición de una parte ya no pisa el stock con un `on_hand`
+    viejo: un cambio se postea como ajuste manual por la diferencia
+    (`PATCH /api/parts` ignora `on_hand`). Venía de antes de v2.22.
+  - El impuesto del customer (`tax_rate_pct` / `tax_exempt`) se aplica: a
+    las partes facturadas, congelado al facturar (`WorkOrder.tax_pct`), en
+    el invoice impreso y por email, en los saldos y en los reportes
+    (`billable_tax`, `amount_due`).
+- Prueba local en el navegador:
+  - Horas del PM del reefer en horas enteras con redondeo half-up
+    (`maint._whole_hours`): Python (half-even) y el frontend (half-up)
+    mostraban 19,480 vs 19,481 hrs y "132" vs "131 hrs over" en la misma
+    pantalla.
+  - El historial de la PO (audit), los ajustes, el log de recepciones y
+    `closed_at` se serializan en la hora de la org (`org_config.org_iso`),
+    igual que los reportes. Antes mostraban la hora del servidor (UTC en
+    producción).
+
+### Notas
+- Producción sigue siendo **solo Alembic**: las cuatro revisiones forman
+  una cadena lineal (un solo head). `meter_reading.is_reset` y
+  `work_order.tax_pct` se agregaron dentro de sus revisiones v2.22 (aún no
+  publicadas); una base que ya hubiera corrido una versión previa de esta
+  rama necesitaría recrearse.
+- Sin scopes nuevos de RBAC (una org con matriz propia no los recibiría):
+  las escrituras nuevas caen en `maint.edit`; marcar cobros, en
+  `wo.invoice`.
+- Limitaciones conocidas: no hay catálogo de **Services** ni **Sales
+  Orders** (partes vendidas sin WO) todavía; las **horas de labor** salen
+  de las líneas de labor de las WOs hasta que exista time tracking (Shop
+  Watch); el impuesto del customer aplica solo a partes; Employees sigue
+  siendo el roster JSON (sin FK desde las WOs); el asistente de IA
+  necesita una clave de Anthropic y responde con una spec que el usuario
+  revisa en el builder (no ejecuta acciones); el feed del reefer se
+  recupera solo de un reseteo después de dos días consistentes (antes, un
+  "Save anyway" en el perfil).
+
 ## [2.21.0] - 2026-10-07
 
 Segunda vuelta del benchmark contra SquareRigger, centrada en Work Orders:

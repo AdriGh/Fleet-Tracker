@@ -1,6 +1,8 @@
 import { type CSSProperties, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import type { FleetUnit, OrgConfig, WorkOrder } from '../api'
+import type {
+  CustomerProfile, FleetUnit, OrgConfig, WoLine, WorkOrder,
+} from '../api'
 
 // Documento imprimible de una Work Order (fase H3-C). Igual que UnitReport:
 // se monta en un portal offscreen (.print-root) y dispara window.print();
@@ -30,6 +32,25 @@ function billToLines(org: OrgConfig, company: string): string[] {
   return lines(name, a.address, cityZip, a.phone)
 }
 
+// v2.22 [C]: Bill To = el cliente (owner-operator) si la WO tiene uno:
+// nombre, dirección, contacto de facturación. Un dato enmascarado (sin
+// pii.view) no se imprime.
+const clean = (v: string | null | undefined) =>
+  (v && !v.includes('•') ? v : '')
+
+function customerLines(p: CustomerProfile): string[] {
+  const c = p.customer
+  const stateZip = lines(clean(c.state), clean(c.zip)).join(' ')
+  const cityZip = lines(clean(c.city), stateZip).join(', ')
+  const billing = p.contacts.find((x) => x.is_billing)
+  return lines(
+    c.name, clean(c.address), cityZip,
+    billing ? `Attn: ${billing.name}` : '',
+    clean(billing?.phone) || clean(c.phone),
+    clean(billing?.email) || clean(c.email),
+  )
+}
+
 function unitLines(wo: WorkOrder, unit?: FleetUnit): string[] {
   const ymm = unit
     ? lines(unit.year, unit.make, unit.model).join(' ')
@@ -55,8 +76,13 @@ function Block({ title, items }: { title: string; items: string[] }) {
   )
 }
 
-function InvoicePage({ wo, org, unit }: {
-  wo: WorkOrder; org: OrgConfig; unit?: FleetUnit
+const TERMS_TEXT: Record<string, string> = {
+  cod: 'COD', net7: 'Net 7', net15: 'Net 15', net30: 'Net 30',
+  '2_10_net30': '2% 10, Net 30', prepay: 'Prepay',
+}
+
+function InvoicePage({ wo, org, unit, customer }: {
+  wo: WorkOrder; org: OrgConfig; unit?: FleetUnit; customer?: CustomerProfile
 }) {
   const isInvoice = wo.status === 'invoiced'
   const kind = isInvoice ? 'INVOICE' : 'ESTIMATE'
@@ -64,23 +90,42 @@ function InvoicePage({ wo, org, unit }: {
   const date = (wo.service_date || wo.created_at || '').slice(0, 10)
   const inv = org.invoice
   const wlines = wo.lines ?? []
+  // v2.22 [C]: con cliente, cada línea va a SU precio (snapshot unit_price o
+  // costo × (1 + markup del cliente)); sin cliente, al costo (como antes).
+  const c = wo.customer_id != null ? customer?.customer : undefined
+  const rate = (l: WoLine) => {
+    if (!c) return l.unit_cost
+    if (l.unit_price != null) return l.unit_price
+    const mk = (l.kind === 'part' ? c.parts_markup_pct : c.labor_markup_pct) || 0
+    return l.unit_cost * (1 + mk / 100)
+  }
   // Subtotales redondeados a centavos; el total se calcula sobre ellos para
   // que parts + labor sumen exactamente el total impreso (mismo criterio que
   // el backend en wo_invoice._totals).
   const r2 = (n: number) => Math.round(n * 100) / 100
   const parts = r2(wlines.filter((l) => l.kind === 'part')
-    .reduce((s, l) => s + l.qty * l.unit_cost, 0))
+    .reduce((s, l) => s + l.qty * rate(l), 0))
   const labor = r2(wlines.filter((l) => l.kind === 'labor')
-    .reduce((s, l) => s + l.qty * l.unit_cost, 0))
-  const grand = r2(parts + labor)
+    .reduce((s, l) => s + l.qty * rate(l), 0))
+  // Impuesto del cliente sobre las partes (tasa congelada al facturar; mismo
+  // cálculo que wo_invoice._totals). Self / exento = 0.
+  const taxPct = c ? (wo.tax_pct ?? 0) : 0
+  const tax = taxPct > 0 ? r2(parts * taxPct / 100) : 0
+  const grand = r2(parts + labor + tax)
   const accent = (org.branding.accent || '').trim() || '#e11900'
+  const billTo = c && customer ? customerLines(customer)
+    : billToLines(org, wo.company)
+  const terms = c?.terms ? (TERMS_TEXT[c.terms] ?? c.terms) : inv.terms
 
   const metaChips = [
     ['Date', date],
     ['Unit', wo.unit],
     ['Shop ref #', wo.shop_invoice],
     ['PO #', wo.po_number],
-    ['Terms', inv.terms],
+    ['Terms', terms],
+    ['Account', c ? clean(c.accounting_id) : ''],
+    ['Status', c && isInvoice
+      ? (wo.payment_status === 'paid' ? 'Paid' : 'Balance due') : ''],
     ['Technician', wo.mechanic],
     ['Authorizer', wo.authorizer],
   ].filter(([, v]) => (v || '').toString().trim())
@@ -103,7 +148,7 @@ function InvoicePage({ wo, org, unit }: {
       </header>
 
       <div className="inv-parties">
-        <Block title="Bill To" items={billToLines(org, wo.company)} />
+        <Block title="Bill To" items={billTo} />
         <Block title="Unit" items={unitLines(wo, unit)} />
       </div>
 
@@ -145,8 +190,8 @@ function InvoicePage({ wo, org, unit }: {
                 )}
                 {l.description}
               </td>
-              <td className="num">{l.qty.toLocaleString('en-US')} × {money(l.unit_cost)}</td>
-              <td className="num">{money(l.qty * l.unit_cost)}</td>
+              <td className="num">{l.qty.toLocaleString('en-US')} × {money(rate(l))}</td>
+              <td className="num">{money(l.qty * rate(l))}</td>
             </tr>
           ))}
         </tbody>
@@ -157,6 +202,9 @@ function InvoicePage({ wo, org, unit }: {
           <tbody>
             <tr><td>Parts</td><td className="num">{money(parts)}</td></tr>
             <tr><td>Labor</td><td className="num">{money(labor)}</td></tr>
+            {tax > 0 && (
+              <tr><td>Tax ({taxPct}% on parts)</td><td className="num">{money(tax)}</td></tr>
+            )}
             <tr className="inv-total-row">
               <td>Total</td><td className="num">{money(grand)}</td>
             </tr>
@@ -183,10 +231,12 @@ function InvoicePage({ wo, org, unit }: {
   )
 }
 
-export default function WorkOrderInvoice({ wo, org, unit, onClose }: {
+export default function WorkOrderInvoice({ wo, org, unit, customer, onClose }: {
   wo: WorkOrder
   org: OrgConfig
   unit?: FleetUnit
+  // v2.22 [C]: perfil del cliente facturado (Bill To + markup).
+  customer?: CustomerProfile
   onClose: () => void
 }) {
   useEffect(() => {
@@ -201,7 +251,8 @@ export default function WorkOrderInvoice({ wo, org, unit, onClose }: {
 
   // Memo del documento (no recomputa al re-render del padre).
   const page = useMemo(
-    () => <InvoicePage wo={wo} org={org} unit={unit} />, [wo, org, unit])
+    () => <InvoicePage wo={wo} org={org} unit={unit} customer={customer} />,
+    [wo, org, unit, customer])
 
   return createPortal(
     <div className="print-root">{page}</div>,

@@ -15,6 +15,7 @@ import { Button, Tabs, StatCluster } from '../components/ds'
 import StatCard from '../components/StatCard'
 import Skeleton from '../components/Skeleton'
 import PurchaseOrdersPage from './PurchaseOrdersPage'
+import type { NavIntent } from '../shell'
 
 type PurchTab = 'requests' | 'pos' | 'cores' | 'warranty'
 
@@ -26,8 +27,18 @@ const SOURCE_LABEL: Record<string, string> = {
 }
 const fmtDate = (iso: string) => (iso ? iso.slice(0, 10) : '—')
 
-export default function PurchasingPage() {
-  const [tab, setTab] = useState<PurchTab>('requests')
+const PURCH_TABS: PurchTab[] = ['requests', 'pos', 'cores', 'warranty']
+
+// v2.22: `intent` del shell — {po} abre la PO (tab Purchase orders); {tab}
+// elige la sub-tab. App re-monta la página con cada intent nuevo.
+export default function PurchasingPage(
+  { intent }: { intent?: NavIntent } = {},
+) {
+  const [tab, setTab] = useState<PurchTab>(() => {
+    if (typeof intent?.po === 'number') return 'pos'
+    const t = intent?.tab as PurchTab | undefined
+    return t && PURCH_TABS.includes(t) ? t : 'requests'
+  })
   const qc = useQueryClient()
   // Escaneo de garantía al abrir Purchasing (una vez): materializa claims
   // nuevos sin mutar en cada lectura. Al terminar, refresca las queries de
@@ -140,7 +151,10 @@ export default function PurchasingPage() {
       {tab === 'requests' && (
         <RequestsQueue requests={requests} pending={reqQ.isPending} />
       )}
-      {tab === 'pos' && <PurchaseOrdersPage />}
+      {tab === 'pos' && (
+        <PurchaseOrdersPage
+          initialPo={typeof intent?.po === 'number' ? intent.po : null} />
+      )}
       {tab === 'cores' && <CoresTab />}
       {tab === 'warranty' && <WarrantyTab />}
     </div>

@@ -5,13 +5,10 @@
 // líneas). Espeja los patrones de WorkOrdersPage (TanStack Query + Skeleton +
 // drawer de detalle + ds Button/Tabs).
 import { useMemo, useState } from 'react'
-import { Drawer } from 'vaul'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  addPoLine, createPurchaseOrder, deletePoLine, deletePurchaseOrder,
-  getPurchaseOrder, listParts, listPurchaseOrders, listVendors,
-  patchPurchaseOrder, receivePurchaseOrder,
-  type Part, type POLineInput, type POStatus, type PurchaseOrder, type Vendor,
+  createPurchaseOrder, listParts, listPurchaseOrders, listVendors,
+  type Part, type POLineInput, type POStatus, type Vendor,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 import { usePerms } from '../perms'
@@ -19,6 +16,9 @@ import { Button, Tabs } from '../components/ds'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
+// v2.22: drawer rediseñado (Info · Lines · Financial · History), editable
+// después de recibir y de cerrar.
+import PoDrawer from './PoDrawer'
 import { StatCluster } from '../components/ds'
 
 const money = (n: number) =>
@@ -45,15 +45,17 @@ type LineDraft = { part_number: string; description: string; qty: string
 const emptyLine = (): LineDraft =>
   ({ part_number: '', description: '', qty: '1', unit_cost: '' })
 
-export default function PurchaseOrdersPage({ quickPart }: {
+export default function PurchaseOrdersPage({ quickPart, initialPo }: {
   // QuickBuy desde el catálogo: si viene una parte, abre el modal precargado.
   quickPart?: Part | null
+  // v2.22: intent del shell ({po}) — abre esa PO en el drawer al montar.
+  initialPo?: number | null
 } = {}) {
   const qc = useQueryClient()
   const { can } = usePerms()
   const [statusFilter, setStatusFilter] = useState('')
   const [q, setQ] = useState('')
-  const [openPo, setOpenPo] = useState<number | null>(null)
+  const [openPo, setOpenPo] = useState<number | null>(initialPo ?? null)
   const [creating, setCreating] = useState(false)
   const [quick, setQuick] = useState<Part | null>(quickPart ?? null)
 
@@ -92,7 +94,7 @@ export default function PurchaseOrdersPage({ quickPart }: {
           <StatCard label="Ordered" value={stats.ordered} tone="info" />
           <StatCard label="Received" value={stats.received} tone="ok" />
           <StatCard label="Open value" value={money(stats.open_value)}
-            tone="accent" />
+            tone="accent" sub="not received · not closed" />
         </StatCluster>
       )}
 
@@ -160,23 +162,44 @@ export default function PurchaseOrdersPage({ quickPart }: {
                     <th className="num">Lines</th>
                     <th>Status</th>
                     <th className="num">Total</th>
+                    <th className="num">Balance</th>
                     <th>Created</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((p) => (
                     <tr key={p.id} onClick={() => setOpenPo(p.id)}>
-                      <td className="mono">#{p.id}</td>
+                      <td className="mono">
+                        <button type="button" className="link-btn"
+                          onClick={(e) => { e.stopPropagation(); setOpenPo(p.id) }}>
+                          #{p.id}
+                        </button>
+                      </td>
                       <td><strong>{p.vendor
-                        || <span className="muted">—</span>}</strong></td>
+                        || <span className="muted">—</span>}</strong>
+                        {p.invoice_no && (
+                          <span className="po-list-inv">Inv {p.invoice_no}</span>
+                        )}
+                      </td>
                       <td className="num">{p.n_lines}</td>
                       <td>
                         <span className={`wo-status ${PO_STATUS_META[p.status].cls}`}>
                           {PO_STATUS_META[p.status].label}
                         </span>
+                        {/* v2.22: ciclo financiero aparte de la recepción. */}
+                        {p.fin_status === 'closed' && (
+                          <span className="po-fin-chip is-closed"
+                            title="Financially closed — still editable">
+                            Closed
+                          </span>
+                        )}
                       </td>
                       <td className="num mono">
                         {p.total ? money(p.total) : '—'}
+                      </td>
+                      <td className={`num mono ${(p.financial?.balance ?? 0) > 0.004
+                        ? 'po-due' : 'muted'}`}>
+                        {p.financial ? money(p.financial.balance) : '—'}
                       </td>
                       <td className="muted">{dateOf(p.created_at)}</td>
                     </tr>
@@ -261,8 +284,9 @@ export function CreatePoModal({ quickPart, onClose, onCreated }: {
     const hit = findPart(catalog, pn)
     setLines((ls) => ls.map((l, j) => (j === i ? {
       ...l, part_number: pn,
+      // v2.22: costo de reposición = último costo recibido (si hay).
       ...(hit ? { description: l.description || hit.description,
-                  unit_cost: String(hit.cost) } : {}),
+                  unit_cost: String(hit.last_cost ?? hit.cost) } : {}),
     } : l)))
   }
   function addLine() { setLines((ls) => [...ls, emptyLine()]) }
@@ -371,370 +395,5 @@ export function CreatePoModal({ quickPart, onClose, onCreated }: {
         </div>
       </div>
     </Modal>
-  )
-}
-
-// ----- Drawer de detalle (estado + líneas) ---------------------------------
-function PoDrawer({ poId, onClose }: {
-  poId: number | null
-  onClose: () => void
-}) {
-  const qc = useQueryClient()
-  const { can } = usePerms()
-  const editable = can('maint.edit')
-  const open = poId != null
-  const poQ = useQuery({
-    queryKey: ['purchase-order', poId],
-    queryFn: () => getPurchaseOrder(poId!),
-    enabled: open,
-  })
-  const po = poQ.data ?? null
-  const partsQ = useQuery({ queryKey: ['parts'], queryFn: listParts })
-  const catalog = partsQ.data?.parts ?? []
-
-  const [linePart, setLinePart] = useState('')
-  const [lineDesc, setLineDesc] = useState('')
-  const [lineQty, setLineQty] = useState('1')
-  const [lineCost, setLineCost] = useState('')
-  const [busy, setBusy] = useState(false)
-  // Recepción parcial: qty que llegó por línea (default = pendiente).
-  const [recvQty, setRecvQty] = useState<Record<number, string>>({})
-  const [backorderRest, setBackorderRest] = useState(true)
-  const [receiving, setReceiving] = useState(false)
-
-  function refreshPo(updated: PurchaseOrder) {
-    qc.setQueryData(['purchase-order', updated.id], updated)
-    qc.invalidateQueries({ queryKey: ['purchase-orders'] })
-  }
-
-  function pickPart(pn: string) {
-    setLinePart(pn)
-    const hit = findPart(catalog, pn)
-    if (hit) {
-      if (!lineDesc.trim()) setLineDesc(hit.description)
-      setLineCost(String(hit.cost))
-    }
-  }
-
-  async function setStatus(s: POStatus) {
-    if (!po) return
-    setBusy(true)
-    try {
-      refreshPo(await patchPurchaseOrder(po.id, { status: s }))
-      if (s === 'received') {
-        // El camino legacy 'received' repone stock y puede crear cores.
-        qc.invalidateQueries({ queryKey: ['parts'] })
-        qc.invalidateQueries({ queryKey: ['cores'] })
-      }
-      notifyOk(`PO #${po.id}: ${PO_STATUS_META[s].label}`)
-    } catch (e) {
-      notifyErr('Could not change status', e)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function doReceive() {
-    if (!po) return
-    const receivable = (po.lines ?? []).filter(
-      (l) => (l.part_number || '').trim() && l.qty_outstanding > 0)
-    const receipts = receivable.map((l) => ({
-      line_id: l.id,
-      qty_now: recvQty[l.id] !== undefined
-        ? Number(recvQty[l.id]) || 0 : l.qty_outstanding,
-    })).filter((r) => r.qty_now > 0)
-    if (receipts.length === 0) {
-      notifyErr('Nothing to receive', 'Enter a qty on at least one line')
-      return
-    }
-    // Un token por click => idempotente ante reenvíos.
-    const token = (crypto.randomUUID?.() ?? String(Date.now()))
-      .replace(/-/g, '').slice(0, 16)
-    setReceiving(true)
-    try {
-      const res = await receivePurchaseOrder(
-        po.id, receipts, token, backorderRest)
-      refreshPo(res.po)
-      qc.invalidateQueries({ queryKey: ['parts'] })   // on_hand cambió
-      qc.invalidateQueries({ queryKey: ['cores'] })   // pudo crear cores
-      setRecvQty({})
-      if (res.backorder) {
-        qc.invalidateQueries({ queryKey: ['purchase-orders'] })
-        notifyOk('Received + backorder created',
-          `Backorder PO #${res.backorder.id} for the missing qty`)
-      } else {
-        notifyOk('Shipment received', `PO #${po.id}`)
-      }
-    } catch (e) {
-      notifyErr('Could not receive', e)
-    } finally {
-      setReceiving(false)
-    }
-  }
-
-  async function addLine() {
-    if (!po || (!lineDesc.trim() && !linePart.trim())) return
-    setBusy(true)
-    try {
-      refreshPo(await addPoLine(po.id, {
-        part_number: linePart.trim(), description: lineDesc.trim(),
-        qty: Number(lineQty) || 1, unit_cost: Number(lineCost) || 0,
-      }))
-      setLinePart(''); setLineDesc(''); setLineQty('1'); setLineCost('')
-    } catch (e) {
-      notifyErr('Could not add line', e)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function removeLine(lineId: number) {
-    if (!po) return
-    try {
-      refreshPo(await deletePoLine(po.id, lineId))
-    } catch (e) {
-      notifyErr('Could not delete line', e)
-    }
-  }
-
-  async function saveField(patch: { vendor?: string; notes?: string }) {
-    if (!po) return
-    try {
-      refreshPo(await patchPurchaseOrder(po.id, patch))
-    } catch (e) {
-      notifyErr('Could not save', e)
-    }
-  }
-
-  async function removePo() {
-    if (!po) return
-    if (!window.confirm(`Delete PO #${po.id}?`)) return
-    try {
-      await deletePurchaseOrder(po.id)
-      qc.invalidateQueries({ queryKey: ['purchase-orders'] })
-      notifyOk('Purchase order deleted', `#${po.id}`)
-      onClose()
-    } catch (e) {
-      notifyErr('Could not delete PO', e)
-    }
-  }
-
-  return (
-    <Drawer.Root direction="right" open={open}
-      onOpenChange={(o) => { if (!o) onClose() }}>
-      <Drawer.Portal>
-        <Drawer.Overlay className="ud-overlay" />
-        <Drawer.Content className="ud-content wo-drawer">
-          {po && (
-            <>
-              <div className="ud-head">
-                <div>
-                  <Drawer.Title className="ud-title">
-                    PO #{po.id}
-                  </Drawer.Title>
-                  <span className="ud-chiprow">
-                    <span className={`wo-status ${PO_STATUS_META[po.status].cls}`}>
-                      {PO_STATUS_META[po.status].label}
-                    </span>
-                    {po.receiving_state === 'partial' && (
-                      <span className="wo-status wo-assigned">
-                        Partially received
-                      </span>
-                    )}
-                    {po.backorder_of_po_id != null && (
-                      <span className="po-bo-tag">
-                        ↳ Backorder of PO #{po.backorder_of_po_id}
-                      </span>
-                    )}
-                  </span>
-                </div>
-                <button className="icon-btn" onClick={onClose}
-                  aria-label="Close">
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
-                    stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <path d="M6 6l12 12M18 6L6 18" />
-                  </svg>
-                </button>
-              </div>
-              <Drawer.Description className="sr-only">
-                Purchase order {po.id} details
-              </Drawer.Description>
-
-              <div className="ud-body">
-                {/* Avance de estado (draft -> ordered -> received) */}
-                <div className="po-stage-row" style={{ display: 'flex', gap: 8,
-                  flexWrap: 'wrap', marginBottom: 14 }}>
-                  {PO_PIPELINE.map((s) => (
-                    <button key={s}
-                      className={`btn btn-xs ${po.status === s
-                        ? 'btn-primary' : 'btn-ghost'}`}
-                      disabled={!editable || busy || po.status === s}
-                      onClick={() => setStatus(s)}>
-                      {PO_STATUS_META[s].label}
-                    </button>
-                  ))}
-                </div>
-
-                <section className="ud-sec" key={po.id}>
-                  <label className="ud-field">
-                    <span>Vendor</span>
-                    <input className="cell-input" defaultValue={po.vendor}
-                      placeholder="Vendor name" disabled={!editable}
-                      onBlur={(e) => {
-                        if (e.target.value !== po.vendor) {
-                          saveField({ vendor: e.target.value })
-                        }
-                      }} />
-                  </label>
-                  <label className="ud-field">
-                    <span>Notes</span>
-                    <textarea className="cell-input ud-notes" rows={2}
-                      defaultValue={po.notes} placeholder="optional"
-                      disabled={!editable}
-                      onBlur={(e) => {
-                        if (e.target.value !== po.notes) {
-                          saveField({ notes: e.target.value })
-                        }
-                      }} />
-                  </label>
-                </section>
-
-                <section className="ud-sec">
-                  <h3>Lines</h3>
-                  {po.lines && po.lines.length > 0 ? (
-                    <div className="table-wrap">
-                      <table className="defects-table">
-                        <thead>
-                          <tr>
-                            <th>Part #</th>
-                            <th>Description</th>
-                            <th className="num">Qty</th>
-                            <th className="num">Recv</th>
-                            <th className="num">Unit</th>
-                            <th className="num">Total</th>
-                            {editable && <th aria-label="Actions" />}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {po.lines.map((ln) => (
-                            <tr key={ln.id}>
-                              <td className="mono">{ln.part_number
-                                || <span className="muted">—</span>}</td>
-                              <td>{ln.description}</td>
-                              <td className="num">{ln.qty}</td>
-                              <td className="num mono">
-                                <span className={ln.qty_received >= ln.qty
-                                  && ln.qty > 0 ? 'po-recv-full' : ''}>
-                                  {ln.qty_received}/{ln.qty}
-                                </span>
-                              </td>
-                              <td className="num mono">{money(ln.unit_cost)}</td>
-                              <td className="num mono">{money(ln.total)}</td>
-                              {editable && (
-                                <td className="num">
-                                  <button className="icon-x" title="Remove line"
-                                    onClick={() => removeLine(ln.id)}>✕</button>
-                                </td>
-                              )}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <p className="muted">No lines yet.</p>
-                  )}
-
-                  <div className="wo-total-row" style={{ display: 'flex',
-                    justifyContent: 'flex-end', fontWeight: 700,
-                    margin: '8px 2px' }}>
-                    Total&nbsp;<span className="mono">{money(po.total)}</span>
-                  </div>
-
-                  {editable && (
-                    <div className="wo-line-row po-line-row"
-                      style={{ marginTop: 10 }}>
-                      <input className="cell-input" list="po-drawer-parts"
-                        title="Part number" placeholder="Part #"
-                        value={linePart}
-                        onChange={(e) => pickPart(e.target.value)} />
-                      <input className="cell-input" value={lineDesc}
-                        placeholder="Description"
-                        onChange={(e) => setLineDesc(e.target.value)} />
-                      <input className="cell-input" type="number"
-                        min="0" title="Quantity" value={lineQty}
-                        onChange={(e) => setLineQty(e.target.value)} />
-                      <input className="cell-input" type="number"
-                        min="0" step="0.01" title="Unit cost" value={lineCost}
-                        placeholder="0.00"
-                        onChange={(e) => setLineCost(e.target.value)} />
-                      <button className="btn btn-primary btn-xs"
-                        disabled={busy} onClick={addLine}>Add</button>
-                      <datalist id="po-drawer-parts">
-                        {catalog.map((p) => (
-                          <option key={p.id} value={p.part_number}>
-                            {p.description}
-                          </option>
-                        ))}
-                      </datalist>
-                    </div>
-                  )}
-                </section>
-
-                {editable && po.status !== 'received'
-                  && (po.lines ?? []).some((l) =>
-                    (l.part_number || '').trim() && l.qty_outstanding > 0) && (
-                  <section className="ud-sec po-receive">
-                    <h3>Receive shipment</h3>
-                    <p className="muted sm" style={{ marginTop: -4 }}>
-                      Enter what arrived per line. Short lines can auto-backorder.
-                    </p>
-                    <div className="po-recv-lines">
-                      {(po.lines ?? [])
-                        .filter((l) => (l.part_number || '').trim()
-                          && l.qty_outstanding > 0)
-                        .map((l) => (
-                          <div className="po-recv-line" key={l.id}>
-                            <span className="po-recv-name">
-                              <span className="mono">{l.part_number}</span>
-                              <span className="muted sm">{l.description}</span>
-                            </span>
-                            <span className="po-recv-ctl">
-                              <input className="cell-input po-recv-input"
-                                type="number" min="0" max={l.qty_outstanding}
-                                step="any"
-                                value={recvQty[l.id] ?? String(l.qty_outstanding)}
-                                onChange={(e) => setRecvQty({
-                                  ...recvQty, [l.id]: e.target.value })} />
-                              <span className="muted sm">of {l.qty_outstanding}</span>
-                            </span>
-                          </div>
-                        ))}
-                    </div>
-                    <label className="po-recv-bo">
-                      <input type="checkbox" checked={backorderRest}
-                        onChange={(e) => setBackorderRest(e.target.checked)} />
-                      <span>Backorder the rest &amp; close this PO</span>
-                    </label>
-                    <button className="btn btn-primary" disabled={receiving}
-                      onClick={doReceive}>
-                      {receiving ? 'Receiving…' : 'Receive shipment'}
-                    </button>
-                  </section>
-                )}
-
-                {editable && (
-                  <div className="settings-actions" style={{ marginTop: 18 }}>
-                    <button className="btn btn-ghost" onClick={removePo}>
-                      Delete PO
-                    </button>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </Drawer.Content>
-      </Drawer.Portal>
-    </Drawer.Root>
   )
 }

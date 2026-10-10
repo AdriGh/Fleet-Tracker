@@ -1,5 +1,6 @@
 import {
-  lazy, Suspense, type ReactElement, useEffect, useMemo, useRef, useState,
+  lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState,
+  useSyncExternalStore,
 } from 'react'
 import { Toaster } from 'sonner'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -10,209 +11,140 @@ import {
 } from './api'
 import { PermsContext, type Perms } from './perms'
 import { notifyWarn } from './toast'
+import {
+  ShellContext, type CreateKind, type CreateOpts, type NavIntent,
+  type ShellApi, type ThemePref,
+} from './shell'
+import { UI_ICONS, sectionLabel } from './navModel'
+import { useEscLayer } from './layers'
 import OnboardingWizard from './views/OnboardingWizard'
 import Logo from './components/Logo'
-import Dashboard from './views/Dashboard'
+import Sidebar from './components/Sidebar'
+import AddNewMenu from './components/AddNewMenu'
+import CommandPalette from './components/CommandPalette'
+import CreateHost, { type CreateRequest } from './components/CreateHost'
+import Home from './views/Home'
+import FleetOverviewPage from './views/FleetOverviewPage'
 import DvirPage from './views/DvirPage'
 import DefectsPage from './views/DefectsPage'
 import FleetPage from './views/FleetPage'
 import MaintBoardPage from './views/MaintBoardPage'
 import UnitProfilePage from './views/UnitProfilePage'
-import DriverSearch from './components/DriverSearch'
 import DriverDrawer from './components/DriverDrawer'
 import ReeferPage from './views/ReeferPage'
 import WorkOrdersPage from './views/WorkOrdersPage'
 import ServiceRequestsPage from './views/ServiceRequestsPage'
 import PartsPage from './views/PartsPage'
 import PurchasingPage from './views/PurchasingPage'
-import ReportsPage from './views/ReportsPage'
 import SettingsPage from './views/SettingsPage'
+import CustomersPage from './views/CustomersPage'
+import EmployeesPage from './views/EmployeesPage'
+import LocationsPage from './views/LocationsPage'
+import VendorsPage from './views/VendorsPage'
+import DriversPage from './views/DriversPage'
 import LoginPage from './views/LoginPage'
 
 // El mapa carga maplibre-gl (~250 kB gz): solo se descarga al abrirlo.
 const MapPage = lazy(() => import('./views/MapPage'))
+// Reports v2.22 (biblioteca, builder, gráficos, asistente): chunk propio.
+const ReportsPage = lazy(() => import('./views/ReportsPage'))
 
-type Theme = 'light' | 'dark'
+// ----- Tema: light / dark / system ------------------------------------------
+// La preferencia vive en localStorage['dvir-theme']; 'system' sigue a
+// prefers-color-scheme en vivo (useSyncExternalStore, sin efectos).
+function initialThemePref(): ThemePref {
+  try {
+    const saved = localStorage.getItem('dvir-theme')
+    if (saved === 'light' || saved === 'dark' || saved === 'system') return saved
+  } catch { /* storage bloqueado */ }
+  return 'system'
+}
+const DARK_MQ = '(prefers-color-scheme: dark)'
+function subscribeDark(cb: () => void) {
+  const mq = window.matchMedia(DARK_MQ)
+  mq.addEventListener('change', cb)
+  return () => mq.removeEventListener('change', cb)
+}
+const systemDark = () => window.matchMedia(DARK_MQ).matches
 
-type NavItem = { id: string; label: string; soon?: boolean }
-type NavSection = { title: string; items: NavItem[] }
-
-const NAV_SECTIONS: NavSection[] = [
-  {
-    title: 'Overview',
-    items: [
-      { id: 'dashboard', label: 'Dashboard' },
-      { id: 'map', label: 'Live Map' },
-      { id: 'reports', label: 'Reports & Analytics' },
-    ],
-  },
-  {
-    title: 'Operations',
-    items: [
-      { id: 'dvir', label: 'DVIR' },
-      { id: 'defectos', label: 'Defects' },
-      { id: 'coldchain', label: 'Cold Chain' },
-    ],
-  },
-  {
-    title: 'Maintenance & Shop',
-    items: [
-      { id: 'flota', label: 'Fleet' },
-      { id: 'pm', label: 'PM Tracker' },
-      { id: 'dot', label: 'DOT Inspections' },
-      { id: 'service-requests', label: 'Service Requests' },
-      { id: 'workorders', label: 'Work Orders' },
-      { id: 'parts', label: 'Parts' },
-      { id: 'purchasing', label: 'Purchasing' },
-    ],
-  },
-]
-
-// Sección de administración (al fondo del sidebar). El Roster vive DENTRO
-// de Settings (Driver roster & privacy) — fuera del layout frontal.
-const ADMIN_ITEMS: NavItem[] = [
-  { id: 'settings', label: 'Settings' },
-]
-
-const ICONS: Record<string, ReactElement> = {
-  dashboard: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="8" height="8" rx="1.5" />
-      <rect x="13" y="3" width="8" height="5" rx="1.5" />
-      <rect x="13" y="10" width="8" height="11" rx="1.5" />
-      <rect x="3" y="13" width="8" height="8" rx="1.5" />
-    </svg>
-  ),
-  map: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14" />
-    </svg>
-  ),
-  reports: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
-    </svg>
-  ),
-  // Bandeja de entrada (el backlog que espera despacho).
-  'service-requests': (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3.5 13.5 6 5.6A1.6 1.6 0 0 1 7.5 4.5h9a1.6 1.6 0 0 1 1.5 1.1l2.5 7.9" />
-      <path d="M3.5 13.5V18a1.5 1.5 0 0 0 1.5 1.5h14a1.5 1.5 0 0 0 1.5-1.5v-4.5H16l-1.5 2.5h-5L8 13.5z" />
-      <path d="M9.5 8.5h5M10.5 11h3" />
-    </svg>
-  ),
-  workorders: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-      <path d="M14 3v5h5M9 13h6M9 17h4" />
-    </svg>
-  ),
-  parts: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 8 12 3 3 8v8l9 5 9-5V8z" />
-      <path d="m3 8 9 5 9-5M12 13v8" />
-    </svg>
-  ),
-  purchasing: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="9" cy="20" r="1.4" />
-      <circle cx="18" cy="20" r="1.4" />
-      <path d="M2.5 3H4.8l2 11.4a1.5 1.5 0 0 0 1.5 1.2h8.2a1.5 1.5 0 0 0 1.5-1.2L20.5 7H5.2" />
-    </svg>
-  ),
-  dvir: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 4h6a1 1 0 0 1 1 1v1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h2V5a1 1 0 0 1 1-1z" />
-      <path d="m9 13 2 2 4-4" />
-    </svg>
-  ),
-  defectos: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M10.3 3.5 1.8 18a1.5 1.5 0 0 0 1.3 2.2h17.8A1.5 1.5 0 0 0 22.2 18L13.7 3.5a1.5 1.5 0 0 0-2.6 0z" />
-      <path d="M12 9v4M12 17h.01" />
-    </svg>
-  ),
-  flota: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 6h11v9H2zM13 9h4l3 3v3h-7z" />
-      <circle cx="6.5" cy="17.5" r="1.8" />
-      <circle cx="17.5" cy="17.5" r="1.8" />
-    </svg>
-  ),
-  pm: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14.7 6.3a4 4 0 0 0-5.4 5.2L4 16.8 7.2 20l5.3-5.3a4 4 0 0 0 5.2-5.4l-2.5 2.5-2.3-.5-.5-2.3z" />
-    </svg>
-  ),
-  dot: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 4h6M9 4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2M9 4v2h6V4" />
-      <path d="m9.5 13 1.8 1.8 3.2-3.6" />
-    </svg>
-  ),
-  coldchain: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M10 13.5V5a2 2 0 0 1 4 0v8.5a4.5 4.5 0 1 1-4 0z" />
-      <path d="M12 9v7" />
-      <circle cx="12" cy="17.5" r="1.6" />
-    </svg>
-  ),
-  settings: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-      strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </svg>
-  ),
+// Deep link ?wo= al cargar: arranca en Work Orders (la página lo abre).
+function initialSection(): string {
+  try {
+    return new URLSearchParams(window.location.search).has('wo')
+      ? 'workorders' : 'dashboard'
+  } catch {
+    return 'dashboard'
+  }
 }
 
-function initialTheme(): Theme {
-  const saved = localStorage.getItem('dvir-theme')
-  if (saved === 'light' || saved === 'dark') return saved
-  return window.matchMedia('(prefers-color-scheme: dark)').matches
-    ? 'dark'
-    : 'light'
-}
+// Un drawer vaul (Radix modal) atrapa foco y puntero: el palette no se abre
+// encima (quedaría inerte); primero se cierra el drawer.
+const vaulOpen = () =>
+  !!document.querySelector('[data-vaul-drawer][data-state="open"]')
+
+type NavState = { section: string; intent?: NavIntent; seq: number }
 
 export default function App() {
   const qc = useQueryClient()
   const [version, setVersion] = useState<string | null>(null)
-  const [theme, setTheme] = useState<Theme>(initialTheme)
-  const [section, setSection] = useState('dashboard')
+  const [themePref, setThemePref] = useState<ThemePref>(initialThemePref)
+  const prefersDark = useSyncExternalStore(subscribeDark, systemDark, () => false)
+  const theme: 'light' | 'dark' =
+    themePref === 'system' ? (prefersDark ? 'dark' : 'light') : themePref
+
+  // Navegación (sin router): sección + intent opcional. `seq` re-monta la
+  // página cuando llega un intent nuevo (cada página lo lee al montar).
+  const [nav, setNav] = useState<NavState>(
+    () => ({ section: initialSection(), seq: 0 }))
+  const section = nav.section
   // H3: perfil completo de unidad (se superpone a la sección actual).
   const [profileUnit, setProfileUnit] = useState<string | null>(null)
-  // Conductor abierto en el drawer (se llega por el buscador de la sidebar).
+  // Conductor abierto en el drawer (palette / Drivers).
   const [driverName, setDriverName] = useState<string | null>(null)
   // Drawer móvil (<760px): el sidebar se esconde tras una barra superior con
   // hamburguesa; navegar o tocar el scrim lo cierra.
   const [drawerOpen, setDrawerOpen] = useState(false)
-  // Viewport-aware: <=760px es el modo drawer. En ese modo el nav se muestra
-  // SIEMPRE completo (el riel de iconos con flyout depende de hover, inútil
-  // en touch).
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== 'undefined' && window.innerWidth <= 760,
   )
-  // Navegar a una sección SIEMPRE cierra el perfil de unidad abierto
-  // (si no, el perfil se superpone y el clic en el sidebar "no hace nada")
-  // y cierra el drawer móvil.
-  const navigate = (id: string) => {
-    setProfileUnit(null); setSection(id); setDrawerOpen(false); setRailTip(null)
-  }
-  // Sesión real (fase G7): el token vive en localStorage ('ft-token');
-  // /api/auth/status decide entre wizard, login o app.
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [createReq, setCreateReq] = useState<CreateRequest | null>(null)
+  const [topAddOpen, setTopAddOpen] = useState(false)
+  const topAddRef = useRef<HTMLButtonElement | null>(null)
+
+  // Navegar SIEMPRE cierra el perfil de unidad abierto (si no, el perfil se
+  // superpone y el clic en el sidebar "no hace nada") y el drawer móvil.
+  // Intents que resuelve el shell: {unit} en Equipment abre el perfil;
+  // {driver} abre el drawer del conductor; {create} abre el alta.
+  const navigate = useCallback((id: string, intent?: NavIntent) => {
+    setDrawerOpen(false)
+    setProfileUnit(id === 'flota' && intent?.unit ? String(intent.unit) : null)
+    if (intent?.driver) setDriverName(String(intent.driver))
+    if (intent?.create) setCreateReq({ kind: intent.create })
+    setNav((n) => ({
+      section: id,
+      intent,
+      seq: intent ? n.seq + 1 : n.seq,
+    }))
+  }, [])
+
+  const openCreate = useCallback((kind: CreateKind, opts?: CreateOpts) => {
+    setDrawerOpen(false)
+    setCreateReq({ kind, opts })
+  }, [])
+  const openSearch = useCallback(() => {
+    if (vaulOpen()) return
+    setDrawerOpen(false)
+    setPaletteOpen(true)
+  }, [])
+  const closePalette = useCallback(() => setPaletteOpen(false), [])
+
+  const shell: ShellApi = useMemo(() => ({
+    section, navigate, openCreate, openSearch,
+  }), [section, navigate, openCreate, openSearch])
+
+  // Sesión real (fase G7): cookie HttpOnly; /api/auth/status decide entre
+  // wizard, login o app.
   const [sessionUser, setSessionUser] = useState<AuthUser | null>(null)
   const statusQuery = useQuery({
     queryKey: ['auth-status'],
@@ -271,19 +203,16 @@ export default function App() {
     scopes,
     can: (s: string) => sessionUser?.role === 'admin' || scopes.includes(s),
   }), [sessionUser?.role, scopes])
-  const [navCollapsed, setNavCollapsed] = useState(
-    () => localStorage.getItem('ft-sidebar-collapsed') === '1',
-  )
-  // El icono de búsqueda del riel expande + enfoca el input (un paso). El
-  // flag se apaga después de que DriverSearch enfocó (su efecto corre antes
-  // que este, por orden hijo→padre), así expandir con la flecha no re-enfoca.
-  const [dsrWantFocus, setDsrWantFocus] = useState(false)
-  useEffect(() => {
-    if (!navCollapsed && dsrWantFocus) setDsrWantFocus(false)
-  }, [navCollapsed, dsrWantFocus])
+  const [navCollapsed, setNavCollapsed] = useState(() => {
+    try { return localStorage.getItem('ft-sidebar-collapsed') === '1' } catch {
+      return false
+    }
+  })
 
   useEffect(() => {
-    localStorage.setItem('ft-sidebar-collapsed', navCollapsed ? '1' : '0')
+    try {
+      localStorage.setItem('ft-sidebar-collapsed', navCollapsed ? '1' : '0')
+    } catch { /* storage bloqueado */ }
   }, [navCollapsed])
 
   useEffect(() => {
@@ -296,20 +225,32 @@ export default function App() {
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  // Drawer móvil: Escape lo cierra; se bloquea el scroll del body mientras
-  // está abierto para que el gesto quede contenido en el panel.
+  // Drawer móvil: es una CAPA de la pila (layers.ts) — Escape lo cierra solo
+  // si está arriba; con el menú "+" o el de cuenta abiertos dentro del
+  // drawer, el primer Esc cierra el menú y el drawer sigue abierto. Se
+  // bloquea el scroll del body mientras está abierto para que el gesto quede
+  // contenido en el panel.
+  useEscLayer(drawerOpen, () => setDrawerOpen(false))
   useEffect(() => {
     if (!drawerOpen) return
+    document.body.classList.add('drawer-lock')
+    return () => document.body.classList.remove('drawer-lock')
+  }, [drawerOpen])
+
+  // Ctrl/⌘+K abre (o cierra) el command palette desde cualquier pantalla.
+  useEffect(() => {
+    if (!authed) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setDrawerOpen(false)
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return
+      if (e.key.toLowerCase() !== 'k') return
+      e.preventDefault()
+      if (vaulOpen()) return
+      setDrawerOpen(false)
+      setPaletteOpen((o) => !o)
     }
     window.addEventListener('keydown', onKey)
-    document.body.classList.add('drawer-lock')
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      document.body.classList.remove('drawer-lock')
-    }
-  }, [drawerOpen])
+    return () => window.removeEventListener('keydown', onKey)
+  }, [authed])
 
   // Alertas de flota (G3): poll ligero y toast SOLO para eventos nuevos
   // (el primer fetch fija la línea base sin avisar).
@@ -339,11 +280,6 @@ export default function App() {
     purchasing: requestsQuery.data?.stats?.pending ?? 0,
     'service-requests': serviceRequestsQuery.data?.counts?.open ?? 0,
   }
-  // Tooltip del riel colapsado: se posiciona `fixed` a la altura del icono
-  // hovereado, así el riel puede scrollear sin recortar ni encimar el label.
-  const [railTip, setRailTip] = useState<
-    { label: string; badge?: number; y: number } | null
-  >(null)
   const lastAlertId = useRef<number | null>(null)
   useEffect(() => {
     const events = alertsQuery.data
@@ -359,7 +295,7 @@ export default function App() {
     })
     if (fresh.length > 3) {
       notifyWarn(`${fresh.length - 3} more fleet alerts`,
-        'See the Dashboard for the full list')
+        'See Fleet overview for the full list')
     }
     if (maxId > (lastAlertId.current ?? 0)) lastAlertId.current = maxId
   }, [alertsQuery.data])
@@ -372,8 +308,22 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    localStorage.setItem('dvir-theme', theme)
   }, [theme])
+  useEffect(() => {
+    try { localStorage.setItem('dvir-theme', themePref) } catch {
+      /* storage bloqueado */
+    }
+  }, [themePref])
+
+  const signOut = useCallback(() => {
+    logout()
+    setSessionUser(null)
+    setPaletteOpen(false)
+    setCreateReq(null)
+    qc.removeQueries()
+    statusQuery.refetch()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qc])
 
   // Splash mínimo mientras se resuelve el estado de auth.
   if (statusQuery.isPending) {
@@ -406,8 +356,14 @@ export default function App() {
     )
   }
 
+  const appName = branding?.app_name || 'Rigsmith'
+  const intent = nav.intent
+  // Key de la página: cambia solo cuando la navegación trae un intent.
+  const pageKey = `${section}:${intent ? nav.seq : 0}`
+
   return (
     <PermsContext.Provider value={perms}>
+    <ShellContext.Provider value={shell}>
     <div className={`app ${drawerOpen ? 'drawer-open' : ''}`}>
       <Toaster
         theme={theme}
@@ -417,8 +373,8 @@ export default function App() {
         toastOptions={{ style: { fontFamily: 'inherit' } }}
       />
 
-      {/* Barra superior móvil (<760px): hamburguesa + marca. En desktop
-          queda oculta por CSS. */}
+      {/* Barra superior móvil (<760px): hamburguesa + marca + "+" y Search.
+          En desktop queda oculta por CSS. */}
       <header className="topbar">
         <button
           className="icon-btn topbar-burger"
@@ -426,16 +382,29 @@ export default function App() {
           aria-label="Open menu"
           aria-expanded={drawerOpen}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 6h18M3 12h18M3 18h18" />
-          </svg>
+          {UI_ICONS.menu}
         </button>
         <span className="topbar-brand">
           <Logo />
-          <strong>{branding?.app_name || 'Rigsmith'}</strong>
+          <strong>{appName}</strong>
+        </span>
+        <span className="topbar-actions">
+          <button className="icon-btn topbar-act" onClick={openSearch}
+            aria-label="Search">
+            {UI_ICONS.search}
+          </button>
+          <button ref={topAddRef} className="icon-btn topbar-act is-add"
+            onClick={() => setTopAddOpen((o) => !o)}
+            aria-label="Add new" aria-haspopup="menu"
+            aria-expanded={topAddOpen}>
+            {UI_ICONS.plus}
+          </button>
         </span>
       </header>
+      {topAddOpen && (
+        <AddNewMenu anchor={topAddRef} placement="bottom-end"
+          onClose={() => setTopAddOpen(false)} onPick={openCreate} />
+      )}
 
       {/* Scrim: cierra el drawer al tocar fuera. */}
       <div
@@ -444,255 +413,119 @@ export default function App() {
         aria-hidden="true"
       />
 
-      <aside className={`sidebar ${navCollapsed ? 'collapsed' : ''}`}>
-        <div className="brand">
-          <Logo />
-          <span className="brand-text">
-            <strong>{branding?.app_name || 'Rigsmith'}</strong>
-            <span>{branding?.tagline || 'Your fleet, forged right.'}</span>
-          </span>
-          <button
-            className="icon-btn nav-collapse"
-            onClick={() => setNavCollapsed((c) => !c)}
-            title={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-label={navCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-              style={{ transform: navCollapsed ? 'rotate(180deg)' : 'none' }}>
-              <path d="m15 6-6 6 6 6" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Zona scrolleable: el nav nunca desborda la pantalla */}
-        <div className="sidebar-scroll">
-          {/* Buscador de conductores: reemplaza a la página Driver Compliance
-              (v2.11). Va acá y no en la topbar porque la topbar es solo móvil
-              (display:none en desktop), así que ahí quedaría escondido. En el
-              riel colapsado se degrada a un icono que expande la sidebar. */}
-          {navCollapsed && !isMobile ? (
-            /* Riel: se ve como el BUSCADOR plegado (chip con borde, glifo
-               persona+lupa = "buscar conductor"), no como otro nav item.
-               Click = expandir + dejar el input enfocado, listo para tipear. */
-            <button className="nav-item nav-rail-btn dsr-rail"
-              title="Find a driver"
-              onClick={() => { setDsrWantFocus(true); setNavCollapsed(false) }}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="9" cy="7.5" r="3.1" />
-                <path d="M3.8 18.6c.7-3.2 2.8-5 5.2-5 .9 0 1.8.25 2.5.72" />
-                <circle cx="16.2" cy="15.2" r="3.9" />
-                <path d="m19.1 18.1 2.4 2.4" />
-              </svg>
-            </button>
-          ) : (
-            <DriverSearch
-              autoFocus={dsrWantFocus}
-              onPick={(n) => {
-                setDriverName(n)
-                setDrawerOpen(false)    // cierra el drawer de nav en móvil
-              }} />
-          )}
-          {navCollapsed && !isMobile ? (
-            <>
-              {/* Riel colapsado (Icon rail · 74px): un icono por ÍTEM. El riel
-                  scrollea si no entra; el label es un tooltip `fixed` (ver
-                  railTip) para no recortarse ni encimar el pie. */}
-              {NAV_SECTIONS.map((group) => (
-                <nav className="nav nav-rail" key={group.title}>
-                  <span className="nav-group-label">{group.title}</span>
-                  {group.items.filter((i) => !i.soon).map((item) => (
-                    <button
-                      key={item.id}
-                      className={`nav-item nav-rail-btn ${section === item.id ? 'active' : ''}`}
-                      title={item.label}
-                      onClick={() => navigate(item.id)}
-                      onMouseEnter={(e) => {
-                        const r = e.currentTarget.getBoundingClientRect()
-                        setRailTip({
-                          label: item.label,
-                          badge: navBadges[item.id] || undefined,
-                          y: r.top + r.height / 2,
-                        })
-                      }}
-                      onMouseLeave={() => setRailTip(null)}
-                    >
-                      <span className="nav-ico">{ICONS[item.id]}</span>
-                      {navBadges[item.id]
-                        ? <span className="nav-rail-dot" /> : null}
-                    </button>
-                  ))}
-                </nav>
-              ))}
-              <nav className="nav nav-bottom nav-rail">
-                <span className="nav-group-label">Admin</span>
-                {ADMIN_ITEMS.map((item) => (
-                  <button
-                    key={item.id}
-                    className={`nav-item nav-rail-btn ${section === item.id ? 'active' : ''}`}
-                    title={item.label}
-                    onClick={() => navigate(item.id)}
-                    onMouseEnter={(e) => {
-                      const r = e.currentTarget.getBoundingClientRect()
-                      setRailTip({ label: item.label, y: r.top + r.height / 2 })
-                    }}
-                    onMouseLeave={() => setRailTip(null)}
-                  >
-                    <span className="nav-ico">{ICONS[item.id]}</span>
-                  </button>
-                ))}
-              </nav>
-            </>
-          ) : (
-            <>
-              {NAV_SECTIONS.map((group) => (
-                <nav className="nav" key={group.title}>
-                  <span className="nav-group-label">{group.title}</span>
-                  {group.items.map((item) => (
-                    <button
-                      key={item.id}
-                      className={`nav-item ${section === item.id ? 'active' : ''}`}
-                      disabled={item.soon}
-                      onClick={() => !item.soon && navigate(item.id)}
-                    >
-                      <span className="nav-ico">{ICONS[item.id]}</span>
-                      <span className="nav-text">{item.label}</span>
-                      {navBadges[item.id]
-                        ? <span className="nav-badge">{navBadges[item.id]}</span>
-                        : null}
-                      {item.soon && <span className="soon">soon</span>}
-                    </button>
-                  ))}
-                </nav>
-              ))}
-
-              <nav className="nav nav-bottom">
-                <span className="nav-group-label">Admin</span>
-                {ADMIN_ITEMS.map((item) => (
-                  <button
-                    key={item.id}
-                    className={`nav-item ${section === item.id ? 'active' : ''}`}
-                    onClick={() => navigate(item.id)}
-                  >
-                    <span className="nav-ico">{ICONS[item.id]}</span>
-                    <span className="nav-text">{item.label}</span>
-                  </button>
-                ))}
-              </nav>
-            </>
-          )}
-        </div>
-
-        <div className="sidebar-foot">
-          {sessionUser && (
-            <div className="foot-user" title={`@${sessionUser.username}`}>
-              <span className="nf-avatar sm">
-                {sessionUser.name.trim().split(/\s+/).slice(0, 2)
-                  .map((w) => w[0] ?? '').join('').toUpperCase() || 'U'}
-              </span>
-              <span className="foot-user-text">
-                <strong>{sessionUser.name || sessionUser.username}</strong>
-                <span>{sessionUser.role}</span>
-              </span>
-            </div>
-          )}
-          <div className="sidebar-foot-row">
-            <div className="foot-btns">
-              <button
-                className="icon-btn"
-                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-                title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
-                aria-label="Toggle theme"
-              >
-                {theme === 'dark' ? (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    strokeWidth="2" strokeLinecap="round">
-                    <circle cx="12" cy="12" r="4.2" />
-                    <path d="M12 2v3M12 19v3M5 12H2M22 12h-3M4.6 4.6l2.1 2.1M17.3
-                      17.3l2.1 2.1M19.4 4.6l-2.1 2.1M6.7 17.3l-2.1 2.1" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
-                  </svg>
-                )}
-              </button>
-              <button
-                className="icon-btn"
-                onClick={() => {
-                  logout()
-                  setSessionUser(null)
-                  qc.removeQueries()
-                  statusQuery.refetch()
-                }}
-                title="Sign out"
-                aria-label="Sign out"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                  <path d="m16 17 5-5-5-5M21 12H9" />
-                </svg>
-              </button>
-            </div>
-            <span className="health">
-              <span className={`dot ${version ? '' : 'off'}`} />
-              {version ? 'Connected' : 'Offline'}
-            </span>
-          </div>
-          <span className="version">v{version ?? '0.4.0'}</span>
-        </div>
-      </aside>
-
-      {navCollapsed && !isMobile && railTip && (
-        <div className="nav-rail-tip" style={{ top: railTip.y }}>
-          {railTip.label}
-          {railTip.badge
-            ? <span className="nav-badge">{railTip.badge}</span> : null}
-        </div>
-      )}
+      <Sidebar
+        section={profileUnit ? 'flota' : section}
+        onNavigate={navigate}
+        collapsed={navCollapsed}
+        onToggleCollapsed={() => setNavCollapsed((c) => !c)}
+        isMobile={isMobile}
+        badges={navBadges}
+        user={sessionUser}
+        appName={appName}
+        tagline={branding?.tagline || 'Your fleet, forged right.'}
+        version={version}
+        themePref={themePref}
+        onThemePref={setThemePref}
+        onSignOut={signOut}
+        onOpenSearch={openSearch}
+        onCreate={openCreate}
+      />
 
       <div className="main-area">
-        <main className="container">
+        <main className="container" aria-label={sectionLabel(section)}>
           {profileUnit && (
             <UnitProfilePage unit={profileUnit}
               onClose={() => setProfileUnit(null)} />
           )}
-          {!profileUnit && <>
-          {section === 'dashboard' && <Dashboard onNavigate={navigate} />}
-          {section === 'map' && (
-            <Suspense fallback={<div className="loadbar" aria-hidden="true" />}>
-              <MapPage theme={theme} />
-            </Suspense>
-          )}
-          {section === 'dvir' && <DvirPage />}
-          {section === 'defectos' && <DefectsPage />}
-          {section === 'flota' && <FleetPage onOpenUnit={setProfileUnit} />}
-          {section === 'pm' && <MaintBoardPage kind="pm" />}
-          {section === 'dot' && <MaintBoardPage kind="dot" />}
-          {section === 'coldchain' && <ReeferPage />}
-          {section === 'service-requests' && <ServiceRequestsPage />}
-          {section === 'workorders' && <WorkOrdersPage />}
-          {section === 'parts' && <PartsPage />}
-          {section === 'purchasing' && <PurchasingPage />}
-          {section === 'reports' && <ReportsPage />}
-          {section === 'settings' && (
-            <SettingsPage
+          {!profileUnit && (
+            <SectionView
+              key={pageKey}
+              section={section}
+              intent={intent}
               theme={theme}
-              onTheme={setTheme}
+              onTheme={setThemePref}
               isAdmin={sessionUser?.role === 'admin'}
+              userName={sessionUser?.name ?? ''}
+              onNavigate={navigate}
+              onOpenUnit={setProfileUnit}
             />
           )}
-          </>}
         </main>
       </div>
 
-      {/* Drawer del conductor: se abre desde el buscador, sobre cualquier
-          pantalla (por eso vive acá y no dentro de una vista). */}
+      {/* Drawer del conductor: palette / Drivers, sobre cualquier pantalla. */}
       <DriverDrawer name={driverName} onClose={() => setDriverName(null)} />
+
+      {paletteOpen && (
+        <CommandPalette
+          onClose={closePalette}
+          onNavigate={navigate}
+          onCreate={openCreate}
+          themePref={themePref}
+          onThemePref={setThemePref}
+          onSignOut={signOut}
+          sidebarCollapsed={navCollapsed}
+          onToggleSidebar={isMobile ? undefined
+            : () => setNavCollapsed((c) => !c)}
+        />
+      )}
+
+      <CreateHost request={createReq} onClose={() => setCreateReq(null)}
+        onNavigate={navigate} />
     </div>
+    </ShellContext.Provider>
     </PermsContext.Provider>
   )
+}
+
+// Página de cada sección. Separada para poder re-montarla por `key` cuando
+// la navegación trae un intent.
+function SectionView({
+  section, intent, theme, onTheme, isAdmin, userName, onNavigate, onOpenUnit,
+}: {
+  section: string
+  intent?: NavIntent
+  theme: 'light' | 'dark'
+  onTheme: (t: ThemePref) => void
+  isAdmin: boolean
+  userName: string
+  onNavigate: (section: string, intent?: NavIntent) => void
+  onOpenUnit: (unit: string) => void
+}) {
+  switch (section) {
+    case 'dashboard': return <Home userName={userName} />
+    case 'overview': return <FleetOverviewPage onNavigate={onNavigate} />
+    case 'map':
+      return (
+        <Suspense fallback={<div className="loadbar" aria-hidden="true" />}>
+          <MapPage theme={theme} />
+        </Suspense>
+      )
+    case 'dvir': return <DvirPage />
+    case 'defectos': return <DefectsPage />
+    case 'flota': return <FleetPage onOpenUnit={onOpenUnit} />
+    case 'pm': return <MaintBoardPage kind="pm" />
+    // Reefer PM por horas de motor (v2.22 [B]): MaintBoardPage generalizado.
+    case 'reefer-pm': return <MaintBoardPage kind="reefer" />
+    case 'dot': return <MaintBoardPage kind="dot" />
+    case 'coldchain': return <ReeferPage />
+    case 'service-requests': return <ServiceRequestsPage intent={intent} />
+    case 'workorders': return <WorkOrdersPage intent={intent} />
+    case 'parts': return <PartsPage intent={intent} />
+    case 'purchasing': return <PurchasingPage intent={intent} />
+    case 'reports':
+      return (
+        <Suspense fallback={<div className="loadbar" aria-hidden="true" />}>
+          <ReportsPage intent={intent} />
+        </Suspense>
+      )
+    case 'customers': return <CustomersPage intent={intent} />
+    case 'employees': return <EmployeesPage intent={intent} />
+    case 'locations': return <LocationsPage intent={intent} />
+    case 'vendors': return <VendorsPage intent={intent} />
+    case 'drivers': return <DriversPage intent={intent} />
+    case 'settings':
+      return <SettingsPage theme={theme} onTheme={onTheme} isAdmin={isAdmin} />
+    default: return <Home userName={userName} />
+  }
 }

@@ -20,7 +20,8 @@ const actions: CSSProperties = {
 
 export default function AddUnitModal({ onClose, onSaved }: {
   onClose: () => void
-  onSaved: () => void
+  // Recibe el número de unidad guardado (para abrir su perfil).
+  onSaved: (unit: string) => void
 }) {
   const { terminals } = useTerminals()
   const [f, setF] = useState<UnitInput>({ unit: '', unit_type: 'truck' })
@@ -74,8 +75,9 @@ export default function AddUnitModal({ onClose, onSaved }: {
     setSaving(true)
     setError(null)
     try {
-      await addUnit({ ...f, unit: f.unit.trim() })
-      onSaved()
+      const unit = f.unit.trim()
+      await addUnit({ ...f, unit })
+      onSaved(unit)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save unit')
       setSaving(false)

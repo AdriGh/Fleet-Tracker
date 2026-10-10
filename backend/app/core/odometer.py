@@ -195,8 +195,14 @@ async def maybe_snapshot() -> int:
     """Ingesta diaria (para el loop de alertas), a lo sumo una vez por día:
     backfilllea odómetro de los mileage nuevos de WOs/PM + toma snapshot de
     Samsara. Si Samsara falla, no marca el día como hecho (reintenta). Devuelve
-    cuántas lecturas de Samsara agregó."""
+    cuántas lecturas de Samsara agregó. Antes corre la ingesta del horómetro
+    (meters.maybe_snapshot, con su propia guarda horaria)."""
     global _last_snapshot_date
+    # v2.22: horómetro del reefer (core/meters, tabla propia — nunca este
+    # odómetro). Tiene su propia guarda (feed a lo sumo una vez por hora,
+    # backfill + demo una vez por día) y nunca levanta.
+    from . import meters                 # import diferido (orden de carga)
+    await meters.maybe_snapshot()
     today = date.today().isoformat()
     if _last_snapshot_date == today:
         return 0

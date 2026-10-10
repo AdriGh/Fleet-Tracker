@@ -85,7 +85,18 @@ def add(data: dict) -> dict:
                 setattr(existing, k, v)
             row = existing
         session.commit()
-        return _to_dict(row)
+        out = _to_dict(row)
+    # v2.22 (Customers): el "Who is the customer?" de la unidad la liga a ese
+    # customer si todavía no tiene dueño (lo crea si falta). Best-effort y
+    # DESPUÉS del commit (escribe en su propia sesión): la unidad nunca
+    # falla por esto.
+    if fields["customer"]:
+        try:
+            from . import customers      # import diferido (orden de carga)
+            customers.link_unit_text(unit, fields["customer"])
+        except Exception:  # noqa: BLE001
+            pass
+    return out
 
 
 def list_units() -> list[dict]:

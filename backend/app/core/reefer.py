@@ -17,7 +17,9 @@ no para el cold chain.
 
 Todas las fuentes emiten la MISMA forma ReeferUnit (unit, setpoint_f,
 return_f, supply_f, ambient_f, run_mode, state, fuel_pct, door, alarms[],
-updated, source, …) para que el frontend sea agnóstico. Las alertas JAMÁS
+updated, source, engine_hours, …) para que el frontend sea agnóstico.
+`engine_hours` (v2.22, None si la fuente no lo trae) alimenta el medidor de
+horas de motor (core/meters.snapshot_now) del PM del reefer. Las alertas JAMÁS
 se evalúan sobre datos demo. El control remoto (two-way) se despacha al
 módulo OEM según el prefijo del id (lynx- / tk-).
 """
@@ -191,6 +193,10 @@ def _state_at(unit: str, ts: float) -> dict:
         "fuel_pct": max(2, min(100, fuel)),
         "door": door,
         "alarms": alarms,
+        # v2.22: horometro del equipo de frio (PM del reefer por horas). Del
+        # MISMO simulador que el historial sembrado (demo_eld), así la foto
+        # y las lecturas guardadas no se contradicen.
+        "engine_hours": demo_eld.engine_hours_now(unit, ts) or None,
         "lat": lat,
         "lng": lng,
         "location": place,

@@ -5,6 +5,10 @@ import '@fontsource-variable/geist/index.css'
 import '@fontsource-variable/geist-mono/index.css'
 import '@fontsource-variable/space-grotesk/index.css'
 import './index.css'
+// v2.22: shell (sidebar, palette, menús) + Home — después de index.css.
+import './shell.css'
+// v2.22 [F]: Resources, Bill to, horómetro y el drawer de POs editable.
+import './resources.css'
 import App from './App.tsx'
 import ErrorBoundary from './components/ErrorBoundary'
 

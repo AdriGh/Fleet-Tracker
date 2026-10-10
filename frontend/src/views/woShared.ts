@@ -130,7 +130,8 @@ export function afterStatusChange(qc: QueryClient, updated: WorkOrder, opts: {
 // Etiqueta de la fuente de un service request ligado (v2.20); las mismas que
 // usa el backend en las viñetas del complaint.
 export const SR_SOURCE_LABEL: Record<SrSource, string> = {
-  defect: 'DVIR defect', pm: 'PM due', dot: 'DOT due', manual: 'Request',
+  defect: 'DVIR defect', pm: 'PM due', dot: 'DOT due',
+  reefer: 'Reefer PM due', manual: 'Request',
 }
 
 
@@ -228,6 +229,13 @@ export function findPart(parts: Part[], pn: string): Part | undefined {
   return k ? parts.find((p) => p.part_number.toLowerCase() === k) : undefined
 }
 
+// v2.22: costo por defecto de una parte en una línea de WO = promedio
+// ponderado real (lo mantiene cada recepción de PO); sin promedio, el costo
+// estándar del catálogo.
+export function partUnitCost(p: Pick<Part, 'avg_cost' | 'cost'>): number {
+  return p.avg_cost > 0 ? p.avg_cost : (p.cost || 0)
+}
+
 // Mejor alternativa EN STOCK para el banner de decisión: misma categoría y
 // con mayor solape de palabras significativas en la descripción. Solo sugiere
 // si hay solape real — así no ofrece p. ej. un cartucho de secador como
@@ -255,6 +263,9 @@ export const CAMPAIGN_OPTS: { key: string; label: string }[] = [
   { key: '', label: 'None' },
   { key: 'pm', label: 'Full Wet Service (PM)' },
   { key: 'dot', label: 'Federal Annual DOT Inspection' },
+  // v2.22: PM del reefer por horas de motor. Al facturar, las horas de la WO
+  // (engine_hours) quedan como último servicio y lectura del horómetro.
+  { key: 'reefer', label: 'Reefer PM (engine hours)' },
   { key: 'kingpins', label: 'Check kingpins' },
   { key: 'dpf', label: 'DPF replacement' },
   { key: 'clutch', label: 'Clutch replacement' },

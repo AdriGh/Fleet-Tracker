@@ -224,6 +224,13 @@ def _build_unit(asset: dict, s: dict) -> dict:
     state = str(_pick(asset, "powerState", "state", "switchState") or "")
     fuel = _num(_pick(asset, "fuelLevelPercent", "fuelPercent", "fuelLevel"))
     door = _door(_pick(asset, "doorState", "door", "doorOpen"))
+    # v2.22: horómetro del equipo (PM del reefer por horas). Nombre de campo
+    # por `_pick` (a confirmar contra el schema); fuera de rango = sin dato.
+    hours = _num(_pick(asset, "engineHours", "totalEngineHours",
+                       "dieselEngineHours", "dieselHours", "engineRunHours",
+                       "unitRunHours", "totalRunHours", "hourMeter"))
+    if hours is not None and not 0 < hours < 200000:
+        hours = None
 
     loc = asset.get("location") or asset.get("position") or {}
     lat = _num(_pick(asset, "latitude", "lat")
@@ -262,6 +269,7 @@ def _build_unit(asset: dict, s: dict) -> dict:
         "fuel_pct": fuel,
         "door": door,
         "alarms": alarms,
+        "engine_hours": round(hours, 1) if hours is not None else None,
         "updated": updated,
         "demo": False,
         "source": "lynx",

@@ -1,15 +1,20 @@
+// Insights → Fleet overview (v2.22): el contenido del Dashboard anterior
+// (compliance, tendencias, alertas, DVIRs faltantes, cold chain + el cockpit
+// de stock/compras). La sección 'dashboard' ahora es el Home estilo SR; las
+// guías y el setup se mudaron allá. Los PMs vienen de /api/maint/due (PM en
+// millas + DOT en días + Reefer en horas de motor), no del legacy /api/pm.
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ackAlertEvents,
   generateLowStockRequests,
+  getMaintDue,
   getReefer,
   getTrends,
   listAlertEvents,
   listFleet,
   listLowStock,
   listOpenDefects,
-  listPM,
   listPurchaseOrders,
   listWorkOrders,
   missingDrivers,
@@ -17,7 +22,7 @@ import {
   recentBlocks,
   type FleetUnit,
   type LowStockPart,
-  type PMUnit,
+  type MaintDueItem,
   type WorkOrder,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
@@ -25,12 +30,22 @@ import SafeDonut from '../components/SafeDonut'
 import Skeleton from '../components/Skeleton'
 import CountUp from '../components/CountUp'
 import TrendsChart from '../components/TrendsChart'
-import HelpCenter from '../components/HelpCenter'
 import InfoTip from '../components/InfoTip'
-import { getSetupStatus } from '../api'
 import { Button, StatCard, StatCluster } from '../components/ds'
+import type { NavIntent } from '../shell'
 
-const UPCOMING_MILES = 5500
+// Sección del tablero de cada campaña de mantenimiento.
+const CAMPAIGN_SECTION: Record<MaintDueItem['campaign'], string> = {
+  pm: 'pm', dot: 'dot', reefer: 'reefer-pm',
+}
+
+// "1,240 mi overdue" / "in 320 hrs".
+function dueText(it: MaintDueItem, overdueWord = 'over'): string {
+  const n = Math.abs(Math.round(it.to_due)).toLocaleString('en-US')
+  return it.to_due < 0
+    ? `${n} ${it.unit_label} ${overdueWord}`
+    : `in ${n} ${it.unit_label}`
+}
 
 // Etiquetas de estado de WO en el mini-tablero del dashboard. Mismo léxico
 // que WorkOrdersPage (STATUS_META) para no divergir.
@@ -50,7 +65,7 @@ function money(n: number): string {
 }
 
 type Props = {
-  onNavigate: (section: string) => void
+  onNavigate: (section: string, intent?: NavIntent) => void
 }
 
 const SHORTCUTS = [
@@ -105,11 +120,12 @@ function alertAgo(iso: string): string {
   return `${Math.floor(diff / 86400)}d`
 }
 
-export default function Dashboard({ onNavigate }: Props) {
+export default function FleetOverviewPage({ onNavigate }: Props) {
   const qc = useQueryClient()
   const summaryQ = useQuery({ queryKey: ['month-summary'], queryFn: monthSummary })
   const openQ = useQuery({ queryKey: ['open-defects'], queryFn: listOpenDefects })
-  const pmQ = useQuery({ queryKey: ['pm'], queryFn: listPM })
+  // Misma key que Home (caché compartida): PM + DOT + Reefer por horas.
+  const pmQ = useQuery({ queryKey: ['maint', 'due'], queryFn: () => getMaintDue() })
   const fleetQ = useQuery({ queryKey: ['fleet'], queryFn: listFleet })
   const trendsQ = useQuery({ queryKey: ['trends'], queryFn: getTrends })
   const missingQ = useQuery({ queryKey: ['missing-drivers'], queryFn: missingDrivers })
@@ -190,25 +206,15 @@ export default function Dashboard({ onNavigate }: Props) {
     [openDefects],
   )
 
-  // --- PM ---
-  const pmUnits: PMUnit[] = pmQ.data?.units ?? []
+  // --- PM / DOT / Reefer (vencidos primero; el backend ya ordena) ---
   const pmStats = useMemo(() => {
-    let overdue = 0
-    let upcoming = 0
-    const attention: { unit: string; remaining: number }[] = []
-    for (const u of pmUnits) {
-      if (u.remaining == null) continue
-      if (u.remaining < 0) {
-        overdue++
-        attention.push({ unit: u.unit, remaining: u.remaining })
-      } else if (u.remaining < UPCOMING_MILES) {
-        upcoming++
-        attention.push({ unit: u.unit, remaining: u.remaining })
-      }
+    const items = pmQ.data?.items ?? []
+    return {
+      overdue: pmQ.data?.counts.overdue ?? 0,
+      upcoming: pmQ.data?.counts.upcoming ?? 0,
+      attention: items.slice(0, 6),
     }
-    attention.sort((a, b) => a.remaining - b.remaining)
-    return { overdue, upcoming, attention: attention.slice(0, 6) }
-  }, [pmUnits])
+  }, [pmQ.data])
 
   // --- Flota ---
   const fleet: FleetUnit[] = fleetQ.data ?? []
@@ -278,24 +284,16 @@ export default function Dashboard({ onNavigate }: Props) {
 
   const kpiLoading = summaryQ.isPending || openQ.isPending || pmQ.isPending || fleetQ.isPending
 
-  // --- Centro de guías (v2.13, elemento 04 — permanente, vive ACÁ y no en
-  // el sidebar por decisión del founder). El strip muestra el progreso real
-  // de "Get set up"; completado, queda como acceso compacto a las guías.
-  const [guidesOpen, setGuidesOpen] = useState(false)
-  const setupQ = useQuery({ queryKey: ['setup-status'], queryFn: getSetupStatus })
-  const setup = setupQ.data
-  const setupNext = setup?.steps.find((s) => !s.done)
-
   return (
     <div className="page page-wide">
       {fetching && <div className="loadbar" aria-hidden="true" />}
 
       <div className="page-head">
         <div>
-          <h1>Dashboard</h1>
+          <h1>Fleet overview</h1>
           <p className="page-sub">
-            Shop operations and fleet compliance at a glance: parts, work
-            orders, purchasing, DVIR and maintenance.
+            Fleet compliance, trends, alerts and cold chain — plus stock and
+            purchasing — at a glance.
           </p>
         </div>
         <div className="head-actions">
@@ -322,47 +320,6 @@ export default function Dashboard({ onNavigate }: Props) {
           </Button>
         </div>
       </div>
-
-      {/* Guías y setup (v2.13): progreso real mientras falte onboarding;
-          completado, acceso compacto y permanente a todos los tutoriales. */}
-      {setup && (
-        <section className={`card guides-strip ${setup.done >= setup.total ? 'is-done' : ''}`}>
-          <span className="guides-ico" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-              width="17" height="17">
-              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13z" />
-              <path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-2.5" />
-            </svg>
-          </span>
-          {setup.done < setup.total ? (
-            <>
-              <div className="guides-strip-main">
-                <strong>Get set up · {setup.done} of {setup.total}</strong>
-                <div className="hc-prog">
-                  <i style={{ width: `${(setup.done / setup.total) * 100}%` }} />
-                </div>
-              </div>
-              {setupNext && (
-                <button className="btn-link guides-next"
-                  onClick={() => onNavigate(setupNext.section)}>
-                  Next: {setupNext.label} →
-                </button>
-              )}
-            </>
-          ) : (
-            <div className="guides-strip-main">
-              <strong>Guides & tutorials</strong>
-              <span className="guides-sub">
-                Step-by-step walkthroughs of every flow, whenever you need them.
-              </span>
-            </div>
-          )}
-          <Button variant="ghost" onClick={() => setGuidesOpen(true)}>
-            All guides
-          </Button>
-        </section>
-      )}
 
       {/* ===== Cockpit de taller (Shop operations) ===== */}
       <div className="dash-band-label">
@@ -413,7 +370,7 @@ export default function Dashboard({ onNavigate }: Props) {
           <div className="card-head">
             <h2>Needs parts</h2>
             <span className="dash-count">{needsParts.length}</span>
-            <button className="btn-link" onClick={() => onNavigate('workorders')}>
+            <button className="btn-link" onClick={() => onNavigate('workorders', { filter: { waiting_parts: true } })}>
               View all →
             </button>
           </div>
@@ -430,7 +387,7 @@ export default function Dashboard({ onNavigate }: Props) {
                   const st = WO_STATUS_META[w.status] ?? WO_STATUS_META.open
                   return (
                     <li key={w.id} className="dash-list-item"
-                      onClick={() => onNavigate('workorders')}>
+                      onClick={() => onNavigate('workorders', { wo: w.id })}>
                       <span className="dash-wo-id">#{w.display_no}</span>
                       <span className="dash-list-code">{w.unit}</span>
                       <span className="dash-list-name" title={w.title}>{w.title}</span>
@@ -587,12 +544,12 @@ export default function Dashboard({ onNavigate }: Props) {
             ) : (
               <ul className="dash-list">
                 {pmStats.attention.map((a) => (
-                  <li key={a.unit} className="dash-list-item" onClick={() => onNavigate('pm')}>
+                  <li key={`${a.campaign}:${a.unit}`} className="dash-list-item"
+                    onClick={() => onNavigate(CAMPAIGN_SECTION[a.campaign] ?? 'pm')}>
                     <span className="dash-list-code">{a.unit}</span>
-                    <span className={`dash-tag ${a.remaining < 0 ? 'is-danger' : 'is-warn'}`}>
-                      {a.remaining < 0
-                        ? `${Math.abs(Math.round(a.remaining)).toLocaleString()} mi overdue`
-                        : `${Math.round(a.remaining).toLocaleString()} mi left`}
+                    <span className="dash-list-name">{a.label}</span>
+                    <span className={`dash-tag ${a.to_due < 0 ? 'is-danger' : 'is-warn'}`}>
+                      {dueText(a, 'overdue')}
                     </span>
                   </li>
                 ))}
@@ -742,8 +699,8 @@ export default function Dashboard({ onNavigate }: Props) {
                   {openWorkOrders.map((w) => {
                     const st = WO_STATUS_META[w.status] ?? WO_STATUS_META.open
                     return (
-                      <tr key={w.id} onClick={() => onNavigate('workorders')}>
-                        <td><span className="dash-wo-id">#{w.id}</span></td>
+                      <tr key={w.id} onClick={() => onNavigate('workorders', { wo: w.id })}>
+                        <td><span className="dash-wo-id">#{w.display_no}</span></td>
                         <td><span className="dash-list-code">{w.unit}</span></td>
                         <td className="dash-wo-title">
                           <span className="dash-wo-title-txt" title={w.title}>
@@ -852,8 +809,6 @@ export default function Dashboard({ onNavigate }: Props) {
         ))}
       </div>
 
-      <HelpCenter open={guidesOpen} onClose={() => setGuidesOpen(false)}
-        onNavigate={onNavigate} />
     </div>
   )
 }

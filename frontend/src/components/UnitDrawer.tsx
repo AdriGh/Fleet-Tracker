@@ -6,8 +6,8 @@ import { useEffect, useState } from 'react'
 import { Drawer } from 'vaul'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  defectToWo, fleetArchive, getUnitSettings, listOpenDefects,
-  listPM, saveUnitSettings, type FleetUnit, type UnitSettings,
+  defectToWo, fleetArchive, getMaintBoard, getMaintDue, getUnitSettings,
+  listOpenDefects, saveUnitSettings, type FleetUnit, type UnitSettings,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 
@@ -114,8 +114,15 @@ export default function UnitDrawer(
   const defectsQ = useQuery({
     queryKey: ['open-defects'], queryFn: listOpenDefects, enabled: open,
   })
+  // v2.22: fuera el legacy /api/pm. El detalle de PM sale del tablero
+  // (misma key que MaintBoardPage) y lo vencido/por vencer de TODAS las
+  // campañas (PM mi, DOT días, Reefer horas) de /api/maint/due.
   const pmQ = useQuery({
-    queryKey: ['pm'], queryFn: listPM, enabled: open && isTruck,
+    queryKey: ['maint', 'pm'], queryFn: () => getMaintBoard('pm'),
+    enabled: open && isTruck,
+  })
+  const dueQ = useQuery({
+    queryKey: ['maint', 'due'], queryFn: () => getMaintDue(), enabled: open,
   })
 
   const defects = unit
@@ -124,8 +131,11 @@ export default function UnitDrawer(
   const pm = unit && isTruck
     ? (pmQ.data?.units ?? []).find((u) => norm(u.unit) === norm(unit.unit))
     : undefined
+  const dueItems = unit
+    ? (dueQ.data?.items ?? []).filter((d) => norm(d.unit) === norm(unit.unit))
+    : []
 
-  const remaining = pm?.remaining ?? null
+  const remaining = pm?.to_due ?? null
   const pmTone =
     remaining == null ? '' : remaining < 0 ? 'danger'
       : remaining < 2000 ? 'warn' : 'ok'
@@ -279,7 +289,7 @@ export default function UnitDrawer(
                     ) : (
                       <>
                         <Row label="Last PM"
-                          value={`${date(pm.last_pm_date)} · ${miles(pm.last_pm_miles)}`} />
+                          value={`${date(pm.last_date)} · ${miles(pm.last_miles)}`} />
                         <Row label="Current mileage"
                           value={<>{miles(pm.current_miles)}
                             {pm.current_source && (
@@ -296,6 +306,27 @@ export default function UnitDrawer(
                         } />
                       </>
                     )}
+                  </section>
+                )}
+
+                {/* Vencidos / por vencer de cualquier campaña (PM, DOT,
+                    Reefer por horas de motor) — /api/maint/due. */}
+                {dueItems.length > 0 && (
+                  <section className="ud-sec">
+                    <h3>Due &amp; overdue</h3>
+                    {dueItems.map((d) => {
+                      const n = Math.abs(Math.round(d.to_due))
+                        .toLocaleString('en-US')
+                      return (
+                        <Row key={d.campaign} label={d.label} value={
+                          <span className={`ud-rem ${d.to_due < 0 ? 'danger' : 'warn'}`}>
+                            {d.to_due < 0
+                              ? `${n} ${d.unit_label} over`
+                              : `in ${n} ${d.unit_label}`}
+                          </span>
+                        } />
+                      )
+                    })}
                   </section>
                 )}
               </div>

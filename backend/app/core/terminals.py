@@ -37,6 +37,15 @@ DEFAULTS: list[dict] = [
 _MAX_TERMINALS = 30
 _MAX_PREFIXES = 8
 
+# v2.22 (Resources → Locations): una terminal es también una LOCATION del
+# taller con ficha opcional. `type`: '' | shop | yard | terminal. Campos
+# ausentes en entradas viejas = ''.
+LOCATION_TYPES = ("", "shop", "yard", "terminal")
+LOCATION_FIELDS = ("type", "code", "address", "city", "state", "zip",
+                   "phone")
+_LOC_CAPS = {"type": 12, "code": 12, "address": 200, "city": 80,
+             "state": 20, "zip": 12, "phone": 40}
+
 
 def _load() -> dict:
     data = db.get_setting(SETTING_KEY, legacy_file=PATH)
@@ -55,10 +64,30 @@ def _terminals(data: dict | None = None) -> list[dict]:
         return [
             {"key": str(t.get("key", "")),
              "label": str(t.get("label", "")),
-             "prefixes": [str(p) for p in (t.get("prefixes") or [])]}
+             "prefixes": [str(p) for p in (t.get("prefixes") or [])],
+             **{f: str(t.get(f) or "") for f in LOCATION_FIELDS}}
             for t in stored if isinstance(t, dict) and t.get("key")
         ]
-    return json.loads(json.dumps(DEFAULTS))
+    return [{**t, **{f: "" for f in LOCATION_FIELDS}}
+            for t in json.loads(json.dumps(DEFAULTS))]
+
+
+def _clean_location(extra: dict | None) -> dict:
+    """Valida los campos de location presentes en `extra` (v2.22)."""
+    out: dict = {}
+    for f in LOCATION_FIELDS:
+        if not extra or f not in extra or extra[f] is None:
+            continue
+        v = " ".join(str(extra[f]).split())[:_LOC_CAPS[f]]
+        if f == "type":
+            v = v.lower()
+            if v not in LOCATION_TYPES:
+                raise ValueError("Location type must be shop, yard or "
+                                 "terminal")
+        elif f in ("code", "state"):
+            v = v.upper()
+        out[f] = v
+    return out
 
 
 def _assignments(data: dict | None = None) -> dict[str, str]:
@@ -97,11 +126,15 @@ def _slug(label: str, taken: set[str]) -> str:
     return key
 
 
-def save_terminal(key: str, label: str, prefixes: list) -> dict:
-    """Crea (key vacío) o edita (key existente) una terminal."""
+def save_terminal(key: str, label: str, prefixes: list,
+                  location: dict | None = None) -> dict:
+    """Crea (key vacío) o edita (key existente) una terminal. v2.22:
+    `location` = campos de ficha (type/code/address/city/state/zip/phone);
+    al editar, los que no vienen se conservan."""
     label = str(label or "").strip()[:30]
     if not label:
         raise ValueError("Terminal name is required")
+    loc = _clean_location(location)
     data = _load()
     terms = _terminals(data)
     key = str(key or "").strip().upper()
@@ -124,6 +157,7 @@ def save_terminal(key: str, label: str, prefixes: list) -> dict:
             if t["key"] == key:
                 t["label"] = label
                 t["prefixes"] = cleaned
+                t.update(loc)
                 break
         else:
             raise ValueError(f"Terminal {key} does not exist")
@@ -131,7 +165,8 @@ def save_terminal(key: str, label: str, prefixes: list) -> dict:
         if len(terms) >= _MAX_TERMINALS:
             raise ValueError("Too many terminals")
         key = _slug(label, {t["key"] for t in terms})
-        terms.append({"key": key, "label": label, "prefixes": cleaned})
+        terms.append({"key": key, "label": label, "prefixes": cleaned,
+                      **{f: "" for f in LOCATION_FIELDS}, **loc})
 
     data["terminals"] = terms
     data["assignments"] = _assignments(data)
@@ -178,9 +213,11 @@ def assign(terminal: str, units: list) -> dict:
     return get_all()
 
 
-def resolve(unit: str, company: str = "") -> str:
-    """Terminal de una unidad (mismas reglas que el frontend)."""
-    cfg = get_all()
+def resolve(unit: str, company: str = "", cfg: dict | None = None) -> str:
+    """Terminal de una unidad (mismas reglas que el frontend). `cfg` (v2.22,
+    opcional) = un get_all() ya leído: los reportes resuelven miles de filas
+    y así no releen la config por cada una."""
+    cfg = cfg if cfg is not None else get_all()
     name = str(unit or "").strip()
     assigned = cfg["assignments"].get(name)
     if assigned:

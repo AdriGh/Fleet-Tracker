@@ -29,6 +29,7 @@ import {
 import { notifyOk, notifyErr } from '../toast'
 import { useTerminals } from '../terminal'
 import { usePerms } from '../perms'
+import type { NavIntent, WoFilterIntent } from '../shell'
 import { Button, Tabs } from '../components/ds'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
@@ -42,11 +43,14 @@ import FiltersPanel, {
 } from '../components/FiltersPanel'
 import { normUnit, useKnownUnits, useUnitMatcher } from '../unitMatch'
 import { vendorLabel, vendorLoc } from '../vendors'
+import BillToField, { type BillMode } from '../components/BillToField'
+import type { PickedCustomer } from '../components/CustomerPicker'
+import { useUnitOwners } from '../customers'
 import { PartOptions, WoDetail, WoDrawer } from './WoDetail'
 import {
   ACTIVE_PIPELINE, afterStatusChange, CAMPAIGN_OPTS, dateOf, findPart,
-  invalidateWoLists, matchesSearch, mergeWoDetail, money, PIPELINE,
-  PRIORITY_META, STATUS_META, statusPatch, type WoListData,
+  invalidateWoLists, matchesSearch, mergeWoDetail, money, partUnitCost,
+  PIPELINE, PRIORITY_META, STATUS_META, statusPatch, type WoListData,
 } from './woShared'
 
 // Re-exports de compatibilidad: el perfil de unidad y Service Requests
@@ -161,13 +165,30 @@ type DateRange = { from: string; to: string }
 type WoFilters = Record<SetGroup, Set<string>> & {
   created: DateRange
   service: DateRange
+  // v2.22: fecha de cierre y fecha efectiva ("work date": service ->
+  // closed -> created), ambas en la TZ de la org (drill-downs de Home).
+  closed: DateRange
+  worked: DateRange
 }
+type RangeId = 'created' | 'service' | 'closed' | 'worked'
+const RANGE_IDS: RangeId[] = ['created', 'service', 'closed', 'worked']
 const emptyFilters = (): WoFilters => ({
   status: new Set(), type: new Set(), vendor: new Set(), tech: new Set(),
   priority: new Set(), campaign: new Set(), unit: new Set(),
   waiting: new Set(),
   created: { from: '', to: '' }, service: { from: '', to: '' },
+  closed: { from: '', to: '' }, worked: { from: '', to: '' },
 })
+// Fecha de la WO para cada rango.
+function rangeDate(w: WorkOrder, id: RangeId): string | null {
+  switch (id) {
+    case 'created': return w.created_at
+    case 'service': return w.service_date
+    case 'closed': return w.closed_date ?? w.closed_at
+    case 'worked':
+      return w.effective_date ?? w.service_date ?? w.closed_at ?? w.created_at
+  }
+}
 // Valor "sin asignar" (técnico vacío / sin vendor).
 const NONE = '__none__'
 // Valor del grupo Technician para una WO outside (sin técnico propio).
@@ -201,21 +222,21 @@ function inRange(iso: string | null, r: DateRange): boolean {
 // ¿La WO pasa los filtros? `except` ignora UN grupo: así cada grupo del
 // panel cuenta sus opciones contra los demás filtros (conteos facetados).
 function passes(
-  w: WorkOrder, f: WoFilters, except?: SetGroup | 'created' | 'service',
+  w: WorkOrder, f: WoFilters, except?: SetGroup | RangeId,
 ): boolean {
   for (const g of SET_GROUPS) {
     if (g === except) continue
     if (f[g].size && !f[g].has(groupValue(w, g))) return false
   }
-  if (except !== 'created' && !inRange(w.created_at, f.created)) return false
-  if (except !== 'service' && !inRange(w.service_date, f.service)) return false
+  for (const r of RANGE_IDS) {
+    if (except !== r && !inRange(rangeDate(w, r), f[r])) return false
+  }
   return true
 }
 
 function activeFilterCount(f: WoFilters): number {
   return SET_GROUPS.filter((g) => f[g].size > 0).length
-    + ((f.created.from || f.created.to) ? 1 : 0)
-    + ((f.service.from || f.service.to) ? 1 : 0)
+    + RANGE_IDS.filter((r) => f[r].from || f[r].to).length
 }
 
 // Opciones de un grupo: los valores presentes en `base` con el conteo de las
@@ -320,20 +341,51 @@ const I = {
   ),
 }
 
-export default function WorkOrdersPage() {
+// Filtros iniciales desde un intent del shell (KPIs de Home, palette): status,
+// tipo inside/outside, "waiting for parts" y rangos de cierre / fecha
+// efectiva (mismo criterio que el KPI que se clickeó).
+function filtersFromIntent(fi?: WoFilterIntent): WoFilters {
+  const f = emptyFilters()
+  if (!fi) return f
+  const st = Array.isArray(fi.status) ? fi.status : fi.status ? [fi.status] : []
+  for (const s of st) f.status.add(String(s))
+  if (fi.wo_type) f.type.add(fi.wo_type)
+  if (fi.waiting_parts != null) f.waiting.add(fi.waiting_parts ? 'yes' : 'no')
+  if (fi.closed_from || fi.closed_to) {
+    f.closed = { from: fi.closed_from ?? '', to: fi.closed_to ?? '' }
+  }
+  if (fi.worked_from || fi.worked_to) {
+    f.worked = { from: fi.worked_from ?? '', to: fi.worked_to ?? '' }
+  }
+  return f
+}
+
+// v2.22: `intent` del shell ({wo} abre la orden; {filter} filtra la lista).
+// App re-monta la página con cada intent nuevo, así que basta con leerlo en
+// los inicializadores de estado.
+export default function WorkOrdersPage(
+  { intent }: { intent?: NavIntent } = {},
+) {
   const qc = useQueryClient()
   const { can } = usePerms()
   const { terminalOf, labelOf, present } = useTerminals()
   const [view, setView] = useState<WoView>('list')
   const [terminal, setTerminal] = useState('')
   const [q, setQ] = useState('')
-  const [filters, setFilters] = useState<WoFilters>(emptyFilters)
+  const [filters, setFilters] = useState<WoFilters>(
+    () => filtersFromIntent(intent?.filter))
+  // Incluir facturadas en List/Table (los KPIs de Home cuentan las cerradas
+  // hoy aunque ya se hayan facturado). Se apaga con "Clear filters".
+  const [withInvoiced, setWithInvoiced] = useState(
+    () => !!intent?.filter?.include_invoiced)
   const [fltOpen, setFltOpen] = useState(false)
   const fltBtnRef = useRef<HTMLButtonElement | null>(null)
   // List: WO seleccionada en el panel derecho (deep link ?wo=). Table /
   // Board / History abren el drawer (openWo), como antes.
-  const [sel, setSel] = useState<number | null>(woFromUrl)
-  const [showDetail, setShowDetail] = useState(() => woFromUrl() != null)
+  const [sel, setSel] = useState<number | null>(
+    () => intent?.wo ?? woFromUrl())
+  const [showDetail, setShowDetail] = useState(
+    () => (intent?.wo ?? woFromUrl()) != null)
   const [expanded, setExpanded] = useState(false)
   const [openWo, setOpenWo] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
@@ -422,10 +474,11 @@ export default function WorkOrdersPage() {
   const viewBase = useMemo(() => {
     const s = q.trim().toLowerCase()
     return wos.filter((w) =>
-      (view === 'history' ? w.status === 'invoiced' : w.status !== 'invoiced')
+      (view === 'history' ? w.status === 'invoiced'
+        : withInvoiced || w.status !== 'invoiced')
       && (!terminal || terminalOf(w.unit, w.company) === terminal)
       && matchesSearch(w, s))
-  }, [wos, view, q, terminal, terminalOf])
+  }, [wos, view, q, terminal, terminalOf, withInvoiced])
   // EL array filtrado: lo usan List, Table, Board e History. En History el
   // grupo Status no existe (todo es invoiced) y el panel no lo muestra, así
   // que un status elegido en List se IGNORA ahí (y no cuenta como activo):
@@ -512,6 +565,8 @@ export default function WorkOrdersPage() {
   const ranges: FilterRange[] = [
     { id: 'created', label: 'Created date', ...filters.created },
     { id: 'service', label: 'Service date', ...filters.service },
+    { id: 'closed', label: 'Closed date', ...filters.closed },
+    { id: 'worked', label: 'Work date', ...filters.worked },
   ]
 
   function toggleFilter(groupId: string, value: string) {
@@ -526,7 +581,7 @@ export default function WorkOrdersPage() {
     setFilters((f) => ({ ...f, [groupId as SetGroup]: new Set<string>() }))
   }
   function setRange(id: string, from: string, to: string) {
-    setFilters((f) => ({ ...f, [id as 'created' | 'service']: { from, to } }))
+    setFilters((f) => ({ ...f, [id as RangeId]: { from, to } }))
   }
   // Tira de métricas: un segmento = filtro de ese status (toggle). En
   // History el status no filtra, así que no se resalta ninguno.
@@ -743,9 +798,16 @@ export default function WorkOrdersPage() {
             </div>
             <div className="wom-sub">
               <span>{rows.length} work order{rows.length === 1 ? '' : 's'}</span>
+              {withInvoiced && (
+                <button type="button" className="wom-clear"
+                  title="Invoiced work orders are listed too — click to hide them"
+                  onClick={() => setWithInvoiced(false)}>
+                  Incl. invoiced ✕
+                </button>
+              )}
               {activeCount > 0 && (
                 <button type="button" className="wom-clear"
-                  onClick={() => setFilters(emptyFilters())}>
+                  onClick={() => { setFilters(emptyFilters()); setWithInvoiced(false) }}>
                   Clear filters
                 </button>
               )}
@@ -968,7 +1030,7 @@ export default function WorkOrdersPage() {
         <FiltersPanel anchor={fltBtnRef} onClose={() => setFltOpen(false)}
           groups={groups} ranges={ranges}
           onToggle={toggleFilter} onClearGroup={clearGroup} onRange={setRange}
-          onClearAll={() => setFilters(emptyFilters())}
+          onClearAll={() => { setFilters(emptyFilters()); setWithInvoiced(false) }}
           activeCount={activeCount} resultCount={shown.length} />
       )}
 
@@ -1056,9 +1118,12 @@ type VendorRef = Pick<Vendor, 'id' | 'name' | 'city' | 'state'>
 // Vendor leído del escaneo que NO existe todavía: se crea al enviar.
 type VendorDraft = { name: string; city: string; state: string }
 
-function CreateWoModal({ onClose, onCreated }: {
+// Exportado (v2.22): el menú "+" Add New del shell lo abre (Work Order /
+// Outside Work vía initialType).
+export function CreateWoModal({ onClose, onCreated, initialType }: {
   onClose: () => void
   onCreated: (id: number) => void
+  initialType?: WoType
 }) {
   const qc = useQueryClient()
   const partsQ = useQuery({ queryKey: ['parts'], queryFn: listParts })
@@ -1095,7 +1160,7 @@ function CreateWoModal({ onClose, onCreated }: {
   // v2.21: inside (taller propio, técnico) / outside (taller externo =
   // Vendor). Outside exige un vendor elegido — o uno nuevo leído del
   // escaneo, que se crea al enviar (vendorNew).
-  const [woType, setWoType] = useState<WoType>('inside')
+  const [woType, setWoType] = useState<WoType>(initialType ?? 'inside')
   const [vendorSel, setVendorSel] = useState<VendorRef | null>(null)
   const [vendorNew, setVendorNew] = useState<VendorDraft | null>(null)
   // "Matched vendor X" tras el escaneo; candidatos cercanos sin match.
@@ -1111,9 +1176,22 @@ function CreateWoModal({ onClose, onCreated }: {
   const [priority, setPriority] = useState<WoPriority>('normal')
   const [campaign, setCampaign] = useState('')
   const [mileage, setMileage] = useState('')
+  // v2.22: horómetro del reefer (solo campaña 'reefer'; nunca el odómetro).
+  const [engineHours, setEngineHours] = useState('')
   const [date, setDate] = useState(todayISO())
   const vendorHint = woType === 'outside' && !vendorSel && !vendorNew
     ? 'Outside work needs the vendor (third-party shop)' : ''
+  // v2.22 [C] Bill to: Self | Customer. Hasta que el usuario lo toque, el
+  // default sale del DUEÑO de la unidad (owner-operator) — derivado, sin
+  // efectos. `bill` = elección explícita.
+  const owners = useUnitOwners()
+  const unitOwner = unitOk && unit.trim() ? owners.ownerOf(unitName(unit)) : null
+  const [bill, setBill] = useState<
+    { mode: BillMode; customer: PickedCustomer | null } | null>(null)
+  const billMode: BillMode = bill?.mode ?? (unitOwner ? 'customer' : 'self')
+  const billCustomer = bill ? bill.customer : unitOwner
+  const billHint = billMode === 'customer' && !billCustomer
+    ? 'Pick the customer to bill (or switch to Self)' : ''
   // El campo Vendor se marca inválido (rojo + aria-invalid) cuando el usuario
   // ya interactuó con él (lo vació) o el escaneo trajo un taller sin match;
   // recién abierto / al pasar a Outside a mano solo queda la pista del pie.
@@ -1186,8 +1264,9 @@ function CreateWoModal({ onClose, onCreated }: {
     const hit = findPart(catalog, pn)
     setScanLines((ls) => ls.map((l, j) => (j === i ? {
       ...l, part_number: pn,
+      // v2.22: costo promedio real (si hay); si no, el costo de catálogo.
       ...(hit ? { description: l.description || hit.description,
-                  unit_cost: hit.cost } : {}),
+                  unit_cost: partUnitCost(hit) } : {}),
     } : l)))
   }
 
@@ -1330,6 +1409,10 @@ function CreateWoModal({ onClose, onCreated }: {
       notifyErr('Missing vendor', vendorHint)
       return
     }
+    if (billHint) {
+      notifyErr('Missing customer', billHint)
+      return
+    }
     const kept = complaints.filter((c) => c.detail.trim())
     if (!kept.length) {
       notifyErr('Missing complaint', 'Add at least one issue detail')
@@ -1401,7 +1484,15 @@ function CreateWoModal({ onClose, onCreated }: {
                             parentId: number | null): Promise<WorkOrder> {
         const camp = (parentId === null ? campaign : '')
           || (cs.some((c) => c.is_pm) ? 'pm' : '')
-        const wo = await createWorkOrder({
+        // Bill to: la orden padre lleva la elección; las hijas (otras
+        // unidades del invoice) toman el dueño de SU unidad en el backend,
+        // salvo Self explícito (0 para todas: el backend toma null/ausente
+        // como "no vino" => dueño de la unidad, y 0 como Self).
+        const billTo = billMode === 'self'
+          ? (bill ? { customer_id: 0 } : {})
+          : parentId === null ? { customer_id: billCustomer?.id ?? 0 } : {}
+        const wo0 = await createWorkOrder({
+          ...billTo,
           unit: u,
           title: titleFor(cs, camp),
           complaint: cs.map((c) => formatComplaint(c, shared)).join('\n\n'),
@@ -1414,7 +1505,15 @@ function CreateWoModal({ onClose, onCreated }: {
           parent_id: parentId,
           wo_type: woType,
           vendor_id: woType === 'outside' ? vendorId : null,
+          ...(camp === 'reefer' && engineHours.trim()
+            && Number.isFinite(Number(engineHours))
+            ? { engine_hours: Number(engineHours) } : {}),
         })
+        // Self explícito: red de seguridad si el backend igual tomó al dueño
+        // de la unidad (0 = Self también en el PATCH; null se ignora ahí).
+        const wo = billMode === 'self' && bill && wo0.customer_id != null
+          ? await patchWorkOrder(wo0.id, { customer_id: 0 })
+          : wo0
         const ls = linesFor(k)
         if (ls.length) {
           await addWoLinesBulk(wo.id, ls.map((ln) => ({
@@ -1560,6 +1659,19 @@ function CreateWoModal({ onClose, onCreated }: {
           <UnitPicker value={unit} onChange={setUnit}
             extraUnits={knownUnits} placeholder="Pick a unit" />
         </label>
+        {/* v2.22 [C]: a quién se le factura. Default = dueño de la unidad. */}
+        <BillToField
+          mode={billMode}
+          customer={billCustomer}
+          onMode={(m) => setBill({ mode: m, customer: billCustomer })}
+          onCustomer={(c) => setBill({ mode: 'customer', customer: c })}
+          invalid={!!billHint && !!bill}
+          hint={billMode === 'customer' && billCustomer && !bill
+            && unitOwner?.id === billCustomer.id
+            ? `${billCustomer.name} owns ${unitName(unit)} — billed with their markup`
+            : billMode === 'customer'
+              ? 'Parts and labor are billed to this customer with their markup'
+              : undefined} />
         <div className="wo-form-row">
           <label className="ud-field">
             <span>Date</span>
@@ -1724,6 +1836,18 @@ function CreateWoModal({ onClose, onCreated }: {
             unit profile (Components &amp; PMs).
           </span>
         </label>
+        {campaign === 'reefer' && (
+          <label className="ud-field">
+            <span>Reefer engine hours</span>
+            <input className="cell-input" type="number" min={0} step="0.1"
+              value={engineHours} placeholder="hour meter at the service"
+              onChange={(e) => setEngineHours(e.target.value)} />
+            <span className="settings-sub">
+              Reefer PM is tracked on the unit's hour meter, never on the
+              odometer. Logged when the order is invoiced.
+            </span>
+          </label>
+        )}
 
         {/* Líneas (escaneadas o a mano): editables antes de crear */}
         <div className="wo-lines-edit">
@@ -1838,7 +1962,7 @@ function CreateWoModal({ onClose, onCreated }: {
 
         <div className="settings-actions wo-create-actions">
           <button className="btn btn-primary" onClick={submit}
-            disabled={saving || !!unitsHint || !!vendorHint}>
+            disabled={saving || !!unitsHint || !!vendorHint || !!billHint}>
             {saving ? 'Creating…'
               : woType === 'outside' ? 'Create outside work order'
                 : 'Create work order'}
@@ -1846,8 +1970,11 @@ function CreateWoModal({ onClose, onCreated }: {
           {/* Sin unidad válida (de la flota) o sin vendor (outside) no se
               crea: pista visible (la del vendor, solo mientras el campo no
               esté ya marcado en rojo). */}
-          {(unitsHint || (vendorHint && !vendorTouched)) && (
-            <span className="field-hint">{unitsHint || vendorHint}</span>
+          {(unitsHint || (vendorHint && !vendorTouched) || billHint) && (
+            <span className="field-hint">
+              {unitsHint || (vendorHint && !vendorTouched ? vendorHint : '')
+                || billHint}
+            </span>
           )}
         </div>
       </div>
