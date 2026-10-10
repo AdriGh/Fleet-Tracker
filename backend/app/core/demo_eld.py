@@ -525,7 +525,9 @@ def pretrip(company: str | None, day: datetime.date) -> dict[str, dict]:
     return out
 
 
-# ----- Defectos (Defects board + dashboard) --------------------------------
+# ----- Defectos (feed de abiertos -> Service Requests) ---------------------
+# v2.23: las filas 'resolved' de _DEFECTS solo las usaba defect_window (la
+# página Defects, retirada); se conservan como data de demo.
 
 def _defect_row(days_ago: int, status: str, unit: str, kind: str,
                 category: str, comment: str, reports: int) -> dict:
@@ -558,21 +560,6 @@ def open_defects() -> list[dict]:
     """Defectos ABIERTOS (forma de samsara.load()), status 'Open'."""
     out = [_defect_row(*d) for d in _DEFECTS if d[1] == "open"]
     out.sort(key=lambda d: d["unit"])
-    return out
-
-
-def defect_window(days: int) -> list[dict]:
-    """Defectos abiertos + resueltos creados en la ventana (samsara.load_window).
-    Abierto -> 'Unsafe', resuelto -> 'Resolved' (lo que espera el dashboard)."""
-    cutoff = max(1, days)
-    out: list[dict] = []
-    for d in _DEFECTS:
-        if d[0] > cutoff:
-            continue
-        row = _defect_row(*d)
-        row["status"] = "Unsafe" if d[1] == "open" else "Resolved"
-        out.append(row)
-    out.sort(key=lambda r: (r["block_date"], r["unit"]))
     return out
 
 

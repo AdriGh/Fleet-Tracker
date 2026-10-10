@@ -87,12 +87,15 @@ export function mergeWoDetail(qc: QueryClient, updated: WorkOrder) {
     (prev ? { ...prev, ...updated } : updated))
 }
 
-// Vistas que listan WOs fuera del detalle: board/lista, perfil de unidad y
-// el backlog de service requests (una WO que cambia de estado los afecta).
+// Vistas que listan WOs fuera del detalle: board/lista, perfil de unidad,
+// el backlog de service requests (una WO que cambia de estado los afecta)
+// y Home (v2.23: WOs por estado / abiertas; sin esto quedaba vieja hasta el
+// refetch de 5 min tras borrar o mover una WO).
 export function invalidateWoLists(qc: QueryClient) {
   qc.invalidateQueries({ queryKey: ['workorders'] })
   qc.invalidateQueries({ queryKey: ['unit-wos'] })
   qc.invalidateQueries({ queryKey: ['service-requests'] })
+  qc.invalidateQueries({ queryKey: ['home-summary'] })
 }
 
 // Efectos tras un cambio de estado exitoso: PM tracker + toasts (PM y

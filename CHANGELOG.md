@@ -7,6 +7,134 @@ y el proyecto usa [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+## [2.23.0] - 2026-10-10
+
+Limpieza después de la v2.22, con decisiones del dueño: el **tipo de una
+work order (inside / outside) se elige al crearla y queda fijo** (revierte
+el switch del detalle que trajo la v2.21), **Delete work order** pasa al
+header del detalle, **Service Requests** crea WOs inside u outside, Smart
+Fill respeta el tipo de la WO, y salen dos páginas que ya no aportaban:
+**Defects** (los defectos DVIR abiertos viven en Service Requests) y
+**Fleet overview** (compliance en DVIR, cadena de frío en Cold Chain,
+alertas como toasts y email/SMS). Los Device settings de la unidad se
+mudan al perfil de unidad y el Home cuenta los service requests igual
+que el badge del sidebar.
+
+### Agregado
+- **Service Requests → "Create work order" con Inside / Outside.** La
+  barra suma el switch de tipo: Inside = técnico (opcional, como antes);
+  Outside = taller externo, **vendor obligatorio** (el botón queda
+  deshabilitado hasta elegirlo y el técnico se ignora). `POST
+  /service-requests/create-wo` acepta `wo_type` y `vendor_id` (outside sin
+  vendor o con uno inexistente => 400, nada a medias; inside ignora el
+  vendor). "Add to…" sigue sirviendo para WOs de ambos tipos. Mismo scope
+  `maint.edit`.
+- **Device settings en el perfil de unidad** (Equipment → unidad):
+  nickname, group, mute alerts y notes, que solo vivían en el UnitDrawer
+  de la página Defects. Save con `fleet.edit` (el scope que exige `POST
+  /api/units/settings`). El nickname y el group siguen alimentando las
+  columnas de Reports; el mute aplica también a las alertas de cadena de
+  frío.
+- **Guía "Work the Service Requests backlog"** en el Help Center
+  (reemplaza "Turn a defect into a work order", que llevaba a la página
+  Defects): qué es un service request, las 5 fuentes (defectos DVIR, PM
+  por millas, DOT anual, reefer PM por horas de motor y los manuales),
+  Create work order Inside / Outside, Add to…, Deny, Snooze y que los
+  requests se limpian solos cuando su fuente desaparece. Ctrl+K
+  "defects" / "dvir" cae en Service Requests.
+
+### Cambiado
+- **El tipo de la WO es fijo desde la creación** (revierte el switch
+  inside ↔ outside del detalle de la v2.21). El detalle lo muestra en solo
+  lectura ("Set at creation") y nunca manda `wo_type`. `PATCH
+  /workorders/{id}` con otro tipo => 400 `Work type can't be changed after
+  the work order is created. Delete it and create a new one.` (mismo tipo
+  = no-op, para clientes viejos). En una outside el vendor se **reasigna**
+  (hace falta para borrar un vendor) pero no se quita; a una inside no se
+  le liga vendor (400 `Inside work orders don't link a vendor…`). Todo lo
+  demás sigue editable (título, complaints, líneas, técnico, notas…). El
+  modal de creación avisa que el tipo queda fijo.
+- **Smart Fill sobre una WO existente nunca cambia el tipo.** En una
+  inside importa fecha, invoice # y líneas **sin ligar el taller** (la
+  revisión no ofrece vendor); en una outside puede reasignar o crear el
+  vendor como antes. `apply` rechaza otro tipo, o vendor en una inside,
+  **antes** de dar de alta el vendor (sin vendor fantasma). Smart Fill de
+  una WO **nueva** (`/workorders/scan`) sigue decidiendo inside / outside
+  por el documento.
+- **Delete work order** se mueve del pie de la pestaña Info al header del
+  detalle: ícono de papelera junto a Expand y Close, en el panel
+  maestro-detalle y en el drawer, con tooltip, hover de peligro y gate
+  `maint.edit` (el del `DELETE`). Mismo confirm (aviso de las hijas del
+  invoice y de los requests ligados que vuelven al backlog); refresca
+  listas y Home.
+- **Alertas de flota: toasts en pantalla y email/SMS**, sin historial en
+  la app. El toast, el email (antes "Open the dashboard for details") y
+  Settings → Fleet alerts ya no remiten a Fleet overview; Settings explica
+  cómo silenciar una unidad (Equipment → Device settings → Mute alerts).
+- Copy: Login, Settings (Terminals), la guía de importación de DVIR
+  ("feeds the DVIR page"), el estado vacío de Service Requests (menciona
+  los reefer PM) y el Deny de un request de reefer.
+
+### Eliminado
+- **Página Defects** y todo lo que solo ella usaba: los PDFs de defectos
+  (Unit Defect Report por unidad, export multi-unidad y "Open Defects ·
+  Summary"), la tendencia 7/30/90 días y el % resuelto, los desgloses por
+  categoría y tipo de unidad (rank bars), el filtro de terminal del
+  backlog, la **UI de fotos de evidencia** en las filas de defectos y el
+  `UnitDrawer` (con su "→ WO" desde un defecto). Archivos: `DefectsPage`,
+  `SummaryReport`, `UnitReport`, `DefectsTrendChart`, `RankBars`,
+  `UnitDrawer` y `defectAnalysis.ts`. Backend: `GET /dvir/defect-stats`,
+  `samsara.load_window` y `demo_eld.defect_window`. **Se conservan**
+  `/dvir/open-defects`, `open_defects.current_feed`,
+  `/service-requests/defect-to-wo` y las rutas de evidencia de defectos
+  con sus tests: los defectos abiertos siguen alimentando Service
+  Requests.
+- **Fleet overview** (`FleetOverviewPage`, `InfoTip` y su CSS): con ella
+  se van el **historial de alertas de flota y "Ack all"**.
+
+### Corregido
+- **Home: el tile "Service Requests · N open"** lee `counts.open` de la
+  misma query que el badge del sidebar, que sincroniza el backlog antes de
+  contar; antes Home contaba sin sincronizar y mostraba otro número (13 vs
+  16). `home.summary` no llama al sync a propósito (latencia del Home).
+  Las acciones de Service Requests invalidan también `['home-summary']`.
+- Revisión de la versión (antes de publicar):
+  - **Puente reefer → WO sin duplicados al borrar.** Con el tipo fijo, el
+    camino para pasar una WO automática de fault a outside es borrarla y
+    crear otra, y el puente la recreaba como inside mientras el fault
+    siguiera activo. Ahora borrar una WO **viva** del puente deja ese
+    fault descartado (org_setting `reefer_wo_dismissed`, sin tabla) hasta
+    que el reefer deja de reportar el código (una próxima ocurrencia sí
+    abre WO), y la deduplicación mira el marker `[rf:…]` en cualquier WO
+    viva de la unidad, no solo las de source `reefer`. Solo aplica con la
+    regla opt-in `reefer_fault_wo`.
+  - **Expandido + Delete (o Close) dejaba la lista oculta** sin forma de
+    volver salvo salir de la página: cerrar el panel sale del modo
+    expandido y devuelve el foco a la lista (↑ / ↓ siguen andando).
+  - **WO inside con vendor (data legacy o creada por API):** el detalle
+    muestra el taller ligado con **"Unlink shop"** (`vendor_id: 0`). Sin
+    eso ese vendor no se podía borrar nunca ("reassign them first") porque
+    a una inside no se le liga otro y el tipo no cambia.
+  - Cambiar el vendor de una WO desde el detalle refresca el conteo de WOs
+    del vendor (Vendors / Parts bloquean el borrado con ese número) y su
+    perfil.
+
+### Notas
+- **Sin migraciones** ni cambios de esquema (Alembic: mismo head). Sin
+  scopes nuevos de RBAC.
+- Las **fotos de evidencia de defectos siguen guardadas** (filas y
+  archivos) pero ya no se muestran en ninguna pantalla.
+- `PATCH /workorders/{id}` conserva `wo_type` (mismo tipo = no-op) y
+  `vendor_id: 0` en una inside. `POST /workorders` sigue aceptando inside
+  + vendor por API (la UI manda null). Antes de publicar conviene contar
+  en producción `SELECT count(*) FROM work_order WHERE wo_type='inside'
+  AND vendor_id IS NOT NULL`.
+- Una WO guardada con el tipo equivocado antes de esta versión (p.ej. una
+  factura de terceros cargada como inside) ya no cambia de tipo: se borra
+  y se crea de nuevo. El botón "Work order" de la tarjeta de un request
+  crea siempre una WO inside sin técnico; para outside, la barra "Create
+  work order".
+
 ## [2.22.0] - 2026-10-09
 
 Tercera vuelta del benchmark contra SquareRigger (SR), con seis objetivos

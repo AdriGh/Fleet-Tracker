@@ -2209,10 +2209,6 @@ table.defects-table td {
   color: var(--text-muted);
 }
 
-.defect-detail {
-  min-width: 240px;
-}
-
 .mech-note {
   display: block;
   margin-top: 4px;
@@ -3216,7 +3212,8 @@ td.dur-high {
 .alert-ch { padding: 6px 0; }
 .alert-rcpt { margin-top: 8px; }
 
-/* ----- UnitDrawer: formulario de device settings ----- */
+/* ----- Formularios .ud-field (modales, drawers y Device settings del
+   perfil de unidad) ----- */
 .ud-form { display: flex; flex-direction: column; gap: 10px; }
 .ud-field {
   display: flex;
@@ -3230,7 +3227,6 @@ td.dur-high {
 }
 .ud-notes { resize: vertical; min-height: 54px; font-family: inherit; }
 .ud-toggle { padding: 4px 0; }
-.ud-save { align-self: flex-start; }
 
 /* ----- Smart Fill (part# → catálogo) en el modal de parte ----- */
 .ud-field-head {
@@ -3573,7 +3569,7 @@ td.dur-high {
 .tone-ok .stat-value { color: var(--ui-success); }
 .tone-info .stat-value { color: var(--ui-info); }
 
-/* ---------- Dashboard (home) ------------------------------------- */
+/* Botón-link: acción secundaria en tarjetas (Home, guías, Retry) */
 .btn-link {
   margin-left: auto;
   border: none;
@@ -3589,388 +3585,8 @@ td.dur-high {
 }
 .btn-link:hover { background: var(--accent-soft); }
 
-.dash-grid {
-  display: grid;
-  grid-template-columns: 2fr 1fr;
-  grid-template-areas:
-    "trend donut"
-    "attention missing"
-    "alerts recent";
-  gap: 16px;
-  margin-bottom: 18px;
-}
-.dash-trend { grid-area: trend; }
-.dash-donut { grid-area: donut; }
-.dash-attention { grid-area: attention; }
-.dash-missing { grid-area: missing; }
-.dash-alerts { grid-area: alerts; }
-.dash-recent { grid-area: recent; }
-.dash-list-item.is-acked { opacity: 0.5; }
-@media (max-width: 920px) {
-  .dash-grid {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "trend" "donut" "attention" "missing" "alerts" "recent";
-  }
-}
-
-.dash-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-}
-.dash-list-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 6px;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.88rem;
-  transition: background 0.12s ease;
-}
-.dash-list-item:last-child { border-bottom: none; }
-.dash-list-item:hover {
-  cursor: pointer;
-  background: var(--surface-2);
-  border-radius: 8px;
-}
-.dash-list-code {
-  font-family: var(--font-display);
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-.dash-list-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dash-list-meta {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.dash-tag {
-  font-size: 0.72rem;
-  font-weight: 700;
-  padding: 3px 9px;
-  border-radius: 999px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-.dash-tag.is-danger { background: rgba(220, 38, 38, 0.14); color: #ef4444; }
-.dash-tag.is-warn { background: rgba(245, 158, 11, 0.16); color: #d97706; }
-
-/* ---- Cockpit de taller (Shop operations, Dashboard v2) ---- */
-.dash-band-label {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 26px 2px 4px;
-  font-family: var(--font-display);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-.dash-band-label:first-of-type { margin-top: 6px; }
-.dash-band-rule { flex: 1 1 auto; height: 1px; background: var(--border); }
-.dash-band-label .btn-link {
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: 0.8rem;
-  white-space: nowrap;
-}
-
-.shop-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin: 14px 0 6px;
-}
-@media (max-width: 860px) {
-  .shop-actions { grid-template-columns: 1fr; }
-}
-.shop-actions > .card { animation: ft-fade-up 0.32s ease both; }
-.action-card { border-left: 3px solid var(--border); }
-.action-card.is-danger { border-left-color: #dc2626; }
-.action-card.is-warn { border-left-color: #d97706; }
-.action-list .dash-list-name { flex: 1 1 auto; }
-.reorder-qty {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.dash-shortcuts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
-.dash-shortcut {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  padding: 15px 16px;
-  text-align: left;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
-  cursor: pointer;
-  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
-}
-.dash-shortcut:hover {
-  transform: translateY(-2px);
-  border-color: var(--accent);
-  box-shadow: var(--shadow);
-}
-.dash-shortcut-ico {
-  width: 38px;
-  height: 38px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: 11px;
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.dash-shortcut-ico svg { width: 20px; height: 20px; }
-.dash-shortcut-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.dash-shortcut-text strong {
-  font-family: var(--font-display);
-  font-size: 0.95rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-.dash-shortcut-text span {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.dash-shortcut-arrow {
-  width: 18px;
-  height: 18px;
-  flex: none;
-  margin-left: auto;
-  color: var(--text-muted);
-  transition: transform 0.16s ease, color 0.16s ease;
-}
-.dash-shortcut:hover .dash-shortcut-arrow {
-  transform: translateX(3px);
-  color: var(--accent);
-}
-
-.dash-grid > .card,
-.dash-shortcut { animation: ft-fade-up 0.32s ease both; }
-
-/* ---- Tablero inferior del dashboard: WO abiertas + cold chain ---- */
-.dash-ops {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-.dash-ops.has-cc { grid-template-columns: 2fr 1fr; }
-@media (max-width: 920px) {
-  .dash-ops.has-cc { grid-template-columns: 1fr; }
-}
-.dash-ops > .card { animation: ft-fade-up 0.32s ease both; }
-.dash-count {
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  padding: 2px 9px;
-  border-radius: 999px;
-  font-variant-numeric: tabular-nums;
-}
-.dash-count + .btn-link { margin-left: 8px; }
-
-/* Mini-tabla de WO abiertas */
-.dash-wo-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
-.dash-wo-table thead th {
-  text-align: left;
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-.dash-wo-table thead th.r { text-align: right; }
-.dash-wo-table tbody td {
-  padding: 8px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: middle;
-}
-.dash-wo-table tbody tr:last-child td { border-bottom: none; }
-.dash-wo-table tbody tr { cursor: pointer; transition: background 0.12s ease; }
-.dash-wo-table tbody tr:hover { background: var(--surface-2); }
-.dash-wo-id {
-  font-family: var(--font-mono, var(--font-display));
-  font-weight: 600;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-.dash-wo-title { width: 100%; }
-.dash-wo-title-txt {
-  display: inline-block;
-  max-width: 22ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: middle;
-}
-.dash-src-badge {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 8px;
-  font-size: 0.62rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border: 1px solid var(--accent-soft);
-  padding: 1px 7px;
-  border-radius: 6px;
-  white-space: nowrap;
-  vertical-align: middle;
-}
-.dash-src-badge.is-defect { color: var(--ui-warn); background: var(--ui-warn-bg); border-color: var(--ui-warn-bg); }
-.dash-src-badge.is-pm { color: var(--ui-info); background: var(--ui-info-bg); border-color: var(--ui-info-bg); }
-.dash-wo-pill {
-  display: inline-flex;
-  align-items: center;
-  font-size: 0.7rem;
-  font-weight: 600;
-  padding: 2px 9px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-.dash-wo-pill.is-open { color: var(--ui-info); background: var(--ui-info-bg); }
-.dash-wo-pill.is-prog { color: var(--ui-warn); background: var(--ui-warn-bg); }
-.dash-wo-pill.is-done { color: var(--ui-success); background: var(--ui-success-bg); }
-.dash-wo-pill.is-parts {
-  margin-left: 6px;
-  color: var(--ui-danger);
-  background: var(--ui-danger-bg);
-}
-.dash-wo-total {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-/* Mini-strip de cold chain (solo en vivo) */
-.dash-cc-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-@media (max-width: 1180px) { .dash-cc-grid { grid-template-columns: 1fr; } }
-.dash-cc-chip {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm, 10px);
-  padding: 11px 13px;
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-.dash-cc-chip:hover { border-color: var(--border-strong); }
-.dash-cc-chip.is-alarm {
-  border-color: var(--ui-danger);
-  background: var(--ui-danger-bg);
-}
-.dash-cc-chip.is-alarm::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 3px;
-  background: var(--ui-danger);
-}
-.dash-cc-top { display: flex; align-items: center; justify-content: space-between; }
-.dash-cc-mode {
-  font-size: 0.6rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  background: var(--surface-3);
-  padding: 2px 7px;
-  border-radius: 6px;
-}
-.dash-cc-chip.is-alarm .dash-cc-mode { color: #fff; background: var(--ui-danger); }
-.dash-cc-temps { display: flex; align-items: baseline; gap: 16px; }
-.dash-cc-temp { display: flex; flex-direction: column; gap: 2px; }
-.dash-cc-temp .lab {
-  font-size: 0.58rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-}
-.dash-cc-temp .val {
-  font-size: 1.05rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-.dash-cc-temp .val.ret { color: var(--ui-danger); }
-
-.defects-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-.defects-grid .span-2 { grid-column: span 2; }
-@media (max-width: 860px) {
-  .defects-grid { grid-template-columns: 1fr; }
-  .defects-grid .span-2 { grid-column: span 1; }
-}
-
-/* Barras ranqueadas */
-.rank-bars {
-  list-style: none; margin: 0; padding: 0;
-  display: flex; flex-direction: column; gap: 8px;
-}
-.rank-bars li {
-  display: grid;
-  grid-template-columns: 116px 1fr auto;
-  align-items: center; gap: 10px;
-  font-size: 0.85rem;
-}
-.rank-bars li.clickable { cursor: pointer; }
-.rank-bars li.clickable:hover .rank-label { color: var(--accent); }
-.rank-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rank-track {
-  background: var(--bg); border-radius: 6px; height: 14px; overflow: hidden;
-}
-.rank-fill { display: block; height: 100%; border-radius: 6px; min-width: 3px; }
-.rank-value { font-variant-numeric: tabular-nums; font-weight: 600; }
-.rank-value em { font-style: normal; color: var(--text-muted); font-weight: 400; margin-left: 4px; }
-
-/* Tonos de barra: sirven para <rect> SVG (fill) y para spans (background) */
-.bar-danger { fill: var(--ui-danger); background: var(--ui-danger); }
-.bar-ok { fill: var(--ui-success); background: var(--ui-success); }
+/* Tono de barra del gráfico de tendencia (TrendsChart, <rect> SVG) */
 .bar-accent { fill: var(--accent); background: var(--accent); }
-.bar-warn { fill: var(--ui-warn); background: var(--ui-warn); }
-.lg-resolved::before { background: var(--ui-success); }
 
 /* Donut de estado */
 .status-donut {
@@ -4019,26 +3635,6 @@ td.dur-high {
   .donut-legend { width: 100%; }
 }
 
-/* Detalle de la tabla */
-.defect-items {
-  margin: 0; padding-left: 0; list-style: none;
-  display: flex; flex-direction: column; gap: 6px;
-}
-.defect-items li {
-  line-height: 1.35; display: flex; align-items: baseline; gap: 8px;
-}
-.cat-body { color: var(--text); }
-
-/* Chip de categoría de defecto (board + panel expandido) */
-.cat-chip {
-  flex: none; font-size: 10px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: .4px; padding: 2px 8px; border-radius: 7px;
-  white-space: nowrap; background: var(--surface-2); color: var(--text-muted);
-}
-.cat-chip.t-danger { background: var(--ui-danger-bg); color: var(--ui-danger); }
-.cat-chip.t-warn   { background: var(--ui-warn-bg);   color: var(--ui-warn); }
-.cat-chip.t-info   { background: var(--ui-info-bg);   color: var(--ui-info); }
-.cat-chip.t-purple { background: rgba(168,85,247,.14); color: #a855f7; }
 .link-btn {
   background: none; border: none; padding: 2px 0; margin-top: 2px;
   color: var(--accent); font-size: 0.8rem; cursor: pointer;
@@ -4059,7 +3655,7 @@ td.dur-high {
   color: var(--text-muted);
 }
 
-/* Resumen por unidad: cabecera con selector de día */
+/* Espaciador de cabeceras/filtros + selector chico */
 .head-spacer { flex: 1 1 auto; }
 .scope-pick {
   display: inline-flex;
@@ -4083,8 +3679,7 @@ td.dur-high {
   box-shadow: 0 0 0 3px var(--ring);
 }
 
-/* Celda de estado consolidada */
-.status-cell { display: flex; flex-wrap: wrap; gap: 4px; }
+/* Conteo dentro de una píldora de estado */
 .status-pill em {
   font-style: normal;
   font-weight: 700;
@@ -4095,14 +3690,6 @@ td.dur-high {
 /* Columnas numéricas */
 .defects-table th.num,
 .defects-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-
-/* Layout de gráficos: full-width apilado + grilla de 3 */
-.defects-stack { display: flex; flex-direction: column; gap: 16px; }
-.defects-grid-3 {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 16px;
-}
 
 /* Código de unidad: no se parte */
 .unit-code { font-weight: 700; white-space: nowrap; }
@@ -4115,83 +3702,10 @@ td.dur-high {
 }
 .defects-table th.sortable:hover { color: var(--text); }
 
-/* ---------- Fila de unidad clickeable + panel desplegable -------- */
-.unit-row { cursor: pointer; transition: background .12s; }
-.unit-row:hover { background: var(--surface-2); }
-.unit-row.open { background: var(--surface-2); }
+/* Celda de unidad (código + sub) en tablas: Fleet, Settings */
 .unit-cell { display: flex; align-items: flex-start; gap: 6px; }
-.row-chevron {
-  width: 15px; height: 15px; margin-top: 2px; flex: none;
-  color: var(--text-muted);
-  transition: transform .15s;
-}
-.unit-row.open .row-chevron { transform: rotate(90deg); color: var(--accent); }
-.more-hint {
-  display: block; margin-top: 4px;
-  font-size: 11px; color: var(--text-muted);
-}
-
-.unit-detail-row td { padding: 0 !important; border-bottom: 1px solid var(--border); }
-.unit-panel {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 480px);
-  align-items: center;
-  gap: 24px;
-  padding: 22px 18px;
-  background: var(--surface-2);
-}
-@media (max-width: 880px) {
-  .unit-panel { grid-template-columns: 1fr; align-items: stretch; }
-}
-
-.up-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
-.up-head h3 { margin: 0; font-size: 14px; }
-.up-head .sub { font-size: 11.5px; color: var(--text-muted); }
-
-.defect-groups {
-  list-style: none; margin: 0; padding: 0;
-  display: flex; flex-direction: column; gap: 2px;
-  max-height: 320px; overflow-y: auto;
-}
-.defect-group {
-  display: flex; align-items: flex-start; gap: 9px;
-  padding: 6px 8px; border-radius: 7px;
-  font-size: 12.5px; line-height: 1.35;
-}
-.defect-group:nth-child(odd) { background: var(--surface); }
-.dg-dot {
-  width: 9px; height: 9px; margin-top: 4px; flex: none;
-  border-radius: 50%;
-  background: var(--ui-danger);
-}
-.dg-dot.zone-other { background: var(--border-strong); }
-.dg-text {
-  flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px;
-  flex-wrap: wrap;
-}
-.dg-cat { font-weight: 700; }
-.dg-body { color: var(--text-muted); }
-.dg-count {
-  flex: none; align-self: center;
-  font-variant-numeric: tabular-nums;
-  font-size: 11px; font-weight: 700;
-  color: var(--text-muted);
-  padding: 1px 7px; border-radius: 999px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-}
-.dg-count.rep { color: var(--ui-danger); background: var(--ui-danger-bg); border-color: transparent; }
 
 /* ---------- Diagrama del camión por zonas ------------------------ */
-.unit-panel-truck {
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 10px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
-  padding: 24px 22px;
-}
 .truck-diagram { width: 100%; max-width: 440px; }
 .truck-svg { width: 100%; height: auto; display: block; }
 .truck-frame { stroke: var(--border-strong); stroke-width: 5; stroke-linecap: round; }
@@ -4246,28 +3760,15 @@ td.dur-high {
 }
 .truck-detail.solid { fill: var(--surface); }
 
-/* Detalle del tráiler / etiqueta del tipo de unidad en el diagrama */
+/* Detalle del tráiler en el diagrama */
 .door-split {
   fill: var(--border-strong);
   stroke: var(--border-strong);
   stroke-width: 1.4;
   opacity: .8;
 }
-.truck-kind-tag {
-  margin-top: 6px;
-  font-size: 11.5px; font-weight: 700;
-  color: var(--text-muted);
-  letter-spacing: .02em;
-}
 
-/* Botones de empresa (Chaser / MCCI / All) en el Resumen por unidad */
-.company-tabs {
-  display: inline-flex; flex-wrap: wrap; gap: 3px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 11px;
-  padding: 3px;
-}
+/* Botón de pestaña (ds/Tabs, MapPage) */
 .tab-btn {
   border: none; background: none;
   font-family: inherit; font-size: 13px; font-weight: 600;
@@ -4308,21 +3809,7 @@ td.dur-high {
   box-shadow: var(--shadow-sm);
 }
 
-/* ===== Reporte PDF por unidad ============================================ */
-.up-pdf {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12.5px; padding: 6px 11px;
-}
-.up-pdf svg { width: 15px; height: 15px; }
-
-.export-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 13px; padding: 7px 13px; margin-left: 10px;
-}
-.export-btn svg { width: 15px; height: 15px; }
-.export-btn:disabled { opacity: .45; cursor: default; }
-
-/* Selector de unidades para el export múltiple */
+/* Selector de unidades con checkboxes (Settings) */
 .export-picker { display: flex; flex-direction: column; gap: 12px; }
 .ep-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -4349,7 +3836,6 @@ td.dur-high {
   letter-spacing: .04em;
 }
 .ep-co { font-size: 12px; color: var(--text-muted); }
-.ep-defs { margin-left: auto; font-size: 12.5px; color: var(--text-muted); }
 .ep-foot {
   display: flex; justify-content: flex-end;
   padding-top: 10px; border-top: 1px solid var(--border);
@@ -4359,23 +3845,8 @@ td.dur-high {
    MEDIR su alto y autoajustar cada unidad a una hoja. */
 .print-root { position: fixed; left: -10000px; top: 0; width: 184mm; }
 
-/* En export múltiple, cada unidad arranca en una página nueva. */
-.unit-report + .unit-report { break-before: page; page-break-before: always; }
-
-.unit-report {
-  /* Colores forzados a tema claro (papel blanco), sin importar el tema app. */
-  --truck-ok: #c4cedb; --truck-ok-stroke: #8fa0b3;
-  --truck-has: #e6594c; --truck-has-stroke: #b1241a;
-  --truck-chassis: #b8c2d0; --danger: #dc2626; --text-muted: #6b7280;
-  /* Caja de UNA hoja: ancho y alto útiles de A4 con márgenes de 13 mm. El
-     contenido se autoescala para no desbordar (ver UnitReport). */
-  width: 184mm; height: 270mm; overflow: hidden;
-  font-family: 'Inter', system-ui, sans-serif;
-  color: #1a2233; background: #fff;
-  margin: 0 auto; padding: 0; font-size: 11.5px; line-height: 1.5;
-}
-.ur-inner { transform-origin: top left; }
-
+/* Cabecera de marca de los imprimibles (MaintReport, PmComplianceReport,
+   WorkOrderInvoice, ReportPrint). */
 .ur-head {
   display: flex; justify-content: space-between; align-items: flex-end;
   border-bottom: 2.5px solid #4f46e5; padding-bottom: 10px; margin-bottom: 14px;
@@ -4394,166 +3865,22 @@ td.dur-high {
 .ur-title h1 { font-size: 18px; margin: 0; font-weight: 800; color: #111827; }
 .ur-gen { font-size: 10px; color: #6b7280; }
 
-.ur-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.ur-chip {
-  border: 1px solid #e3e7ee; border-radius: 8px; padding: 6px 12px;
-  background: #f7f8fb; min-width: 60px;
-}
-.ur-chip-lg { background: #eef0ff; border-color: #c9cdf6; }
-.urc-label {
-  display: block; font-size: 8px; text-transform: uppercase;
-  letter-spacing: .06em; color: #6b7280;
-}
-.urc-value { display: block; font-size: 14px; font-weight: 700; color: #111827; }
-.ur-chip-lg .urc-value { color: #4f46e5; }
-
-.ur-summary { font-size: 11.5px; margin: 0 0 14px; color: #374151; }
-.sev-t-critical { color: #b1241a; }
-.sev-t-major { color: #b45309; }
-.sev-t-minor { color: #475569; }
-
-/* Fila con todas las vistas del diagrama (Top/Front/Side o Top/Side). */
-.ur-diagrams {
-  display: flex; gap: 8px; margin-bottom: 8px; align-items: stretch;
-}
-.ur-dgm {
-  flex: 1; margin: 0; border: 1px solid #e3e7ee; border-radius: 9px;
-  padding: 6px 6px 4px; background: #fcfcfe; min-width: 0;
-}
-.ur-dgm .truck-diagram { margin: 0; }
-.ur-dgm svg { width: 100%; height: auto; display: block; }
-.ur-dgm figcaption {
-  text-align: center; font-size: 8.5px; color: #6b7280; margin-top: 3px;
-  text-transform: uppercase; letter-spacing: .05em;
-}
-/* En el PDF el diagrama va sin selector ni leyenda (hay caption por vista). */
-.unit-report .view-toggle, .unit-report .truck-legend { display: none; }
-
-.ur-zoneline {
-  font-size: 9.5px; color: #374151; margin: 0 0 12px;
-  display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
-}
-.ur-zoneline-key {
-  font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
-  font-size: 8px; color: #6b7280;
-}
-.ur-zonechip {
-  border: 1px solid #e3d3d1; background: #fbeeec; color: #8a2a20;
-  border-radius: 5px; padding: 1px 7px;
-}
-.ur-zonechip em { font-style: normal; font-weight: 700; }
-.ur-zoneline-note { color: #9aa3b2; margin-left: auto; }
-
-.ur-defects h2 {
-  font-size: 13px; margin: 0 0 7px; color: #111827;
-  display: flex; align-items: baseline; gap: 8px;
-}
-.ur-defects-sub { font-size: 9.5px; font-weight: 500; color: #6b7280; }
-.ur-empty { font-size: 11px; color: #6b7280; }
-/* Dos columnas para compactar y entrar (en lo posible) en una sola página. */
-.ur-defect-list {
-  list-style: none; margin: 0; padding: 0;
-  columns: 2; column-gap: 9px;
-}
-.ur-defect {
-  border: 1px solid #e3e7ee; border-left-width: 4px; border-radius: 7px;
-  padding: 6px 10px; background: #fff; margin-bottom: 7px;
-  break-inside: avoid; page-break-inside: avoid;
-  -webkit-column-break-inside: avoid;
-}
-.ur-defect.sev-critical { border-left-color: #dc2626; }
-.ur-defect.sev-major { border-left-color: #d97706; }
-.ur-defect.sev-minor { border-left-color: #64748b; }
+/* v2.23: estas tres nacieron para el PDF por unidad (UnitReport, que se
+   fue con la página Defects), pero sus nombres chocan con clases vivas
+   (.ud-head de los drawers, .ud-count de WoDetail, .ud-notes de los
+   textarea) y hoy les aportan flex-wrap/margen, margin-left + borde y
+   display:flex. Se dejan tal cual para no cambiar cómo se ven; borrarlas
+   pide revisión visual. */
 .ud-head {
   display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
   margin-bottom: 3px;
 }
-.ud-sev {
-  font-size: 7.5px; font-weight: 800; text-transform: uppercase;
-  letter-spacing: .05em; padding: 2px 6px; border-radius: 20px; color: #fff;
-}
-.ud-sev.sev-critical { background: #dc2626; }
-.ud-sev.sev-major { background: #d97706; }
-.ud-sev.sev-minor { background: #64748b; }
-.ud-cat { font-weight: 700; font-size: 11.5px; color: #111827; }
-.ud-loc { font-size: 10px; color: #4f46e5; }
 .ud-count {
   margin-left: auto; font-size: 8.5px; font-weight: 700; color: #8a2a20;
   background: #fbeeec; border: 1px solid #e3d3d1; border-radius: 20px;
   padding: 1px 8px;
 }
-.ud-line {
-  margin: 1.5px 0; font-size: 10.5px; line-height: 1.42; color: #1f2937;
-}
-.ud-tag {
-  display: inline-block; min-width: 58px; color: #6b7280; font-weight: 700;
-  text-transform: uppercase; font-size: 7.5px; letter-spacing: .04em;
-  vertical-align: 1px;
-}
-.ud-tag-act { color: #4f46e5; }
-.ud-driver { font-style: italic; color: #374151; }
-.ud-val { color: #1f2937; }
 .ud-notes { display: flex; align-items: baseline; }
-.ud-notelist { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 0; }
-.ud-notelist li {
-  font-style: italic; color: #374151; font-size: 10.5px; line-height: 1.4;
-  padding-left: 9px; position: relative;
-}
-.ud-notelist li::before {
-  content: '•'; position: absolute; left: 0; color: #9aa3b2; font-style: normal;
-}
-.ud-notelist em { font-style: normal; font-weight: 700; color: #8a2a20; }
-
-.ur-foot {
-  margin-top: 16px; padding-top: 8px; border-top: 1px solid #e3e7ee;
-  display: flex; justify-content: space-between; gap: 16px;
-  font-size: 8px; color: #9aa3b2;
-}
-
-/* ===== Lista simple (Export list) — sin diagramas ===== */
-.summary-report {
-  width: 184mm; margin: 0 auto;
-  font-family: 'Inter', system-ui, sans-serif;
-  color: #1a2233; background: #fff; font-size: 10.5px; line-height: 1.45;
-}
-.sr-head {
-  display: flex; justify-content: space-between; align-items: flex-end;
-  border-bottom: 2.5px solid #4f46e5; padding-bottom: 10px; margin-bottom: 12px;
-}
-.sr-list { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 16px; }
-.sr-unit {
-  break-inside: avoid; -webkit-column-break-inside: avoid;
-  margin-bottom: 9px; padding-bottom: 7px; border-bottom: 1px solid #eef0f4;
-}
-.sr-uhead {
-  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
-  margin-bottom: 3px;
-}
-.sr-ucode { font-weight: 700; font-size: 11.5px; color: #111827; }
-.sr-ukind {
-  font-size: 8.5px; text-transform: uppercase; letter-spacing: .04em;
-  color: #6b7280;
-}
-.sr-uco { font-size: 9.5px; color: #6b7280; }
-.sr-uopen {
-  font-size: 8.5px; font-weight: 700; color: #8a2a20; background: #fbeeec;
-  border: 1px solid #e3d3d1; border-radius: 20px; padding: 1px 7px;
-}
-.sr-utot { margin-left: auto; font-size: 9px; color: #9aa3b2; }
-.sr-defs { list-style: none; margin: 0; padding: 0; }
-.sr-defs li {
-  font-size: 10px; line-height: 1.4; padding-left: 11px; position: relative;
-  color: #1f2937;
-}
-.sr-defs li::before { content: '•'; position: absolute; left: 2px; color: #9aa3b2; }
-.sr-cat { font-weight: 600; color: #111827; }
-.sr-body { color: #374151; }
-.sr-rep { font-style: normal; font-weight: 700; color: #8a2a20; }
-.sr-empty { font-size: 9.5px; color: #9aa3b2; margin: 2px 0 0; }
-.sr-foot {
-  margin-top: 14px; padding-top: 7px; border-top: 1px solid #e3e7ee;
-  font-size: 8px; color: #9aa3b2; text-align: center;
-}
 
 /* ===== Estimate / Invoice imprimible (H3-C) ===== */
 .wo-invoice {
@@ -4732,11 +4059,10 @@ td.dur-high {
   }
   body { background: #fff; margin: 0; }
   @page { size: A4; margin: 13mm; }
-  .ur-defect { box-shadow: none; }
 }
 
 /* ===========================================================
-   Drawer de detalle de unidad (Vaul) — Fleet
+   Drawers laterales (Vaul): HelpCenter, DriverDrawer y otros (.ud-*)
    =========================================================== */
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -4800,49 +4126,8 @@ td.dur-high {
 .ud-v { font-weight: 600; text-align: right; }
 .ud-muted { color: var(--text-muted); font-size: 14px; margin: 2px 0; }
 
-.ud-defects {
-  list-style: none; margin: 0; padding: 0;
-  display: flex; flex-direction: column; gap: 10px;
-}
-.ud-defects li {
-  background: var(--surface-2); border: 1px solid var(--border);
-  border-radius: 12px; padding: 10px 12px;
-}
-.ud-def-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.ud-rep { font-size: 12px; font-weight: 700; color: var(--ui-danger); }
-.ud-type {
-  font-size: 11px; color: var(--text-muted); margin-left: auto;
-  text-transform: uppercase; letter-spacing: 0.3px;
-}
-.ud-def-text { margin: 0 0 2px; font-size: 14px; line-height: 1.4; }
-.ud-def-by { font-size: 12px; color: var(--text-muted); }
-
-.ud-src { color: var(--text-muted); font-weight: 400; }
-.ud-rem.ok { color: var(--ui-success); }
-.ud-rem.warn { color: var(--ui-warn); }
-.ud-rem.danger { color: var(--ui-danger); }
-
-/* Código de unidad clickeable (abre el drawer de detalle) */
-.unit-link {
-  background: none; border: none; padding: 0; cursor: pointer;
-  font: inherit; font-weight: 700; white-space: nowrap;
-  color: inherit; text-align: left;
-}
-.unit-link:hover { color: var(--accent); text-decoration: underline; }
-
-/* Footer del drawer (acción archivar/excluir) */
-.ud-foot {
-  margin-top: auto; padding: 14px 20px;
-  border-top: 1px solid var(--border); background: var(--surface);
-}
-.ud-archive {
-  width: 100%; justify-content: center; gap: 8px;
-  color: var(--ui-danger);
-}
-.ud-archive:hover { background: var(--ui-danger-bg); }
-
 /* ===========================================================
-   Botones de acción como íconos (Fleet / PM / Defects)
+   Botones de acción como íconos (Fleet / PM)
    =========================================================== */
 .icon-act {
   display: inline-flex; align-items: center; justify-content: center;
@@ -6431,7 +5716,6 @@ table.defects-table td {
   font-variant-numeric: tabular-nums;
 }
 .wo-dates { margin-top: 8px; }
-.ud-towo { margin-left: auto; }
 
 /* ==================================================================
    Conductores: buscador de la sidebar + drawer + sección de Reports
@@ -6516,7 +5800,7 @@ table.defects-table td {
   border: 1px dashed var(--border);
 }
 
-/* ----- Drawer del conductor (reusa .ud-* de UnitDrawer) ----- */
+/* ----- Drawer del conductor (reusa los .ud-* de los drawers) ----- */
 .dd-head-id { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .dd-avatar { width: 40px; height: 40px; font-size: 0.85rem; flex: none; }
 .dd-sub { margin: 2px 0 0; font-size: 0.76rem; color: var(--text-muted); }
@@ -6889,22 +6173,8 @@ table.defects-table td {
 .page { animation: ft-page-in 0.34s var(--ease-out-soft) backwards; }
 
 /* ----- Entradas escalonadas ----- */
-/* KPI extra del Dashboard (5 tarjetas) */
+/* 5.º KPI de una fila (Fleet: 5 tarjetas) */
 .kpi-row > *:nth-child(5) { animation-delay: 0.16s; }
-
-/* Tarjetas del Dashboard, en cascada */
-.dash-grid > .card:nth-child(1) { animation-delay: 0.06s; }
-.dash-grid > .card:nth-child(2) { animation-delay: 0.11s; }
-.dash-grid > .card:nth-child(3) { animation-delay: 0.16s; }
-.dash-grid > .card:nth-child(4) { animation-delay: 0.21s; }
-.dash-grid > .card:nth-child(5) { animation-delay: 0.26s; }
-
-/* Accesos rápidos del Dashboard */
-.dash-shortcuts .dash-shortcut:nth-child(1) { animation-delay: 0.24s; }
-.dash-shortcuts .dash-shortcut:nth-child(2) { animation-delay: 0.29s; }
-.dash-shortcuts .dash-shortcut:nth-child(3) { animation-delay: 0.34s; }
-.dash-shortcuts .dash-shortcut:nth-child(4) { animation-delay: 0.39s; }
-.dash-shortcuts .dash-shortcut:nth-child(5) { animation-delay: 0.44s; }
 
 /* Filas de tabla: cascada lateral sutil (primeras 10; el resto entra junto) */
 @keyframes ft-row-in {
@@ -6948,13 +6218,11 @@ table.defects-table td {
 .icon-btn:active,
 .icon-act:active:not(:disabled) { transform: scale(0.88); }
 
-.tab-btn,
-.cat-chip {
+.tab-btn {
   transition: background 0.15s, color 0.15s, border-color 0.15s,
     transform 0.16s var(--ease-spring);
 }
-.tab-btn:active,
-.cat-chip:active { transform: scale(0.94); }
+.tab-btn:active { transform: scale(0.94); }
 
 /* ----- Sidebar: indicador activo con spring + iconos vivos ----- */
 .nav-item {
@@ -6983,12 +6251,6 @@ table.defects-table td {
 /* Marca: al pasar el cursor la llave ratchetea y un destello barre la R
    (.rs-wrench / .rs-gleam). El logo NO se inclina (pedido del usuario). */
 
-/* ----- Tarjetas y listas ----- */
-.dash-list-item {
-  transition: background 0.12s ease, transform 0.16s var(--ease-out-soft);
-}
-.dash-list-item:hover { transform: translateX(3px); }
-
 /* ----- Modal: fade del backdrop + pop del panel ----- */
 @keyframes ft-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes ft-modal-in {
@@ -7010,20 +6272,17 @@ table.defects-table td {
 @media (prefers-reduced-motion: reduce) {
   .page,
   .table-wrap tbody tr,
-  .dash-grid > .card,
-  .dash-shortcuts .dash-shortcut,
   .settings-card > .card-body,
   .modal-backdrop,
   .modal {
     animation: none;
   }
-  .btn, .icon-btn, .icon-act, .tab-btn, .cat-chip,
+  .btn, .icon-btn, .icon-act, .tab-btn,
   .nav-item, .nav-item::before, .nav-item .nav-ico,
-  .brand-logo, .dash-list-item {
+  .brand-logo {
     transition: none;
   }
-  .btn:hover:not(:disabled),
-  .dash-list-item:hover { transform: none; }
+  .btn:hover:not(:disabled) { transform: none; }
   .rs-wrench, .rs-gleam { animation: none !important; }
 }
 
@@ -8125,8 +7384,6 @@ table.defects-table td {
   background: var(--surface);
 }
 .wo-complaint-edit { margin-top: 6px; }
-.wo-delete { margin-top: 10px; color: var(--text-muted); }
-.wo-delete:hover { color: var(--ui-danger); }
 
 /* Textareas de complaint que se ACOMODAN al texto (field-sizing: content,
    soportado en el Chrome de la app) — así siempre se ve todo el contenido.
@@ -8151,7 +7408,8 @@ table.defects-table td {
   align-items: start;
   margin-bottom: 16px;
 }
-.up-ov-left { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.up-ov-left,
+.up-ov-right { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 
 .up-diagram-body { display: flex; flex-direction: column; gap: 10px; }
 .up-diagram-cap {
@@ -8214,6 +7472,11 @@ table.defects-table td {
 .up-spec-row .v.mono { font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .up-spec-row .v.is-ok { color: var(--st-on-track-ink); }
 .up-spec-row .v.is-bad { color: var(--st-overdue-ink); }
+/* "View requests →" junto al conteo de defectos abiertos (v2.23). */
+.up-spec-row .v .up-spec-link {
+  margin: 0 0 0 10px; padding: 0;
+  font-size: 0.76rem; font-weight: 600;
+}
 .up-spec-src {
   display: inline-block;
   margin-left: 7px;
@@ -8226,6 +7489,26 @@ table.defects-table td {
   letter-spacing: 0.04em;
   color: var(--text-muted);
   text-transform: uppercase;
+}
+
+/* Device settings (v2.23, antes en el UnitDrawer): apodo, grupo, mute de
+   alertas y notas. Reusa .ud-form / .ud-field / .settings-toggle. */
+.up-device-body { padding: 14px 18px 16px; }
+.up-device-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.up-device-body .settings-toggle { padding: 2px 0; }
+.up-device-body .settings-toggle strong { font-size: 13.5px; }
+.up-device-actions {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 8px; flex-wrap: wrap;
+}
+.up-device-actions .field-hint { margin-right: auto; }
+.up-device-muted { color: var(--ui-warn); font-weight: 600; }
+@media (max-width: 520px) {
+  .up-device-grid { grid-template-columns: 1fr; }
 }
 
 /* Mini de cadena de frío (reefer) */
@@ -9510,7 +8793,7 @@ iframe.wo-preview { border: 1px solid var(--border); }
     color-mix(in srgb, var(--bg) 55%, transparent));
 }
 
-/* --- Strip de guías del Dashboard (04, permanente) --- */
+/* --- Strip de guías del Home (04, permanente) --- */
 .guides-strip {
   display: flex; align-items: center; gap: var(--space-4);
   padding: 13px 18px; margin-bottom: var(--space-5);
@@ -9603,32 +8886,9 @@ iframe.wo-preview { border: 1px solid var(--border); }
   background: var(--surface-2); border-radius: 0 8px 8px 0;
 }
 
-/* --- Tooltip "?" de métricas (InfoTip) --- */
-.info-tip {
-  display: inline-grid; place-items: center;
-  width: 15px; height: 15px; border-radius: var(--radius-pill);
-  background: var(--surface-3); border: 1px solid var(--border-strong);
-  color: var(--text-muted);
-  font-size: 9.5px; font-weight: var(--fw-bold);
-  cursor: help; position: relative; vertical-align: middle;
-  text-transform: none; letter-spacing: 0;
-}
-.info-tip-pop {
-  display: none; position: absolute; bottom: 22px; left: 50%;
-  transform: translateX(-50%); width: 230px; z-index: var(--z-dropdown);
-  background: var(--surface); border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm); padding: 9px 11px;
-  font-family: var(--font); font-size: var(--fs-tiny);
-  font-weight: var(--fw-normal); color: var(--text);
-  letter-spacing: 0; text-transform: none; white-space: normal;
-  box-shadow: var(--shadow-md); text-align: left; line-height: 1.45;
-}
-.info-tip:hover .info-tip-pop,
-.info-tip:focus-visible .info-tip-pop { display: block; }
-
 /* ===== v2.14 — Evidencia fotográfica (01) ===== */
 
-/* Galería reutilizable (fila de defecto + drawer de WO) */
+/* Galería de evidencia (drawer de WO) */
 .ev-gallery {
   display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start;
 }
@@ -9692,35 +8952,6 @@ iframe.wo-preview { border: 1px solid var(--border); }
 .ev-lightbox-cap .ev-phase { position: static; }
 .ev-lightbox-date { font-size: 11px; opacity: .75; }
 .ev-lightbox-note { flex-basis: 100%; font-size: 11.5px; opacity: .85; }
-
-/* Chip cámara+número en la fila de la tabla de defectos */
-.ev-chip {
-  display: inline-flex; align-items: center; gap: 3px;
-  margin-left: 7px; padding: 1px 7px; vertical-align: 1px;
-  border: 1px solid var(--border); border-radius: var(--radius-pill);
-  background: var(--surface-2); color: var(--text-muted);
-  font-size: 10.5px; font-weight: var(--fw-semibold);
-}
-
-/* Sección de evidencia del panel expandido de Defects (a lo ancho) */
-.unit-panel-evidence {
-  grid-column: 1 / -1; border-top: 1px solid var(--border); padding-top: 14px;
-}
-.ev-hint { margin: 0; font-size: 12px; color: var(--text-muted); }
-.ev-defect-list { display: flex; flex-direction: column; gap: 12px; }
-.ev-defect {
-  display: flex; flex-direction: column; gap: 7px;
-  padding: 10px 12px; background: var(--surface);
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-}
-.ev-defect-meta {
-  display: flex; align-items: center; gap: 8px; min-width: 0;
-}
-.ev-defect-date { font-size: 11px; color: var(--text-muted); flex: none; }
-.ev-defect-detail {
-  font-size: 12.5px; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* Drawer de WO: Before / After lado a lado */
 .wo-photos {
@@ -10677,8 +9908,10 @@ iframe.wo-preview { border: 1px solid var(--border); }
   border: 1px solid var(--border-strong); color: var(--text-muted);
   font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase;
 }
-/* Barra de despacho de Service Requests: el picker ocupa el lugar del input. */
-.sr-dispatch .cb-root.sr-dispatch-mech { width: 200px; }
+/* Barra de despacho de Service Requests: el picker ocupa el lugar del input.
+   v2.23: técnico (inside) o vendor (outside), según el switch. */
+.sr-dispatch .cb-root.sr-dispatch-mech,
+.sr-dispatch .cb-root.sr-dispatch-vendor { width: 210px; }
 
 /* ===========================================================
    v2.21 — Tipo de trabajo: badge OUTSIDE/INSIDE, popover del vendor
@@ -10781,16 +10014,50 @@ iframe.wo-preview { border: 1px solid var(--border); }
 .wot-seg.is-on.is-outside svg { color: var(--wo-outside); }
 .wot-seg.is-on.is-outside strong { color: var(--wo-outside-ink); }
 .wot-seg:disabled { cursor: not-allowed; opacity: 0.6; }
-.wot-switch.is-sm { display: grid; width: 100%; }
-.wot-switch.is-sm .wot-seg { padding: 6px 10px; gap: 7px; justify-content: center; }
-.wot-switch.is-sm .wot-seg svg { width: 15px; height: 15px; }
-.wot-switch.is-sm .wot-seg-text strong { font-size: 12px; }
+/* v2.23: `is-sm` = versión compacta (alto de un .cell-input) para la barra
+   "Create work order" de Service Requests. */
+.wot-switch.is-sm { gap: 2px; padding: 2px; border-radius: 9px; }
+.wot-switch.is-sm .wot-seg {
+  padding: 5px 10px; gap: 6px; justify-content: center; border-radius: 7px;
+}
+.wot-switch.is-sm .wot-seg svg { width: 14px; height: 14px; }
+.wot-switch.is-sm .wot-seg-text strong { font-size: 12px; white-space: nowrap; }
 .wo-form .wo-type-switch { display: grid; width: 100%; }
 .wo-form .wo-type-switch .wot-seg { padding: 10px 14px; }
+/* Modal de creación: switch + aviso de que el tipo queda fijo. */
+.wo-type-pick { display: flex; flex-direction: column; gap: 6px; }
+.wo-type-pick .field-hint { display: inline-flex; align-items: center; gap: 5px; }
+.wo-type-pick .field-hint svg { width: 12px; height: 12px; flex: none; }
 
-/* Drawer: switch + campo de asignación (técnico o vendor). */
+/* Detalle: tipo en solo lectura + campo de asignación (técnico o vendor). */
 .wot-field { display: flex; flex-direction: column; gap: 10px; }
-.wot-field .field-hint .wo-sf-link { font-size: inherit; }
+.wot-ro { display: flex; flex-direction: column; gap: 5px; }
+.wot-ro-k {
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.wot-ro-v {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px;
+  min-height: 36px; padding: 6px 10px; border-radius: 9px;
+  border: 1px dashed var(--border-strong); background: var(--surface-2);
+  font-size: 13px; color: var(--text);
+}
+.wot-ro-v > svg { width: 16px; height: 16px; flex: none; }
+.wot-ro.is-inside .wot-ro-v > svg { color: var(--accent); }
+.wot-ro.is-outside .wot-ro-v > svg { color: var(--wo-outside); }
+.wot-ro.is-outside .wot-ro-v strong { color: var(--wo-outside-ink); }
+.wot-ro-v strong { font-weight: var(--fw-semibold); }
+.wot-ro-sub { font-size: 12px; color: var(--text-muted); }
+.wot-ro-lock {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: auto;
+  font-size: 11.5px; color: var(--text-muted); white-space: nowrap; cursor: help;
+}
+.wot-ro-lock svg { width: 12px; height: 12px; flex: none; }
+/* Inside legacy con taller ligado: aviso + "Unlink shop". */
+.wot-legacy-shop {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 0;
+}
+.wot-legacy-shop strong { color: var(--text); font-weight: var(--fw-semibold); }
 
 /* Modal de creación: fila vendor + nº de invoice, chips bajo el picker. */
 .wo-form-row.wo-vendor-row { grid-template-columns: minmax(0, 1fr) 170px; }
@@ -10957,9 +10224,15 @@ p.sf-muted, .sf-note { margin: 0; }
   .cb-toggle { width: 30px; height: 30px; }
   .wot-switch, .wo-form .wo-type-switch { grid-template-columns: 1fr; }
   .wo-form-row.wo-vendor-row { grid-template-columns: 1fr; }
-  .sr-dispatch .cb-root.sr-dispatch-mech {
+  .sr-dispatch .cb-root.sr-dispatch-mech,
+  .sr-dispatch .cb-root.sr-dispatch-vendor {
     order: 2; flex: 1 1 120px; width: auto; min-width: 0;
   }
+  /* Barra de SR: Inside · Outside en su propia fila, lado a lado. */
+  .sr-dispatch .wot-switch.is-sm {
+    order: 2; flex-basis: 100%; display: grid; grid-template-columns: 1fr 1fr;
+  }
+  .sr-dispatch .wot-switch.is-sm .wot-seg { min-height: 36px; }
   .vendor-form-row { grid-template-columns: 1fr; }
   .tech-edit { opacity: 1; }
   .sf-complaint { max-width: 160px; }
@@ -11226,6 +10499,15 @@ button.pstrip-seg:hover { background: var(--surface-2); }
 }
 .wod-chips { margin-top: 0; }
 .wod-head-actions { display: flex; gap: 6px; flex: none; }
+/* v2.23: Delete en la cabecera. Neutro en reposo (no compite con la acción
+   primaria); rojo al hover/foco. Un poco separado de Expand/Close. */
+.wod-del { margin-right: 4px; }
+.wod-del:hover:not(:disabled),
+.wod-del:focus-visible {
+  color: var(--ui-danger); background: var(--ui-danger-bg);
+  border-color: color-mix(in srgb, var(--ui-danger) 35%, transparent);
+}
+.wod-del:disabled { opacity: 0.45; cursor: progress; transform: none; }
 .wod-back { flex: none; margin-top: 2px; }
 .wod-tabs {
   flex: none; padding: 8px 16px; border-bottom: 1px solid var(--border);

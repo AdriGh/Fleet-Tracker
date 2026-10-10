@@ -93,15 +93,15 @@ src/
 ├── App.tsx                  # ~23KB — shell: sidebar nav, auth gating, switch de vistas por useState (sin router)
 ├── api.ts                   # ~69KB — cliente API COMPLETO (shadow de fetch con Bearer + manejo de 401)
 ├── index.css                # ~235KB — TODO el CSS en un archivo
-├── views/                   # 19 páginas: Dashboard, WorkOrdersPage, SettingsPage, MapPage, ReportsPage,
-│   │                        #   PartsPage, PurchaseOrdersPage, MaintBoardPage, DvirPage, DefectsPage,
+├── views/                   # páginas: Home, WorkOrdersPage (+ WoDetail), SettingsPage, MapPage, ReportsPage,
+│   │                        #   PartsPage, PurchaseOrdersPage, MaintBoardPage, DvirPage, ServiceRequestsPage,
 │   │                        #   FleetPage, DriversPage, ReeferPage, UnitProfilePage, NotifyPage,
 │   │                        #   RosterPage, LoginPage, OnboardingWizard, MarketplacePanel
 │   └── ...
 ├── components/              # ~31 componentes (modales, charts SVG propios, TruckDiagram, reports)
 │   └── ds/                  # design system mínimo: Button, Card, Badge, Input, Tabs, StatCard, NavItem, StatusPill...
 ├── perms.ts, terminal.ts, teams.ts, toast.ts, clipboard.ts   # utilidades cliente
-├── defectAnalysis.ts, defectGroups.ts, truckZones.ts         # lógica de dominio DVIR DUPLICADA en cliente
+├── defectGroups.ts, truckZones.ts                            # lógica de dominio DVIR DUPLICADA en cliente
 └── dist/                    # build (lo sirve el backend en prod)
 ```
 
@@ -218,7 +218,7 @@ Cliente (navegador): React SPA · sin router (useState) · react-query · token 
 - **Una request de escritura** entra por Traefik → uvicorn → CORS → `_require_auth` (valida token + scope) → `bind_tenant` (fija el `ContextVar`) → endpoint en `routes.py` → función en `core/*` → `db.py`. Los eventos ORM completan y filtran `org_id` automáticamente: **no pases `org_id` a mano en SELECTs**.
 - **Para tocar el dominio**, busca primero el módulo en `core/` (un módulo por área: `workorders.py`, `parts.py`, `inventory.py`, `reports.py`...), no en `routes.py` (que solo orquesta) ni directamente en `db.py` (que es persistencia + modelos).
 - **El frontend** llama todo vía `api.ts`; no agregues `fetch` crudo a la API (perderías el Bearer y el manejo de 401). Las vistas viven en `src/views/`, los componentes compartidos en `src/components/` (y `components/ds/` para el design system).
-- **Cuidado**: hay lógica de dominio DVIR duplicada en el cliente (`defectAnalysis.ts`, `defectGroups.ts`, `truckZones.ts`) y en el backend; cambios de reglas deben revisarse en ambos lados.
+- **Cuidado**: hay lógica de dominio DVIR duplicada en el cliente (`defectGroups.ts`, `truckZones.ts`; `defectAnalysis.ts` se fue en v2.23 con la página Defects) y en el backend; cambios de reglas deben revisarse en ambos lados.
 
 ---
 

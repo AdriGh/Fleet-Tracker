@@ -54,8 +54,9 @@ _TIMEOUT = 60
 _PLACEHOLDER = "PEGA_AQUI"    # token de ejemplo sin configurar
 
 # Caché de "reference data" por org (assets + defect-types): cambia rara vez, así
-# que se cachea con TTL largo y se comparte entre load() y load_window(), que
-# antes lo pedían por separado. Clave = token del org.
+# que se cachea con TTL largo entre llamadas a load(). Clave = token del org.
+# (v2.23: load_window(), que también la usaba, se retiró con la página
+# Defects.)
 _REF_TTL = 900  # 15 min
 _ref_cache: dict[str, tuple[float, dict]] = {}
 _ref_locks: dict[str, asyncio.Lock] = {}
@@ -389,77 +390,6 @@ async def load() -> list[dict]:
 
     out = [row for sub in per_org for row in sub]
     out.sort(key=lambda d: d["unit"])
-    return out
-
-
-async def _org_window(
-    client: httpx.AsyncClient, cfg: dict, start: str, end: str,
-    cutoff: datetime.date,
-) -> list[dict]:
-    """Defectos (abiertos + resueltos) CREADOS en la ventana, para un org."""
-    ref, defects = await asyncio.gather(
-        _reference(client, cfg),
-        _paged(client, cfg, f"/defects/stream?startTime={start}&endTime={end}"),
-    )
-    assets, types = ref["assets"], ref["types"]
-
-    out: list[dict] = []
-    for r in defects:
-        aref = r.get("vehicle") or r.get("trailer") or {}
-        asset = assets.get(aref.get("id"), {})
-        name = (asset.get("name") or aref.get("id") or "").strip()
-        if not name:
-            continue
-        kind = "truck" if asset.get("type") == "vehicle" else "trailer"
-        comment = (r.get("comment") or "").strip()
-        if _is_noise(comment):
-            continue
-        day = _parse_day(r.get("createdAtTime"))
-        if not day or day < cutoff:
-            continue
-        tid = r.get("defectTypeId")
-        dtype = types.get(tid) if tid else None
-        if not dtype:
-            dtype = _infer_type(comment, kind)
-        detail = f"{dtype} - {comment}" if comment else dtype
-        out.append({
-            "date_label": f"{day.month}.{day.day}",
-            "block_date": day.isoformat(),
-            "company": cfg["company"] or company_of(name),
-            "driver": "",
-            "unit": name,
-            "unit_kind": kind,
-            "asset_id": aref.get("id"),
-            "dvir_type": "",
-            "status": "Resolved" if r.get("isResolved") else "Unsafe",
-            "detail": detail,
-            "mechanic": "",
-            "mechanic_notes": (r.get("mechanicNotes") or "").strip(),
-        })
-    return out
-
-
-async def load_window(days: int) -> list[dict]:
-    """Defectos (ABIERTOS + RESUELTOS) creados en los últimos `days` días, para
-    el dashboard (todos los orgs en paralelo). `status` = "Unsafe" (abierto) /
-    "Resolved". Lanza excepción si la API falla.
-    """
-    if _demo():
-        return demo_eld.defect_window(days)
-    orgs = _orgs()
-    if not orgs:
-        return []
-    now = datetime.datetime.now(datetime.timezone.utc)
-    cutoff = (now - datetime.timedelta(days=max(1, days))).date()
-    start = cutoff.strftime("%Y-%m-%dT00:00:00Z")
-    end = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        per_org = await asyncio.gather(
-            *(_org_window(client, cfg, start, end, cutoff) for cfg in orgs))
-
-    out = [row for sub in per_org for row in sub]
-    out.sort(key=lambda d: (d["block_date"], d["unit"]))
     return out
 
 

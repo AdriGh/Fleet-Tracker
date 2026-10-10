@@ -607,6 +607,25 @@ export default function WorkOrdersPage(
     setSel(id)
     setShowDetail(true)
   }
+  // Cerrar el panel (Close o Delete del header). También sale del modo
+  // expandido: .is-expanded oculta la lista maestra y el toggle para
+  // volver vive en el header del detalle, que ya no se monta. Después del
+  // render el foco vuelve a la lista (el botón que lo tenía desapareció),
+  // así ↑/↓ sigue andando con teclado.
+  const refocusList = useRef(false)
+  function closeDetail() {
+    setSel(null)
+    setShowDetail(false)
+    setExpanded(false)
+    refocusList.current = true
+    refresh()
+  }
+  useEffect(() => {
+    if (sel != null || !refocusList.current) return
+    refocusList.current = false
+    listRef.current?.querySelector<HTMLButtonElement>('.wom-row')
+      ?.focus({ preventScroll: true })
+  }, [sel])
   // ↑/↓ en la lista maestra mueven la selección (y el foco).
   function onListKey(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
@@ -687,7 +706,7 @@ export default function WorkOrdersPage(
     ? 'No invoiced work orders match.'
     : activeCount || q.trim()
       ? 'No work orders match these filters.'
-      : 'No work orders yet. Create one here or from an open defect in Fleet.'
+      : 'No work orders yet. Create one here or from a service request.'
 
   return (
     <div className="page page-wide wo-page">
@@ -872,7 +891,7 @@ export default function WorkOrdersPage(
           <section className="wo-detail-pane" aria-label="Work order detail">
             {sel != null ? (
               <WoDetail key={sel} woId={sel} variant="pane"
-                onClose={() => { setSel(null); setShowDetail(false); refresh() }}
+                onClose={closeDetail}
                 onNavigate={(id) => setSel(id)}
                 onBack={() => setShowDetail(false)}
                 expanded={expanded}
@@ -1651,9 +1670,22 @@ export function CreateWoModal({ onClose, onCreated, initialType }: {
 
       {/* Columna derecha: el form */}
       <div className="wo-form">
-        {/* v2.21: Inside work (taller propio) · Outside work (vendor). */}
-        <WoTypeSwitch value={woType} onChange={setWoType}
-          className="wo-type-switch" />
+        {/* v2.21: Inside work (taller propio) · Outside work (vendor).
+            v2.23: acá se elige; después queda fijo (el detalle no lo
+            cambia). Mismo form para "+ Add New → Outside Work". */}
+        <div className="wo-type-pick">
+          <WoTypeSwitch value={woType} onChange={setWoType}
+            className="wo-type-switch" />
+          <span className="field-hint">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              aria-hidden="true">
+              <rect x="5" y="11" width="14" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+            </svg>
+            Can’t be changed after the work order is created.
+          </span>
+        </div>
         <label className="ud-field">
           <span>Unit</span>
           <UnitPicker value={unit} onChange={setUnit}

@@ -1,5 +1,6 @@
-// Helpers compartidos para agrupar y analizar los defectos de una unidad.
-// Usado por DefectsPage (panel expandible) y por UnitReport (PDF).
+// Helpers para agrupar y analizar los defectos de una unidad. Usado por
+// UnitProfilePage (diagrama por zonas). v2.23: DefectsPage y UnitReport (PDF)
+// se fueron.
 
 import type { Defect } from './api'
 import { zoneOfCategory, type Kind, type ZoneId } from './truckZones'

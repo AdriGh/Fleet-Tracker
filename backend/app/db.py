@@ -92,7 +92,8 @@ class Defect(OrgScoped, Base):
     # v2.16: nullable — un defecto puede nacer de un walkaround (source
     # 'walkaround'), sin bloque DVIR importado. Todo lo que la UI necesita
     # (company/fecha/driver/unit/detalle) vive denormalizado en esta fila,
-    # así que un defecto sin bloque fluye igual por Defects → WO → warranty.
+    # así que un defecto sin bloque fluye igual por WO → warranty (la página
+    # Defects se retiró en v2.23).
     # (v2.20: el walkaround se retiró; source + nullable se conservan por la
     # data de producción ya creada.)
     block_id: Mapped[int | None] = mapped_column(

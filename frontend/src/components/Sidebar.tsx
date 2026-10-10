@@ -83,7 +83,7 @@ export default function Sidebar({
   const rail = collapsed && !isMobile
   const uid = useId()
   // La sección activa siempre queda a la vista dentro del nav scrolleable
-  // (p. ej. al llegar a Fleet overview desde el palette).
+  // (p. ej. al llegar a Cold Chain desde el palette).
   const navRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
     const el = navRef.current?.querySelector<HTMLElement>(

@@ -21,6 +21,11 @@ trabajo INSIDE (taller propio, mecánico asignado) del OUTSIDE (taller de
 terceros = `vendor_id`, obligatorio). Una WO outside no exige mecánico
 para avanzar y NO consume stock al facturar (las partes las puso el
 tercero). El resto del pipeline y los hooks PM/campaña son iguales.
+
+v2.23: el tipo es FIJO desde la creación. Un PATCH (o Smart Fill) que
+intenta cambiarlo => 400 TYPE_LOCKED_MSG (mismo tipo = no-op). En una WO
+outside el taller se puede REASIGNAR (borrar un vendor exige reasignar sus
+WOs) pero nunca quitar; una WO inside no liga taller (INSIDE_VENDOR_MSG).
 """
 
 from __future__ import annotations
@@ -41,6 +46,11 @@ WO_TYPES = ("inside", "outside")
 _TYPE_MSG = "wo_type must be inside or outside"
 _VENDOR_MISSING_MSG = "vendor not found"
 _OUTSIDE_NEEDS_VENDOR_MSG = "outside work needs a vendor (the third-party shop)"
+# v2.23: inside/outside se elige al crear y no cambia después.
+TYPE_LOCKED_MSG = ("Work type can't be changed after the work order is "
+                   "created. Delete it and create a new one.")
+INSIDE_VENDOR_MSG = ("Inside work orders don't link a vendor. For "
+                     "third-party work, create an Outside work order.")
 
 
 def _total(wo: WorkOrder) -> float:
@@ -118,6 +128,31 @@ def _resolve_type_vendor(session, wo_type: str,
     if wo_type == "outside" and vid is None:
         raise ValueError(_OUTSIDE_NEEDS_VENDOR_MSG)
     return wo_type, vid
+
+
+def check_type_locked(wo: WorkOrder, raw_type) -> str:
+    """v2.23: el tipo de una WO EXISTENTE no cambia. Valida el `wo_type`
+    pedido contra el de la WO: inválido => _TYPE_MSG; distinto =>
+    TYPE_LOCKED_MSG; igual (o vacío) => no-op. Devuelve el tipo actual
+    (null legacy = inside). Lo comparten apply_fields_in y smart_fill.apply."""
+    cur = (wo.wo_type or "inside").strip().lower()
+    want = str(raw_type or "").strip().lower() or cur
+    if want not in WO_TYPES:
+        raise ValueError(_TYPE_MSG)
+    if want != cur:
+        raise ValueError(TYPE_LOCKED_MSG)
+    return cur
+
+
+def check_inside_vendor(wo: WorkOrder, raw_vendor_id) -> None:
+    """v2.23: una WO inside no liga un taller externo. Ligarle un vendor
+    (distinto del que ya tuviera por data legacy) => INSIDE_VENDOR_MSG;
+    0/''/None (quitar) se permite. No-op en una WO outside."""
+    if (wo.wo_type or "inside") != "inside":
+        return
+    vid = _clean_vendor_id(raw_vendor_id)
+    if vid is not None and vid != wo.vendor_id:
+        raise ValueError(INSIDE_VENDOR_MSG)
 
 
 def _line_dict(ln: WorkOrderLine, parts_pct: float = 0.0,
@@ -561,7 +596,8 @@ def apply_fields_in(session, wo: WorkOrder, fields: dict) -> None:
     """Aplica los campos EDITABLES simples (no el status) sobre `wo` dentro
     de la sesión del caller. Lo comparten update_wo y smart_fill.apply.
     Lanza ValueError si wo_type/vendor_id no validan (el caller decide el
-    rollback)."""
+    rollback). v2.23: `wo_type` solo se acepta si es el MISMO tipo (cambiarlo
+    => TYPE_LOCKED_MSG)."""
     from . import maint                  # import diferido (orden de carga)
     if "priority" in fields and fields["priority"] in PRIORITIES:
         wo.priority = fields["priority"]
@@ -603,15 +639,21 @@ def apply_fields_in(session, wo: WorkOrder, fields: dict) -> None:
     if "service_date" in fields:
         wo.service_date = (str(fields["service_date"]).strip()[:10]
                            or None)
-    # Outside work (v2.21): tipo y taller externo se validan JUNTOS, para
-    # que "pasar a outside + elegir vendor" entre en el mismo PATCH y que
-    # una WO outside nunca se quede sin vendor (vendor_id 0/''/null = quitar;
-    # solo se permite si queda inside).
+    # Outside work. v2.23: el tipo es FIJO desde la creación (antes, v2.21,
+    # el PATCH podía pasar inside<->outside). `wo_type` se sigue aceptando
+    # para que un cliente viejo reciba el 400 explícito: mismo tipo = no-op,
+    # otro tipo = TYPE_LOCKED_MSG. En una WO outside el vendor se puede
+    # REASIGNAR pero no quitar (vendor_id 0/''/null => "needs a vendor"); en
+    # una inside no se liga taller (INSIDE_VENDOR_MSG; quitar sí se puede).
     if "wo_type" in fields or "vendor_id" in fields:
-        wo_type = fields.get("wo_type", wo.wo_type) or wo.wo_type or "inside"
-        vendor_id = fields["vendor_id"] if "vendor_id" in fields else wo.vendor_id
+        cur = check_type_locked(wo, fields.get("wo_type"))
+        if "vendor_id" in fields:
+            check_inside_vendor(wo, fields["vendor_id"])
+            vendor_id = fields["vendor_id"]
+        else:
+            vendor_id = wo.vendor_id
         wo.wo_type, wo.vendor_id = _resolve_type_vendor(
-            session, wo_type, vendor_id)
+            session, cur, vendor_id)
     # v2.22 Customers: Bill to (0/'' = Self). Una WO FACTURADA no cambia de
     # customer (el invoice y sus precios congelados ya salieron): hay que
     # des-facturar primero. Cambiar de customer borra los precios
@@ -900,7 +942,12 @@ def delete_wo(wo_id: int) -> bool:
 
     Multi-unit (v1.26): borrar el PADRE de un invoice multi-unidad borra
     también sus HIJAS (son del mismo invoice; dejarlas huérfanas rompería su
-    número de display #4.N). Borrar una hija suelta no toca al padre."""
+    número de display #4.N). Borrar una hija suelta no toca al padre.
+
+    v2.23: borrar una WO viva del puente reefer -> WO deja su fault
+    descartado (reefer_wo.on_wos_deleted) para que el puente no la recree
+    mientras el código siga activo: el tipo es fijo y "borrar y crear otra"
+    es el camino para pasarla a outside."""
     from . import wo_invoices            # import diferido (orden de carga)
     with SessionLocal() as session:
         wo = session.get(WorkOrder, wo_id)
@@ -910,6 +957,8 @@ def delete_wo(wo_id: int) -> bool:
         kids = session.scalars(
             select(WorkOrder).where(WorkOrder.parent_id == wo_id)).all()
         kid_ids = [k.id for k in kids]
+        gone = [{"unit": w.unit, "status": w.status, "source": w.source,
+                 "complaint": w.complaint} for w in (wo, *kids)]
         for k in kids:
             session.delete(k)
         session.delete(wo)
@@ -921,7 +970,15 @@ def delete_wo(wo_id: int) -> bool:
         # Limpia los archivos de factura adjuntos (fuera de la DB).
         for cid in [wo_id, *kid_ids]:
             wo_invoices.delete_file(cid)
-        return True
+    # Fuera de la transacción del borrado (org_setting escribe en la suya;
+    # en SQLite no puede con otra escritura a medias) y best-effort: el
+    # borrado ya se commiteó.
+    try:
+        from . import reefer_wo              # import diferido (ciclo)
+        reefer_wo.on_wos_deleted(gone)
+    except Exception:
+        pass
+    return True
 
 
 def mechanics() -> list[str]:

@@ -1,7 +1,8 @@
 // Detalle de una Work Order (v2.21, layout estilo SquareRigger).
 //
 //  - <WoDetail woId …>: el panel de detalle en sí — cabecera sticky (nº,
-//    unidad + año/marca/modelo, chips), pestañas Info · Parts & Labor ·
+//    unidad + año/marca/modelo, chips; arriba a la derecha Delete ·
+//    Expand · Close), pestañas Info · Parts & Labor ·
 //    Invoice · Requests, cuerpo scrolleable y un PIE sticky con la acción
 //    primaria del pipeline ("Start work" / "Mark complete" / "Invoice") más
 //    un menú ▾ con el resto de transiciones y el toggle "Waiting for parts".
@@ -40,7 +41,7 @@ import { Badge, Button, Tabs } from '../components/ds'
 import Skeleton from '../components/Skeleton'
 import VendorPicker from '../components/VendorPicker'
 import TechnicianPicker from '../components/TechnicianPicker'
-import { WoTypeBadge, WoTypeSwitch } from '../components/WoTypeBadge'
+import { WoTypeBadge, WoTypeReadout } from '../components/WoTypeBadge'
 import SmartFillReviewModal from '../components/SmartFillReviewModal'
 import WorkOrderInvoice from '../components/WorkOrderInvoice'
 import { CreatePoModal } from './PurchaseOrdersPage'
@@ -313,6 +314,8 @@ export function WoDetail({
   const [sfOver, setSfOver] = useState(false)
   // Re-monta las secciones con inputs defaultValue tras aplicar.
   const [sfGen, setSfGen] = useState(0)
+  // v2.23: borrado desde la cabecera en curso (deshabilita el botón).
+  const [deleting, setDeleting] = useState(false)
   // "Assign" del pie: salta a Info y enfoca el campo de técnico.
   const assignRef = useRef<HTMLDivElement | null>(null)
 
@@ -646,6 +649,51 @@ export function WoDetail({
   const displayNo = wo.links?.display_no ?? wo.display_no ?? String(wo.id)
   const nLines = wo.lines?.length ?? 0
   const nSr = wo.service_requests?.length ?? 0
+
+  // v2.23: borrar la WO desde la cabecera (antes, botón al pie de Info).
+  // Mismo scope que DELETE /api/workorders/{id} (maint.edit). Es un borrado
+  // definitivo: si es el PADRE de un invoice multi-unidad el backend borra
+  // también sus hijas (solo cuando parent_id es null: una hija cuyo padre
+  // ya no está trae a sus hermanas en `children`, y esas NO se borran), y
+  // los service requests ligados vuelven al backlog abierto.
+  const canDelete = can('maint.edit')
+  const kids = (wo.links?.parent_id ?? wo.parent_id) == null
+    ? (wo.links?.children ?? []).filter((k) => k.id !== wo.id) : []
+  async function deleteWo() {
+    if (!wo || deleting) return
+    const lines = [`Delete work order #${displayNo} (${wo.unit})?`]
+    if (kids.length) {
+      lines.push(`Its ${kids.length === 1 ? 'linked order' : `${kids.length} linked orders`}`
+        + ` on the same invoice (${kids.map((k) => `#${k.display_no}`).join(', ')})`
+        + ` will be deleted too.`)
+    }
+    if (nSr) {
+      lines.push(nSr === 1
+        ? 'Its linked service request goes back to the open backlog.'
+        : `Its ${nSr} linked service requests go back to the open backlog.`)
+    }
+    lines.push('This cannot be undone.')
+    if (!window.confirm(lines.join('\n\n'))) return
+    setDeleting(true)
+    try {
+      await deleteWorkOrder(wo.id)
+      // Listas (incluye service requests y Home) + perfiles que cuentan WOs
+      // (vendor wo_count, stats del técnico, saldos del customer).
+      invalidateWoLists(qc)
+      for (const k of ['vendors', 'vendor-profile', 'technicians',
+        'technician', 'customers', 'customer']) {
+        qc.invalidateQueries({ queryKey: [k] })
+      }
+      notifyOk(`Work order #${displayNo} deleted`, kids.length
+        ? `${wo.unit} · plus ${kids.length} linked order${kids.length === 1 ? '' : 's'}`
+        : wo.unit)
+      onClose?.()
+    } catch (e) {
+      notifyErr("Couldn't delete the work order", e)
+      setDeleting(false)
+    }
+  }
+
   const partsTotal = (wo.lines ?? []).filter((l) => l.kind === 'part')
     .reduce((s, l) => s + l.total, 0)
   const laborTotal = (wo.lines ?? []).filter((l) => l.kind === 'labor')
@@ -697,9 +745,11 @@ export function WoDetail({
       <span className="wod-sf-text">
         <strong>Smart Fill</strong>
         <span>
+          {/* v2.23: en una inside no se liga el taller del documento. */}
           {wo.has_invoice_file
             ? 'Read the attached invoice again or import another file. Drop a PDF or photo here too.'
-            : 'Import a shop invoice or estimate: date, vendor, invoice # and lines fill in for review. Drop a file here too.'}
+            : `Import a shop invoice or estimate: date, ${
+              wo.wo_type === 'outside' ? 'vendor, ' : ''}invoice # and lines fill in for review. Drop a file here too.`}
         </span>
       </span>
       <span className="wod-sf-actions">
@@ -794,6 +844,20 @@ export function WoDetail({
           )}
         </div>
         <div className="wod-head-actions">
+          {/* v2.23: Delete primero (lejos de Close, que queda en la esquina:
+              un clic errado cerca de cerrar no borra). */}
+          {canDelete && (
+            <button type="button" className="icon-btn wod-del"
+              title="Delete work order" aria-label="Delete work order"
+              aria-busy={deleting || undefined}
+              disabled={deleting} onClick={deleteWo}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                aria-hidden="true">
+                <path d="M4 7h16M10 11v6M14 11v6M5.5 7l1 12a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2l1-12M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7" />
+              </svg>
+            </button>
+          )}
           {onToggleExpand && (
             <button type="button" className="icon-btn wod-expand"
               title={expanded ? 'Show the list again' : 'Expand to full width'}
@@ -815,9 +879,10 @@ export function WoDetail({
           )}
           {onClose && (
             <button type="button" className="icon-btn" onClick={onClose}
-              aria-label="Close">
+              title="Close" aria-label="Close">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
-                stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                aria-hidden="true">
                 <path d="M6 6l12 12M18 6L6 18" />
               </svg>
             </button>
@@ -872,8 +937,9 @@ export function WoDetail({
 
             <section className="ud-sec" ref={assignRef}>
               <h3>Assignment</h3>
-              {/* v2.21: inside (técnico) / outside (vendor). El switch y el
-                  campo de asignación viven juntos (WoTypeField). */}
+              {/* v2.23: el tipo (inside / outside) es de solo lectura —
+                  se elige al crear la WO—; debajo, su campo de asignación:
+                  técnico (inside) o vendor (outside). Ver WoTypeField. */}
               <WoTypeField wo={wo} onSave={saveField} />
               {/* v2.22 [C]: a quién se factura (Self = flota propia). Una
                   WO facturada ya congeló sus precios: no se cambia. */}
@@ -1116,25 +1182,6 @@ export function WoDetail({
                   : ''}
                 {wo.closed_at ? ` · Completed ${dateOf(wo.closed_at)}` : ''}
               </p>
-              <button
-                className="btn btn-ghost btn-xs wo-delete"
-                onClick={async () => {
-                  if (!window.confirm(
-                    `Delete work order #${wo.id} (${wo.unit})? `
-                    + 'This cannot be undone.')) return
-                  try {
-                    await deleteWorkOrder(wo.id)
-                    // Incluye service requests: los ligados vuelven a open.
-                    invalidateWoLists(qc)
-                    notifyOk(`Work order #${wo.id} deleted`)
-                    onClose?.()
-                  } catch (e) {
-                    notifyErr("Couldn't delete", e)
-                  }
-                }}
-              >
-                Delete work order
-              </button>
             </section>
           </div>
         )}
@@ -1833,71 +1880,77 @@ function WoFooter({ wo, busy, canInvoice, onGo, onToggleWaiting, onAssign }: {
   )
 }
 
-// ----- Tipo de trabajo + asignación en el drawer (v2.21) -------------------
-// Switch Inside / Outside + el campo que corresponde: Technician (inside,
-// WorkOrder.mechanic) o Vendor (outside, vendor_id). Pasar a outside sin
-// vendor no se guarda hasta elegir uno (el backend exige vendor_id); el
-// estado "pendiente" vive acá y se resetea con la sección (key={wo.id}).
+// ----- Tipo de trabajo + asignación en el detalle (v2.21 → v2.23) ----------
+// v2.23: el tipo se elige al CREAR la WO y queda fijo (el PATCH con otro
+// wo_type devuelve 400): acá se muestra en solo lectura, sin switch, y
+// nunca se manda wo_type. Debajo, el campo que corresponde: Technician
+// (inside, WorkOrder.mechanic) o Vendor (outside, vendor_id). El taller de
+// una outside se puede CAMBIAR (hace falta para reasignar antes de borrar un
+// vendor) pero no quitar: outside sin vendor no existe.
+// La línea del tipo no tiene <input>: focusAssign enfoca el primero de la
+// sección, que sigue siendo el picker de técnico.
+// Una inside con vendor_id (data legacy / creada por API) muestra el taller
+// con "Unlink shop" (vendor_id 0): sin eso ese vendor no se podría borrar
+// nunca (pide reasignar sus WOs y a una inside no se le liga otro).
 function WoTypeField({ wo, onSave }: {
   wo: WorkOrder
-  onSave: (patch: Partial<WorkOrder>) => void
+  onSave: (patch: Partial<WorkOrder>) => Promise<void> | void
 }) {
-  const [pending, setPending] = useState(false)
+  const qc = useQueryClient()
+  const { can } = usePerms()
   const outside = wo.wo_type === 'outside'
   const locked = wo.status === 'invoiced'
+  // Cambia el wo_count del vendor (Vendors / Parts bloquean el borrado con
+  // ese número) y su perfil.
+  async function saveVendor(vendorId: number) {
+    await onSave({ vendor_id: vendorId })
+    qc.invalidateQueries({ queryKey: ['vendors'] })
+    qc.invalidateQueries({ queryKey: ['vendor-profile'] })
+  }
   return (
     <div className="wot-field">
-      <WoTypeSwitch size="sm" value={pending ? 'outside' : wo.wo_type}
-        disabled={locked}
-        onChange={(t) => {
-          if (t === 'inside') {
-            setPending(false)
-            // vendor_id 0 = quitar el taller (el backend lo admite solo si la
-            // WO queda inside): si no, el vínculo seguía contando para el
-            // vendor (filtro, wo_count, "reassign them first") sin verse.
-            if (outside) onSave({ wo_type: 'inside', vendor_id: 0 })
-          } else if (wo.vendor_id) {
-            onSave({ wo_type: 'outside' })
-          } else {
-            setPending(true)
-          }
-        }} />
-      {outside || pending ? (
+      <WoTypeReadout type={wo.wo_type} />
+      {outside ? (
         <label className="ud-field">
           <span>Vendor · third-party shop</span>
-          <VendorPicker value={pending ? null : wo.vendor_id}
+          <VendorPicker value={wo.vendor_id}
             aria-label="Vendor" disabled={locked}
-            placeholder={pending ? 'Pick the shop to switch to outside work'
-              : 'Pick a vendor'}
-            autoFocus={pending}
+            placeholder="Pick the shop that does the work"
             onChange={(v) => {
               if (v) {
-                setPending(false)
-                if (v.id !== wo.vendor_id || !outside) {
-                  onSave({ wo_type: 'outside', vendor_id: v.id })
-                }
-              } else if (outside) {
+                if (v.id !== wo.vendor_id) void saveVendor(v.id)
+              } else {
                 notifyWarn('Outside work needs a vendor',
-                  'Switch to inside work to drop the third-party shop.')
+                  'You can switch to another shop, but not remove it.')
               }
             }} />
-          {pending && (
-            <span className="field-hint">
-              Nothing changes until you pick a vendor.{' '}
-              <button type="button" className="wo-sf-link"
-                onClick={() => setPending(false)}>Cancel</button>
-            </span>
-          )}
         </label>
       ) : (
-        <label className="ud-field">
-          <span>Technician</span>
-          <TechnicianField key={`${wo.id}:${wo.mechanic}`}
-            value={wo.mechanic} disabled={locked}
-            onSave={(name) => {
-              if (name !== wo.mechanic) onSave({ mechanic: name })
-            }} />
-        </label>
+        <>
+          <label className="ud-field">
+            <span>Technician</span>
+            <TechnicianField key={`${wo.id}:${wo.mechanic}`}
+              value={wo.mechanic} disabled={locked}
+              onSave={(name) => {
+                if (name !== wo.mechanic) onSave({ mechanic: name })
+              }} />
+          </label>
+          {wo.vendor_id != null && (
+            <p className="field-hint wot-legacy-shop">
+              <span>
+                Linked shop: <strong>{wo.vendor_name || 'a vendor'}</strong>.
+                Inside work doesn't use a vendor.
+              </span>
+              {!locked && can('maint.edit') && (
+                <button type="button" className="btn-link"
+                  title="Remove the shop from this work order (lets you delete that vendor)"
+                  onClick={() => void saveVendor(0)}>
+                  Unlink shop
+                </button>
+              )}
+            </p>
+          )}
+        </>
       )}
     </div>
   )

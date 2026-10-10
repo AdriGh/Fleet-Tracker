@@ -5,7 +5,7 @@ import base64
 import io
 import re
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 import httpx
 
@@ -741,46 +741,9 @@ async def dvir_open_defects(refresh: bool = False):
     return await open_defects.current_feed(refresh=refresh)
 
 
-@router.get("/dvir/defect-stats")
-async def dvir_defect_stats(days: int = 7, refresh: bool = False):
-    """Defectos (abiertos + resueltos) creados en los últimos `days` días, para
-    el dashboard. status = "Unsafe" (abierto) / "Resolved" (resuelto). Empresas
-    fuera del org de Samsara (p.ej. MCC) se completan con el CSV (como abiertas).
-    """
-    days = max(1, min(int(days), 365))
-    if refresh:
-        samsara.clear_cache()
-    if samsara.is_available():
-        try:
-            rows = await samsara.load_window(days)
-            archived = set(app_config.archived_ids())
-            rows = [d for d in rows if d.get("asset_id") not in archived]
-            live_co = {d["company"] for d in rows}
-            cutoff = (date.today() - timedelta(days=days)).isoformat()
-            for d in open_defects.load():
-                if d["company"] not in live_co and d["block_date"] >= cutoff:
-                    rows.append({**d, "status": "Unsafe"})
-            return {
-                "available": True,
-                "source": "samsara",
-                "days": days,
-                "live_companies": sorted(live_co),
-                "defects": rows,
-            }
-        except Exception as exc:  # noqa: BLE001 — fallback ante cualquier fallo
-            return {
-                "available": open_defects.is_available(),
-                "source": "csv",
-                "days": days,
-                "error": f"Samsara did not respond ({exc}); using local CSV.",
-                "defects": [{**d, "status": "Unsafe"} for d in open_defects.load()],
-            }
-    return {
-        "available": open_defects.is_available(),
-        "source": "csv",
-        "days": days,
-        "defects": [{**d, "status": "Unsafe"} for d in open_defects.load()],
-    }
+# v2.23: GET /dvir/defect-stats (abiertos + resueltos por ventana de días)
+# se retiró junto con la página Defects, su único consumidor. El feed de
+# defectos ABIERTOS (arriba) sigue alimentando Service Requests.
 
 
 class SettingsIn(BaseModel):
@@ -899,8 +862,11 @@ class WorkOrderPatch(BaseModel):
     po_number: str | None = None
     authorizer: str | None = None
     shop_invoice: str | None = None
-    # Outside work (v2.21). vendor_id 0 = quitar el vendor (solo si la WO
-    # queda inside; el PATCH filtra los None, por eso el 0 como centinela).
+    # Outside work. v2.23: el tipo es FIJO desde la creación; `wo_type` se
+    # conserva para que un cliente viejo reciba el 400 (TYPE_LOCKED_MSG) en
+    # vez de un cambio ignorado en silencio (mismo tipo = no-op). vendor_id
+    # reasigna el taller de una WO outside; 0 = quitar (solo inside, data
+    # legacy; el PATCH filtra los None, por eso el 0 como centinela).
     wo_type: str | None = None
     vendor_id: int | None = None
     # v2.22: horómetro (reefer). 0 = borrar (el PATCH filtra los None).
@@ -933,7 +899,9 @@ class SmartFillVendorCreate(BaseModel):
 class SmartFillApplyIn(BaseModel):
     """Propuesta de Smart Fill confirmada por el usuario (v2.21). `fields`
     solo admite service_date/shop_invoice/mileage/wo_type/vendor_id/title/
-    complaint (core/smart_fill filtra el resto)."""
+    complaint (core/smart_fill filtra el resto). v2.23: el tipo de la WO no
+    cambia (otro wo_type => 400); vendor_id/vendor_create solo en una WO
+    outside (en una inside => 400, sin crear nada)."""
     fields: dict = {}
     vendor_create: SmartFillVendorCreate | None = None
     lines: list[WoLineIn] = []
@@ -1224,7 +1192,9 @@ def wo_add_lines_bulk(wo_id: int, body: WoLinesBulkIn):
 # escanea (archivo nuevo, que queda adjunto, o el ya adjunto) y devuelve una
 # PROPUESTA; /smart-fill/apply la aplica en una transacción cuando el usuario
 # la confirma. Ambos bloqueados si la WO ya está facturada. El middleware ya
-# exige maint.edit (POST bajo /api/workorders).
+# exige maint.edit (POST bajo /api/workorders). v2.23: sobre una WO existente
+# Smart Fill NUNCA cambia el tipo: en una inside importa fecha, invoice # y
+# líneas sin ligar el taller; en una outside puede reasignar/crear el vendor.
 
 @router.post("/workorders/{wo_id}/smart-fill")
 async def wo_smart_fill(wo_id: int, request: Request):
@@ -1421,6 +1391,11 @@ class SrCreateWoIn(BaseModel):
     title: str = ""
     mechanic: str = ""
     priority: str = ""
+    # v2.23: el tipo se elige al crear (después no cambia). inside = técnico
+    # propio (vendor ignorado); outside = taller externo, vendor_id
+    # obligatorio (técnico ignorado). Mismo scope maint.edit que antes.
+    wo_type: str = "inside"
+    vendor_id: int | None = None
 
 
 class SrDefectToWoIn(BaseModel):
@@ -1495,7 +1470,8 @@ def sr_create_wo(body: SrCreateWoIn, request: Request):
     try:
         return service_requests.create_wo(
             body.ids, body.title, body.mechanic, body.priority,
-            _actor_name(request))
+            _actor_name(request), wo_type=body.wo_type,
+            vendor_id=body.vendor_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

@@ -10,7 +10,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   getHomeSummary, getMaintDue, getSetupStatus, listFleet, listLowStock,
-  listPartsRequests, type HomeWeek, type MaintDueItem,
+  listPartsRequests, listServiceRequests, type HomeWeek, type MaintDueItem,
 } from '../api'
 import { useShell } from '../shell'
 import { ICONS, UI_ICONS } from '../navModel'
@@ -139,6 +139,17 @@ export default function Home({ userName = '' }: { userName?: string }) {
     queryKey: ['parts-requests', 'pending'],
     queryFn: () => listPartsRequests('pending'), staleTime: 60_000,
   })
+  // v2.23: el tile de Service Requests lee counts.open de la MISMA query que
+  // el badge del nav (App.tsx) y la pestaña Open. Ese GET sincroniza el
+  // backlog antes de contar; kpis.open_service_requests de /home/summary no
+  // (contaba antes del sync y quedaba desfasado: 13 en Home vs 16 en el
+  // badge). home.summary NO llama al sync a propósito (latencia del Home).
+  const srQ = useQuery({
+    queryKey: ['service-requests', 'open', '', ''],
+    queryFn: () => listServiceRequests({ status: 'open' }),
+    staleTime: 60_000,
+  })
+  const srOpen = srQ.data?.counts?.open
   const lowQ = useQuery({ queryKey: ['low-stock'], queryFn: listLowStock })
   const fleetQ = useQuery({ queryKey: ['fleet'], queryFn: listFleet })
   const setupQ = useQuery({ queryKey: ['setup-status'], queryFn: getSetupStatus })
@@ -233,8 +244,8 @@ export default function Home({ userName = '' }: { userName?: string }) {
   }[] = [
     {
       id: 'service-requests', label: 'Service Requests', icon: ICONS['service-requests'],
-      meta: s ? `${int(s.kpis.open_service_requests)} open` : '',
-      hot: (s?.kpis.open_service_requests ?? 0) > 0,
+      meta: srOpen != null ? `${int(srOpen)} open` : '',
+      hot: (srOpen ?? 0) > 0,
     },
     {
       id: 'workorders', label: 'Work Orders', icon: ICONS.workorders,
@@ -291,7 +302,7 @@ export default function Home({ userName = '' }: { userName?: string }) {
             loading={fetching} disabled={fetching}
             onClick={() => {
               sumQ.refetch(); dueQ.refetch(); reqQ.refetch()
-              lowQ.refetch(); fleetQ.refetch()
+              srQ.refetch(); lowQ.refetch(); fleetQ.refetch()
             }}
             icon={<span className="home-btn-ico">{UI_ICONS.refresh}</span>}>
             {fetching ? 'Refreshing…' : 'Refresh'}

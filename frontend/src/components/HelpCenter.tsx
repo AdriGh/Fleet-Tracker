@@ -1,8 +1,8 @@
 // Centro de guías (v2.13, elemento 04 — PERMANENTE). Drawer lateral (Vaul,
 // mismo patrón que DriverDrawer) con TODOS los tutoriales siempre accesibles
-// + el checklist "Get set up" con progreso real del backend. Se abre desde la
-// tarjeta de guías del Dashboard (decisión del founder: ahí y no en el
-// sidebar).
+// + el checklist "Get set up" con progreso real del backend. Se abre desde el
+// Home (strip "Get set up" / botón Guides; decisión del founder: ahí y no en
+// el sidebar).
 import { useState } from 'react'
 import { Drawer } from 'vaul'
 import { useQuery } from '@tanstack/react-query'

@@ -5,10 +5,17 @@
 // qué pasa con el vendor (usar el match / un candidato / crearlo / elegir
 // otro / dejar la WO como está). Todo se aplica en UNA llamada
 // (applySmartFill) y el padre funde el detalle devuelto en la caché.
+//
+// v2.23: el tipo de la WO NUNCA cambia acá (se elige al crearla). En una
+// OUTSIDE las opciones de vendor reasignan el taller; en una INSIDE no hay
+// opciones de vendor: entran fecha, invoice #, millaje, complaint y líneas
+// sin ligar el taller del documento (no se manda vendor_id/vendor_create).
+// El escaneo para una WO NUEVA (/workorders/scan, CreateWoModal) sí decide
+// inside/outside según el documento.
 import { useMemo, useState } from 'react'
 import {
-  applySmartFill, type SmartFillFields, type SmartFillResult, type Vendor,
-  type WoLineInput, type WorkOrder,
+  applySmartFill, type SmartFillApplyFields, type SmartFillResult,
+  type Vendor, type WoLineInput, type WorkOrder,
 } from '../api'
 import { notifyErr, notifyOk } from '../toast'
 import { vendorLabel, vendorLoc } from '../vendors'
@@ -35,6 +42,7 @@ export default function SmartFillReviewModal({
   const scannedLoc = vendorLoc({ city: x.vendor_city, state: x.vendor_state })
   const existing = wo.lines ?? []
   const locked = wo.status === 'invoiced'
+  const outside = wo.wo_type === 'outside'
 
   // Campos de cabecera: se proponen marcados cuando vienen y difieren.
   const pDate = prop.fields.service_date ?? null
@@ -48,11 +56,13 @@ export default function SmartFillReviewModal({
     .map((c) => (c.detail ?? '').trim()).filter(Boolean).join('\n')
   const [useComplaint, setUseComplaint] = useState(false)
 
-  // Vendor: match → usarlo; sin match pero con nombre → crearlo; si no, nada.
+  // Vendor (solo outside): match → usarlo; sin match pero con nombre →
+  // crearlo; si no, nada. En una inside siempre 'keep' (no se liga).
   const candidates = match.candidates
     .filter((c) => c.id !== match.vendor?.id).slice(0, 3)
   const [vendorMode, setVendorMode] = useState<VendorMode>(
-    match.vendor ? 'matched' : scannedVendor ? 'create' : 'keep')
+    !outside ? 'keep'
+      : match.vendor ? 'matched' : scannedVendor ? 'create' : 'keep')
   const [candidateId, setCandidateId] = useState<number | null>(
     candidates[0]?.id ?? null)
   const [picked, setPicked] = useState<Vendor | null>(null)
@@ -72,17 +82,29 @@ export default function SmartFillReviewModal({
   const mismatch = grand != null && chosen.length > 0
     && Math.abs(chosenTotal - grand) > 0.5
 
-  const vendorChanges = (vendorMode === 'matched' && !!match.vendor)
-    || (vendorMode === 'candidate' && candidateId != null)
-    || (vendorMode === 'create' && !!scannedVendor)
-    || (vendorMode === 'pick' && !!picked)
+  // Taller que quedaría en la WO (solo outside; id null = crearlo) y si
+  // cambia el actual: elegir el mismo vendor que ya tiene no es un cambio.
+  const nextVendor: { id: number | null; name: string } | null = !outside
+    ? null
+    : vendorMode === 'matched' && match.vendor
+      ? { id: match.vendor.id, name: match.vendor.name }
+      : vendorMode === 'candidate' && candidateId != null
+        ? { id: candidateId,
+            name: candidates.find((c) => c.id === candidateId)?.name ?? '' }
+        : vendorMode === 'pick' && picked
+          ? { id: picked.id, name: picked.name }
+          : vendorMode === 'create' && scannedVendor
+            ? { id: null, name: scannedVendor }
+            : null
+  const vendorChanges = nextVendor != null && nextVendor.id !== wo.vendor_id
   const anyField = (useDate && !!pDate) || (useInv && !!pInv)
     || (useMi && pMi != null) || (useComplaint && !!complaintText)
   const anything = anyField || vendorChanges || chosen.length > 0
     || (linesMode === 'replace' && existing.length > 0)
 
   async function apply() {
-    const fields: SmartFillFields = {}
+    // Nunca wo_type (el tipo no cambia); vendor solo en una outside.
+    const fields: SmartFillApplyFields = {}
     if (useDate && pDate) fields.service_date = pDate
     if (useInv && pInv) fields.shop_invoice = pInv
     if (useMi && pMi != null) fields.mileage = pMi
@@ -91,20 +113,14 @@ export default function SmartFillReviewModal({
         ? `${wo.complaint}\n\n${complaintText}` : complaintText
     }
     let vendor_create: { name: string; city?: string; state?: string } | undefined
-    if (vendorMode === 'matched' && match.vendor) {
-      fields.vendor_id = match.vendor.id
-      fields.wo_type = 'outside'
-    } else if (vendorMode === 'candidate' && candidateId != null) {
-      fields.vendor_id = candidateId
-      fields.wo_type = 'outside'
-    } else if (vendorMode === 'pick' && picked) {
-      fields.vendor_id = picked.id
-      fields.wo_type = 'outside'
-    } else if (vendorMode === 'create' && scannedVendor) {
-      vendor_create = {
-        name: scannedVendor, city: x.vendor_city ?? '', state: x.vendor_state ?? '',
+    if (outside && vendorChanges && nextVendor) {
+      if (nextVendor.id != null) {
+        fields.vendor_id = nextVendor.id
+      } else {
+        vendor_create = {
+          name: scannedVendor, city: x.vendor_city ?? '', state: x.vendor_state ?? '',
+        }
       }
-      fields.wo_type = 'outside'
     }
     const lines: WoLineInput[] = chosen.map((l) => ({
       kind: l.kind, description: l.description.trim(),
@@ -116,10 +132,17 @@ export default function SmartFillReviewModal({
       const updated = await applySmartFill(wo.id, {
         fields, vendor_create, lines, lines_mode: linesMode,
       })
-      notifyOk('Invoice imported',
-        `${lines.length} line${lines.length === 1 ? '' : 's'} ${
-          linesMode === 'replace' ? 'replaced' : 'added'}`
-        + (fields.wo_type === 'outside' ? ' · outside work' : ''))
+      // Resumen de lo que entró: líneas, detalles y (outside) el taller.
+      const done: string[] = []
+      if (lines.length || linesMode === 'replace') {
+        done.push(`${lines.length} line${lines.length === 1 ? '' : 's'} ${
+          linesMode === 'replace' ? 'replaced' : 'added'}`)
+      }
+      if (anyField) done.push('details updated')
+      if (vendorChanges && nextVendor) {
+        done.push(`${nextVendor.id == null ? 'new vendor' : 'shop'}: ${nextVendor.name}`)
+      }
+      notifyOk('Invoice imported', done.join(' · ') || undefined)
       onApplied(updated)
     } catch (e) {
       notifyErr("Couldn't apply Smart Fill", e)
@@ -127,9 +150,8 @@ export default function SmartFillReviewModal({
     }
   }
 
-  const keepLabel = wo.wo_type === 'outside'
-    ? `Keep current vendor — ${wo.vendor_name || 'outside work'}`
-    : `Keep as inside work${wo.mechanic ? ` — ${wo.mechanic}` : ''}`
+  // "No change" (solo outside): el taller actual de la orden.
+  const keepLabel = `Keep current shop — ${wo.vendor_name || 'Third-party shop'}`
 
   return (
     <Modal title="Import invoice · Smart Fill" width={780} onClose={onClose}>
@@ -158,84 +180,88 @@ export default function SmartFillReviewModal({
           {!scannedVendor && !match.vendor && (
             <p className="sf-muted">No shop name was found on the document.</p>
           )}
-          <div className="sf-radios" role="radiogroup" aria-label="Vendor">
-            {match.vendor && (
-              <label className={`sf-radio ${vendorMode === 'matched' ? 'is-on' : ''}`}>
-                <input type="radio" name="sf-vendor" checked={vendorMode === 'matched'}
-                  onChange={() => setVendorMode('matched')} />
-                <span className="sf-radio-text">
-                  <span className="sf-radio-eyebrow is-ok">Matched vendor</span>
-                  <strong>{match.vendor.name}</strong>
-                  {vendorLoc(match.vendor) && (
-                    <span className="sf-muted"> · {vendorLoc(match.vendor)}</span>
+          {/* Inside: sin opciones de vendor (el tipo no cambia y una inside
+              no liga el taller del documento). */}
+          {!outside && (scannedVendor || match.vendor) && (
+            <p className="sf-note">
+              Lines and invoice details are imported; the shop isn’t linked
+              because this is <strong>inside work</strong>.
+            </p>
+          )}
+          {outside && (
+            <div className="sf-radios" role="radiogroup" aria-label="Vendor">
+              {match.vendor && (
+                <label className={`sf-radio ${vendorMode === 'matched' ? 'is-on' : ''}`}>
+                  <input type="radio" name="sf-vendor" checked={vendorMode === 'matched'}
+                    onChange={() => setVendorMode('matched')} />
+                  <span className="sf-radio-text">
+                    <span className="sf-radio-eyebrow is-ok">Matched vendor</span>
+                    <strong>{match.vendor.name}</strong>
+                    {vendorLoc(match.vendor) && (
+                      <span className="sf-muted"> · {vendorLoc(match.vendor)}</span>
+                    )}
+                  </span>
+                </label>
+              )}
+              {candidates.length > 0 && (
+                <label className={`sf-radio ${vendorMode === 'candidate' ? 'is-on' : ''}`}>
+                  <input type="radio" name="sf-vendor"
+                    checked={vendorMode === 'candidate'}
+                    onChange={() => setVendorMode('candidate')} />
+                  <span className="sf-radio-text">
+                    <span className="sf-radio-eyebrow">Did you mean</span>
+                    <select className="cell-input sf-cand"
+                      value={candidateId ?? ''}
+                      onClick={() => setVendorMode('candidate')}
+                      onChange={(e) => {
+                        setCandidateId(Number(e.target.value))
+                        setVendorMode('candidate')
+                      }}>
+                      {candidates.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {vendorLabel(c)} · {Math.round(c.score * 100)}%
+                        </option>
+                      ))}
+                    </select>
+                  </span>
+                </label>
+              )}
+              {scannedVendor && (
+                <label className={`sf-radio ${vendorMode === 'create' ? 'is-on' : ''}`}>
+                  <input type="radio" name="sf-vendor" checked={vendorMode === 'create'}
+                    onChange={() => setVendorMode('create')} />
+                  <span className="sf-radio-text">
+                    <span className="sf-radio-eyebrow">Create vendor</span>
+                    <strong>{scannedVendor}</strong>
+                    {scannedLoc && <span className="sf-muted"> — {scannedLoc}</span>}
+                    <span className="sf-muted"> · service shop</span>
+                  </span>
+                </label>
+              )}
+              <label className={`sf-radio ${vendorMode === 'pick' ? 'is-on' : ''}`}>
+                <input type="radio" name="sf-vendor" checked={vendorMode === 'pick'}
+                  onChange={() => setVendorMode('pick')} />
+                <span className="sf-radio-text sf-radio-pick">
+                  <span className="sf-radio-eyebrow">Another vendor</span>
+                  {vendorMode === 'pick' ? (
+                    <VendorPicker value={picked?.id ?? null} onChange={setPicked}
+                      placeholder="Pick or create a vendor"
+                      createDefaults={{ city: x.vendor_city ?? '',
+                        state: x.vendor_state ?? '' }} />
+                  ) : (
+                    <span className="sf-muted">Pick from your vendor list</span>
                   )}
                 </span>
               </label>
-            )}
-            {candidates.length > 0 && (
-              <label className={`sf-radio ${vendorMode === 'candidate' ? 'is-on' : ''}`}>
-                <input type="radio" name="sf-vendor"
-                  checked={vendorMode === 'candidate'}
-                  onChange={() => setVendorMode('candidate')} />
+              <label className={`sf-radio ${vendorMode === 'keep' ? 'is-on' : ''}`}>
+                <input type="radio" name="sf-vendor" checked={vendorMode === 'keep'}
+                  onChange={() => setVendorMode('keep')} />
                 <span className="sf-radio-text">
-                  <span className="sf-radio-eyebrow">Did you mean</span>
-                  <select className="cell-input sf-cand"
-                    value={candidateId ?? ''}
-                    onClick={() => setVendorMode('candidate')}
-                    onChange={(e) => {
-                      setCandidateId(Number(e.target.value))
-                      setVendorMode('candidate')
-                    }}>
-                    {candidates.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {vendorLabel(c)} · {Math.round(c.score * 100)}%
-                      </option>
-                    ))}
-                  </select>
+                  <span className="sf-radio-eyebrow">No change</span>
+                  <span>{keepLabel}</span>
                 </span>
               </label>
-            )}
-            {scannedVendor && (
-              <label className={`sf-radio ${vendorMode === 'create' ? 'is-on' : ''}`}>
-                <input type="radio" name="sf-vendor" checked={vendorMode === 'create'}
-                  onChange={() => setVendorMode('create')} />
-                <span className="sf-radio-text">
-                  <span className="sf-radio-eyebrow">Create vendor</span>
-                  <strong>{scannedVendor}</strong>
-                  {scannedLoc && <span className="sf-muted"> — {scannedLoc}</span>}
-                  <span className="sf-muted"> · service shop</span>
-                </span>
-              </label>
-            )}
-            <label className={`sf-radio ${vendorMode === 'pick' ? 'is-on' : ''}`}>
-              <input type="radio" name="sf-vendor" checked={vendorMode === 'pick'}
-                onChange={() => setVendorMode('pick')} />
-              <span className="sf-radio-text sf-radio-pick">
-                <span className="sf-radio-eyebrow">Another vendor</span>
-                {vendorMode === 'pick' ? (
-                  <VendorPicker value={picked?.id ?? null} onChange={setPicked}
-                    placeholder="Pick or create a vendor"
-                    createDefaults={{ city: x.vendor_city ?? '',
-                      state: x.vendor_state ?? '' }} />
-                ) : (
-                  <span className="sf-muted">Pick from your vendor list</span>
-                )}
-              </span>
-            </label>
-            <label className={`sf-radio ${vendorMode === 'keep' ? 'is-on' : ''}`}>
-              <input type="radio" name="sf-vendor" checked={vendorMode === 'keep'}
-                onChange={() => setVendorMode('keep')} />
-              <span className="sf-radio-text">
-                <span className="sf-radio-eyebrow">No change</span>
-                <span>{keepLabel}</span>
-              </span>
-            </label>
-          </div>
-          {vendorChanges && wo.wo_type !== 'outside' && (
-            <p className="sf-note">
-              The work order becomes <strong>outside work</strong> (third-party
-              shop). Parts on it won’t touch your stock.
-            </p>
+            </div>
           )}
         </section>
 
@@ -331,7 +357,7 @@ export default function SmartFillReviewModal({
           {prop.lines.length === 0 ? (
             <p className="sf-muted">
               No line items detected on the document. You can still apply the
-              header fields and vendor.
+              header fields{outside ? ' and vendor' : ''}.
             </p>
           ) : (
             <table className="sf-lines">

@@ -1,7 +1,8 @@
 // Galería de evidencia fotográfica (v2.14, elemento 01 del board): grid de
-// thumbnails + subir varios + lightbox + borrar. Reutilizable: la misma
-// galería vive en la fila de defecto (DefectsPage) y en el drawer de la WO
-// (con `phase` para separar Before/After).
+// thumbnails + subir varios + lightbox + borrar. Hoy vive en el drawer de la
+// WO (con `phase` para separar Before/After). v2.23: la fila de defecto
+// (DefectsPage) se fue — las fotos con parent 'defect' siguen guardadas y el
+// backend las sirve, pero ninguna vista las muestra.
 //
 // Las imágenes bajan por fetch → blob → objectURL (patrón UnitPhoto: un
 // <img src="/api/..."> pelado no pasa por el wrapper de fetch de api.ts) y
@@ -125,8 +126,6 @@ export default function EvidenceGallery({
 
   function refresh() {
     qc.invalidateQueries({ queryKey: ['evidence', parent, parentId] })
-    // Los chips de la lista de defectos comparten este prefijo de caché.
-    qc.invalidateQueries({ queryKey: ['evidence-counts'] })
   }
 
   async function onPick(list: FileList | null) {

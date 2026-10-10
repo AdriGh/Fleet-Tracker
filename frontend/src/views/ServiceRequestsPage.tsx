@@ -4,6 +4,8 @@
 // estilo SquareRigger: unidades a la izquierda, sus requests a la derecha.
 // El backend materializa las fuentes (sync con TTL en cada GET); acá solo
 // se lee, se filtra client-side y se despacha.
+// v2.23: la barra "Create work order" elige Inside (técnico opcional) u
+// Outside (vendor obligatorio); el tipo queda fijo una vez creada la WO.
 import {
   useEffect, useLayoutEffect, useMemo, useRef, useState,
   type KeyboardEvent, type ReactNode,
@@ -19,13 +21,15 @@ import {
   snoozeServiceRequest, syncServiceRequests, unlinkRequest,
   type FleetUnit, type ServiceRequest, type SrDeleteResult, type SrList,
   type SrListStatus, type SrPriority, type SrSource, type SrUnitSummary,
-  type WoPriority, type WorkOrder,
+  type Vendor, type WoPriority, type WoType, type WorkOrder,
 } from '../api'
 import { Badge, Button, Tabs } from '../components/ds'
 import Modal from '../components/Modal'
 import Skeleton from '../components/Skeleton'
 import TechnicianPicker from '../components/TechnicianPicker'
 import UnitPicker from '../components/UnitPicker'
+import VendorPicker from '../components/VendorPicker'
+import { WoTypeSwitch } from '../components/WoTypeBadge'
 import { notifyErr, notifyOk, notifyUndo, notifyWarn } from '../toast'
 import { usePerms } from '../perms'
 import type { NavIntent } from '../shell'
@@ -118,12 +122,15 @@ function fleetModel(u: FleetUnit | undefined): string {
     .join(' ')
 }
 
-// Todas las vistas que muestran requests o WOs (contrato v2.20).
+// Todas las vistas que muestran requests o WOs (contrato v2.20). v2.23:
+// también Home (KPIs de requests y WOs; el tile "N open" lee la misma key
+// que el badge del nav).
 function invalidateSr(qc: QueryClient) {
   qc.invalidateQueries({ queryKey: ['service-requests'] })
   qc.invalidateQueries({ queryKey: ['workorders'] })
   qc.invalidateQueries({ queryKey: ['workorder'] })
   qc.invalidateQueries({ queryKey: ['unit-wos'] })
+  qc.invalidateQueries({ queryKey: ['home-summary'] })
 }
 
 const metaNum = (v: unknown): number | null =>
@@ -323,6 +330,10 @@ export default function ServiceRequestsPage(
   const [picked, setPicked] = useState<Set<number>>(() => new Set())
   const [mech, setMech] = useState('')
   const [woPrio, setWoPrio] = useState<WoPriority | ''>('')
+  // v2.23: tipo de la WO a crear desde la barra (fijo después de crearla).
+  // Outside lleva el taller externo (obligatorio) en vez de técnico.
+  const [woType, setWoType] = useState<WoType>('inside')
+  const [woVendor, setWoVendor] = useState<Vendor | null>(null)
   const [creatingWo, setCreatingWo] = useState(false)
   const [busyId, setBusyId] = useState<number | null>(null)
   // Borrado en lote (selección o "Remove N duplicates") en curso.
@@ -504,6 +515,8 @@ export default function ServiceRequestsPage(
   // La WO solo admite requests accionables (open / snoozed).
   const pickedCanWo = pickedReqs.length > 0 && pickedReqs.every(
     (r) => r.status === 'open' || r.status === 'snoozed')
+  // Outside sin taller elegido: "Create work order" queda deshabilitado.
+  const needVendor = woType === 'outside' && !woVendor
   const visibleDups = selectable.filter((r) => r.duplicate_of != null)
   const odometer = useMemo(() => {
     for (const r of unitReqs) {
@@ -652,24 +665,37 @@ export default function ServiceRequestsPage(
     return () => window.clearTimeout(t)
   }, [flashId, loading, unitReqs])
 
+  // Sin opciones (botón "Work order" de una tarjeta) = inside sin técnico.
+  // Outside (barra): manda wo_type + vendor_id y nunca técnico.
   async function createWo(ids: number[], opts: {
     mechanic?: string; priority?: WoPriority | ''
+    woType?: WoType; vendor?: Vendor | null
   } = {}) {
     if (!ids.length) return
+    const outside = opts.woType === 'outside'
+    if (outside && !opts.vendor) return
     setCreatingWo(true)
     try {
       const r = await createWoFromRequests({
         ids,
-        mechanic: opts.mechanic?.trim() || undefined,
+        mechanic: outside ? undefined : opts.mechanic?.trim() || undefined,
         priority: opts.priority || undefined,
+        wo_type: opts.woType,
+        vendor_id: outside ? opts.vendor?.id : undefined,
       })
       const wo = r.workorder
       // Sembrar el detalle: el drawer abre sin parpadeo (igual revalida).
       qc.setQueryData(['workorder', wo.id], wo)
       invalidateSr(qc)
+      // El vendor suma una WO (wo_count / perfil).
+      if (outside) {
+        qc.invalidateQueries({ queryKey: ['vendors'] })
+        qc.invalidateQueries({ queryKey: ['vendor-profile'] })
+      }
       setPicked(new Set())
       notifyOk(`Work order #${wo.display_no || wo.id} created`,
-        `${wo.unit} · ${plural(ids.length, 'request', 'requests')}`)
+        `${wo.unit} · ${plural(ids.length, 'request', 'requests')}`
+        + (outside ? ` · outside · ${wo.vendor_name || opts.vendor?.name}` : ''))
       setOpenWo(wo.id)
     } catch (e) {
       notifyErr("Couldn't create the work order", e)
@@ -850,8 +876,8 @@ export default function ServiceRequestsPage(
               </svg>
               <strong>No open service requests — your fleet is clear.</strong>
               <p>
-                Open DVIR defects, PMs and DOT inspections coming due land
-                here automatically.
+                Open DVIR defects, PMs, DOT inspections and reefer PMs
+                coming due land here automatically.
                 {editable ? ' Use Check for due to look again now.' : ''}
               </p>
             </>
@@ -1099,11 +1125,25 @@ export default function ServiceRequestsPage(
                     </span>
                   ) : (
                     <>
-                      {/* v2.21: roster de técnicos (TechnicianPicker). */}
-                      <TechnicianPicker className="sr-dispatch-mech"
-                        placeholder="Technician (optional)"
-                        aria-label="Technician" value={mech}
-                        onChange={setMech} />
+                      {/* v2.23: Inside (técnico opcional, v2.21 roster) u
+                          Outside (taller externo obligatorio). El tipo no
+                          se puede cambiar después de crear la WO. */}
+                      <WoTypeSwitch size="sm" value={woType}
+                        onChange={setWoType} disabled={creatingWo}
+                        className="sr-dispatch-type" />
+                      {woType === 'inside' ? (
+                        <TechnicianPicker className="sr-dispatch-mech"
+                          placeholder="Technician (optional)"
+                          aria-label="Technician" value={mech}
+                          onChange={setMech} />
+                      ) : (
+                        <VendorPicker className="sr-dispatch-vendor"
+                          placeholder="Vendor (required)"
+                          aria-label="Vendor · third-party shop"
+                          title="The third-party shop that does the work"
+                          value={woVendor?.id ?? null}
+                          onChange={setWoVendor} />
+                      )}
                       <select className="cell-input sr-dispatch-prio"
                         aria-label="Work order priority" value={woPrio}
                         onChange={(e) =>
@@ -1117,13 +1157,19 @@ export default function ServiceRequestsPage(
                   )}
                   {/* El title va en el wrapper: un botón deshabilitado no
                       muestra tooltip en todos los navegadores. */}
-                  <span className="sr-dispatch-go" title={pickedCanWo
-                    ? undefined
-                    : 'Only open or snoozed requests can go on a work order'}>
+                  <span className="sr-dispatch-go" title={!pickedCanWo
+                    ? 'Only open or snoozed requests can go on a work order'
+                    : needVendor
+                      ? 'Pick the vendor (third-party shop) for outside work'
+                      : woType === 'outside'
+                        ? `Create an outside work order at ${woVendor?.name}`
+                        : undefined}>
                     <Button variant="primary" size="sm" loading={creatingWo}
-                      disabled={!pickedCanWo || bulkBusy}
-                      onClick={() => createWo(pickedIds,
-                        { mechanic: mech, priority: woPrio })}>
+                      disabled={!pickedCanWo || bulkBusy || needVendor}
+                      onClick={() => createWo(pickedIds, {
+                        mechanic: mech, priority: woPrio,
+                        woType, vendor: woVendor,
+                      })}>
                       Create work order
                     </Button>
                   </span>
@@ -1470,7 +1516,7 @@ function RequestCard({
               </button>
               <button type="button" className="sr-act is-go"
                 disabled={busy} onClick={onCreateWo}
-                title="Create a work order from this request only">
+                title="Create an inside work order from this request only (for outside work, select it and use the bar below)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                   strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
                   <path d="M12 5v14M5 12h14" />
@@ -1647,7 +1693,7 @@ function DenyModal({ req, onClose, onDone }: {
   // Lo que pasa después según la fuente (el sync no reabre un denegado).
   const hint = req.source === 'defect'
     ? 'It stays closed even if drivers keep reporting it. You can reopen it from the Denied tab.'
-    : req.source === 'pm' || req.source === 'dot'
+    : req.source === 'pm' || req.source === 'dot' || req.source === 'reefer'
       ? 'It won’t come back until the next service is recorded. You can reopen it from the Denied tab.'
       : 'You can reopen it later from the Denied tab.'
 

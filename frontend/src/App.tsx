@@ -24,9 +24,7 @@ import AddNewMenu from './components/AddNewMenu'
 import CommandPalette from './components/CommandPalette'
 import CreateHost, { type CreateRequest } from './components/CreateHost'
 import Home from './views/Home'
-import FleetOverviewPage from './views/FleetOverviewPage'
 import DvirPage from './views/DvirPage'
-import DefectsPage from './views/DefectsPage'
 import FleetPage from './views/FleetPage'
 import MaintBoardPage from './views/MaintBoardPage'
 import UnitProfilePage from './views/UnitProfilePage'
@@ -268,7 +266,8 @@ export default function App() {
     staleTime: 60_000,
   })
   // Badge de Service Requests: nº de requests abiertos. Misma key que la
-  // pestaña Open de la página (caché compartida); refresco cada 5 min.
+  // pestaña Open de la página y el tile de Home (caché compartida: los tres
+  // muestran el mismo número); refresco cada 5 min.
   const serviceRequestsQuery = useQuery({
     queryKey: ['service-requests', 'open', '', ''],
     queryFn: () => listServiceRequests({ status: 'open' }),
@@ -293,9 +292,11 @@ export default function App() {
     fresh.slice(0, 3).forEach((e) => {
       notifyWarn(`${e.rule_label}: ${e.unit}`, e.message)
     })
+    // v2.23: la app ya no guarda un historial visible de alertas (se fue
+    // Fleet overview): llegan como toast y, si está activado, por email/SMS.
     if (fresh.length > 3) {
       notifyWarn(`${fresh.length - 3} more fleet alerts`,
-        'See Fleet overview for the full list')
+        'Only the first 3 show here. Email and SMS delivery can be turned on in Settings → Fleet alerts.')
     }
     if (maxId > (lastAlertId.current ?? 0)) lastAlertId.current = maxId
   }, [alertsQuery.data])
@@ -446,7 +447,6 @@ export default function App() {
               onTheme={setThemePref}
               isAdmin={sessionUser?.role === 'admin'}
               userName={sessionUser?.name ?? ''}
-              onNavigate={navigate}
               onOpenUnit={setProfileUnit}
             />
           )}
@@ -481,7 +481,7 @@ export default function App() {
 // Página de cada sección. Separada para poder re-montarla por `key` cuando
 // la navegación trae un intent.
 function SectionView({
-  section, intent, theme, onTheme, isAdmin, userName, onNavigate, onOpenUnit,
+  section, intent, theme, onTheme, isAdmin, userName, onOpenUnit,
 }: {
   section: string
   intent?: NavIntent
@@ -489,12 +489,10 @@ function SectionView({
   onTheme: (t: ThemePref) => void
   isAdmin: boolean
   userName: string
-  onNavigate: (section: string, intent?: NavIntent) => void
   onOpenUnit: (unit: string) => void
 }) {
   switch (section) {
     case 'dashboard': return <Home userName={userName} />
-    case 'overview': return <FleetOverviewPage onNavigate={onNavigate} />
     case 'map':
       return (
         <Suspense fallback={<div className="loadbar" aria-hidden="true" />}>
@@ -502,7 +500,6 @@ function SectionView({
         </Suspense>
       )
     case 'dvir': return <DvirPage />
-    case 'defectos': return <DefectsPage />
     case 'flota': return <FleetPage onOpenUnit={onOpenUnit} />
     case 'pm': return <MaintBoardPage kind="pm" />
     // Reefer PM por horas de motor (v2.22 [B]): MaintBoardPage generalizado.

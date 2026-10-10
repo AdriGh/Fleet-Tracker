@@ -1242,8 +1242,16 @@ def _bullet(r: ServiceRequest) -> str:
 
 
 def _create_wo_from(session, rows: list[ServiceRequest], title: str = "",
-                    mechanic: str = "", priority: str = "") -> WorkOrder:
-    """Crea la WO de `rows` y los liga, DENTRO de `session` (sin commit)."""
+                    mechanic: str = "", priority: str = "",
+                    wo_type: str = "inside",
+                    vendor_id: int | None = None) -> WorkOrder:
+    """Crea la WO de `rows` y los liga, DENTRO de `session` (sin commit).
+
+    v2.23 (el tipo queda fijo al crear): `wo_type` inside (default; técnico
+    propio, el vendor se ignora) u outside (taller externo: `vendor_id`
+    obligatorio y existente, el técnico se ignora) — la misma WO outside que
+    crea POST /workorders. La validación es la de workorders.create_wo_in
+    (ValueError => 400 en la ruta, nada queda a medias)."""
     if not rows:
         raise ValueError("select at least one request")
     for r in rows:
@@ -1281,12 +1289,20 @@ def _create_wo_from(session, rows: list[ServiceRequest], title: str = "",
             engine_hours = _meta(r)["current_hours"]
             break
     company = next((r.company for r in rows if r.company), "")
+    # Inside: técnico propio, sin taller. Outside: el trabajo lo hace el
+    # taller externo, no hay técnico (como el modal de creación de WOs).
+    wo_type = (wo_type or "inside").strip().lower()
+    if wo_type == "outside":
+        mechanic = ""
+    elif wo_type == "inside":
+        vendor_id = None
 
     wo = workorders.create_wo_in(
         session, rows[0].unit, title,
         complaint="\n".join(_bullet(r) for r in rows),
         company=company, mechanic=mechanic, priority=priority,
         source="request", mileage=mileage, campaign=campaign,
+        wo_type=wo_type, vendor_id=vendor_id,
         engine_hours=engine_hours)
     now = datetime.now()
     for r in rows:
@@ -1315,11 +1331,14 @@ def _commit_wo(session) -> None:
 
 
 def create_wo(ids: list[int], title: str = "", mechanic: str = "",
-              priority: str = "", created_by: str = "") -> dict:
+              priority: str = "", created_by: str = "",
+              wo_type: str = "inside",
+              vendor_id: int | None = None) -> dict:
     """UNA WO nueva con los requests `ids` (misma unidad, open/snoozed). Todo
     en una transacción: si algo falla no queda ni la WO ni ningún vínculo.
     `created_by` se acepta por simetría con la API (WorkOrder no tiene columna
-    de autor todavía)."""
+    de autor todavía). v2.23: `wo_type` inside (default) | outside (+
+    `vendor_id` obligatorio; ver _create_wo_from)."""
     ids = list(dict.fromkeys(int(i) for i in (ids or [])))
     if not ids:
         raise ValueError("select at least one request")
@@ -1330,10 +1349,13 @@ def create_wo(ids: list[int], title: str = "", mechanic: str = "",
         if missing:
             raise ValueError(f"request {missing[0]} not found")
         rows = [found[i] for i in ids]
-        wo = _create_wo_from(session, rows, title, mechanic, priority)
+        wo = _create_wo_from(session, rows, title, mechanic, priority,
+                             wo_type=wo_type, vendor_id=vendor_id)
         wo_id = wo.id
+        # El técnico que quedó en la WO (outside: ninguno), no el del body.
+        tech = wo.mechanic or ""
         _commit_wo(session)
-        workorders.ensure_technician(mechanic)      # tras el commit (v2.21)
+        workorders.ensure_technician(tech)          # tras el commit (v2.21)
         out_rows = _dicts(session, rows)
     return {"workorder": workorders.get_wo(wo_id), "requests": out_rows}
 
@@ -1405,11 +1427,15 @@ def unlink(req_id: int) -> dict | None:
 def defect_to_wo(unit: str, detail: str, dvir_type: str = "",
                  company: str = "", mechanic: str = "",
                  units: dict[str, str] | None = None) -> dict:
-    """'Create WO' desde un defecto abierto (UnitDrawer): asegura el request
+    """'Create WO' desde un defecto abierto: asegura el request
     del defecto (misma clave que el sync; lo crea si falta) y le crea la WO,
     todo en una transacción — así ese camino también queda ligado. `units`
     = defect_unit_index() (flota + unidades del feed): canoniza la unidad y
-    rechaza una desconocida, igual que create_manual."""
+    rechaza una desconocida, igual que create_manual.
+
+    v2.23: su único caller de UI (UnitDrawer, de la página Defects) se
+    retiró; en la UI el camino es Service Requests > Create work order. El
+    endpoint queda por la API y los tests. Siempre crea una WO inside."""
     unit = (unit or "").strip()
     detail = (detail or "").strip()
     if not unit or not detail:

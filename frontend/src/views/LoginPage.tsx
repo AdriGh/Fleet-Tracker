@@ -41,9 +41,9 @@ const SLIDES: Slide[] = [
   {
     src: 'https://images.unsplash.com/photo-1519003722824-194d4455a60c?auto=format&fit=crop&w=1600&q=80',
     alt: 'Trucks parked at a freight terminal',
-    eyebrow: 'Defects in real time',
-    headline: 'Every open defect, on a single board',
-    sub: 'Import the full list and notify drivers in seconds.',
+    eyebrow: 'Service requests',
+    headline: 'Every defect and PM due, in one backlog',
+    sub: 'DVIR defects and services coming due land as requests you can turn into work orders.',
   },
   {
     src: 'https://images.unsplash.com/photo-1586191582151-f73872dfd183?auto=format&fit=crop&w=1600&q=80',
@@ -190,7 +190,7 @@ export default function LoginPage({ appName, tagline, onLogin }: Props) {
             <span className="login-kicker">Dashboard access</span>
             <h1 className="login-title">Welcome back</h1>
             <p className="login-subtitle">
-              Sign in to manage DVIR, defects and maintenance for your fleet.
+              Sign in to manage DVIR, service requests and maintenance for your fleet.
             </p>
 
             <form className="login-form" onSubmit={handleSubmit}>

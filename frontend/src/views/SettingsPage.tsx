@@ -1669,9 +1669,9 @@ function AlertsCard() {
             <>
               <p className="settings-help">
                 Rules run every minute against the live ELD feed.
-                Events always show in the app (Dashboard + toasts); email
-                and SMS are opt-in. Mute single units from their drawer in
-                Fleet.
+                Events always pop up in the app as toasts; email and SMS
+                are opt-in. To mute a single unit, open it in Equipment and
+                turn on Mute alerts under Device settings.
               </p>
 
               <div className="alert-rules">
@@ -2385,8 +2385,8 @@ function TerminalsCard({ activeUnits }: { activeUnits: FleetUnit[] }) {
           <ResourcesLink section="locations" label="Locations" />
           <p className="settings-help">
             Terminals group the fleet by yard or region, and drive the
-            terminal filters in PM Tracker, DOT Inspections, Work Orders,
-            Fleet and Defects. A unit lands in a terminal by its pinned
+            terminal filters in PM Tracker, DOT Inspections, Work Orders
+            and Fleet. A unit lands in a terminal by its pinned
             assignment first, then by unit-number prefix (e.g.
             <code>MEM</code> matches <code>MEM-123</code>).
           </p>

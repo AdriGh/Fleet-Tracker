@@ -9,7 +9,8 @@ Reglas evaluadas sobre el snapshot de tracking.load_live():
 - no_gps     : último ping GPS hace más de N horas
 
 Config en `backend/alerts.local.json` (gitignored). Canales:
-- in-app SIEMPRE (eventos en SQLite -> feed del Dashboard + toasts).
+- in-app SIEMPRE (eventos en SQLite -> toasts en pantalla; v2.23: el
+  feed/historial con "Ack all" vivía en Fleet overview, que se retiró).
 - email/SMS SOLO si el usuario los habilita explícitamente (default
   apagado: el email de la app envía EN REAL — un umbral mal puesto no
   puede convertirse en spam). Cooldown de 60 min por (unidad, regla) y
@@ -287,7 +288,7 @@ def evaluate_reefer(snapshot: dict, cfg: dict | None = None) -> list[dict]:
 
 
 def record_wo_events(created_wos: list[dict]) -> list[dict]:
-    """Cada WO nueva del puente reefer->WO -> un AlertEvent (feed + dispatch).
+    """Cada WO nueva del puente reefer->WO -> un AlertEvent (toast + dispatch).
 
     La idempotencia vive en reefer_wo.sync (no duplica WOs), así que cada
     elemento de `created_wos` es genuinamente nuevo; no hace falta cooldown."""
@@ -326,8 +327,12 @@ def _dispatch(created: list[dict], cfg: dict) -> None:
     batch = created[:MAX_EXTERNAL_PER_CYCLE]
     lines = [f"- [{RULE_LABEL.get(e['rule'], e['rule'])}] {e['message']}"
              for e in batch]
+    # v2.23: sin historial de alertas en la app (Fleet overview se retiró):
+    # el email trae el detalle completo y no remite a ninguna página.
     body = ("Rigsmith alerts:\n\n" + "\n".join(lines)
-            + "\n\nOpen the dashboard for details.")
+            + "\n\nWhile Rigsmith is open, new alerts also pop up as "
+              "on-screen notifications. Email and SMS delivery are set in "
+              "Settings → Fleet alerts.")
 
     if cfg["channels"]["email"] and cfg["recipients"]["emails"]:
         settings = mailer.load_settings()

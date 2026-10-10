@@ -1,12 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  fleetArchive, listFleet, listUnitsWithPhoto, type FleetUnit,
-} from '../api'
+import { fleetArchive, listFleet, listUnitsWithPhoto } from '../api'
 import Skeleton from '../components/Skeleton'
 import StatCard from '../components/StatCard'
 import { StatCluster } from '../components/ds'
-import UnitDrawer from '../components/UnitDrawer'
 import UnitPhoto from '../components/UnitPhoto'
 import IconButton from '../components/IconButton'
 import AddUnitModal from '../components/AddUnitModal'
@@ -35,8 +32,9 @@ function downloadCSV(m: Cell[][], name = 'fleet.csv') {
 }
 
 export default function FleetPage({ onOpenUnit }: {
-  // H3: clic en la fila abre el perfil completo de la unidad.
-  onOpenUnit?: (unit: string) => void
+  // H3: clic en la fila abre el perfil completo de la unidad (ahí viven
+  // también los device settings desde v2.23; el UnitDrawer se fue).
+  onOpenUnit: (unit: string) => void
 }) {
   const qc = useQueryClient()
   const [company, setCompany] = useState('')
@@ -46,7 +44,6 @@ export default function FleetPage({ onOpenUnit }: {
   const [sortKey, setSortKey] = useState<SortKey>('unit')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [busyId, setBusyId] = useState<string | null>(null)
-  const [selected, setSelected] = useState<FleetUnit | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   // Vista tarjetas (v2.13, elemento 05: identidad visual) vs tabla. La tabla
   // sigue siendo la vista de poder (sort por columna, CSV); tarjetas es la
@@ -274,9 +271,7 @@ export default function FleetPage({ onOpenUnit }: {
                   .filter(Boolean).join(' ')
                 return (
                   <button key={u.id} className="fcard"
-                    onClick={() => (onOpenUnit
-                      ? onOpenUnit(u.unit)
-                      : setSelected(u))}>
+                    onClick={() => onOpenUnit(u.unit)}>
                     <span className="fcard-ph">
                       <UnitPhoto unit={u.unit} className="fcard-img"
                         enabled={withPhoto.has(u.unit)} />
@@ -323,9 +318,7 @@ export default function FleetPage({ onOpenUnit }: {
                       .filter(Boolean).join(' ')
                     return (
                       <tr key={u.id} className="row-click"
-                        onClick={() => (onOpenUnit
-                          ? onOpenUnit(u.unit)
-                          : setSelected(u))}>
+                        onClick={() => onOpenUnit(u.unit)}>
                         <td>
                           <span className="unit-cell">
                             <span>
@@ -371,8 +364,6 @@ export default function FleetPage({ onOpenUnit }: {
           )}
         </div>
       </section>
-
-      <UnitDrawer unit={selected} onClose={() => setSelected(null)} />
     </div>
   )
 }

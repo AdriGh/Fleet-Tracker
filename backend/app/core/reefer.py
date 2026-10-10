@@ -256,8 +256,10 @@ async def load_live() -> dict:
 
     # Sin fuente real: simulador etiquetado. `demo_explicit` distingue el modo
     # demo PEDIDO (FLEET_DEMO=1, banco de pruebas local) del fallback por falta
-    # de credenciales — que puede pasar por accidente en producción. El front
-    # lo usa para decidir si muestra el panel del Dashboard.
+    # de credenciales — que puede pasar por accidente en producción. (Lo leía
+    # el panel Cold chain de Fleet overview, retirado en v2.23; se conserva en
+    # la respuesta por compatibilidad: Cold Chain etiqueta el demo por sí
+    # misma.)
     return {"available": True, "demo": True, "source": "demo",
             "demo_explicit": demo_evaluation_enabled(),
             "missing_scopes": [], "units": demo_units(),

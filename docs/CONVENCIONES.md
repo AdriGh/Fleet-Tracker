@@ -90,7 +90,7 @@ Un solo router: `router = APIRouter(prefix="/api")` (`routes.py:45`). El patrón
 ## 4. Frontend — React / TypeScript
 
 ### 4.1 Estructura y naming
-- **Vistas:** `src/views/*.tsx` en PascalCase (`PartsPage.tsx`, `Dashboard.tsx`, `MaintBoardPage.tsx`).
+- **Vistas:** `src/views/*.tsx` en PascalCase (`PartsPage.tsx`, `Home.tsx`, `MaintBoardPage.tsx`).
 - **Componentes compartidos:** `src/components/*.tsx`; **design system** en `src/components/ds/` (`Button`, `Card`, `Tabs`, `StatCard`, `StatusPill`, `Badge`, `NavItem`, `Input`, `IconButton`).
 - Componentes funcionales con hooks. `export default function PageName()`. **Subcomponentes y modales se declaran en el mismo archivo de la vista**: `PartsTab`, `VendorsTab`, `PartModal`, `AdjustStockModal` viven dentro de `PartsPage.tsx`. No partas una vista en N archivos salvo que un componente se reutilice de verdad.
 

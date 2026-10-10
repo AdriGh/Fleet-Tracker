@@ -1,6 +1,6 @@
 // Tipo de trabajo de una WO (v2.21): INSIDE (taller propio, técnico) vs
-// OUTSIDE (taller externo = Vendor). Tres piezas reutilizables por el
-// drawer, las listas/board y el modal de creación — pensadas para
+// OUTSIDE (taller externo = Vendor). Piezas reutilizables por el
+// detalle, las listas/board y el modal de creación — pensadas para
 // re-hospedarse en el rediseño de layout (SquareRigger: eyebrow en
 // mayúsculas chiquito + chip rosa/acento con el nombre del vendor).
 //
@@ -10,8 +10,14 @@
 //  - <VendorInfoPopover vendorId anchor onClose>: teléfono / email /
 //    dirección / cuenta del vendor (de ['vendors']), en portal fixed.
 //  - <WoTypeSwitch value onChange>: control segmentado "Inside work ·
-//    Outside work" (modal de creación, drawer).
-import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
+//    Outside work". v2.23: el tipo solo se ELIGE al crear (modal de
+//    creación, barra "Create work order" de Service Requests); después
+//    queda fijo.
+//  - <WoTypeReadout type>: el tipo en solo lectura (detalle de la WO).
+import {
+  useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
 import { listVendors, type WoType } from '../api'
@@ -187,8 +193,29 @@ export function VendorInfoPopover({ vendorId, fallback, anchor, onClose }: {
   )
 }
 
+// Etiquetas + ícono de cada tipo (switch y lectura comparten el lenguaje).
+const WO_TYPE_META: Record<WoType, { label: string; sub: string; icon: string }> = {
+  inside: { label: 'Inside work', sub: 'Own shop · technician',
+    icon: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2-2z' },
+  outside: { label: 'Outside work', sub: 'Third-party shop · vendor',
+    icon: 'M3 9l1.5-5h15L21 9M3 9v11h18V9M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0M9 20v-6h6v6' },
+}
+const WO_TYPES: WoType[] = ['inside', 'outside']
+
+function TypeIcon({ type }: { type: WoType }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+      aria-hidden="true">
+      <path d={WO_TYPE_META[type].icon} />
+    </svg>
+  )
+}
+
 // Control segmentado Inside / Outside (estilo SquareRigger). `size="sm"`
-// omite la línea secundaria (para el drawer).
+// omite la línea secundaria (barra compacta de Service Requests). Patrón
+// radiogroup de ARIA: una sola parada de Tab (la opción elegida) y las
+// flechas cambian la opción.
 export function WoTypeSwitch({
   value, onChange, disabled, size = 'md', className = '',
 }: {
@@ -198,32 +225,69 @@ export function WoTypeSwitch({
   size?: 'sm' | 'md'
   className?: string
 }) {
-  const opts: { key: WoType; label: string; sub: string; icon: string }[] = [
-    { key: 'inside', label: 'Inside work', sub: 'Own shop · technician',
-      icon: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2-2z' },
-    { key: 'outside', label: 'Outside work', sub: 'Third-party shop · vendor',
-      icon: 'M3 9l1.5-5h15L21 9M3 9v11h18V9M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0M9 20v-6h6v6' },
-  ]
+  const refs = useRef<Partial<Record<WoType, HTMLButtonElement | null>>>({})
+  function onKey(e: ReactKeyboardEvent<HTMLDivElement>) {
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+      return
+    }
+    e.preventDefault()
+    if (disabled) return
+    // Dos opciones: cualquier flecha pasa a la otra.
+    const next = value === 'inside' ? 'outside' : 'inside'
+    onChange(next)
+    refs.current[next]?.focus()
+  }
   return (
     <div className={`wot-switch is-${size} ${className}`} role="radiogroup"
-      aria-label="Work type">
-      {opts.map((o) => (
-        <button key={o.key} type="button" role="radio"
-          aria-checked={value === o.key}
-          className={`wot-seg is-${o.key} ${value === o.key ? 'is-on' : ''}`}
-          disabled={disabled}
-          onClick={() => { if (value !== o.key) onChange(o.key) }}>
+      aria-label="Work type" onKeyDown={onKey}>
+      {WO_TYPES.map((key) => {
+        const o = WO_TYPE_META[key]
+        const on = value === key
+        return (
+          <button key={key} type="button" role="radio" aria-checked={on}
+            ref={(el) => { refs.current[key] = el }}
+            tabIndex={on ? 0 : -1}
+            className={`wot-seg is-${key} ${on ? 'is-on' : ''}`}
+            disabled={disabled}
+            onClick={() => { if (!on) onChange(key) }}>
+            <TypeIcon type={key} />
+            <span className="wot-seg-text">
+              <strong>{o.label}</strong>
+              {size === 'md' && <small>{o.sub}</small>}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// v2.23: el tipo en SOLO LECTURA (detalle de la WO). Se elige al crear la
+// orden y el backend rechaza cambiarlo después; para pasar de inside a
+// outside (o al revés) se borra la WO y se crea otra. Sin <input> adentro:
+// el "Assign…" del pie enfoca el primer input de la sección.
+export function WoTypeReadout({ type }: { type: WoType }) {
+  // null/legacy = inside (igual que los serializers del backend).
+  const t: WoType = type === 'outside' ? 'outside' : 'inside'
+  const o = WO_TYPE_META[t]
+  return (
+    <div className={`wot-ro is-${t}`}>
+      <span className="wot-ro-k">Work type</span>
+      <span className="wot-ro-v">
+        <TypeIcon type={t} />
+        <strong>{o.label}</strong>
+        <span className="wot-ro-sub">{o.sub}</span>
+        <span className="wot-ro-lock"
+          title="Inside or outside is chosen when the work order is created. To change it, delete this work order and create a new one.">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
             aria-hidden="true">
-            <path d={o.icon} />
+            <rect x="5" y="11" width="14" height="10" rx="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
           </svg>
-          <span className="wot-seg-text">
-            <strong>{o.label}</strong>
-            {size === 'md' && <small>{o.sub}</small>}
-          </span>
-        </button>
-      ))}
+          Set at creation
+        </span>
+      </span>
     </div>
   )
 }

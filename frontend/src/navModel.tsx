@@ -1,8 +1,9 @@
 // Modelo de navegación v2.22 (estilo SquareRigger): grupos WORK / RESOURCES /
 // INSIGHTS / ADMIN + catálogo del menú "+" Add New. Los ids de sección son
 // ESTABLES (setup_status.py y guides.ts los referencian): acá solo cambian
-// labels y agrupación. Iconos: trazo 1.8 redondeado, viewBox 24, como el
-// resto de la app.
+// labels y agrupación. v2.23: fuera Defects ('defectos') y Fleet overview
+// ('overview'); ningún id vivo apunta a ellos. Iconos: trazo 1.8
+// redondeado, viewBox 24, como el resto de la app.
 import type { ReactElement, ReactNode } from 'react'
 import type { CreateKind } from './shell'
 
@@ -50,10 +51,6 @@ export const ICONS: Record<string, ReactElement> = {
     <path d="M9 4h6a1 1 0 0 1 1 1v1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h2V5a1 1 0 0 1 1-1z" />
     <path d="m9 13 2 2 4-4" />
   </>),
-  defectos: svg(<>
-    <path d="M10.3 3.5 1.8 18a1.5 1.5 0 0 0 1.3 2.2h17.8A1.5 1.5 0 0 0 22.2 18L13.7 3.5a1.5 1.5 0 0 0-2.6 0z" />
-    <path d="M12 9v4M12 17h.01" />
-  </>),
   customers: svg(<>
     <circle cx="12" cy="8.2" r="3.7" />
     <path d="M4.6 20.2c.9-3.8 3.8-5.9 7.4-5.9s6.5 2.1 7.4 5.9" />
@@ -87,12 +84,6 @@ export const ICONS: Record<string, ReactElement> = {
     <path d="M12 14.2v6.3M9.9 11.4 3.6 10M14.1 11.4l6.3-1.4" />
   </>),
   reports: svg(<path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />),
-  overview: svg(<>
-    <rect x="3" y="3" width="8" height="8" rx="1.5" />
-    <rect x="13" y="3" width="8" height="5" rx="1.5" />
-    <rect x="13" y="10" width="8" height="11" rx="1.5" />
-    <rect x="3" y="13" width="8" height="8" rx="1.5" />
-  </>),
   map: svg(<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14" />),
   coldchain: svg(<>
     <path d="M10 13.5V5a2 2 0 0 1 4 0v8.5a4.5 4.5 0 1 1-4 0z" />
@@ -231,8 +222,10 @@ export const NAV_GROUPS: NavGroupDef[] = [
     key: 'work', label: 'Work', icon: UI_ICONS.work, rail: 'items',
     items: [
       { id: 'dashboard', label: 'Home', keywords: 'dashboard welcome' },
+      // v2.23: sin página Defects — los defectos DVIR abiertos viven acá
+      // (chip Defects), así que "defects" en Ctrl+K cae en Service Requests.
       { id: 'service-requests', label: 'Service Requests',
-        keywords: 'backlog requests sr' },
+        keywords: 'backlog requests sr defects defect dvir' },
       { id: 'workorders', label: 'Work Orders', keywords: 'wo repairs shop' },
       { id: 'purchasing', label: 'Purchasing',
         keywords: 'purchase orders po parts requests cores warranty' },
@@ -240,8 +233,8 @@ export const NAV_GROUPS: NavGroupDef[] = [
       { id: 'reefer-pm', label: 'Reefer PM',
         keywords: 'engine hours reefer maintenance' },
       { id: 'dot', label: 'DOT Inspections', keywords: 'annual inspection' },
-      { id: 'dvir', label: 'DVIR', keywords: 'inspection reports' },
-      { id: 'defectos', label: 'Defects', keywords: 'defect backlog' },
+      { id: 'dvir', label: 'DVIR',
+        keywords: 'inspection reports compliance trends safe' },
     ],
   },
   {
@@ -264,8 +257,6 @@ export const NAV_GROUPS: NavGroupDef[] = [
     rail: 'flyout',
     items: [
       { id: 'reports', label: 'Reports', keywords: 'analytics builder export' },
-      { id: 'overview', label: 'Fleet overview',
-        keywords: 'compliance trends alerts dashboard' },
       { id: 'map', label: 'Live Map', keywords: 'gps tracking' },
       { id: 'coldchain', label: 'Cold Chain', keywords: 'reefer temperature' },
     ],

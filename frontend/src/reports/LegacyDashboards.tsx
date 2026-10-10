@@ -1195,7 +1195,7 @@ function CpmView({ data, loading }: { data?: CpmReport; loading: boolean }) {
   )
 }
 
-// Barras horizontales de gasto por unidad (estilo RankBars pero con $ y
+// Barras horizontales de gasto por unidad (barras de ranking con $ y
 // tabular-nums; la barra usa el acento, escala al máximo del set).
 function UnitBars({ units }: { units: SpendBar[] }) {
   if (units.length === 0) {

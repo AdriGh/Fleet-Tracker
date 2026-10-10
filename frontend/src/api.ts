@@ -233,9 +233,9 @@ export async function deleteBlock(id: number): Promise<void> {
 // --- Defectos ---------------------------------------------------------
 
 export interface Defect {
-  // Id real de la tabla `defect` (solo filas de /dvir/defects, los DVIR
-  // importados). Las filas "live" del ELD no pasan por la DB y no lo traen.
-  // La evidencia fotográfica (v2.14) cuelga de este id.
+  // Id real de la tabla `defect` (filas de los DVIR importados; las "live"
+  // del ELD no pasan por la DB y no lo traen). La evidencia fotográfica
+  // (v2.14) cuelga de este id; desde v2.23 ninguna vista lista esas filas.
   id?: number
   date_label: string
   block_date: string
@@ -252,33 +252,11 @@ export interface Defect {
   mechanic_notes: string
 }
 
-export async function listDefects(filters: {
-  company?: string
-  status?: string
-  unit?: string
-}): Promise<Defect[]> {
-  const qs = new URLSearchParams()
-  if (filters.company) qs.set('company', filters.company)
-  if (filters.status) qs.set('status', filters.status)
-  if (filters.unit) qs.set('unit', filters.unit)
-  const res = await fetch(`/api/dvir/defects?${qs}`)
-  if (!res.ok) throw new Error(await readError(res))
-  return res.json()
-}
-
 // Defectos ABIERTOS (Samsara en vivo + CSV de empresas fuera del org). Misma
-// forma que Defect, con status = "Open". Alimenta la tabla "Summary by unit".
+// forma que Defect, con status = "Open". Mismo feed que alimenta el backlog
+// de Service Requests; acá lo usa el diagrama por zonas del perfil de unidad.
 export async function listOpenDefects(): Promise<Defect[]> {
   const res = await fetch('/api/dvir/open-defects')
-  if (!res.ok) throw new Error(await readError(res))
-  const data = await res.json()
-  return (data.defects ?? []) as Defect[]
-}
-
-// Estadísticas de defectos (abiertos + resueltos) creados en los últimos
-// `days` días, para el dashboard. status = "Unsafe" (abierto) / "Resolved".
-export async function listDefectStats(days: number): Promise<Defect[]> {
-  const res = await fetch(`/api/dvir/defect-stats?days=${days}`)
   if (!res.ok) throw new Error(await readError(res))
   const data = await res.json()
   return (data.defects ?? []) as Defect[]
@@ -1550,6 +1528,9 @@ export async function matchVendor(b: {
 }
 
 // Campos que Smart Fill propone/aplica sobre la WO (todos opcionales).
+// `wo_type` solo viene en la PROPUESTA (informativo): v2.23, el tipo de una
+// WO existente no cambia, así que el apply no lo acepta (ver
+// SmartFillApplyFields); en una inside tampoco se manda vendor_id.
 export interface SmartFillFields {
   service_date?: string
   shop_invoice?: string
@@ -1559,6 +1540,7 @@ export interface SmartFillFields {
   title?: string
   complaint?: string
 }
+export type SmartFillApplyFields = Omit<SmartFillFields, 'wo_type'>
 
 export interface SmartFillResult {
   extract: WoScanExtract
@@ -1593,7 +1575,7 @@ export type WoLineInput = {
 
 // Una transacción: campos + (vendor nuevo) + líneas. Devuelve el detalle.
 export async function applySmartFill(id: number, b: {
-  fields: SmartFillFields
+  fields: SmartFillApplyFields
   vendor_create?: { name: string; city?: string; state?: string }
   lines: WoLineInput[]
   lines_mode: 'append' | 'replace'
@@ -1824,8 +1806,11 @@ export async function reopenServiceRequest(id: number): Promise<ServiceRequest> 
   return srPost<ServiceRequest>(`/${id}/reopen`)
 }
 
+// v2.23: `wo_type` se elige acá (después queda fijo). Outside exige
+// `vendor_id` (el taller externo) y no lleva técnico; sin wo_type = inside.
 export async function createWoFromRequests(b: {
   ids: number[]; title?: string; mechanic?: string; priority?: WoPriority | ''
+  wo_type?: WoType; vendor_id?: number
 }): Promise<{ workorder: WorkOrder; requests: ServiceRequest[] }> {
   return srPost<{ workorder: WorkOrder; requests: ServiceRequest[] }>(
     '/create-wo', b)
@@ -1875,15 +1860,6 @@ export async function deleteDuplicateRequests(
   return srPost<SrDeleteResult>('/delete-duplicates', unit ? { unit } : {})
 }
 
-// Defecto abierto → WO ligada (crea/reusa el request del defecto).
-export async function defectToWo(b: {
-  unit: string; detail: string; dvir_type?: string; company?: string
-  mechanic?: string
-}): Promise<{ workorder: WorkOrder; request: ServiceRequest }> {
-  return srPost<{ workorder: WorkOrder; request: ServiceRequest }>(
-    '/defect-to-wo', b)
-}
-
 // --- Cold chain / reefers (fase G4) --------------------------------------
 export interface ReeferAlarm {
   code: number | string
@@ -1919,10 +1895,6 @@ export interface ReeferResponse {
   missing_scopes: string[]
   units: ReeferUnit[]
   source?: string          // lynx | thermoking | traccar | demo (H5/H6)
-  // true = el modo demo se pidió con FLEET_DEMO=1 (banco de pruebas local).
-  // false con `demo: true` = fallback por falta de credenciales, que puede
-  // pasar por accidente en producción: ahí no se muestra como si fuera real.
-  demo_explicit?: boolean
   error?: string
 }
 
@@ -2040,16 +2012,6 @@ export async function listAlertEvents(
     `/api/alerts/events?limit=${limit}&unacked=${unackedOnly ? 1 : 0}`)
   if (!res.ok) throw new Error(await readError(res))
   return (await res.json()).events as AlertEvent[]
-}
-
-export async function ackAlertEvents(ids?: number[]): Promise<number> {
-  const res = await fetch('/api/alerts/ack', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ids: ids ?? null }),
-  })
-  if (!res.ok) throw new Error(await readError(res))
-  return (await res.json()).acked
 }
 
 // --- Device settings por unidad (fase G3) -------------------------------
@@ -3397,7 +3359,7 @@ export async function deleteUnitPhoto(unit: string): Promise<void> {
   if (!res.ok) throw new Error(await readError(res))
 }
 
-// ----- Get set up (v2.13, centro de guías del Dashboard) ------------------
+// ----- Get set up (v2.13, centro de guías del Home) ------------------------
 
 export interface SetupStep {
   key: string
@@ -3481,19 +3443,6 @@ export async function fetchEvidencePhotoUrl(photoId: number): Promise<string> {
 export async function deleteEvidencePhoto(photoId: number): Promise<void> {
   const res = await fetch(`/api/evidence/${photoId}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(await readError(res))
-}
-
-// Conteo bulk id → nº de fotos para los chips de la lista de defectos:
-// UNA llamada por página, no un GET por fila. Ids sin fotos vuelven en 0.
-export async function fetchEvidenceCounts(
-  parent: EvidenceParent, ids: number[],
-): Promise<Record<number, number>> {
-  const res = await fetch('/api/evidence/counts', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ parent, ids }),
-  })
-  if (!res.ok) throw new Error(await readError(res))
-  return (await res.json()).counts as Record<number, number>
 }
 
 // ----- PM compliance por variante de motor (v2.18, Reports) ---------------
@@ -3619,7 +3568,7 @@ export async function getHomeSummary(): Promise<HomeSummary> {
 }
 
 // --- PMs vencidos / por vencer (/api/maint/due): PM (mi) + DOT (días) +
-// Reefer (horas de motor). Reemplaza al legacy /api/pm en Home/Overview. ---
+// Reefer (horas de motor). Reemplaza al legacy /api/pm en Home. ---
 export type MaintDueBy = 'miles' | 'days' | 'hours'
 
 export interface MaintDueItem {

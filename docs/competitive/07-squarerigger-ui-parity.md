@@ -188,7 +188,9 @@ más un asistente que construye el reporte en vez de mandar a leer la ayuda.
 - PMs Due & Overdue mezcla millas (PM), días (DOT) y horas (reefer), con
   los vencidos siempre arriba.
 - El tablero anterior (compliance, tendencias, alertas, cadena de frío)
-  sigue como **Fleet overview**.
+  siguió como **Fleet overview** hasta la v2.23, que lo retiró: compliance
+  vive en DVIR, la cadena de frío en Cold Chain y las alertas llegan como
+  toasts y email/SMS (sin historial en la app).
 
 ## 6. Sidebar y navegación
 

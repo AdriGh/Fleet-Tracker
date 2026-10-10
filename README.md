@@ -40,8 +40,9 @@ para alimentar el panel. El roster usa por defecto `roster.csv`.
 
 El panel incluye además la **tendencia del mes** (% flota SAFE e
 incidencias por día) y la **ficha de conductor** (clic en un conductor
-del top sin DVIR). La sección **Defectos** lista todos los defectos
-reportados en los DVIR, filtrables por empresa, estado y unidad.
+del top sin DVIR). Los defectos abiertos de los DVIR llegan solos a
+**Service Requests** (chip Defects), junto con los PM, DOT y reefer PM por
+vencer, y desde ahí se convierten en work orders.
 
 ## Lógica del informe
 

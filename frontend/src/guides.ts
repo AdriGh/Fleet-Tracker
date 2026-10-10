@@ -25,22 +25,28 @@ export const GUIDES: Guide[] = [
     steps: [
       'Open DVIR and press "Generate from ELD".',
       'Pick the date and the company — the preview shows DVIR count, distance and pre-trips before you commit.',
-      'Press "Import to Recent DVIRs". The day is saved per company and feeds the dashboard and reports.',
+      'Press "Import to Recent DVIRs". The day is saved per company and feeds the DVIR page and reports.',
     ],
     tip: 'No ELD yet? Demo mode generates a full synthetic day so you can try the flow end to end.',
   },
+  // v2.23: reemplaza a 'defect-wo' (la página Defects se fue). Los defectos
+  // DVIR abiertos son una de las 5 fuentes del backlog de Service Requests;
+  // esta guía es también la explicación in-app de qué es un service request.
   {
-    id: 'defect-wo',
-    title: 'Turn a defect into a work order',
+    id: 'service-requests',
+    title: 'Work the Service Requests backlog',
     minutes: 3,
-    section: 'defectos',
-    sectionLabel: 'Defects',
+    section: 'service-requests',
+    sectionLabel: 'Service Requests',
     steps: [
-      'Open Defects: the backlog lists every open defect by unit.',
-      'Pick the defect and create a work order from it — unit and complaint come pre-filled.',
-      'Assign it and track it through the pipeline in Work Orders (open → in progress → completed → invoiced).',
-      'Invoicing the WO is what feeds cost reports: an unpriced WO never shows up in CPM.',
+      'A service request is one thing a unit needs before it becomes a work order. Service Requests groups them by unit, most urgent first.',
+      'They come from five sources: open DVIR defects reported by drivers, PMs coming due by miles, annual DOT inspections, reefer PMs by engine hours, and requests your team adds with "New request". The source chips (Defects, PM, DOT, Reefer PM, Requests) filter the list.',
+      'Pick a unit, select its requests and press "Create work order". Choose Inside work with a technician, or Outside work with the vendor shop doing it. The work type can’t be changed once the work order exists.',
+      'Already have an open work order for that unit? Use "Add to…" on a request to put it there instead.',
+      'Not needed? "Deny" it (a reason is optional). Not now? "Snooze" it until a date and it comes back to Open on its own.',
+      'Requests clear themselves when their source goes away: the defect is resolved in the ELD, or the PM, DOT or reefer service is recorded (invoicing the work order records it). Completing the work order closes the requests on it.',
     ],
+    tip: 'The backlog refreshes about every 5 minutes while the app is open. Press "Check for due" to look again right now.',
   },
   {
     id: 'cpm',

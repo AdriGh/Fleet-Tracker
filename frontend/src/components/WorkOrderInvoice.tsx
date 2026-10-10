@@ -4,8 +4,8 @@ import type {
   CustomerProfile, FleetUnit, OrgConfig, WoLine, WorkOrder,
 } from '../api'
 
-// Documento imprimible de una Work Order (fase H3-C). Igual que UnitReport:
-// se monta en un portal offscreen (.print-root) y dispara window.print();
+// Documento imprimible de una Work Order (fase H3-C). Se monta en un portal
+// offscreen (.print-root) y dispara window.print();
 // al cerrar el diálogo, se desmonta. Modo ESTIMATE (antes de facturar) o
 // INVOICE (status invoiced), con el branding del taller (org_config).
 

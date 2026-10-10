@@ -1,20 +1,23 @@
 // Perfil de unidad (fase H3, estilo Fullbay): Components & PMs,
 // Active Services, Service History y Attachments. Se abre desde Fleet.
+// v2.23: también es la casa de los Device settings (apodo, grupo, mute de
+// alertas, notas), que antes vivían solo en el UnitDrawer de Defects.
 import { useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   addMaintRecord, decodeVin, deleteUnitDoc, deleteWorkOrder, downloadUnitDoc,
   fetchUnitPhotoUrl, getReefer, getUnitCampaigns, getOdometerLog,
-  getUnitEngineHours, getUnitPartsUsed, listFleet, listUnitsWithPhoto,
-  listOpenDefects, logOdometer, logUnitEngineHours,
-  listUnitDocs, listWorkOrders, toggleUnitCampaign, uploadUnitDocs,
-  uploadUnitPhoto,
-  type PartUsed, type UnitCampaign, type WorkOrder,
+  getUnitEngineHours, getUnitPartsUsed, getUnitSettings, listFleet,
+  listUnitsWithPhoto, listOpenDefects, logOdometer, logUnitEngineHours,
+  listUnitDocs, listWorkOrders, saveUnitSettings, toggleUnitCampaign,
+  uploadUnitDocs, uploadUnitPhoto,
+  type PartUsed, type UnitCampaign, type UnitSettings, type WorkOrder,
   type WoStatus,
 } from '../api'
 import { notifyOk, notifyErr } from '../toast'
 import Modal from '../components/Modal'
 import { useShell } from '../shell'
+import { usePerms } from '../perms'
 import { useUnitOwners } from '../customers'
 import { analyzeUnit } from '../defectGroups'
 import type { Kind } from '../truckZones'
@@ -228,7 +231,8 @@ export default function UnitProfilePage({ unit, onClose }: {
   }
 
   // Defectos ABIERTOS de esta unidad: alimentan el diagrama por zonas (rojo =
-  // con defecto). Misma fuente que DefectsPage, filtrada por unidad.
+  // con defecto). Mismo feed que el backlog de Service Requests (/dvir/
+  // open-defects), filtrado por unidad.
   const defectsQ = useQuery({
     queryKey: ['unit-open-defects', unit],
     queryFn: listOpenDefects,
@@ -602,89 +606,105 @@ export default function UnitProfilePage({ unit, onClose }: {
           )}
         </div>
 
-        <section className="card up-facts-card">
-          <div className="card-head"><h2>Quick facts</h2></div>
-          <div className="up-spec-list">
-            {(info?.year || info?.make || info?.model) && (
+        <div className="up-ov-right">
+          <section className="card up-facts-card">
+            <div className="card-head"><h2>Quick facts</h2></div>
+            <div className="up-spec-list">
+              {(info?.year || info?.make || info?.model) && (
+                <div className="up-spec-row">
+                  <span className="k">Make / model</span>
+                  <span className="v">
+                    {[info?.year, info?.make, info?.model]
+                      .filter(Boolean).join(' ')}
+                  </span>
+                </div>
+              )}
+              {engine && (
+                <div className="up-spec-row">
+                  <span className="k">Engine</span>
+                  <span className="v">{engine}</span>
+                </div>
+              )}
+              {info?.vin && (
+                <div className="up-spec-row">
+                  <span className="k">VIN</span>
+                  <span className="v mono">{info.vin}</span>
+                </div>
+              )}
+              {info?.plate && (
+                <div className="up-spec-row">
+                  <span className="k">Plate</span>
+                  <span className="v mono">{info.plate}</span>
+                </div>
+              )}
+              {info?.company && (
+                <div className="up-spec-row">
+                  <span className="k">Company</span>
+                  <span className="v">{info.company}</span>
+                </div>
+              )}
               <div className="up-spec-row">
-                <span className="k">Make / model</span>
-                <span className="v">
-                  {[info?.year, info?.make, info?.model]
-                    .filter(Boolean).join(' ')}
-                </span>
-              </div>
-            )}
-            {engine && (
-              <div className="up-spec-row">
-                <span className="k">Engine</span>
-                <span className="v">{engine}</span>
-              </div>
-            )}
-            {info?.vin && (
-              <div className="up-spec-row">
-                <span className="k">VIN</span>
-                <span className="v mono">{info.vin}</span>
-              </div>
-            )}
-            {info?.plate && (
-              <div className="up-spec-row">
-                <span className="k">Plate</span>
-                <span className="v mono">{info.plate}</span>
-              </div>
-            )}
-            {info?.company && (
-              <div className="up-spec-row">
-                <span className="k">Company</span>
-                <span className="v">{info.company}</span>
-              </div>
-            )}
-            <div className="up-spec-row">
-              <span className="k">Current odometer</span>
-              <span className="v mono">
-                {campQ.data?.current_miles != null
-                  ? `${fmtMi(campQ.data.current_miles)} mi`
-                  : '—'}
-                {campQ.data?.current_source && (
-                  <em className="up-spec-src">{campQ.data.current_source}</em>
-                )}
-              </span>
-            </div>
-            {showHours && (
-              <div className="up-spec-row">
-                <span className="k">Engine hours</span>
+                <span className="k">Current odometer</span>
                 <span className="v mono">
-                  {curHours != null ? `${fmtHrs(curHours)} hrs` : '—'}
-                  {curHours != null && curHoursSrc && (
-                    <em className="up-spec-src">{curHoursSrc}</em>
+                  {campQ.data?.current_miles != null
+                    ? `${fmtMi(campQ.data.current_miles)} mi`
+                    : '—'}
+                  {campQ.data?.current_source && (
+                    <em className="up-spec-src">{campQ.data.current_source}</em>
                   )}
                 </span>
               </div>
-            )}
-            {/* v2.22 [C]: dueño de la unidad (owner-operator facturado). */}
-            {owner && (
+              {showHours && (
+                <div className="up-spec-row">
+                  <span className="k">Engine hours</span>
+                  <span className="v mono">
+                    {curHours != null ? `${fmtHrs(curHours)} hrs` : '—'}
+                    {curHours != null && curHoursSrc && (
+                      <em className="up-spec-src">{curHoursSrc}</em>
+                    )}
+                  </span>
+                </div>
+              )}
+              {/* v2.22 [C]: dueño de la unidad (owner-operator facturado). */}
+              {owner && (
+                <div className="up-spec-row">
+                  <span className="k">Owner</span>
+                  <span className="v">
+                    <button type="button" className="link-btn"
+                      onClick={() => navigate('customers', { customer: owner.id })}>
+                      {owner.name}
+                    </button>
+                  </span>
+                </div>
+              )}
+              {/* v2.23: sin página Defects — los defectos abiertos se
+                  despachan desde Service Requests (filtrado por la unidad). */}
               <div className="up-spec-row">
-                <span className="k">Owner</span>
-                <span className="v">
-                  <button type="button" className="link-btn"
-                    onClick={() => navigate('customers', { customer: owner.id })}>
-                    {owner.name}
-                  </button>
+                <span className="k">Open defects</span>
+                <span className={`v ${(info?.open_defects ?? 0) > 0
+                  ? 'is-bad' : 'is-ok'}`}>
+                  {info?.open_defects ?? 0}
+                  {(info?.open_defects ?? 0) > 0 && (
+                    <button type="button" className="link-btn up-spec-link"
+                      title="Open this unit in Service Requests"
+                      onClick={() => navigate('service-requests', { unit })}>
+                      View requests →
+                    </button>
+                  )}
                 </span>
               </div>
-            )}
-            <div className="up-spec-row">
-              <span className="k">Open defects</span>
-              <span className={`v ${(info?.open_defects ?? 0) > 0
-                ? 'is-bad' : 'is-ok'}`}>
-                {info?.open_defects ?? 0}
-              </span>
+              <div className="up-spec-row">
+                <span className="k">Last DVIR</span>
+                <span className="v">{dateOf(info?.last_dvir ?? null) || '—'}</span>
+              </div>
             </div>
-            <div className="up-spec-row">
-              <span className="k">Last DVIR</span>
-              <span className="v">{dateOf(info?.last_dvir ?? null) || '—'}</span>
-            </div>
-          </div>
-        </section>
+          </section>
+
+          {/* key: el perfil no se re-monta al cambiar de unidad (App solo
+              cambia el prop) — el borrador del form no debe pasar de una a
+              otra. */}
+          <DeviceSettingsCard key={unit} unit={unit} />
+        </div>
       </div>
 
       <div className="up-tabs" role="tablist">
@@ -727,6 +747,7 @@ export default function UnitProfilePage({ unit, onClose }: {
               qc.invalidateQueries({ queryKey: ['unit-wos', unit] })
               qc.invalidateQueries({ queryKey: ['workorders'] })
               qc.invalidateQueries({ queryKey: ['workorder'] })
+              qc.invalidateQueries({ queryKey: ['home-summary'] })
               // Los service requests ligados a la WO borrada vuelven a open
               // en el backend: badge del nav y backlog al día.
               qc.invalidateQueries({ queryKey: ['service-requests'] })
@@ -752,6 +773,132 @@ export default function UnitProfilePage({ unit, onClose }: {
           qc.invalidateQueries({ queryKey: ['unit-wos', unit] })
         }} />
     </div>
+  )
+}
+
+// ----- Device settings (v2.23) ---------------------------------------------
+// Apodo, grupo, mute de alertas y notas (G3, GET/POST /api/units/settings).
+// Se mudaron acá desde el UnitDrawer al irse la página Defects (era su única
+// UI). No son cosméticos: el apodo es la columna `name` de Reports, el grupo
+// alimenta `unit_group` y el mute lo respeta el loop de alertas (alerts.py).
+// Guardar exige fleet.edit (main.py _scope_for: /api/units/settings), no
+// maint.edit como el resto del perfil.
+const NO_SETTINGS: UnitSettings = { nickname: '', group: '', muted: false, notes: '' }
+
+function DeviceSettingsCard({ unit }: { unit: string }) {
+  const qc = useQueryClient()
+  const { can } = usePerms()
+  const canEdit = can('fleet.edit')
+  const q = useQuery({
+    queryKey: ['unit-settings', unit],
+    queryFn: () => getUnitSettings(unit),
+  })
+  // Borrador local: null = sin cambios (se muestra lo guardado). Así no hace
+  // falta copiar la query al state con un efecto.
+  const [draft, setDraft] = useState<UnitSettings | null>(null)
+  const [saving, setSaving] = useState(false)
+  const saved = q.data ?? NO_SETTINGS
+  const form = draft ?? saved
+  const dirty = !!draft && (
+    draft.nickname !== saved.nickname || draft.group !== saved.group
+    || draft.muted !== saved.muted || draft.notes !== saved.notes)
+  const patch = (p: Partial<UnitSettings>) => setDraft({ ...form, ...p })
+
+  async function save() {
+    if (!draft || saving) return
+    setSaving(true)
+    try {
+      const res = await saveUnitSettings(unit, {
+        nickname: draft.nickname, group: draft.group,
+        muted: draft.muted, notes: draft.notes,
+      })
+      qc.setQueryData(['unit-settings', unit], res)
+      setDraft(null)
+      notifyOk('Device settings saved', `Unit ${unit}`)
+    } catch (e) {
+      notifyErr("Couldn't save device settings", e)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="card up-device-card">
+      <div className="card-head">
+        <h2>Device settings</h2>
+        {!q.isPending && saved.muted && (
+          <span className="sub up-device-muted">Alerts muted</span>
+        )}
+      </div>
+      {q.isPending ? (
+        <div className="card-body empty mini"><p>Loading settings…</p></div>
+      ) : q.isError ? (
+        <div className="card-body empty mini">
+          <p>Couldn’t load the device settings.</p>
+          <button type="button" className="link-btn"
+            onClick={() => q.refetch()}>Retry</button>
+        </div>
+      ) : (
+        <form className="up-device-body ud-form"
+          onSubmit={(e) => { e.preventDefault(); void save() }}>
+          <div className="up-device-grid">
+            <label className="ud-field">
+              <span>Nickname</span>
+              <input className="cell-input" value={form.nickname}
+                maxLength={60} disabled={!canEdit}
+                placeholder="e.g. The Beast"
+                onChange={(e) => patch({ nickname: e.target.value })} />
+            </label>
+            <label className="ud-field">
+              <span>Group</span>
+              <input className="cell-input" value={form.group}
+                maxLength={40} disabled={!canEdit}
+                placeholder="e.g. Reefer team"
+                onChange={(e) => patch({ group: e.target.value })} />
+            </label>
+          </div>
+          <label className="settings-toggle ud-toggle">
+            <input type="checkbox" checked={form.muted} disabled={!canEdit}
+              onChange={(e) => patch({ muted: e.target.checked })} />
+            <span>
+              <strong>Mute alerts</strong>
+              <span className="settings-sub">
+                This unit won’t fire speeding, idle, fuel, DEF, GPS or
+                cold-chain alerts.
+              </span>
+            </span>
+          </label>
+          <label className="ud-field">
+            <span>Notes</span>
+            <textarea className="cell-input ud-notes" value={form.notes}
+              rows={2} maxLength={500} disabled={!canEdit}
+              placeholder="Operational notes for this unit…"
+              onChange={(e) => patch({ notes: e.target.value })} />
+          </label>
+          {canEdit ? (
+            <div className="up-device-actions">
+              <span className="field-hint">
+                The nickname and group also show up in Reports.
+              </span>
+              {dirty && (
+                <button type="button" className="btn btn-ghost btn-xs"
+                  disabled={saving} onClick={() => setDraft(null)}>
+                  Cancel
+                </button>
+              )}
+              <button type="submit" className="btn btn-primary btn-xs"
+                disabled={!dirty || saving}>
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          ) : (
+            <p className="field-hint">
+              Your role can view these settings but not change them.
+            </p>
+          )}
+        </form>
+      )}
+    </section>
   )
 }
 
